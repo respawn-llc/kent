@@ -2,7 +2,7 @@ package tools
 
 import (
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type CatalogEntry struct {

@@ -1,0 +1,800 @@
+package runtime
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/tools"
+	"core/shared/runtimeids"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+	"core/shared/transcriptmodel"
+)
+
+var ErrUnsupportedSessionProviderItem = errors.New("unsupported session provider item")
+
+type UnsupportedSessionProviderItemError struct {
+	Index int
+	Type  llm.ResponseItemType
+}
+
+func (e UnsupportedSessionProviderItemError) Error() string {
+	return fmt.Sprintf("provider item %d has unsupported type %q", e.Index, e.Type)
+}
+
+func (e UnsupportedSessionProviderItemError) Unwrap() error {
+	return ErrUnsupportedSessionProviderItem
+}
+
+func normalizedSessionPayload[T session.EventRecordPayload](
+	record session.EventRecord,
+) (T, error) {
+	var zero T
+	payload, err := record.Payload()
+	if err != nil {
+		return zero, err
+	}
+	typed, ok := payload.(T)
+	if !ok {
+		return zero, fmt.Errorf("session event payload is %T", payload)
+	}
+	return typed, nil
+}
+
+func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, error) {
+	record := session.MessageRecord{
+		NativeResponse:       message.NativeResponse.Record(),
+		Role:                 session.MessageRole(message.Role),
+		MessageType:          convertOptionalString[llm.MessageType, session.MessageType](message.MessageType),
+		SourcePath:           textutil.Pointer(message.SourcePath),
+		WorktreeContext:      session.CloneWorktreeContext(message.WorktreeContext),
+		Content:              textutil.Pointer(message.Content),
+		CompactContent:       textutil.Pointer(message.CompactContent),
+		Name:                 textutil.Pointer(message.Name),
+		ToolCallID:           textutil.Pointer(message.ToolCallID),
+		Phase:                convertOptionalString[llm.MessagePhase, session.MessagePhase](message.Phase),
+		BackgroundActivityID: textutil.Pointer(message.BackgroundActivityID),
+		BackgroundExitCode:   textutil.Pointer(message.BackgroundExitCode),
+	}
+	if message.NativeResponse != nil {
+		record.Content = nil
+		for _, call := range message.ToolCalls {
+			if len(call.Presentation) > 0 {
+				if record.NativeToolPresentation == nil {
+					record.NativeToolPresentation = make(map[string]json.RawMessage)
+				}
+				record.NativeToolPresentation[call.ID] = call.Presentation
+			}
+		}
+	}
+	if message.NativeResponse == nil && len(message.ToolCalls) > 0 {
+		record.ToolCalls = make([]session.MessageToolCallRecord, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			input := append(json.RawMessage(nil), call.Input...)
+			if len(input) == 0 {
+				if call.Custom && call.CustomInput != nil &&
+					strings.TrimSpace(*call.CustomInput) != "" {
+					input = normalizeRuntimeToolInput(*call.CustomInput)
+				} else {
+					input = json.RawMessage(`{}`)
+				}
+			}
+			kind := session.ToolCallKindFunction
+			if call.Custom {
+				kind = session.ToolCallKindCustom
+			}
+			record.ToolCalls = append(record.ToolCalls, session.MessageToolCallRecord{
+				CallID:       call.ID,
+				Name:         call.Name,
+				Kind:         kind,
+				Presentation: append(json.RawMessage(nil), call.Presentation...),
+				Input:        input,
+				CustomInput:  textutil.Pointer(call.CustomInput),
+				ProviderItem: append(json.RawMessage(nil), call.ProviderItem...),
+			})
+		}
+	}
+	if message.NativeResponse == nil && len(message.ReasoningItems) > 0 {
+		record.ReasoningItems = make([]session.MessageReasoningRecord, 0, len(message.ReasoningItems))
+		for _, reasoning := range message.ReasoningItems {
+			record.ReasoningItems = append(record.ReasoningItems, session.MessageReasoningRecord{
+				Attribution:      reasoning.Attribution.Clone(),
+				ID:               reasoning.ID,
+				EncryptedContent: reasoning.EncryptedContent,
+			})
+		}
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.MessageRecord{}, err
+	}
+	return normalizedSessionPayload[session.MessageRecord](normalized)
+}
+
+func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, error) {
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return llm.Message{}, err
+	}
+	record, err = normalizedSessionPayload[session.MessageRecord](normalized)
+	if err != nil {
+		return llm.Message{}, err
+	}
+	message := llm.Message{
+		Role:                 llm.Role(record.Role),
+		MessageType:          convertOptionalString[session.MessageType, llm.MessageType](record.MessageType),
+		SourcePath:           textutil.Pointer(record.SourcePath),
+		WorktreeContext:      session.CloneWorktreeContext(record.WorktreeContext),
+		Content:              textutil.Pointer(record.Content),
+		CompactContent:       textutil.Pointer(record.CompactContent),
+		Name:                 textutil.Pointer(record.Name),
+		ToolCallID:           textutil.Pointer(record.ToolCallID),
+		Phase:                convertOptionalString[session.MessagePhase, llm.MessagePhase](record.Phase),
+		BackgroundActivityID: textutil.Pointer(record.BackgroundActivityID),
+		BackgroundExitCode:   textutil.Pointer(record.BackgroundExitCode),
+	}
+	if record.NativeResponse != nil {
+		derived, deriveErr := llm.MessageFromNativeResponse(*record.NativeResponse)
+		if deriveErr != nil {
+			return llm.Message{}, deriveErr
+		}
+		message.NativeResponse = derived.NativeResponse
+		message.Content = derived.Content
+		message.ToolCalls = derived.ToolCalls
+		message.ReasoningItems = derived.ReasoningItems
+		for _, hosted := range hostedToolExecutionsFromOutputItems(llm.ItemsFromMessages([]llm.Message{derived}), tools.DefinitionsFor(toolspec.CatalogIDs())) {
+			message.ToolCalls = append(message.ToolCalls, hosted.Call)
+		}
+		for callID, presentation := range record.NativeToolPresentation {
+			found := false
+			for i := range message.ToolCalls {
+				if message.ToolCalls[i].ID == callID {
+					message.ToolCalls[i].Presentation = append(json.RawMessage(nil), presentation...)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return llm.Message{}, fmt.Errorf("native presentation references unknown call %q", callID)
+			}
+		}
+	}
+	if len(record.ToolCalls) > 0 {
+		message.ToolCalls = make([]llm.ToolCall, 0, len(record.ToolCalls))
+		for _, call := range record.ToolCalls {
+			message.ToolCalls = append(message.ToolCalls, llm.ToolCall{
+				ID:           call.CallID,
+				Name:         call.Name,
+				Presentation: append(json.RawMessage(nil), call.Presentation...),
+				Input:        append(json.RawMessage(nil), call.Input...),
+				Custom:       call.Kind == session.ToolCallKindCustom,
+				CustomInput:  textutil.Pointer(call.CustomInput),
+				ProviderItem: append(json.RawMessage(nil), call.ProviderItem...),
+			})
+		}
+	}
+	if len(record.ReasoningItems) > 0 {
+		message.ReasoningItems = make([]llm.ReasoningItem, 0, len(record.ReasoningItems))
+		for _, reasoning := range record.ReasoningItems {
+			message.ReasoningItems = append(message.ReasoningItems, llm.ReasoningItem{
+				Attribution:      reasoning.Attribution.Clone(),
+				ID:               reasoning.ID,
+				EncryptedContent: reasoning.EncryptedContent,
+			})
+		}
+	}
+	return message, nil
+}
+
+func sessionToolCompletionRecordFromRuntime(
+	result tools.Result,
+	providerItems []llm.ResponseItem,
+) (session.ToolCompletionRecord, error) {
+	outputKind := session.ToolOutputKindProviderItemOnly
+	if !result.ProviderItemOnly {
+		var err error
+		outputKind, err = sessionToolOutputKind(providerItems)
+		if err != nil {
+			return session.ToolCompletionRecord{}, err
+		}
+	} else if len(providerItems) != 0 {
+		return session.ToolCompletionRecord{}, errors.New("provider-hosted completion cannot contain tool output items")
+	}
+	record := session.ToolCompletionRecord{
+		CallID:              result.CallID,
+		Name:                string(result.Name),
+		OutputKind:          outputKind,
+		IsError:             result.IsError,
+		Output:              append(json.RawMessage(nil), result.Output...),
+		Summary:             textutil.Pointer(result.Summary),
+		CondensedText:       textutil.Pointer(result.CondensedText),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
+	}
+	if result.QuestionAnswer != nil {
+		record.QuestionAnswer = &session.QuestionAnswerRecord{
+			SelectedOptionNumber: textutil.Pointer(result.QuestionAnswer.SelectedOptionNumber),
+			Freeform:             textutil.Pointer(result.QuestionAnswer.Freeform),
+		}
+	}
+	if result.Presentation != nil {
+		presentation, encodeErr := transcript.TryEncodeToolCallMeta(*result.Presentation)
+		if encodeErr != nil {
+			return session.ToolCompletionRecord{}, fmt.Errorf(
+				"encode session tool completion presentation: %w",
+				encodeErr,
+			)
+		}
+		record.Presentation = presentation
+	}
+	if len(providerItems) > 0 {
+		record.ProviderItems = make([]session.ToolCompletionProviderItem, 0, len(providerItems))
+		for index, item := range providerItems {
+			snapshot, snapshotErr := sessionProviderItemFromLLM(index, item)
+			if snapshotErr != nil {
+				return session.ToolCompletionRecord{}, snapshotErr
+			}
+			record.ProviderItems = append(record.ProviderItems, snapshot)
+		}
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.ToolCompletionRecord{}, err
+	}
+	return normalizedSessionPayload[session.ToolCompletionRecord](normalized)
+}
+
+func storedToolCompletionFromSessionRecord(
+	record session.ToolCompletionRecord,
+) (storedToolCompletion, error) {
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return storedToolCompletion{}, err
+	}
+	record, err = normalizedSessionPayload[session.ToolCompletionRecord](normalized)
+	if err != nil {
+		return storedToolCompletion{}, err
+	}
+	var presentation *transcript.ToolCallMeta
+	decoded := transcript.DecodeToolCallMeta(record.Presentation)
+	switch decoded.Kind {
+	case transcript.ToolCallMetaDecodeAbsent:
+	case transcript.ToolCallMetaDecodeCurrent, transcript.ToolCallMetaDecodeLegacyNormalized:
+		if decoded.Meta == nil {
+			return storedToolCompletion{}, errors.New(
+				"session tool completion presentation decode returned no metadata",
+			)
+		}
+		presentation = decoded.Meta
+	case transcript.ToolCallMetaDecodeInvalid:
+		return storedToolCompletion{}, fmt.Errorf(
+			"session tool completion presentation is invalid: %w",
+			decoded.Cause,
+		)
+	default:
+		return storedToolCompletion{}, fmt.Errorf(
+			"session tool completion presentation decode returned unknown outcome %d",
+			decoded.Kind,
+		)
+	}
+	providerItems := make([]llm.ResponseItem, 0, len(record.ProviderItems))
+	for _, item := range record.ProviderItems {
+		providerItem := llm.ResponseItem{
+			Type:         llm.ResponseItemType(item.Type),
+			Name:         textutil.Pointer(item.Name),
+			CallID:       textutil.Pointer(item.CallID),
+			Raw:          append(json.RawMessage(nil), item.Raw...),
+			LinkedCallID: textutil.Pointer(item.LinkedCallID),
+			LinkKind: convertOptionalString[
+				session.ProviderItemLinkKind,
+				llm.ResponseItemLinkKind,
+			](item.LinkKind),
+		}
+		switch item.Type {
+		case session.ProviderInputItemTypeFunctionCallOutput, session.ProviderInputItemTypeCustomToolOutput:
+			providerItem.Output = append(json.RawMessage(nil), record.Output...)
+		}
+		providerItems = append(providerItems, providerItem)
+	}
+	return storedToolCompletion{
+		CallID:              record.CallID,
+		Name:                record.Name,
+		IsError:             record.IsError,
+		ProviderItemOnly:    record.OutputKind == session.ToolOutputKindProviderItemOnly,
+		Output:              append(json.RawMessage(nil), record.Output...),
+		Summary:             textutil.Pointer(record.Summary),
+		CondensedText:       textutil.Pointer(record.CondensedText),
+		Presentation:        presentation,
+		ProviderItems:       providerItems,
+		QuestionAnswer:      questionAnswerFromSession(record.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(record.AnsweredBySessionID),
+	}, nil
+}
+
+func sessionToolCompletionRecordFromStored(
+	completion storedToolCompletion,
+) (session.ToolCompletionRecord, error) {
+	result := tools.Result{
+		CallID:              completion.CallID,
+		Name:                toolspec.ID(completion.Name),
+		IsError:             completion.IsError,
+		ProviderItemOnly:    completion.ProviderItemOnly,
+		Output:              append(json.RawMessage(nil), completion.Output...),
+		Summary:             completion.Summary,
+		CondensedText:       completion.CondensedText,
+		Presentation:        completion.Presentation,
+		QuestionAnswer:      cloneAskQuestionAnswer(completion.QuestionAnswer),
+		AnsweredBySessionID: cloneOptionalRuntimeSessionID(completion.AnsweredBySessionID),
+	}
+	return sessionToolCompletionRecordFromRuntime(result, completion.ProviderItems)
+}
+
+func cloneOptionalRuntimeSessionID(id *runtimeids.SessionID) *runtimeids.SessionID {
+	return textutil.Pointer(id)
+}
+
+func questionAnswerFromSession(answer *session.QuestionAnswerRecord) *tools.AskQuestionAnswer {
+	if answer == nil {
+		return nil
+	}
+	return &tools.AskQuestionAnswer{
+		SelectedOptionNumber: textutil.Pointer(answer.SelectedOptionNumber),
+		Freeform:             textutil.Pointer(answer.Freeform),
+	}
+}
+
+func sessionLocalEntryRecordFromRuntime(
+	entry storedLocalEntry,
+) (session.LocalEntryRecord, error) {
+	visibility, err := sessionEntryVisibilityFromRuntime(entry.Visibility)
+	if err != nil {
+		return session.LocalEntryRecord{}, err
+	}
+	record := session.LocalEntryRecord{
+		Visibility:             visibility,
+		Role:                   entry.Role,
+		Text:                   textutil.OptionalExactString(entry.Text),
+		DurationMs:             textutil.Pointer(entry.DurationMs),
+		CondensedText:          textutil.Pointer(entry.CondensedText),
+		DiagnosticKey:          textutil.Pointer(entry.DiagnosticKey),
+		NoticeID:               textutil.Pointer(entry.NoticeID),
+		AfterToolCallID:        textutil.Pointer(entry.AfterToolCallID),
+		ToolOutputRepair:       textutil.Pointer(entry.ToolOutputRepair),
+		ProviderModelMismatch:  textutil.Pointer(entry.ProviderModelMismatch),
+		ReasoningOmission:      textutil.Pointer(entry.ReasoningOmission),
+		ConnectionFallback:     textutil.Pointer(entry.ConnectionFallback),
+		ConnectionsUnavailable: textutil.Pointer(entry.ConnectionsUnavailable),
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.LocalEntryRecord{}, err
+	}
+	return normalizedSessionPayload[session.LocalEntryRecord](normalized)
+}
+
+func sessionEntryVisibilityFromRuntime(
+	visibility transcript.EntryVisibility,
+) (session.EntryVisibility, error) {
+	switch transcript.NormalizeEntryVisibility(visibility) {
+	case transcript.EntryVisibilityAuto:
+		return session.EntryVisibilityAuto, nil
+	case transcript.EntryVisibilityOngoing:
+		return session.EntryVisibilityOngoing, nil
+	case transcript.EntryVisibilityOngoingCollapsed:
+		return session.EntryVisibilityOngoingCollapsed, nil
+	case transcript.EntryVisibilityDetail:
+		return session.EntryVisibilityDetail, nil
+	case transcript.EntryVisibilityHidden:
+		return session.EntryVisibilityHidden, nil
+	default:
+		return "", fmt.Errorf("unsupported runtime transcript visibility %q", visibility)
+	}
+}
+
+func runtimeEntryVisibilityFromSession(
+	visibility session.EntryVisibility,
+) transcript.EntryVisibility {
+	switch visibility {
+	case session.EntryVisibilityAuto:
+		return transcript.EntryVisibilityAuto
+	case session.EntryVisibilityOngoing:
+		return transcript.EntryVisibilityOngoing
+	case session.EntryVisibilityOngoingCollapsed:
+		return transcript.EntryVisibilityOngoingCollapsed
+	case session.EntryVisibilityDetail:
+		return transcript.EntryVisibilityDetail
+	case session.EntryVisibilityHidden:
+		return transcript.EntryVisibilityHidden
+	default:
+		return transcript.EntryVisibilityAuto
+	}
+}
+
+func storedLocalEntryFromSessionRecord(
+	record session.LocalEntryRecord,
+) (storedLocalEntry, error) {
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return storedLocalEntry{}, err
+	}
+	record, err = normalizedSessionPayload[session.LocalEntryRecord](normalized)
+	if err != nil {
+		return storedLocalEntry{}, err
+	}
+	text, _ := textutil.OptionalExact(record.Text)
+	return storedLocalEntry{
+		Visibility:             runtimeEntryVisibilityFromSession(record.Visibility),
+		Role:                   record.Role,
+		Text:                   text,
+		DurationMs:             textutil.Pointer(record.DurationMs),
+		CondensedText:          textutil.Pointer(record.CondensedText),
+		DiagnosticKey:          textutil.Pointer(record.DiagnosticKey),
+		NoticeID:               textutil.Pointer(record.NoticeID),
+		AfterToolCallID:        textutil.Pointer(record.AfterToolCallID),
+		ToolOutputRepair:       textutil.Pointer(record.ToolOutputRepair),
+		ProviderModelMismatch:  textutil.Pointer(record.ProviderModelMismatch),
+		ReasoningOmission:      textutil.Pointer(record.ReasoningOmission),
+		ConnectionFallback:     textutil.Pointer(record.ConnectionFallback),
+		ConnectionsUnavailable: textutil.Pointer(record.ConnectionsUnavailable),
+	}, nil
+}
+
+func sessionCacheRequestRecordFromRuntime(
+	observation persistedCacheRequestObserved,
+) (session.CacheRequestObservationRecord, error) {
+	record := session.CacheRequestObservationRecord{
+		DigestVersion: observation.DigestVersion,
+		CacheKey:      observation.CacheKey,
+		Scope:         session.CacheScope(observation.Scope),
+		ChunkCount:    observation.ChunkCount,
+		TerminalHash:  observation.TerminalHash,
+		MetadataHash:  textutil.Pointer(observation.MetadataHash),
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.CacheRequestObservationRecord{}, err
+	}
+	return normalizedSessionPayload[session.CacheRequestObservationRecord](normalized)
+}
+
+func sessionCacheResponseRecordFromRuntime(
+	observation persistedCacheResponseObserved,
+) (session.CacheResponseObservationRecord, error) {
+	record := session.CacheResponseObservationRecord{}
+	if strings.TrimSpace(observation.CacheKey) != "" {
+		digestVersion := observation.DigestVersion
+		cacheKey := observation.CacheKey
+		scope := session.CacheScope(observation.Scope)
+		chunkCount := observation.ChunkCount
+		terminalHash := observation.TerminalHash
+		record.DigestVersion = &digestVersion
+		record.CacheKey = &cacheKey
+		record.Scope = &scope
+		record.ChunkCount = &chunkCount
+		record.TerminalHash = &terminalHash
+		record.MetadataHash = textutil.Pointer(observation.MetadataHash)
+		record.CachedInputTokens = textutil.Pointer(observation.CachedInputTokens)
+	}
+	record.OperationID = textutil.Pointer(observation.OperationID)
+	record.SessionID = textutil.Pointer(observation.SessionID)
+	record.Purpose = textutil.Pointer(observation.Purpose)
+	record.ObservedAt = textutil.Pointer(observation.ObservedAt)
+	if observation.ProviderUsage != nil {
+		usage := observation.ProviderUsage.Clone()
+		record.ProviderUsage = &usage
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.CacheResponseObservationRecord{}, err
+	}
+	return normalizedSessionPayload[session.CacheResponseObservationRecord](normalized)
+}
+
+func sessionCacheWarningRecordFromRuntime(
+	warning transcript.CacheWarning,
+) (session.CacheWarningRecord, error) {
+	record := session.CacheWarningRecord{
+		Scope:    session.CacheScope(warning.Scope),
+		Reason:   session.CacheWarningReason(warning.Reason),
+		CacheKey: textutil.Pointer(warning.CacheKey),
+	}
+	record.LostInputTokens = textutil.Pointer(warning.LostInputTokens)
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.CacheWarningRecord{}, err
+	}
+	return normalizedSessionPayload[session.CacheWarningRecord](normalized)
+}
+
+func persistedCacheRequestObservedFromSessionRecord(
+	record session.CacheRequestObservationRecord,
+) persistedCacheRequestObserved {
+	return persistedCacheRequestObserved{
+		DigestVersion: record.DigestVersion,
+		CacheKey:      record.CacheKey,
+		Scope:         transcript.CacheWarningScope(record.Scope),
+		ChunkCount:    record.ChunkCount,
+		TerminalHash:  record.TerminalHash,
+		MetadataHash:  textutil.Pointer(record.MetadataHash),
+	}
+}
+
+func persistedCacheResponseObservedFromSessionRecord(
+	record session.CacheResponseObservationRecord,
+) persistedCacheResponseObserved {
+	observation := persistedCacheResponseObserved{
+		MetadataHash:      textutil.Pointer(record.MetadataHash),
+		CachedInputTokens: textutil.Pointer(record.CachedInputTokens),
+		OperationID:       textutil.Pointer(record.OperationID),
+		SessionID:         textutil.Pointer(record.SessionID),
+		Purpose:           textutil.Pointer(record.Purpose),
+		ObservedAt:        textutil.Pointer(record.ObservedAt),
+	}
+	if record.DigestVersion != nil {
+		observation.DigestVersion = *record.DigestVersion
+	}
+	if record.CacheKey != nil {
+		observation.CacheKey = *record.CacheKey
+	}
+	if record.Scope != nil {
+		observation.Scope = transcript.CacheWarningScope(*record.Scope)
+	}
+	if record.ChunkCount != nil {
+		observation.ChunkCount = *record.ChunkCount
+	}
+	if record.TerminalHash != nil {
+		observation.TerminalHash = *record.TerminalHash
+	}
+	if record.ProviderUsage != nil {
+		usage := record.ProviderUsage.Clone()
+		observation.ProviderUsage = &usage
+	}
+	return observation
+}
+
+func cacheWarningFromSessionRecord(record session.CacheWarningRecord) transcript.CacheWarning {
+	warning := transcript.CacheWarning{
+		Scope:           transcript.CacheWarningScope(record.Scope),
+		Reason:          transcript.CacheWarningReason(record.Reason),
+		CacheKey:        textutil.Pointer(record.CacheKey),
+		LostInputTokens: textutil.Pointer(record.LostInputTokens),
+	}
+	return warning
+}
+
+func sessionHistoryReplacementRecordFromRuntime(
+	payload historyReplacementPayload,
+) (session.HistoryReplacementRecord, error) {
+	record := session.HistoryReplacementRecord{
+		CacheMetadata:                     append([]session.CacheMetadataObservation(nil), payload.CacheMetadata...),
+		Engine:                            payload.Engine,
+		Mode:                              session.CompactionMode(payload.Mode),
+		CommittedEntryStart:               textutil.Pointer(payload.CommittedEntryStart),
+		PendingHandoffFutureMessage:       textutil.Pointer(payload.PendingHandoffFutureMessage),
+		LastCommittedAssistantFinalAnswer: textutil.Pointer(payload.LastCommittedAssistantFinalAnswer),
+		LatestRollbackCandidate:           textutil.Pointer(payload.LatestRollbackCandidate),
+	}
+	record.CompactionNumber = textutil.Pointer(payload.CompactionNumber)
+	if payload.Output != nil {
+		output, err := compactedOutputRecord(*payload.Output)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
+		}
+		record.CompactedOutput = &output
+	}
+	for index, item := range payload.Items {
+		historyItem, err := sessionProviderHistoryItemFromLLM(index, item)
+		if err != nil {
+			return session.HistoryReplacementRecord{}, err
+		}
+		record.Items = append(record.Items, historyItem)
+	}
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return session.HistoryReplacementRecord{}, err
+	}
+	return normalizedSessionPayload[session.HistoryReplacementRecord](normalized)
+}
+
+func historyReplacementPayloadFromSessionRecord(
+	record session.HistoryReplacementRecord,
+) (historyReplacementPayload, error) {
+	normalized, err := session.NewEventRecord(1, nil, record)
+	if err != nil {
+		return historyReplacementPayload{}, err
+	}
+	record, err = normalizedSessionPayload[session.HistoryReplacementRecord](normalized)
+	if err != nil {
+		return historyReplacementPayload{}, err
+	}
+	payload := historyReplacementPayload{
+		CacheMetadata:                     append([]session.CacheMetadataObservation(nil), record.CacheMetadata...),
+		Engine:                            record.Engine,
+		Mode:                              string(record.Mode),
+		CommittedEntryStart:               textutil.Pointer(record.CommittedEntryStart),
+		PendingHandoffFutureMessage:       textutil.Pointer(record.PendingHandoffFutureMessage),
+		LastCommittedAssistantFinalAnswer: textutil.Pointer(record.LastCommittedAssistantFinalAnswer),
+		LatestRollbackCandidate:           textutil.Pointer(record.LatestRollbackCandidate),
+	}
+	payload.CompactionNumber = textutil.Pointer(record.CompactionNumber)
+	if record.CompactedOutput != nil {
+		output, err := compactionOutputFromRecord(*record.CompactedOutput)
+		if err != nil {
+			return historyReplacementPayload{}, err
+		}
+		payload.Output = &output
+	}
+	for _, item := range record.Items {
+		restored := llmResponseItemFromSessionHistory(item)
+		if err := llm.RestoreRetainedItemFacts(&restored); err != nil {
+			return historyReplacementPayload{}, err
+		}
+		payload.Items = append(payload.Items, restored)
+	}
+	return payload, nil
+}
+
+func sessionProviderHistoryItemFromLLM(
+	index int,
+	item llm.ResponseItem,
+) (session.ProviderHistoryItem, error) {
+	historyItem := session.ProviderHistoryItem{
+		Attribution:          item.Attribution.Clone(),
+		Type:                 session.ProviderHistoryItemType(item.Type),
+		Role:                 convertOptionalString[llm.Role, session.MessageRole](item.Role),
+		MessageType:          convertOptionalString[llm.MessageType, session.MessageType](item.MessageType),
+		SourcePath:           textutil.Pointer(item.SourcePath),
+		WorktreeContext:      session.CloneWorktreeContext(item.WorktreeContext),
+		Phase:                convertOptionalString[llm.MessagePhase, session.MessagePhase](item.Phase),
+		ID:                   textutil.Pointer(item.ID),
+		Name:                 textutil.Pointer(item.Name),
+		CallID:               textutil.Pointer(item.CallID),
+		Content:              textutil.Pointer(item.Content),
+		CompactContent:       textutil.Pointer(item.CompactContent),
+		BackgroundActivityID: textutil.Pointer(item.BackgroundActivityID),
+		BackgroundExitCode:   textutil.Pointer(item.BackgroundExitCode),
+		ToolPresentation:     append(json.RawMessage(nil), item.ToolPresentation...),
+		Arguments:            append(json.RawMessage(nil), item.Arguments...),
+		CustomInput:          textutil.Pointer(item.CustomInput),
+		Output:               append(json.RawMessage(nil), item.Output...),
+		EncryptedContent:     textutil.Pointer(item.EncryptedContent),
+		ConfigurationEffort:  textutil.Pointer(item.ConfigurationEffort),
+		Raw:                  append(json.RawMessage(nil), item.Raw...),
+		LinkedCallID:         textutil.Pointer(item.LinkedCallID),
+	}
+	if len(item.ReasoningSummary) > 0 {
+		historyItem.ReasoningSummary = make(
+			[]session.ProviderHistoryReasoningEntry,
+			0,
+			len(item.ReasoningSummary),
+		)
+		for _, entry := range item.ReasoningSummary {
+			historyItem.ReasoningSummary = append(
+				historyItem.ReasoningSummary,
+				session.ProviderHistoryReasoningEntry{
+					Role: textutil.Pointer(entry.Role),
+					Text: entry.Text,
+				},
+			)
+		}
+	}
+	historyItem.LinkKind = convertOptionalString[
+		llm.ResponseItemLinkKind,
+		session.ProviderItemLinkKind,
+	](item.LinkKind)
+	return historyItem, nil
+}
+
+func llmResponseItemFromSessionHistory(item session.ProviderHistoryItem) llm.ResponseItem {
+	responseItem := llm.ResponseItem{
+		Attribution:          item.Attribution.Clone(),
+		Type:                 llm.ResponseItemType(item.Type),
+		Role:                 convertOptionalString[session.MessageRole, llm.Role](item.Role),
+		MessageType:          convertOptionalString[session.MessageType, llm.MessageType](item.MessageType),
+		SourcePath:           textutil.Pointer(item.SourcePath),
+		WorktreeContext:      session.CloneWorktreeContext(item.WorktreeContext),
+		Phase:                convertOptionalString[session.MessagePhase, llm.MessagePhase](item.Phase),
+		ID:                   textutil.Pointer(item.ID),
+		Name:                 textutil.Pointer(item.Name),
+		CallID:               textutil.Pointer(item.CallID),
+		Content:              textutil.Pointer(item.Content),
+		CompactContent:       textutil.Pointer(item.CompactContent),
+		BackgroundActivityID: textutil.Pointer(item.BackgroundActivityID),
+		BackgroundExitCode:   textutil.Pointer(item.BackgroundExitCode),
+		ToolPresentation:     append(json.RawMessage(nil), item.ToolPresentation...),
+		Arguments:            append(json.RawMessage(nil), item.Arguments...),
+		CustomInput:          textutil.Pointer(item.CustomInput),
+		Output:               append(json.RawMessage(nil), item.Output...),
+		EncryptedContent:     textutil.Pointer(item.EncryptedContent),
+		ConfigurationEffort:  textutil.Pointer(item.ConfigurationEffort),
+		Raw:                  append(json.RawMessage(nil), item.Raw...),
+		LinkedCallID:         textutil.Pointer(item.LinkedCallID),
+		LinkKind: convertOptionalString[
+			session.ProviderItemLinkKind,
+			llm.ResponseItemLinkKind,
+		](item.LinkKind),
+	}
+	if len(item.ReasoningSummary) > 0 {
+		responseItem.ReasoningSummary = make([]llm.ReasoningEntry, 0, len(item.ReasoningSummary))
+		for _, entry := range item.ReasoningSummary {
+			responseItem.ReasoningSummary = append(responseItem.ReasoningSummary, llm.ReasoningEntry{
+				Role: textutil.Pointer(entry.Role),
+				Text: entry.Text,
+			})
+		}
+	}
+	return responseItem
+}
+
+func sessionToolOutputKind(items []llm.ResponseItem) (session.ToolOutputKind, error) {
+	var outputKind *session.ToolOutputKind
+	for index, item := range items {
+		var kind session.ToolOutputKind
+		switch item.Type {
+		case llm.ResponseItemTypeFunctionCallOutput:
+			kind = session.ToolOutputKindFunction
+		case llm.ResponseItemTypeCustomToolOutput:
+			kind = session.ToolOutputKindCustom
+		case llm.ResponseItemTypeOther:
+			continue
+		default:
+			return "", UnsupportedSessionProviderItemError{Index: index, Type: item.Type}
+		}
+		if outputKind != nil && *outputKind != kind {
+			return "", errors.New("provider completion contains mixed function and custom output items")
+		}
+		outputKind = &kind
+	}
+	if outputKind == nil {
+		return "", errors.New("provider completion output item is required")
+	}
+	return *outputKind, nil
+}
+
+func sessionProviderItemFromLLM(
+	index int,
+	item llm.ResponseItem,
+) (session.ToolCompletionProviderItem, error) {
+	snapshot := session.ToolCompletionProviderItem{
+		Name:         textutil.Pointer(item.Name),
+		CallID:       textutil.Pointer(item.CallID),
+		Raw:          append(json.RawMessage(nil), item.Raw...),
+		LinkedCallID: textutil.Pointer(item.LinkedCallID),
+	}
+	switch item.Type {
+	case llm.ResponseItemTypeFunctionCallOutput:
+		snapshot.Type = session.ProviderInputItemTypeFunctionCallOutput
+	case llm.ResponseItemTypeCustomToolOutput:
+		snapshot.Type = session.ProviderInputItemTypeCustomToolOutput
+	case llm.ResponseItemTypeOther:
+		snapshot.Type = session.ProviderInputItemTypeOther
+	default:
+		return session.ToolCompletionProviderItem{}, UnsupportedSessionProviderItemError{
+			Index: index,
+			Type:  item.Type,
+		}
+	}
+	switch {
+	case item.LinkKind == nil:
+	case *item.LinkKind == llm.ResponseItemLinkToolOutputAttachment:
+		linkKind := session.ProviderItemLinkToolOutputAttachment
+		snapshot.LinkKind = &linkKind
+	default:
+		return session.ToolCompletionProviderItem{}, UnsupportedSessionProviderItemError{
+			Index: index,
+			Type:  item.Type,
+		}
+	}
+	return snapshot, nil
+}
+
+func convertOptionalString[From ~string, To ~string](value *From) *To {
+	if value == nil {
+		return nil
+	}
+	converted := To(*value)
+	return &converted
+}

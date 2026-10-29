@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/chatcontext"
 	"core/server/metadata"
 	"core/shared/apicontract"
@@ -47,6 +47,7 @@ type GatewayDependencies interface {
 	GatewayServerStatusDependencies
 	GatewayAuthDependencies
 	GatewayCapabilityFactsDependencies
+	GatewaySpeechDependencies
 	GatewayOnboardingDependencies
 	GatewayProjectDependencies
 	GatewaySessionDependencies
@@ -75,6 +76,10 @@ type GatewayAuthDependencies interface {
 
 type GatewayCapabilityFactsDependencies interface {
 	CapabilityFactsClient() apicontract.CapabilityFactsService
+}
+
+type GatewaySpeechDependencies interface {
+	SpeechClient() apicontract.SpeechService
 }
 
 type GatewayOnboardingDependencies interface {

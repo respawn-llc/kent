@@ -13,12 +13,12 @@ import (
 
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
 	sessionruntime "core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
@@ -189,7 +189,7 @@ func newRealSessionRetargetFixture(t *testing.T, useBlockingObserver bool, sourc
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding source: %v", err)
 	}
-	targetProject, err := metadataStore.CreateProjectForWorkspace(ctx, targetRoot, "Target")
+	targetProject, err := metadataStore.CreateProjectForWorkspaceWithKey(ctx, targetRoot, "Target", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace target: %v", err)
 	}
@@ -738,21 +738,13 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 			case <-time.After(3 * time.Second):
 				t.Fatal("self-rebind was not scheduled")
 			}
-			type queuedResult struct {
-				accepted bool
-				err      error
-			}
-			queued := make(chan queuedResult, 1)
-			go func() {
-				_, accepted, err := engine.QueueUserMessageForActiveRun(
-					context.Background(), runtimeids.NewQueueItemID().String(), "continue after the failed move",
-					nil,
-				)
-				queued <- queuedResult{accepted: accepted, err: err}
-			}()
+			_, accepted, err := engine.QueueUserMessageForActiveRun(
+				context.Background(), runtimeids.NewQueueItemID().String(), "continue after the failed move",
+				nil,
+			)
 			close(client.releaseFirst)
-			if result := <-queued; result.err != nil || !result.accepted {
-				t.Fatalf("queue successor accepted=%t error=%v", result.accepted, result.err)
+			if err != nil || !accepted {
+				t.Fatalf("queue successor accepted=%t error=%v", accepted, err)
 			}
 			if err := <-firstDone; err != nil {
 				t.Fatalf("originating Agent Step: %v", err)
@@ -783,11 +775,15 @@ func TestSessionWorkspaceRetargeterPublishesFailureBeforeQueuedModelWorkResumes(
 
 func projectContainsWorkspaceRoot(t *testing.T, store *metadata.Store, projectID string, workspaceRoot string) bool {
 	t.Helper()
-	attached, err := store.ProjectWorkspaceAttached(context.Background(), projectID, canonicalRetargetTestPath(t, workspaceRoot))
-	if err != nil {
-		t.Fatalf("ProjectWorkspaceAttached: %v", err)
+	selector := serverapi.NewProjectWorkspaceSelectorForRoot(canonicalRetargetTestPath(t, workspaceRoot))
+	_, err := store.ResolveProjectWorkspaceSelector(context.Background(), projectID, selector)
+	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+		return false
 	}
-	return attached
+	if err != nil {
+		t.Fatalf("ResolveProjectWorkspaceSelector: %v", err)
+	}
+	return true
 }
 
 func canonicalRetargetTestPath(t *testing.T, path string) string {
@@ -867,10 +863,7 @@ func TestSessionWorkspaceRetargeterMovesRealArtifactAndMetadataAcrossProjects(t 
 	if !projectContainsWorkspaceRoot(t, fixture.metadata, targetProjectID, result.Binding.CanonicalRoot) {
 		t.Fatalf("target project does not contain auto-attached workspace %q", result.Binding.CanonicalRoot)
 	}
-	sourceAttached, err := fixture.metadata.ProjectWorkspaceAttached(context.Background(), fixture.sourceBinding.ProjectID, result.Binding.CanonicalRoot)
-	if err != nil {
-		t.Fatalf("ProjectWorkspaceAttached source: %v", err)
-	}
+	sourceAttached := projectContainsWorkspaceRoot(t, fixture.metadata, fixture.sourceBinding.ProjectID, result.Binding.CanonicalRoot)
 	if sourceAttached {
 		t.Fatalf("source project unexpectedly retained target workspace %q", result.Binding.CanonicalRoot)
 	}
@@ -960,7 +953,7 @@ func TestSessionRetargetSelectorFailureIdentity(t *testing.T) {
 	if err != nil || identity.ShortID == nil {
 		t.Fatalf("numbered fixture: %v", err)
 	}
-	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, nil, f.metadata).
+	service := NewGlobalSessionLifecycleService(t.TempDir(), f.authority, f.metadata).
 		WithWorkspaceRetargeter(f.retargeter(f.metadata, retargetProcessSource{{ID: "blocking", OwnerSessionID: f.childID.String(), Running: true}}))
 	for _, numbered := range []bool{true, false} {
 		selectors := []runtimeids.SessionSelector{identity.ID}

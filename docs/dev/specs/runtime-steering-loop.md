@@ -7,7 +7,7 @@
 - Desktop and TUI must use one action-attached Runtime preparation approach. When an action supplies invocation preparation choices, the server must validate and apply them. When those choices are absent, the server must use the saved Session choices.
 - TUI invocation preparation must apply the selected Agent and explicit Thinking and tool choices supported by Session launch.
 - An explicit Thinking choice must apply to an already-loaded Engine during preparation. Applying that choice may wait for the current Agent Step but must not wait for the whole Agent Turn.
-- A user-Shell activation in Chat Steer or Queue must use the same server-owned preparation. It must work as the first action on a dormant existing Session without a preceding Send. It must execute without a model invocation and report its result at the command boundary.
+- A user-Shell activation in Chat Steer or Queue must use the same server-owned preparation. It must work as the first action from New or a dormant existing Session without a preceding Send. It must execute without a model invocation.
 - Clients never activate, own, release, or otherwise manage an Active Session Runtime as a prerequisite for a Chat mutation.
 - The Active Session Runtime is authoritative for its live model, transcript, Pending Work, and Session-setting state.
 - Every model-executing Agent Turn, including Goal-started work, must belong to a live Exact Execution Scope before its first Agent Step and until its model work finishes.
@@ -50,9 +50,9 @@
 - A definitely-uncommitted Thinking write has no effect on the live value.
 - Another independently owned Thinking write may replace an authoritative value.
 - Boundary-required model-visible technical entries apply in accepted order.
-- A user foreground shell command reports its terminal result at the command boundary.
+- Human Shell admission must return acceptance without waiting for process completion.
 - Human Shell actions must enter the same server-owned Steer or post-turn Queue collection as human messages, using the caller's selected intent.
-- Human Shell actions must use typed activations through the ordinary Chat Steer and Queue operations, not a separate Shell operation or model text. They must target an existing Session.
+- Human Shell actions must use typed activations through the ordinary Chat Steer and Queue operations, not a separate Shell operation or model text.
 - Steer Shell actions must execute at the next eligible Step Boundary. Queue Shell actions must wait until the current Agent Turn ends.
 - If no Agent Turn is active, eligible Shell actions must execute without starting the model.
 - Eligible Shell actions must execute in their lane's acceptance order. Consecutive eligible Queue Shell actions must execute before the next queued model message starts its turn, with their outputs available in its model context.
@@ -238,9 +238,9 @@
 - A pending Question or Approval belongs to its exact live Agent execution even when no model or tool step is active. It may be interrupted through the ordinary exact Interrupt behavior.
 - Manual Move denies a pending Workflow Approval before applying the requested move.
 - Every public Instant Stop route revalidates and admits Stop through Session Runtime Authority before it cancels an Agent execution.
-- A stale Stop cannot cancel a successor execution.
+- Stop selects live work at server admission and must not retarget a successor execution afterward.
 - Session Runtime Authority must stop the selected live Agent execution, including a Question or Approval wait, or selected stoppable Runtime-owned work, including compaction and foreground shell execution.
-- If no stoppable work exists, Interrupt must succeed with the authoritative Runtime state so clients can discard a stale busy projection.
+- If no stoppable work exists, Stop must succeed. Clients must discard a stale busy projection using authoritative Runtime updates or an independent Runtime state read.
 - Runtime must panic in development when settled execution ownership contradicts running activity. In production, Runtime must interrupt the inconsistent activity and publish a transcript error through ordinary Runtime output handling.
 - Valid startup, finalization, and compaction transitions must not trigger the ownership invariant.
 - Only matching live Agent or Script execution authorizes Task Interrupt.

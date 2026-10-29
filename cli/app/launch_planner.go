@@ -69,17 +69,6 @@ type runtimeLaunchPlan struct {
 	closeOnce        sync.Once
 }
 
-func validateLaunchSessionTitle(value *string) (*string, error) {
-	if value == nil {
-		return nil, nil
-	}
-	if strings.TrimSpace(*value) == "" {
-		return nil, errors.New("session launch title cannot be blank")
-	}
-	title := *value
-	return &title, nil
-}
-
 func (p *runtimeLaunchPlan) Close() {
 	if p == nil {
 		return
@@ -212,16 +201,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		enabledTools = append(enabledTools, id)
 	}
 	cfg := p.server.Connection()
-	activeSettings := settings
-	local := p.server.LocalPreferences()
-	activeSettings.Theme = p.server.PresentationTheme()
-	activeSettings.Debug = local.Debug
-	activeSettings.NotificationMethod = local.NotificationMethod
-	activeSettings.TUINativeProgressBar = local.TUINativeProgressBar
-	sessionTitle, err := validateLaunchSessionTitle(resp.Plan.SessionName)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
+	activeSettings := interactivePresentationSettings(p.server, settings)
 	activationAgentSelection, err := protoapi.SessionRuntimeAgentSelectionFromProto(
 		resp.Plan.ActivationAgentSelection,
 	)
@@ -240,7 +220,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		ActiveSettings:           activeSettings,
 		EnabledTools:             enabledTools,
 		ConfiguredModelName:      textutil.Pointer(resp.Plan.ConfiguredModelName),
-		SessionTitle:             sessionTitle,
+		SessionTitle:             textutil.Pointer(resp.Plan.SessionName),
 		ModelContractLocked:      resp.Plan.ModelContractLocked,
 		QuestionsEnabled:         resp.Plan.QuestionsEnabled,
 		AutoCompactionEnabled:    resp.Plan.AutoCompactionEnabled,
@@ -340,7 +320,7 @@ func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSe
 		return nil, err
 	}
 	catalog := response.GetNewChat()
-	if catalog == nil || catalog.InitialSettings == nil {
+	if catalog == nil {
 		return nil, errors.New("new Chat catalog is required")
 	}
 	var modelFacts *sessionPickerModelFacts

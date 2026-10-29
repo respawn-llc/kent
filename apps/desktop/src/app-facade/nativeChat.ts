@@ -16,7 +16,6 @@ export async function openNativeChat(
     initialHeight: 540,
     maximizable: true,
     resizable: true,
-    presentation: "content",
     chrome: "app",
   });
 }

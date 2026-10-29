@@ -1,319 +1,131 @@
-import type {
-  ApiSubscription,
-  ChatApi,
-  ChatSessionTarget,
-  ChatTranscriptHandler,
-  ChatTranscriptMessage,
-  ChatTranscriptPayloadByKind,
-} from "@/api";
-import { ContractError, TransportError } from "@/api";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 
-type TranscriptSubscriber = Pick<ChatApi, "subscribeTranscript">;
-
-export class ChatTranscriptPhysicalObservation {
-  readonly #api: TranscriptSubscriber;
-  readonly #target: ChatSessionTarget;
-  readonly #handler: ChatTranscriptHandler;
-  #subscription: ApiSubscription | null = null;
-  #generation = 0;
-  #started = false;
-  #closed = false;
-
-  constructor(api: TranscriptSubscriber, target: ChatSessionTarget, handler: ChatTranscriptHandler) {
-    this.#api = api;
-    this.#target = target;
-    this.#handler = handler;
-  }
-
-  start(): void {
-    if (this.#started || this.#closed) return;
-    this.#started = true;
-    this.#openPhysicalSubscription();
-  }
-
-  close(): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#generation++;
-    this.#subscription?.close();
-    this.#subscription = null;
-  }
-
-  #openPhysicalSubscription(): void {
-    if (this.#closed) return;
-    const generation = ++this.#generation;
-    let settled = false;
-    let terminalUnavailable = false;
-    this.#subscription = this.#api.subscribeTranscript(this.#target, {
-      ...(this.#handler.onOpen === undefined
-        ? {}
-        : {
-            onOpen: () => {
-              if (this.#accepts(generation, settled)) this.#handler.onOpen?.();
-            },
-          }),
-      onEvent: (event) => {
-        if (!this.#accepts(generation, settled)) return;
-        terminalUnavailable ||= isTerminalRuntimeUnavailable(event);
-        this.#handler.onEvent(event);
-      },
-      ...(this.#handler.onTransportLoss === undefined
-        ? {}
-        : {
-            onTransportLoss: () => {
-              if (this.#accepts(generation, settled)) this.#handler.onTransportLoss?.();
-            },
-          }),
-      onComplete: (completion) => {
-        if (!this.#accepts(generation, settled)) return;
-        settled = true;
-        this.#subscription = null;
-        if (completion.code === null && terminalUnavailable) {
-          this.#openPhysicalSubscription();
-          return;
-        }
-        this.#handler.onComplete(completion);
-      },
-      onError: (error) => {
-        if (!this.#accepts(generation, settled)) return;
-        settled = true;
-        const subscription = this.#subscription;
-        try {
-          this.#handler.onError(error);
-        } finally {
-          if (this.#subscription === subscription) {
-            subscription?.close();
-            this.#subscription = null;
-          }
-        }
-      },
-    });
-  }
-
-  #accepts(generation: number, settled: boolean): boolean {
-    return !this.#closed && !settled && generation === this.#generation;
-  }
-}
-
-function isTerminalRuntimeUnavailable(event: ChatTranscriptMessage): boolean {
-  return event.kind === "runtime_read_model_update" && event.payload.Activity.State === "unavailable";
-}
+import type { ChatApi, ChatSessionTarget, ChatTranscriptMessage, ChatTranscriptPayloadByKind } from "@/api";
+import { ContractError } from "@/api";
+import { ChatTranscriptFailure } from "./chatTranscriptFailure";
 
 export type ChatTranscriptHydrationKind = "initial" | "scratch" | "reattachment";
 export type ChatTranscriptObservationState =
-  Readonly<{ kind: "loading" | "observing" | "disposed" }> | Readonly<{ kind: "error"; error: Error }>;
-export type ChatTranscriptObservationHost = Readonly<{
-  onHydration(kind: ChatTranscriptHydrationKind, hydration: ChatTranscriptPayloadByKind["hydration"]): void;
-  onEvent(event: Exclude<ChatTranscriptMessage, { kind: "hydration" }>): void;
-  onIntegrityFailure?(error: Error): void;
-  onObservationLoss?(): void;
-  onError(error: Error): void;
-  onStateChange?(): void;
-}>;
+  Readonly<{ kind: "loading" | "observing" }> | Readonly<{ kind: "error"; error: Error }>;
+export type ChatTranscriptDelivery =
+  | Readonly<{
+      kind: "hydration";
+      hydrationKind: ChatTranscriptHydrationKind;
+      hydration: ChatTranscriptPayloadByKind["hydration"];
+    }>
+  | Readonly<{ kind: "event"; event: Exclude<ChatTranscriptMessage, { kind: "hydration" }> }>;
 
 type CommittedRowLocator = Readonly<{ eventSequence: number; rowOrdinal: number }>;
 
-export class ChatTranscriptObservation {
-  readonly #api: TranscriptSubscriber;
-  readonly #target: ChatSessionTarget;
-  readonly #host: ChatTranscriptObservationHost;
-  #physical: ChatTranscriptPhysicalObservation | null = null;
-  #state: ChatTranscriptObservationState = { kind: "loading" };
-  #hydrationKind: ChatTranscriptHydrationKind = "initial";
-  #nextSequence = 0;
-  #hydratedCommittedEventSequence: number | null = null;
-  #lastLiveCommittedLocator: CommittedRowLocator | null = null;
-  #hasHydrated = false;
-  #disposed = false;
-
-  constructor(api: TranscriptSubscriber, target: ChatSessionTarget, host: ChatTranscriptObservationHost) {
-    this.#api = api;
-    this.#target = target;
-    this.#host = host;
-  }
-
-  get state(): ChatTranscriptObservationState {
-    return this.#state;
-  }
-
-  start(): void {
-    if (this.#disposed || this.#physical !== null) return;
-    this.#openPhysical();
-  }
-
-  rehydrateAfterCompaction(): void {
-    this.#replaceObservation();
-  }
-
-  retry(): void {
-    if (this.#state.kind !== "error") return;
-    this.#replaceObservation();
-  }
-
-  rejectIntegrity(error: Error): void {
-    this.#integrityFailure(error);
-  }
-
-  close(): void {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    this.#physical?.close();
-    this.#physical = null;
-    this.#state = { kind: "disposed" };
-    this.#host.onStateChange?.();
-  }
-
-  #openPhysical(): void {
-    if (this.#disposed) return;
-    this.#physical = new ChatTranscriptPhysicalObservation(this.#api, this.#target, {
-      onOpen: () => {
-        if (this.#disposed) return;
-        if (this.#hasHydrated && this.#hydrationKind !== "scratch") {
-          this.#hydrationKind = "reattachment";
-        }
-        this.#nextSequence = 0;
-        this.#hydratedCommittedEventSequence = null;
-        this.#lastLiveCommittedLocator = null;
-      },
-      onEvent: (event) => {
-        this.#admit(event);
-      },
-      onTransportLoss: () => {
-        this.#continuityFailure(new TransportError("Transcript observation lost its transport."));
-      },
-      onComplete: (completion) => {
-        this.#continuityFailure(
-          new ContractError(
-            `Transcript observation completed with code ${String(completion.code)}: ${String(completion.message)}`,
-          ),
-        );
-      },
-      onError: (error) => {
-        if (error instanceof ContractError) {
-          this.#integrityFailure(error);
-        } else {
-          this.#continuityFailure(error);
-        }
-      },
-    });
-    this.#physical.start();
-  }
-
-  #admit(event: ChatTranscriptMessage): void {
-    if (this.#disposed) return;
-    if (this.#nextSequence === 0) {
-      this.#admitHydration(event);
-      return;
-    }
-    this.#admitUpdate(event);
-  }
-
-  #admitHydration(event: ChatTranscriptMessage): void {
-    if (event.kind !== "hydration" || event.sequence !== 1) {
-      this.#integrityFailure(
-        new ContractError("Transcript observation must begin with sequence-1 hydration."),
+export function observeChatTranscript(
+  api: Pick<ChatApi, "subscribeTranscript">,
+  target: ChatSessionTarget,
+  initialKind: ChatTranscriptHydrationKind,
+): Stream.Stream<ChatTranscriptDelivery, ChatTranscriptFailure> {
+  return Stream.unwrap(
+    Effect.sync(() => {
+      let hydrationKind = initialKind;
+      return Stream.unwrap(
+        Effect.sync(() => {
+          let sequence: number | null = null;
+          let hydratedCommittedEventSequence: number | null = null;
+          let lastLiveCommittedLocator: CommittedRowLocator | null = null;
+          let terminalUnavailable = false;
+          return api
+            .subscribeTranscript(target, async () => {
+              throw new ContractError("Transcript observation exceeded its 1,000-event capacity.");
+            })
+            .pipe(
+              Stream.takeUntil((observation) => observation.kind === "complete"),
+              Stream.flatMap((observation): Stream.Stream<ChatTranscriptDelivery, ChatTranscriptFailure> => {
+                if (observation.kind === "open") return Stream.empty;
+                if (observation.kind === "error")
+                  return Stream.fail(new ChatTranscriptFailure(observation.error));
+                if (observation.kind === "complete") {
+                  if (observation.completion.code === null && terminalUnavailable) {
+                    hydrationKind = "reattachment";
+                    return Stream.empty;
+                  }
+                  return Stream.fail(
+                    new ChatTranscriptFailure(
+                      new ContractError(
+                        `Transcript observation completed with code ${String(observation.completion.code)}: ${String(observation.completion.message)}`,
+                      ),
+                    ),
+                  );
+                }
+                return Stream.fromEffect(
+                  Effect.try({
+                    try: (): ChatTranscriptDelivery => {
+                      const event = observation.event;
+                      if (sequence === null) {
+                        if (event.kind !== "hydration" || event.sequence !== 1)
+                          throw new ContractError(
+                            "Transcript observation must begin with sequence-1 hydration.",
+                          );
+                        hydratedCommittedEventSequence =
+                          event.payload.TailSegment.Entries.at(-1)?.Locator.event_sequence ?? null;
+                        sequence = 1;
+                        return { kind: "hydration", hydrationKind, hydration: event.payload };
+                      }
+                      if (event.kind === "hydration" || event.sequence !== sequence + 1)
+                        throw new ContractError("Transcript observation sequence is not continuous.");
+                      if (event.kind === "committed_row") {
+                        const next = {
+                          eventSequence: event.payload.Locator.event_sequence,
+                          rowOrdinal: event.payload.Locator.row_ordinal,
+                        };
+                        validateCommittedLocator(
+                          next,
+                          lastLiveCommittedLocator,
+                          hydratedCommittedEventSequence,
+                        );
+                        lastLiveCommittedLocator = next;
+                      }
+                      sequence = event.sequence;
+                      terminalUnavailable ||=
+                        event.kind === "runtime_read_model_update" &&
+                        event.payload.Activity.State === "unavailable";
+                      return { kind: "event", event };
+                    },
+                    catch: (error) => new ChatTranscriptFailure(error),
+                  }),
+                );
+              }),
+            );
+        }),
+      ).pipe(
+        // Only successful normal Runtime stop completes this stream. Failures never continue it.
+        Stream.forever,
+        Stream.catchCause((cause) => {
+          const error = Cause.squash(cause);
+          return error instanceof ContractError
+            ? Stream.fail(new ChatTranscriptFailure(error))
+            : Stream.failCause(cause);
+        }),
       );
-      return;
-    }
-    try {
-      this.#host.onHydration(this.#hydrationKind, event.payload);
-    } catch (error) {
-      this.#integrityFailure(
-        error instanceof Error ? error : new ContractError("Transcript hydration admission failed."),
-      );
-      return;
-    }
-    this.#hydratedCommittedEventSequence =
-      event.payload.TailSegment.Entries.at(-1)?.Locator.event_sequence ?? null;
-    this.#lastLiveCommittedLocator = null;
-    this.#nextSequence = 1;
-    this.#hydrationKind = "initial";
-    this.#hasHydrated = true;
-    this.#state = { kind: "observing" };
-    this.#host.onStateChange?.();
-  }
+    }),
+  );
+}
 
-  #admitUpdate(event: ChatTranscriptMessage): void {
-    if (event.kind === "hydration" || event.sequence !== this.#nextSequence + 1) {
-      this.#integrityFailure(new ContractError("Transcript observation sequence is not continuous."));
-      return;
-    }
-    let committedLocator: CommittedRowLocator | null = null;
-    try {
-      if (event.kind === "committed_row") {
-        committedLocator = this.#nextCommittedRowLocator(event.payload.Locator);
-      }
-      this.#host.onEvent(event);
-    } catch (error) {
-      this.#integrityFailure(
-        error instanceof Error ? error : new ContractError("Transcript event admission failed."),
-      );
-      return;
-    }
-    if (committedLocator !== null) this.#lastLiveCommittedLocator = committedLocator;
-    this.#nextSequence = event.sequence;
-  }
-
-  #nextCommittedRowLocator(
-    locator: ChatTranscriptPayloadByKind["committed_row"]["Locator"],
-  ): CommittedRowLocator {
-    const next = {
-      eventSequence: locator.event_sequence,
-      rowOrdinal: locator.row_ordinal,
-    };
-    const previous = this.#lastLiveCommittedLocator;
-    if (previous === null) {
-      if (
-        (this.#hydratedCommittedEventSequence !== null &&
-          next.eventSequence <= this.#hydratedCommittedEventSequence) ||
-        next.rowOrdinal !== 1
-      ) {
-        throw new ContractError("Live committed transcript rows must advance beyond hydration.");
-      }
-      return next;
-    }
+function validateCommittedLocator(
+  next: CommittedRowLocator,
+  previous: CommittedRowLocator | null,
+  hydratedEventSequence: number | null,
+) {
+  if (previous === null) {
     if (
-      next.eventSequence < previous.eventSequence ||
-      (next.eventSequence === previous.eventSequence && next.rowOrdinal !== previous.rowOrdinal + 1) ||
-      (next.eventSequence > previous.eventSequence && next.rowOrdinal !== 1)
-    ) {
-      throw new ContractError("Live committed transcript row locators are not continuous.");
-    }
-    return next;
-  }
-
-  #continuityFailure(error: Error): void {
-    if (this.#disposed) return;
-    this.#settleFailure(error);
-    this.#host.onError(error);
-  }
-
-  #integrityFailure(error: Error): void {
-    if (this.#disposed || this.#physical === null) return;
-    this.#settleFailure(error);
-    if (this.#host.onIntegrityFailure === undefined) {
-      this.#host.onError(error);
-      return;
-    }
-    this.#host.onIntegrityFailure(error);
-  }
-
-  #settleFailure(error: Error): void {
-    this.#physical?.close();
-    this.#physical = null;
-    this.#state = { kind: "error", error };
-    this.#host.onObservationLoss?.();
-    this.#host.onStateChange?.();
-  }
-
-  #replaceObservation(): void {
-    if (this.#disposed) return;
-    this.#physical?.close();
-    this.#physical = null;
-    this.#nextSequence = 0;
-    this.#hydrationKind = "scratch";
-    this.#state = { kind: "loading" };
-    this.#host.onStateChange?.();
-    this.#openPhysical();
+      (hydratedEventSequence !== null && next.eventSequence <= hydratedEventSequence) ||
+      next.rowOrdinal !== 1
+    )
+      throw new ContractError("Live committed transcript rows must advance beyond hydration.");
+  } else if (
+    next.eventSequence < previous.eventSequence ||
+    (next.eventSequence === previous.eventSequence && next.rowOrdinal !== previous.rowOrdinal + 1) ||
+    (next.eventSequence > previous.eventSequence && next.rowOrdinal !== 1)
+  ) {
+    throw new ContractError("Live committed transcript row locators are not continuous.");
   }
 }

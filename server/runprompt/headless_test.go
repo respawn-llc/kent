@@ -20,25 +20,26 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/registry"
-	"core/server/runtime"
 	"core/server/runtimecontrol"
-	"core/server/session"
-	"core/server/session/sessiontest"
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -343,7 +344,7 @@ func TestInProcessRunPromptClientRejectsInvalidRequestsBeforeLaunch(t *testing.T
 		{name: "reserved role", req: &runpromptpb.Request{
 			Intent:    validIntent,
 			Prompt:    "work",
-			Overrides: &sessionlaunchpb.RunPromptOverrides{AgentRole: &reservedRole},
+			Overrides: &invocationpb.RunPromptOverrides{AgentRole: &reservedRole},
 		}},
 	}
 
@@ -1498,6 +1499,8 @@ func TestInProcessRunPromptClientUsesSelectedSessionConnection(t *testing.T) {
 
 func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 	t.Run("post-final queued model work", func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		defer cancel(context.Canceled)
 		firstStarted, releaseFirst := make(chan struct{}), make(chan struct{})
 		queuedStarted, releaseQueued := make(chan struct{}), make(chan struct{})
 		var calls atomic.Int32
@@ -1522,8 +1525,8 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 		id := mustRunPromptSessionID(t, fixture.store.Meta().SessionID)
 		done := make(chan error, 1)
 		go func() {
-			_, err := fixture.client.RunPrompt(t.Context(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
-				Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "start", Timeout: 2 * time.Second,
+			_, err := fixture.client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+				Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "start",
 			}), nil)
 			done <- err
 		}()
@@ -1553,13 +1556,19 @@ func TestInProcessRunPromptTimeoutCoversHistoryAndRunCleanup(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			t.Fatal("queued provider request did not start")
 		}
+		// Exercise deadline cleanup after queued work actually starts. The scope
+		// timer's expiry and real execution cleanup are tested with a virtual clock.
+		cancel(context.DeadlineExceeded)
 		select {
 		case err := <-done:
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("RunPrompt error = %v, want deadline exceeded", err)
 			}
 		case <-time.After(4 * time.Second):
-			t.Fatal("RunPrompt lost its completion timeout while waiting for queued model work")
+			t.Fatal("RunPrompt did not finish deadline cleanup while waiting for queued model work")
+		}
+		if _, active := fixture.authority.SessionExecution(id); active {
+			t.Fatal("deadline cleanup retained the queued execution")
 		}
 	})
 

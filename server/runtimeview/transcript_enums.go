@@ -5,7 +5,7 @@ import (
 
 	"core/server/llm"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func transcriptNoticeMessageType(value llm.MessageType) (transcriptpb.NoticeMessageType, error) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -102,9 +102,6 @@ func binaryChatDomainFailure(err error) proto.Message {
 		errors.Is(err, errActiveProjectRequired):
 		return &chatsettingspb.WorkspaceNotRegisteredDetails{}
 	case errors.As(err, &agentPreparationErr):
-		if validationErr := agentPreparationErr.Validate(); validationErr != nil {
-			return binaryInternalFailure(errors.Join(err, validationErr))
-		}
 		category, conversionErr := binaryChatAgentPreparationCategory(agentPreparationErr.Category)
 		if conversionErr != nil {
 			return binaryInternalFailure(errors.Join(err, conversionErr))

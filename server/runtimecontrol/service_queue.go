@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -16,8 +16,8 @@ func (s *Service) AdmitChatQueuedUserInput(
 	sessionIDText string,
 	projection PreparedUserTurn,
 ) (serverapi.ChatInputAdmissionResult, error) {
-	result, err := s.admitPendingInput(ctx, sessionIDText, func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, error) {
-		return engine.QueueUserInputWithAcceptance(runCtx, projection.queuedInput(), accept)
+	result, err := s.admitPendingInput(ctx, sessionIDText, func(runCtx context.Context, descriptor session.SessionDescriptor, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, error) {
+		return s.authority.QueueAgentInput(runCtx, descriptor, projection.queuedInput(), accept)
 	})
 	if result.Accepted {
 		result.PromptHistoryFailure = s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(sessionIDText, projection.Input), projection)
@@ -28,15 +28,15 @@ func (s *Service) AdmitChatQueuedUserInput(
 // AdmitChatShellInput uses ordinary Chat acceptance. It never waits for process
 // completion or records prompt history; accepted work belongs to the Runtime.
 func (s *Service) AdmitChatShellInput(ctx context.Context, sessionID runtimeids.SessionID, id runtimeids.QueueItemID, command runtimeinput.ShellCommand, lane runtimeinput.PendingWorkLane) (serverapi.ChatInputAdmissionResult, error) {
-	return s.admitPendingInput(ctx, sessionID.String(), func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, error) {
-		return engine.QueueShellInput(runCtx, id, command, lane, accept)
+	return s.admitPendingInput(ctx, sessionID.String(), func(runCtx context.Context, descriptor session.SessionDescriptor, accept runtime.CommandAcceptance) (runtime.QueuedUserMessage, error) {
+		return s.authority.AdmitShellInput(runCtx, descriptor, id, command, lane, accept)
 	})
 }
 
 func (s *Service) admitPendingInput(
 	ctx context.Context,
 	sessionIDText string,
-	admit func(context.Context, *runtime.Engine, runtime.CommandAcceptance) (runtime.QueuedUserMessage, error),
+	admit func(context.Context, session.SessionDescriptor, runtime.CommandAcceptance) (runtime.QueuedUserMessage, error),
 ) (serverapi.ChatInputAdmissionResult, error) {
 	sessionID := runtimeids.SessionIDFromProto(sessionIDText)
 	if s == nil || s.authority == nil {
@@ -48,12 +48,7 @@ func (s *Service) admitPendingInput(
 	if err != nil {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}
-	var queued runtime.QueuedUserMessage
-	err = s.authority.RunCurrentTurn(attempt.Context(), descriptor, attempt.Accept, func(runCtx context.Context, engine *runtime.Engine, accept runtime.CommandAcceptance) error {
-		var queueErr error
-		queued, queueErr = admit(runCtx, engine, accept)
-		return queueErr
-	})
+	queued, err := admit(attempt.Context(), descriptor, attempt.Accept)
 	if !attempt.Accepted() {
 		return serverapi.ChatInputAdmissionResult{}, err
 	}

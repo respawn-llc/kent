@@ -12,10 +12,10 @@ import (
 
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
@@ -277,18 +277,19 @@ func approvalActionRows(t *testing.T, h *approvalActionHarness, commentary strin
 	t.Helper()
 	var users int
 	var toolRows []runtime.TranscriptToolRowFact
-	err := h.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.User != nil && row.User.Text == commentary {
-				users++
-			}
-			if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
-				toolRows = append(toolRows, *row.Tool)
-			}
-		}
-		return nil
-	})
+	page, err := h.engine.TranscriptNewestSegmentPage()
 	requireApproval(t, err == nil, "read Approval transcript: %v", err)
+	if err != nil {
+		return users, toolRows
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.User != nil && row.User.Text == commentary {
+			users++
+		}
+		if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
+			toolRows = append(toolRows, *row.Tool)
+		}
+	}
 	return users, toolRows
 }
 func requireApprovalActionTerminal(t *testing.T, h *approvalActionHarness, payload PromptAnswerPayload) {
@@ -440,15 +441,18 @@ func TestApprovalActionCommentaryFIFOAtStepBoundary(t *testing.T) {
 	h := newApprovalActionHarness(t, approvalActionHarnessOptions{blockConsumer: true})
 	done := beginApprovalAction(h, context.Background(), approvalActionAnswer(tools.AskQuestionApprovalDecisionAllowOnce, &commentary))
 	receiveApprovalAction(t, h.consumerStarted, "ApprovalConsumer")
-	transitionStarted, releaseTransition := make(chan struct{}), make(chan struct{})
+	transitionScheduled, transitionStarted, releaseTransition := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	transitionDone := make(chan error, 1)
 	go func() {
-		transitionDone <- h.engine.RunExecutionTargetTransition(context.Background(), nil, func() error {
+		transitionDone <- h.engine.RunExecutionTargetTransition(context.Background(), func() {
+			close(transitionScheduled)
+		}, func() error {
 			close(transitionStarted)
 			<-releaseTransition
 			return nil
 		})
 	}()
+	receiveApprovalAction(t, transitionScheduled, "Runtime transition scheduling")
 	h.release()
 	requireApprovalActionOutcome(t, receiveApprovalAction(t, done, "FIFO answer"), PromptAnswerOutcomeResolved)
 	receiveApprovalAction(t, transitionStarted, "Step Boundary drain")

@@ -9,15 +9,15 @@ const (
 )
 
 type PromptCommand struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Name      string
+	Arguments string
 }
 
 type Input struct {
-	Kind          Kind           `json:"kind"`
-	Text          *string        `json:"text,omitempty"`
-	PromptCommand *PromptCommand `json:"prompt_command,omitempty"`
-	Shell         *ShellCommand  `json:"shell,omitempty"`
+	Kind          Kind
+	Text          *string
+	PromptCommand *PromptCommand
+	Shell         *ShellCommand
 }
 
 func Shell(command string) Input {

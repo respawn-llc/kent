@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"core/shared/textutil"
 )
 
 func TestPlannerCreateNewIntentCreatesWithAndWithoutValidatedParent(t *testing.T) {
@@ -68,6 +69,43 @@ func TestPlannerOpenExistingIntentOpensTheRequestedSession(t *testing.T) {
 	}
 	if plan.Descriptor.SessionID().String() != target.Meta().SessionID {
 		t.Fatalf("opened session ID = %q, want %q", plan.Descriptor.SessionID(), target.Meta().SessionID)
+	}
+}
+
+func TestNavigationOnlyCreationUsesFreshSettingsAndWorkspace(t *testing.T) {
+	planner, container, persistence := newTypedIntentPlanner(t)
+	source := createTypedIntentSession(t, container, sessioncontract.SessionCategoryMain, persistence)
+	if err := source.MarkModelDispatchLocked(session.LockedContract{Model: "source-model"}); err != nil {
+		t.Fatal(err)
+	}
+	id := mustTypedIntentSessionID(t, source.Meta().SessionID)
+	planner.Config.WorkspaceRoot = "/tmp/fresh-workspace"
+	plan, err := planner.PlanSession(t.Context(), SessionRequest{
+		Mode:   ModeInteractive,
+		Intent: serverapi.CreateNewSessionLaunchIntent(serverapi.NavigationOnlySessionCreateOrigin(id)),
+		InitialChat: &session.ChatDraftState{
+			Agent: config.DefaultSubagentRole,
+			Settings: &session.ChatSettingsOverrides{
+				Thinking: textutil.Value("low"), Questions: textutil.Value(false),
+				Supervisor: textutil.Value("off"), Fast: textutil.Value(false), AutoCompaction: textutil.Value(true),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := testStoreForPlannerPlan(t, planner, plan).Meta()
+	if meta.PreviousSessionID == nil || *meta.PreviousSessionID != id {
+		t.Fatalf("navigation origin = %v", meta.PreviousSessionID)
+	}
+	if meta.ParentAgentSessionID != nil || meta.Locked != nil || meta.Continuation != nil || meta.WorkflowSnapshot != nil || meta.WorktreeReminder != nil {
+		t.Fatalf("navigation-only creation inherited context: %+v", meta)
+	}
+	if meta.WorkspaceRoot != planner.Config.WorkspaceRoot || plan.ActiveSettings.Model != planner.Config.Settings.Model {
+		t.Fatalf("fresh target/settings were not retained: %+v", plan)
+	}
+	if plan.QuestionsEnabled || plan.ActiveSettings.ThinkingLevel != "low" {
+		t.Fatalf("selected settings were not retained: %+v", plan)
 	}
 }
 

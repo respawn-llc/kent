@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
-	"core/server/runtime"
 	askquestion "core/server/tools"
 	"core/shared/apicontract"
 	"core/shared/clientui"

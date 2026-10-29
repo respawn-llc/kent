@@ -232,7 +232,7 @@ func (s *Service) resolveTarget(
 		InitialDraft: initialDraft,
 	})
 	if err != nil {
-		return ResolvedTarget{}, err
+		return target, err
 	}
 	return target, nil
 }
@@ -263,14 +263,14 @@ func (s *Service) Steer(
 	ctx context.Context,
 	request *chatpb.SteerRequest,
 ) (*chatpb.InputMutationSuccess, error) {
-	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationSteer)
+	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, request.InitialInputDraft, inputMutationSteer)
 }
 
 func (s *Service) Queue(
 	ctx context.Context,
 	request *chatpb.QueueRequest,
 ) (*chatpb.InputMutationSuccess, error) {
-	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, inputMutationQueue)
+	return s.runInputMutation(ctx, request.Target, request.Activation, request.QueueItemId, request.InitialInputDraft, inputMutationQueue)
 }
 
 func (s *Service) Compact(
@@ -349,10 +349,11 @@ func (s *Service) mutateInput(
 	targetRequest *chatpb.ChatTarget,
 	activation *chatpb.Activation,
 	queueItemID string,
+	initialDraft *string,
 	operation inputMutationOperation,
 ) (*chatpb.InputMutationSuccess, error) {
 	ctx := scope.Context()
-	var draft *string
+	draft := initialDraft
 	var input runtimeinput.Input
 	shell := activation.GetShell()
 	if shell == nil {
@@ -450,6 +451,7 @@ func (s *Service) runInputMutation(
 	target *chatpb.ChatTarget,
 	activation *chatpb.Activation,
 	queueItemID string,
+	initialDraft *string,
 	kind inputMutationOperation,
 ) (*chatpb.InputMutationSuccess, error) {
 	if s == nil || s.operations == nil {
@@ -458,7 +460,7 @@ func (s *Service) runInputMutation(
 	var result *chatpb.InputMutationSuccess
 	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
 		var operationErr error
-		result, operationErr = s.mutateInput(scope, target, activation, queueItemID, kind)
+		result, operationErr = s.mutateInput(scope, target, activation, queueItemID, initialDraft, kind)
 		return operationErr
 	})
 	if err != nil {

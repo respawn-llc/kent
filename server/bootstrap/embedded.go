@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/chatcontext"
 	"core/server/launch"
@@ -23,7 +23,6 @@ type Request struct {
 	SessionID             string
 	LoadOptions           config.LoadOptions
 	Environment           func(string) (string, bool)
-	Now                   func() time.Time
 }
 
 type ConfigPlan struct {
@@ -54,26 +53,23 @@ func ResolveConfig(req Request) (ConfigPlan, error) {
 	return loadConfig(req.LoadOptions, persistenceRoot, bootstrapPlan)
 }
 
-func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookupEnv func(string) (string, bool), now func() time.Time) (AuthSupport, error) {
+func BuildAuthSupport(ctx context.Context, root string, store auth.Store, lookupEnv func(string) (string, bool)) (AuthSupport, error) {
 	if store == nil {
 		return AuthSupport{}, errors.New("auth store is required")
 	}
 	if lookupEnv == nil {
 		lookupEnv = os.LookupEnv
 	}
-	if now == nil {
-		now = time.Now
-	}
 	clientID, _ := lookupEnv("KENT_OAUTH_CLIENT_ID")
 	oauthOpts := auth.OpenAIOAuthOptions{
 		Issuer:   auth.DefaultOpenAIIssuer,
 		ClientID: textutil.FirstNonEmpty(strings.TrimSpace(clientID), auth.DefaultOpenAIClientID),
 	}
-	grokRefresher := auth.NewOAuthRefresher(now, 5*time.Minute, func(ctx context.Context, credential auth.OAuthMethod) (auth.OAuthMethod, error) {
+	grokRefresher := auth.NewOAuthRefresher(time.Now, 5*time.Minute, func(ctx context.Context, credential auth.OAuthMethod) (auth.OAuthMethod, error) {
 		return auth.RefreshGrokAuthToken(ctx, nil, credential)
 	})
 	manager := auth.NewManager(store, map[config.ConnectionProtocol]*auth.OAuthRefresher{
-		config.ConnectionChatGPT:      auth.NewOpenAIOAuthRefresher(oauthOpts, now, 5*time.Minute),
+		config.ConnectionChatGPT:      auth.NewOpenAIOAuthRefresher(oauthOpts, time.Now, 5*time.Minute),
 		config.ConnectionGrokCLIProxy: grokRefresher,
 		config.ConnectionGrokOAuthAPI: grokRefresher,
 	})

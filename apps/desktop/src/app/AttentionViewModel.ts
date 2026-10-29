@@ -248,9 +248,10 @@ export function createAttentionViewModel({
             ? {
                 id: `session-turn-end-${event.sequence.toString()}`,
                 ...turnCompletionPresentation({
-                  title: event.sessionName ?? t("app.attention.sessionFallback"),
-                  body: projectMarkdownText(event.assistantContent) || t("app.attention.turnComplete"),
-                  separator: t("app.attention.turnCompletionSeparator"),
+                  title: t("app.attention.sessionEnded", {
+                    name: event.sessionName ?? event.shortID?.toString() ?? event.target.sessionID,
+                  }),
+                  body: projectMarkdownText(event.assistantContent),
                 }),
                 target: event.target,
               }

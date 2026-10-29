@@ -29,7 +29,7 @@ import (
 )
 
 func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	quota, err := os.ReadFile("../../server/llm/testdata/usage-exhaustion/openai-quota.json")
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
 		"b": {Protocol: config.ConnectionResponses, Endpoint: &healthy.URL},
 	}
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, nil)
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
 	var plans []sessionLaunchPlan
 	var runtimes []*runtimeLaunchPlan
@@ -70,14 +70,14 @@ func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
 		runtimes = append(runtimes, runtimePlan)
 	}
 	for _, index := range []int{0, 2} {
-		store := openAuthoritativeWorkspaceSessionStore(t, workspace, plans[index].SessionID)
+		store := openAuthoritativeAppSession(t, fixture.daemon.MetadataStore(), plans[index].SessionID)
 		if id := store.Meta().ConnectionID; id == nil || *id != "a" {
 			t.Fatalf("initial binding = %v, want A", id)
 		}
-		submission, err := submitRuntimeClientForTest(t, runtimes[index].Wiring.runtimeClient, "hello")
+		submission, err := submitRuntimeClientForTest(t, runtimes[index].Wiring, "hello")
 		requireQueuedAppTestUserTurn(t, submission, err)
 		waitForRemoteTranscriptAssistantFinal(t, runtimes[index].Wiring.eventDispatcher.transcriptEvents, "continued")
-		store = openAuthoritativeWorkspaceSessionStore(t, workspace, plans[index].SessionID)
+		store = openAuthoritativeAppSession(t, fixture.daemon.MetadataStore(), plans[index].SessionID)
 		if id := store.Meta().ConnectionID; id == nil || *id != "b" {
 			t.Fatalf("saved replacement = %v, want B", id)
 		}
@@ -88,7 +88,7 @@ func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
 }
 
 func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	responses, hits := newFakeResponsesServer(t, []string{"selected connection reply"})
 	defer responses.Close()
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
@@ -107,7 +107,7 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("connection = \"b\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, nil)
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace}, newHeadlessAuthInteractor())
 	statusA, err := server.remote.GetBootstrapStatus(t.Context(), &authpb.GetBootstrapStatusRequest{Target: protoapi.ExistingConnectionTarget(a)})
 	if err != nil || statusA.AuthReady {
@@ -149,14 +149,14 @@ func TestStartupAndHeadlessUseSelectedConnectionDespiteUnavailableDefault(t *tes
 }
 
 func TestStartupResumeKeepsInitialEndpointAndUsesServerSessionWorkspace(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := createAuthoritativeAppSession(t, cfg.PersistenceRoot, workspace)
+	store, metadataStore := createAuthoritativeAppSession(t, cfg.PersistenceRoot, workspace)
 	serverWorkspace, err := config.CanonicalWorkspaceRoot(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, metadataStore)
 	initialWorkspace := t.TempDir()
 	for root, body := range map[string]string{
 		initialWorkspace: fmt.Sprintf("server_host = %q\nserver_port = %d\nmodel = false\n", cfg.Settings.ServerHost, cfg.Settings.ServerPort),
@@ -227,7 +227,7 @@ func TestStartupResumeKeepsInitialEndpointAndUsesServerSessionWorkspace(t *testi
 }
 
 func TestPreSessionChatSettingsUseServerBaselineWithoutCreatingSession(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
 	cfg.Settings.Model = "gpt-5.4"
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
@@ -237,7 +237,7 @@ func TestPreSessionChatSettingsUseServerBaselineWithoutCreatingSession(t *testin
 	if err := os.WriteFile(filepath.Join(workspace, config.ConfigDirName, "config.toml"), []byte("model = \"gpt-5.4\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, nil)
 	unbound := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, Model: "client-request-only"}, newHeadlessAuthInteractor())
 	resolved, err := unbound.remote.ResolveProjectPath(t.Context(), &projectpb.ResolvePathRequest{Path: workspace})
 	if err != nil {

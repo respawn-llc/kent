@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"core/internal/testharness/requestfixture"
-	"core/server/session"
+	"core/internal/testharness/testsetup"
+	"core/server/metadata"
+	"core/server/sessionstore"
 	serverstartup "core/server/startup"
 	"core/shared/apicontract"
 	"core/shared/config"
@@ -36,20 +38,13 @@ func appStringPointer(value string) *string {
 }
 
 func TestBackParentPrefillOverServedRemote(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	_, workspace := newConfiguredAppWorkspace(t)
+	configured := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
-	})
-
-	if err != nil {
-		t.Fatalf("start served app server: %v", err)
-	}
-	defer func() { _ = srv.Close() }()
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-	waitForConfiguredRemoteIdentity(t, workspace)
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
+	}, nil)
+	srv := configured.daemon
 
 	server, err := startSessionServer(
 		context.Background(),
@@ -70,11 +65,11 @@ func TestBackParentPrefillOverServedRemote(t *testing.T) {
 		t.Fatalf("bind remote server to project workspace: %v", err)
 	}
 	defer func() { _ = bound.Close() }()
-	runBackParentPrefillScenario(t, bound.(backParentPrefillScenarioServer))
+	runBackParentPrefillScenario(t, srv.MetadataStore(), bound.(backParentPrefillScenarioServer))
 }
 
 func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) {
-	_, workspaceA := newRegisteredAppWorkspace(t)
+	_, workspaceA := newConfiguredAppWorkspace(t)
 	workspaceB := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(workspaceB, config.ConfigDirName), 0o755); err != nil {
 		t.Fatalf("create target workspace config dir: %v", err)
@@ -90,21 +85,14 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("load source config: %v", err)
 	}
-	bindingB := mustRegisterAppBinding(t, sourceConfig.PersistenceRoot, workspaceB)
-
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
+	metadataStore := testsetup.OpenStore(t, sourceConfig.PersistenceRoot)
+	bindingB := mustRegisterAppBinding(t, metadataStore, workspaceB)
+	configured := startConfiguredDaemonFixture(t, workspaceA, serverstartup.Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
-		Model:                 "source-project-model",
-	})
-
-	if err != nil {
-		t.Fatalf("start served app server: %v", err)
-	}
-	defer func() { _ = srv.Close() }()
-	stopServing := serveAppServer(t, srv)
-	defer stopServing()
-	waitForConfiguredRemoteIdentity(t, workspaceA)
+		LoadOptions:           config.LoadOptions{Model: "source-project-model"},
+	}, metadataStore)
+	srv := configured.daemon
 
 	server, err := startSessionServer(
 		context.Background(),
@@ -122,7 +110,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 	sourceServer := boundServer.(*remoteAppServer)
 
-	parent := createAttachedAuthoritativeAppSession(t, sourceServer.Connection().PersistenceRoot, sourceServer.ProjectID(), workspaceA)
+	parent := createAttachedAuthoritativeAppSession(t, srv.MetadataStore(), sourceServer.ProjectID(), workspaceA)
 	if err := parent.SetInputDraft("target project draft", nil); err != nil {
 		t.Fatalf("set target parent draft: %v", err)
 	}
@@ -246,7 +234,7 @@ func TestRemoteBackRebindsToParentProjectBeforeRuntimePreparation(t *testing.T) 
 	}
 }
 
-func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenarioServer) {
+func runBackParentPrefillScenario(t *testing.T, store *metadata.Store, server backParentPrefillScenarioServer) {
 	t.Helper()
 
 	exactFinal := " \nExact café 👩🏽‍💻\n尾  "
@@ -265,7 +253,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parent := createAttachedAuthoritativeAppSession(t, server.Connection().PersistenceRoot, server.ProjectID(), server.Connection().WorkspaceRoot)
+			parent := createAttachedAuthoritativeAppSession(t, store, server.ProjectID(), server.Connection().WorkspaceRoot)
 			parentLog, err := parent.MaterializeEventLog()
 			if err != nil {
 				t.Fatalf("materialize parent event log: %v", err)
@@ -428,6 +416,7 @@ func runBackParentPrefillScenario(t *testing.T, server backParentPrefillScenario
 				if done, ok := msg.(draftSaveDoneMsg); ok && done.err != nil {
 					t.Fatalf("save edited parent draft: %v", done.err)
 				}
+				edited.Update(msg)
 			}
 			if testMainInput(edited) != wantInput+"x" {
 				t.Fatalf("edited parent input = %q, want %q", testMainInput(edited), wantInput+"x")

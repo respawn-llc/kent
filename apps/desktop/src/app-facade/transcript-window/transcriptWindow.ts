@@ -64,7 +64,7 @@ function project(state: State, admitted: readonly CommittedRow[] = []): State {
       ...state.snapshot,
       showsLive: showsLive(state),
       items: presentation.items,
-      activeAssistant: presentation.provisional.find((item) => item.kind === "assistant") ?? null,
+      activeAssistants: presentation.provisional.filter((item) => item.kind === "assistant"),
       thinkingStatus: showsLive(state) ? thinkingStatus(state.activity, latestStatus) : null,
     },
   };
@@ -135,7 +135,7 @@ function emptyState(opening: "loading" | "disposed"): State {
       showsLive: false,
       thinkingStatus: null,
       items: [],
-      activeAssistant: null,
+      activeAssistants: [],
       older: { kind: "idle", cursor: null },
       newer: { kind: "idle", cursor: null },
       opening: { kind: opening },
@@ -352,9 +352,6 @@ export class TranscriptWindow {
     };
     validateTail(segment);
     const checkpoint = hydration.SessionStatus.CompactionCount;
-    if (!Number.isInteger(checkpoint) || checkpoint < 0) {
-      throw new ContractError("Hydration completed compaction count must be nonnegative.");
-    }
     if (reattachment && this.state.checkpoint !== null && checkpoint < this.state.checkpoint) {
       throw new ContractError("Reattachment completed compaction count regressed.");
     }
@@ -451,7 +448,7 @@ export class TranscriptWindow {
       pool: [],
       provisional: [],
       pending: null,
-      snapshot: { ...snapshot, activeAssistant: null },
+      snapshot: { ...snapshot, activeAssistants: [] },
     };
     this.state = liveWasVisible ? project(completed) : completed;
     return { kind: "accepted", effects: [{ kind: "scratch-rehydration" }] };

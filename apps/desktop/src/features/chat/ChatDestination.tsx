@@ -31,8 +31,17 @@ import { useWorktreeList } from "./useWorktreeList";
 import { ChatProcessesChip } from "./ChatProcessesChip";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
 import { useSessionSettingsObservation } from "./useSessionSettingsObservation";
+import { SpeechDestinationProvider } from "@/shared/speech-input";
 
-export function ChatDestination(
+export function ChatDestination(props: Parameters<typeof ChatDestinationContent>[0]) {
+  return (
+    <SpeechDestinationProvider>
+      <ChatDestinationContent {...props} />
+    </SpeechDestinationProvider>
+  );
+}
+
+function ChatDestinationContent(
   props: Readonly<{
     opening: ChatDestinationOpening;
     navigation: ChatDestinationNavigation;
@@ -234,7 +243,7 @@ function chatReadState(
   if (composer.draft.kind === "failed") return readFailure(composer.draft.error, composer.retryDraft);
   if (mainView.kind === "session" && mainView.status === "error")
     return readFailure(mainView.error, () => {
-      void mainView.retry();
+      mainView.retry();
     });
   if (composer.pending.query.isError)
     return readFailure(composer.pending.query.error, composer.pending.refresh);

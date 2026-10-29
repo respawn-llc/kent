@@ -18,7 +18,7 @@ import (
 	"core/server/workflowscript"
 	"core/server/workflowstore"
 	"core/server/workflowview"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/protoapi"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -1761,10 +1761,7 @@ func (s *Service) approveWorkflowTask(ctx context.Context, req *taskpb.ApproveRe
 	if s.currentNodeExecution == nil {
 		return nil, errors.New("current node workflow execution is required")
 	}
-	approvalID, err := workflow.ParseApprovalID(req.ApprovalId)
-	if err != nil {
-		return nil, err
-	}
+	approvalID := workflow.ApprovalID(req.ApprovalId)
 	if req.InvokingSessionId != nil {
 		approval, err := s.store.PendingApproval(ctx, approvalID)
 		if err != nil {

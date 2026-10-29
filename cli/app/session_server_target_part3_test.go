@@ -21,7 +21,7 @@ import (
 )
 
 func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 	t.Setenv("KENT_REVIEWER_FREQUENCY", "off")
 	model := newAppTestModelServer(t,
 		appTestModelStep{Calls: []appTestModelToolCall{
@@ -37,14 +37,14 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
-	})
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
+	}, nil)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
 	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote prompt snapshot reads")
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
-	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring.runtimeClient, "start prompt snapshot")
+	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring, "start prompt snapshot")
 	requireQueuedAppTestRuntimeSubmission(t, submissionDone)
 	prompts := waitForRemoteTranscriptPrompts(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, 2, "", submissionFailed)
 	for _, prompt := range prompts {
@@ -77,13 +77,13 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 }
 
 func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 
 	fixture := startConfiguredDaemonFixture(t, workspace, serverstartup.Request{
 		WorkspaceRoot:         workspace,
 		WorkspaceRootExplicit: true,
-		Model:                 "gpt-6-sol",
-	})
+		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
+	}, nil)
 
 	fixture.daemon.Background().SetMinimumExecToBgTime(time.Millisecond)
 

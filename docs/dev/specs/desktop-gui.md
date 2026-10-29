@@ -7,7 +7,7 @@
 
 - All surface elevations use the shared global shadow styles in light and dark themes. Shadows must provide soft, low-contrast separation with diffuse edges. Individual screens use those shared styles rather than defining their own shadow treatments.
 
-- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, Project deletion, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error without a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
+- Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error without a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
 
 - On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops and support internal board dragging.
@@ -49,6 +49,7 @@
 - The shortcut must not change the field's ordinary Enter behavior.
 - Desktop uses localized user-facing text, accessible controls, standard compact loading, error, and empty states, and motion that respects reduced-motion preference. On macOS, Linux, and browser presentation, top chrome uses a contrast fade for readability. Windows uses progressive blur without a darkening fade.
 - Dialogs, popups, confirmation flows, and dropdowns only collect an operator result, except for read-only subscription-usage inspection. Result-collecting surfaces close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
+- Project creation and Project and Task deletion use in-window dialogs. Confirmation results that are inapplicable do nothing.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
@@ -59,6 +60,11 @@
 - Workflow Mode entry/exit notices must use a graph icon. Headless Mode entry/exit notices must use an information icon. Worktree Mode entry/exit notices must use a branch icon, and Session rebind notices must use an information icon.
 
 ## Home and navigation
+
+- Closing a Desktop window must close only that window. Desktop must exit when its last window closes.
+- While a Chat popup is open, the operator must be able to open the main Project list on macOS, Windows, and Linux.
+- On macOS, reopening Desktop from the Dock must show the main window.
+- Activating a native notification must open its destination even when the main window has been closed and another Desktop window is open.
 
 - Navigation Chrome must show a small gauge icon beside the theme control with a `Subscription usage` tooltip when at least one configured connection supports subscription usage. It must hide this control when no configured connection supports subscription usage. Determining visibility must not fetch provider quota.
 - When the loaded catalog has no supported subscriptions and the control is hidden, Desktop must discover connections added while it is hidden only after restart or reload. Desktop must not add focus refresh, periodic catalog polling, or background quota requests for this discovery. Opening an available usage popup must refresh its catalog.
@@ -85,7 +91,6 @@
 
 ## Projects and workspaces
 
-- If native Project-created notifications exceed Home's bounded observation capacity, Home must stop that observation and show a temporary error. Home must not automatically restart the observation or replay notifications. This failure must not affect Project creation or accepted server work.
 
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key. The default name is the directory basename.
@@ -473,7 +478,7 @@
 - Desktop must receive global Session turn-end attention through the [Runtime Steering And Model Loop](runtime-steering-loop.md#turn-end-attention) contract, including for Sessions without an open Chat.
 - A focused Desktop must show a turn-end notification through the existing in-app notification surface. An unfocused Desktop must attempt a system notification through its existing notification handling.
 - Selecting a turn-end notification must open its Session through ordinary Desktop Session navigation.
-- Turn-end copy must follow the TUI assistant-preview and fallback-copy rules, including the 80-character limit, with Desktop-owned localization.
+- Turn-end system notifications must identify Kent as the app, use `Session ended: <name>` as the title, and show a plain-text preview of the turn-ending assistant final message as the body. Desktop must localize the copy and ellipsize the title and preview independently to at most 80 Unicode code points each.
 - Desktop must not run TUI client lifecycle hooks.
 
 ## Logs

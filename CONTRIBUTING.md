@@ -59,7 +59,7 @@ Use typed variants to narrow work:
 
 ```bash
 just build go
-just test server -- ./server/session -run TestResume
+just test server -- ./server/sessionstore -run TestResume
 just lint docs --dry-run
 just check desktop --dry-run
 ```

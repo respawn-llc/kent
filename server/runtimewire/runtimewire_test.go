@@ -22,13 +22,13 @@ import (
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/agentruntime"
+	"core/server/authmanager"
 	"core/server/llm"
 	"core/server/metadata/sqlitegen"
-	"core/server/runtime"
 	"core/server/runtimewire/toolcontracts"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
@@ -40,8 +40,8 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"core/shared/sessioncontract"
 )
@@ -417,9 +417,10 @@ func TestLocalToolRegistrySiblingWorkspaceBypassesNativeToolApprovals(t *testing
 		t.Fatalf("NewLocalToolRegistryBinding: %v", err)
 	}
 	var approvalRequests int
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
@@ -479,9 +480,10 @@ func TestLocalToolRegistryTemporaryPathsBypassNativeToolApprovals(t *testing.T) 
 		t.Fatalf("NewLocalToolRegistryBinding: %v", err)
 	}
 	var approvalRequests int
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	patchHandler, ok := binding.registry.Get(toolspec.ToolPatch)
@@ -609,7 +611,7 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 		toolspec.ToolViewImage,
 	)
 	handlerCalled := false
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		handlerCalled = true
 		return askquestion.AskQuestionApproval{
 			Decision: askquestion.AskQuestionApprovalDecisionAllowOnce,
@@ -823,11 +825,12 @@ func TestRuntimewireViewImageReadsGeneratedFileWithNormalApproval(t *testing.T) 
 		t.Fatalf("write generated pdf: %v", err)
 	}
 	registry, broker := newRuntimeWireToolRegistryWithConfig(t, workspace, configRoot, false, toolspec.ToolPatch, toolspec.ToolViewImage)
-	broker.SetAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		if !req.Approval || len(req.ApprovalOptions) != 3 {
 			t.Fatalf("generated-file request = %+v, want structured approval", req)
 		}
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	viewImageHandler, ok := registry.Get(toolspec.ToolViewImage)
@@ -888,7 +891,7 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectB, err := store.CreateProjectForWorkspace(t.Context(), rootB, "B")
+	projectB, err := store.CreateProjectForWorkspaceWithKey(t.Context(), rootB, "B", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -937,9 +940,10 @@ func TestReplaceFilesystemContextReplacesNativeToolTrustAndProjectWorkspaces(t *
 		t.Fatalf("new local tool registry binding: %v", err)
 	}
 	approvalRequests := 0
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionDeny}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	next, err := NewFilesystemContext(rootB, rootB, projectB.ProjectID)
@@ -1054,9 +1058,10 @@ func TestReplaceFilesystemContextPreservesSessionApprovalsAcrossRebuildAndReject
 		t.Fatalf("new local tool registry binding: %v", err)
 	}
 	approvalRequests := 0
-	broker.SetAskHandler(func(_ context.Context, _ askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(_ context.Context, req askquestion.AskQuestionRequest) (askquestion.AskQuestionResolution, error) {
 		approvalRequests++
-		return askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowSession}, nil
+		resolution := askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowSession}
+		return resolution, req.AcceptApproval(resolution)
 	})
 
 	assertRuntimeWireToolSuccess(t, binding.registry, toolspec.ToolPatch, map[string]any{
@@ -1172,9 +1177,10 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 			t.Fatal("expected exec_command handler")
 		}
 		input, err := json.Marshal(map[string]any{
-			"cmd":           "sleep 1",
+			"cmd":           "read -r release",
 			"shell":         "/bin/sh",
 			"login":         false,
+			"tty":           true,
 			"yield_time_ms": 50,
 		})
 		if err != nil {
@@ -1251,6 +1257,13 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 		snapshotA.ID:        &correlationA,
 		snapshotB.ID:        &correlationB,
 		snapshotUnscoped.ID: nil,
+	}
+	for processID := range expectedByProcessID {
+		if _, err := manager.WriteStdin(context.Background(), shelltool.WriteRequest{
+			SessionID: processID, Input: "\n", YieldTime: time.Millisecond, MaxOutputChars: 1_000,
+		}); err != nil {
+			t.Fatalf("release background process %s: %v", processID, err)
+		}
 	}
 	for remaining := len(expectedByProcessID); remaining > 0; remaining-- {
 		event := nextEvent()

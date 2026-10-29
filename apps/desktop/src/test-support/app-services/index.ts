@@ -1,5 +1,6 @@
 import { createBrowserNativeBridge, type NativePlatform } from "@app/native-bridge";
 import { create } from "@app/server-api-contract";
+import { SpeechService } from "@app/server-api-contract/gen/kent/api/speech/speech_pb";
 import {
   GetReadinessResultSchema,
   ServerService,
@@ -35,6 +36,7 @@ import {
   type AppServices,
 } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
+import { SpeechRecoveryProvider } from "@/shared/speech-input";
 import { FakeRpcTransport, type FakeRoute } from "../api";
 
 void initializeI18n();
@@ -98,7 +100,9 @@ export function TestAppProviders({
           children: createElement(WindowFocusProvider, {
             children: createElement(WindowChromeTitleProvider, {
               children: createElement(StatusProvider, {
-                children: createElement(TaskSearchMemoryProvider, { children }),
+                children: createElement(TaskSearchMemoryProvider, {
+                  children: createElement(SpeechRecoveryProvider, { children }),
+                }),
               }),
             }),
           }),
@@ -116,13 +120,25 @@ export function createTestServices(
   nativeBridge?: ReturnType<typeof createBrowserNativeBridge>,
   options: CreateTestServicesOptions = {},
 ): TestAppServices {
-  const transport = new FakeRpcTransport(routes);
+  const transport = new FakeRpcTransport([speechUnavailableRoute, ...routes]);
   const logger = createTestLogger();
+  const speechUnavailable = async (): Promise<never> => {
+    throw new Error("This fixture has no speech transfer.");
+  };
   const resolvedNativeBridge =
     nativeBridge ??
     createBrowserNativeBridge(options.platform === undefined ? {} : { platform: options.platform });
   return {
     api: new ApiClient(transport, projectEventDiagnostics(logger)),
+    speech: {
+      microphone: "browser",
+      begin: speechUnavailable,
+      retry: speechUnavailable,
+      discard: speechUnavailable,
+      reveal: speechUnavailable,
+      saveCopy: speechUnavailable,
+      limitSound: speechUnavailable,
+    },
     debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",
@@ -149,6 +165,13 @@ function createTestLogger(): TestLogger {
     },
   };
 }
+
+const speechUnavailableRoute: FakeRoute = {
+  descriptor: SpeechService.method.getAvailability,
+  result: create(SpeechService.method.getAvailability.output, {
+    outcome: { case: "success", value: { state: { case: "unavailable", value: {} } } },
+  }),
+};
 
 export const startupRoutes: readonly FakeRoute[] = [
   {

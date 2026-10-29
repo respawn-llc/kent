@@ -1,7 +1,7 @@
 import type { TranscriptDisclosureIconTone } from "@/ui";
 import type {
   TranscriptCommittedToolRow,
-  TranscriptLiveToolRow,
+  TranscriptToolCall,
   TranscriptNonQuestionToolPresentation,
   TranscriptToolSlotItem,
 } from "./toolSlotTypes";
@@ -14,7 +14,7 @@ type ChatToolIdentity = Readonly<{
 }>;
 export type PatchChangesPresentation = Extract<PatchPresentation, Readonly<{ Variant: "changes" }>>;
 export type PatchChangedFile = PatchChangesPresentation["Files"][number];
-type SlotTool = TranscriptLiveToolRow | TranscriptCommittedToolRow["Tool"];
+type SlotTool = TranscriptToolCall | TranscriptCommittedToolRow["Tool"];
 type CommittedTool = TranscriptCommittedToolRow["Tool"];
 type ResolutionContext = Readonly<{
   committed: CommittedTool | undefined;
@@ -65,7 +65,7 @@ export type ToolPresentation =
       body: readonly ToolTextSection[];
       compact: string;
       path: string;
-      outcome: "running" | "failed" | "raster" | "pdf";
+      outcome: "running" | "pending" | "failed" | "raster" | "pdf";
       icon: "image";
       iconTone: TranscriptDisclosureIconTone;
       running: boolean;
@@ -269,7 +269,7 @@ function resolvePatch(
         files: presentation.Files,
         icon: "pen-line",
         iconTone: toolIconTone(context.item, context.meta),
-        running: context.item.kind === "live",
+        running: toolIsRunning(context.item),
       };
     case "invalid_input":
       return {
@@ -281,7 +281,7 @@ function resolvePatch(
         ),
         icon: "pen-line",
         iconTone: toolIconTone(context.item, context.meta),
-        running: context.item.kind === "live",
+        running: toolIsRunning(context.item),
       };
   }
 }
@@ -294,7 +294,7 @@ function invalidPatchInputDetail(input: string, diagnostic: string | undefined):
 }
 
 function resolutionContext(item: TranscriptToolSlotItem): ResolutionContext {
-  const tool = item.kind === "live" ? item.tool : item.row.Tool;
+  const tool = item.kind === "call" ? item.tool : item.row.Tool;
   const meta = tool.Presentation;
   const committed = item.kind === "committed" ? item.row.Tool : undefined;
   return {
@@ -319,7 +319,7 @@ function resolveWebSearch(
     failure: context.committed?.IsError ? context.output : undefined,
     icon: "globe",
     iconTone: toolIconTone(context.item, context.meta),
-    running: context.item.kind === "live",
+    running: toolIsRunning(context.item),
   };
 }
 
@@ -341,14 +341,14 @@ function resolveViewImage(
     outcome,
     icon: "image",
     iconTone: toolIconTone(context.item, context.meta),
-    running: context.item.kind === "live",
+    running: toolIsRunning(context.item),
   };
 }
 
 function viewImageOutcome(
   context: ResolutionContext,
 ): Extract<ToolPresentation, { kind: "view-image" }>["outcome"] {
-  if (context.item.kind === "live") return "running";
+  if (context.item.kind === "call") return toolIsRunning(context.item) ? "running" : "pending";
   if (context.item.row.Tool.IsError) return "failed";
   return context.item.row.Tool.ViewedImageKind === "pdf" ? "pdf" : "raster";
 }
@@ -363,7 +363,7 @@ function resolveShellInput(
     copyPayload: buildToolCopyPayload("output-only", undefined, context.committed?.Text),
     icon: "terminal",
     iconTone: toolIconTone(context.item, context.meta),
-    running: context.item.kind === "live",
+    running: toolIsRunning(context.item),
     status: meaningful(context.meta?.InlineMeta),
   };
 }
@@ -387,7 +387,7 @@ function resolveShellCommand(
     iconTone: toolIconTone(context.item, context.meta, shellFailed),
     output: context.output,
     outputLanguage: sourceResultLanguage(context.meta),
-    running: context.item.kind === "live",
+    running: toolIsRunning(context.item),
     status: shellStatus(command ?? undefined, context.meta, strings),
   };
 }
@@ -405,7 +405,7 @@ function resolveGeneric(
     copyPayload: buildToolCopyPayload("input-output", context.input, context.committed?.Text),
     icon: context.tool.ToolName === "trigger_handoff" ? "broom-sparkles" : "wrench",
     iconTone: toolIconTone(context.item, context.meta),
-    running: context.item.kind === "live",
+    running: toolIsRunning(context.item),
     status: genericStatus(context, compactInput, compactResult),
   };
 }
@@ -416,7 +416,7 @@ function genericStatus(
   compactResult: string | undefined,
 ): string | undefined {
   const inlineMeta = meaningful(context.meta?.InlineMeta);
-  if (context.item.kind === "live" || compactInput === undefined) return inlineMeta;
+  if (context.item.kind === "call" || compactInput === undefined) return inlineMeta;
   return compactResult ?? inlineMeta;
 }
 
@@ -498,7 +498,11 @@ function shellCommandLanguage(meta: ToolMeta | null | undefined): string | undef
 }
 
 function sourceResultLanguage(meta: ToolMeta | null | undefined): string | undefined {
-  return meta?.RenderHint?.Kind === "source" ? meaningful(meta.RenderHint.Path) : undefined;
+  return meta?.RenderHint?.Kind === "source" ? meta.RenderHint.Path : undefined;
+}
+
+function toolIsRunning(item: TranscriptToolSlotItem): boolean {
+  return item.kind === "call" && item.activity === "active";
 }
 
 function toolIconTone(
@@ -506,7 +510,7 @@ function toolIconTone(
   meta: ToolMeta | null | undefined,
   shellFailed = false,
 ): TranscriptDisclosureIconTone {
-  if (item.kind === "live") return "neutral";
+  if (item.kind === "call") return "neutral";
   if (item.row.Tool.IsError || shellFailed) return "error";
   if (meta?.MovedToBackground === true) return "neutral";
   if (meta?.RawOutputRequested === true) return "warning";

@@ -6,7 +6,7 @@ import { useChatComposer, target } from "./chatComposerTestFixture";
 import { installChatStorageFixture } from "./chatStorageFixture";
 import { createNameCommand } from "./nameCommand";
 import { deferred } from "@/test-support/chat-runtime";
-import { ChatOperationError, RpcError } from "@/api";
+import { ChatOperationError, pendingWorkItemIDFromProto, RpcError } from "@/api";
 
 let restoreStorage: (() => void) | undefined;
 beforeEach(() => {
@@ -15,6 +15,46 @@ beforeEach(() => {
 afterEach(() => {
   restoreStorage?.();
   restoreStorage = undefined;
+});
+
+it("keeps repeated compactions distinct and restores only the discarded canonical command", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "draft", protectedInput: null });
+  const first = pendingWorkItemIDFromProto("79f762c8-0998-402a-bc80-6b42f3e241ed");
+  const second = pendingWorkItemIDFromProto("99f762c8-0998-402a-bc80-6b42f3e241ed");
+  const items = [first, second].map((id) => ({
+    id,
+    kind: "manual_compaction" as const,
+    state: "pending" as const,
+    lane: "steer" as const,
+    canonicalInput: "/compact",
+    manualCompaction: { guidance: null },
+  }));
+  const read = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items });
+  vi.spyOn(services.api.chat, "stop").mockResolvedValue("stopped");
+  const remove = vi.spyOn(services.api.chat, "removePendingWork").mockImplementation(async () => {
+    read.mockResolvedValue({ items: items.slice(1) });
+    return { kind: "manual_compaction", canonicalInput: "/compact" };
+  });
+  const { result } = renderHook(() => useChatComposer({ ...target }), {
+    wrapper: composerWrapper(services),
+  });
+  await waitFor(() => {
+    expect(result.current.pending.query.data?.items).toHaveLength(2);
+  });
+  await act(async () => {
+    result.current.pending.stop();
+  });
+  expect(result.current.pending.query.data?.items).toEqual(items);
+  expect(result.current.text).toBe("draft");
+  await act(async () => {
+    result.current.pending.discard(first);
+  });
+  await waitFor(() => {
+    expect(result.current.pending.query.data?.items).toEqual(items.slice(1));
+  });
+  expect(remove).toHaveBeenCalledWith(target, first);
+  expect(result.current.text).toBe("draft\n/compact");
 });
 
 it("restores a failed name command after new typing without model delivery", async () => {

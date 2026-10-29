@@ -17,6 +17,7 @@ import (
 
 	"core/shared/config"
 	"core/shared/textutil"
+	"github.com/coder/websocket"
 )
 
 type staticAuthHeader struct{}
@@ -82,7 +83,7 @@ func (r readErrorAtEOF) Read(p []byte) (int, error) {
 
 func newResponsesClientWithBodies(t *testing.T, bodies ...io.ReadCloser) (*ResponsesClient, *atomic.Int32) {
 	t.Helper()
-	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://compatible.example/v1")}))
 	connectionID := config.ConnectionID("responses-test")
 	transport.ConnectionID = &connectionID
 	var requestCount atomic.Int32
@@ -109,6 +110,34 @@ const incompleteResponsesTestStream = `data: {"type":"response.created","respons
 
 func incompleteResponsesBody() io.ReadCloser {
 	return io.NopCloser(strings.NewReader(incompleteResponsesTestStream))
+}
+
+func newPrematureSocketClient(t *testing.T, recover bool) (*ResponsesClient, *atomic.Int32) {
+	t.Helper()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		if requests.Add(1) > 1 && recover {
+			_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"recovered","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"recovered"}]}]}}`))
+			_, _, _ = socket.Read(t.Context())
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.created","response":{"id":"partial","output":[]}}`))
+		_ = socket.Close(websocket.StatusNormalClosure, "")
+	}))
+	t.Cleanup(server.Close)
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+	transport.ConnectionID = textutil.Value(config.ConnectionID("responses-test"))
+	return NewResponsesClient(transport, nil), &requests
 }
 
 func responsesBodyEndingWithError(err error) io.ReadCloser {
@@ -149,8 +178,7 @@ func requireResponsesRetryExhaustion(t *testing.T, client *ResponsesClient, requ
 		t.Fatalf("generation error = %T, want ProviderAPIError", err)
 	}
 	if providerErr.Err == nil ||
-		providerErr.ProviderID != "openai" ||
-		providerErr.StatusCode != http.StatusOK ||
+		providerErr.ProviderID != "openai-compatible" || !HasHTTPStatus(providerErr, http.StatusOK) ||
 		providerErr.Code != UnifiedErrorCodeUnknown {
 		t.Fatalf("final provider error = %+v, want retained OpenAI HTTP 200 unknown error cause", providerErr)
 	}
@@ -403,7 +431,7 @@ func TestGenerate_MapsResponseIncompleteEventToProviderAPIError(t *testing.T) {
 	if providerErr.ProviderParam != "response.incomplete_details.reason" {
 		t.Fatalf("provider param = %q, want response.incomplete_details.reason", providerErr.ProviderParam)
 	}
-	if providerErr.StatusCode != http.StatusOK {
+	if !HasHTTPStatus(providerErr, http.StatusOK) {
 		t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
 	}
 	if !IsNonRetriableModelError(err) {
@@ -430,7 +458,7 @@ func TestGenerate_MapsResponseIncompleteWithoutReasonToProviderContractError(t *
 	if providerErr.Code != UnifiedErrorCodeProviderContract {
 		t.Fatalf("provider code = %q, want %q", providerErr.Code, UnifiedErrorCodeProviderContract)
 	}
-	if providerErr.StatusCode != http.StatusOK {
+	if !HasHTTPStatus(providerErr, http.StatusOK) {
 		t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
 	}
 }
@@ -465,7 +493,7 @@ func TestGenerate_RejectsCompletedEventWithoutResponsePayload(t *testing.T) {
 			if providerErr.Code != UnifiedErrorCodeProviderContract {
 				t.Fatalf("provider code = %q, want %q", providerErr.Code, UnifiedErrorCodeProviderContract)
 			}
-			if providerErr.StatusCode != http.StatusOK {
+			if !HasHTTPStatus(providerErr, http.StatusOK) {
 				t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
 			}
 		})
@@ -569,10 +597,7 @@ func TestGenerateWithRetryRetriesWrappedEOFBeforeResponseCompletion(t *testing.T
 }
 
 func TestGenerateWithRetryRetriesNormallyClosedStreamBeforeResponseCompletion(t *testing.T) {
-	client, requestCount := newResponsesClientWithBodies(t,
-		incompleteResponsesBody(),
-		completedResponsesBody(),
-	)
+	client, requestCount := newPrematureSocketClient(t, true)
 	response, err := generateWithResponsesClientRetry(context.Background(), client, GenerationRetrySchedule{Failures: []time.Duration{0}})
 	if err != nil {
 		t.Fatalf("generation after normal stream close: %v", err)
@@ -600,12 +625,15 @@ func TestGenerateWithRetryExhaustsUnexpectedEOFsAfterRetryBudget(t *testing.T) {
 
 func TestGenerateWithRetryExhaustsNormallyClosedStreamsAfterRetryBudget(t *testing.T) {
 	schedule := GenerationRetrySchedule{Failures: []time.Duration{0, 0}}
-	client, requestCount := newResponsesClientWithBodies(t,
-		incompleteResponsesBody(),
-		incompleteResponsesBody(),
-		incompleteResponsesBody(),
-	)
-	requireResponsesRetryExhaustion(t, client, requestCount, schedule)
+	client, requestCount := newPrematureSocketClient(t, false)
+	_, err := generateWithResponsesClientRetry(t.Context(), client, schedule)
+	var providerErr *ProviderAPIError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != nil || providerErr.Code != UnifiedErrorCodeUnknown || providerErr.Err == nil {
+		t.Fatalf("premature socket termination error=%v", err)
+	}
+	if requestCount.Load() != 3 {
+		t.Fatalf("fresh socket attempts=%d", requestCount.Load())
+	}
 }
 
 func TestGenerateWithRetryCancellationStopsPrematureStreamRetry(t *testing.T) {
@@ -723,7 +751,7 @@ func TestGenerate_PreservesWhitespaceOnlyFunctionArgumentDelta(t *testing.T) {
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, inputPrefix),
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, " "),
 		fmt.Sprintf(`{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":%q}`, inputSuffix),
-		`{"type":"response.completed","response":{"output":[]}}`,
+		fmt.Sprintf(`{"type":"response.completed","response":{"output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"write_stdin","arguments":%q}]}}`, inputPrefix+" "+inputSuffix),
 		`[DONE]`,
 	)
 
@@ -885,7 +913,7 @@ func TestGenerate_OmitsNonFinalEmptyAssistantContentBeforeToolCall(t *testing.T)
 func TestGenerate_UsesFinalizedOutputTextWhenProviderOmitsDeltas(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":"Compaction summary"}`,
-		`{"type":"response.completed","response":{"output":[]}}`,
+		`{"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Compaction summary"}]}]}}`,
 		`[DONE]`,
 	)
 
@@ -903,13 +931,13 @@ func TestGenerate_UsesFinalizedOutputTextWhenProviderOmitsDeltas(t *testing.T) {
 
 func TestGenerate_DeliversTrailingWhitespaceBeforeToolCallWithoutBuffering(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
-		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[]}}`,
-		`{"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"I will run it.\n\n"}`,
-		`{"type":"response.output_item.done","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will run it.\n\n"}]}}`,
-		`{"type":"response.output_item.added","output_index":2,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":""}}`,
-		`{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":2,"delta":"{\"command\":\"pwd\"}"}`,
-		`{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":2,"arguments":"{\"command\":\"pwd\"}"}`,
-		`{"type":"response.output_item.done","output_index":2,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":\"pwd\"}"}}`,
+		`{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[]}}`,
+		`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"I will run it.\n\n"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will run it.\n\n"}]}}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":""}}`,
+		`{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":1,"delta":"{\"command\":\"pwd\"}"}`,
+		`{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"command\":\"pwd\"}"}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":\"pwd\"}"}}`,
 		`{"type":"response.completed","response":{"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I will run it."}]},{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":\"pwd\"}"}]}}`,
 		`[DONE]`,
 	)
@@ -1126,10 +1154,10 @@ func TestGenerate_MapsProviderOverloadCodeWithoutMessageMatching(t *testing.T) {
 	if err == nil || !errors.As(err, &providerErr) {
 		t.Fatalf("expected ProviderAPIError, got %T", err)
 	}
-	if providerErr.Code != UnifiedErrorCodeProviderOverload || providerErr.ProviderCode != "server_is_overloaded" || providerErr.StatusCode != http.StatusOK {
+	if providerErr.Code != UnifiedErrorCodeProviderOverload || providerErr.ProviderCode != "server_is_overloaded" || !HasHTTPStatus(providerErr, http.StatusOK) {
 		t.Fatalf("unexpected provider overload: %+v", providerErr)
 	}
-	if got := classifyOpenAIUnifiedErrorCode(http.StatusUnauthorized, "server_is_overloaded", ""); got != UnifiedErrorCodeAuthentication || classifyOpenAIUnifiedErrorCode(http.StatusOK, "SERVER_IS_OVERLOADED", "") != UnifiedErrorCodeUnknown {
+	if got := classifyOpenAIUnifiedErrorCode(textutil.Value(http.StatusUnauthorized), "server_is_overloaded", ""); got != UnifiedErrorCodeAuthentication || classifyOpenAIUnifiedErrorCode(textutil.Value(http.StatusOK), "SERVER_IS_OVERLOADED", "") != UnifiedErrorCodeUnknown {
 		t.Fatalf("terminal HTTP status classification = %q, want %q", got, UnifiedErrorCodeAuthentication)
 	}
 }
@@ -1209,38 +1237,6 @@ func TestGenerate_ParsesCustomPatchToolCall(t *testing.T) {
 	}
 	if resp.OutputItems[0].ID == nil || *resp.OutputItems[0].ID != "ct_1" || resp.OutputItems[0].CallID == nil || *resp.OutputItems[0].CallID != "call_1" {
 		t.Fatalf("provider item and call identities were not preserved: %+v", resp.OutputItems[0])
-	}
-}
-
-func TestStreamFallbackCustomPatchToolCallDoesNotInventProviderItemID(t *testing.T) {
-	output := buildOutputItemsFromStream(nil, false, "", []ToolCall{{ID: "call_1", Name: "patch", Custom: true, CustomInput: textutil.Value("patch input")}}, nil, nil)
-	if len(output) != 1 || output[0].Type != ResponseItemTypeCustomToolCall {
-		t.Fatalf("missing custom tool call: %+v", output)
-	}
-	prepared := PrepareResponsesInputItems(output)
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(prepared[0].Raw, &raw); err != nil {
-		t.Fatalf("decode prepared call: %v", err)
-	}
-	if _, hasID := raw["id"]; hasID {
-		t.Fatalf("stream fallback invented a provider item ID: %s", prepared[0].Raw)
-	}
-	if string(raw["call_id"]) != `"call_1"` {
-		t.Fatalf("stream fallback lost call_id: %s", prepared[0].Raw)
-	}
-}
-
-func TestToolCallAccumulatorMergesCompletedCustomInputWithoutJSONInput(t *testing.T) {
-	accumulator := newToolCallAccumulator()
-	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("partial")}})
-	accumulator.Merge([]ToolCall{{ID: "call-1", Name: "patch", Custom: true, CustomInput: textutil.Value("complete")}})
-
-	calls := accumulator.ToToolCalls(openAIResponsesPolicy{})
-	if len(calls) != 1 {
-		t.Fatalf("expected one call, got %+v", calls)
-	}
-	if !calls[0].Custom || calls[0].CustomInput == nil || *calls[0].CustomInput != "complete" {
-		t.Fatalf("expected completed custom input to replace partial input, got %+v", calls[0])
 	}
 }
 
@@ -1446,16 +1442,6 @@ func TestGenerate_RejectsEmptyCompletedMessageAfterAssistantDeltas(t *testing.T)
 	}
 }
 
-func TestBuildOutputItemsFromStreamPreservesAbsentPhase(t *testing.T) {
-	items := buildOutputItemsFromStream(textutil.Value("streamed text"), true, "", nil, nil, nil)
-	if len(items) != 1 {
-		t.Fatalf("output items = %+v, want one assistant message", items)
-	}
-	if items[0].Phase != nil {
-		t.Fatalf("assistant output phase = %v, want absent", items[0].Phase)
-	}
-}
-
 func TestGenerate_PreservesAssistantOutputItemPhaseWhenCompletedPhaseIsMissing(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
@@ -1574,7 +1560,7 @@ func TestGenerate_PreservesHostedWebSearchOutputItemFromStream(t *testing.T) {
 		`{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"in_progress","results":null,"action":{"type":"search","query":"kent cli"}}}`,
 		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli","queries":["kent cli","kent docs"],"sources":[{"type":"url","url":"https://kent.sh"}]},"results":[{"type":"text_result","title":"Kent","url":"https://kent.sh","snippet":"excluded snippet"}],"usage":{"searches":1}}}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
-		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[]}}`,
+		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5},"output":[{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"kent cli","queries":["kent cli","kent docs"],"sources":[{"type":"url","url":"https://kent.sh"}]},"results":[{"type":"text_result","title":"Kent","url":"https://kent.sh","snippet":"excluded snippet"}],"usage":{"searches":1}},{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
 		`[DONE]`,
 	)
 

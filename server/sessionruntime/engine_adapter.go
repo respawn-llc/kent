@@ -7,13 +7,13 @@ import (
 	"os"
 	"strings"
 
-	"core/server/auth"
+	"core/server/agentruntime"
+	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/runlog"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
@@ -246,9 +246,9 @@ func (a *Authority) buildAgentResource(
 		state:              AgentResourceBuilding,
 		store:              store,
 	}
-	logger, err := runlog.NewRunLogger(store.Dir(), func(diag runlog.RunLoggerDiagnostic) {
+	logger, err := runlog.NewRunLogger(store.Dir(), func(message string) {
 		if plan.options.OnLoggingFailure != nil {
-			plan.options.OnLoggingFailure(diag.Message)
+			plan.options.OnLoggingFailure(message)
 		}
 	})
 	if err != nil {

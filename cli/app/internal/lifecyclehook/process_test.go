@@ -3,57 +3,81 @@ package lifecyclehook
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"os"
 	"testing"
-	"time"
 
 	"core/shared/lifecyclecontract"
 )
 
-const (
-	invokeHookProcessModeEnv    = "KENT_TEST_LIFECYCLE_HOOK_PROCESS_MODE"
-	invokeHookProcessStartedEnv = "KENT_TEST_LIFECYCLE_HOOK_PROCESS_STARTED"
-	invokeHookProcessReleaseEnv = "KENT_TEST_LIFECYCLE_HOOK_PROCESS_RELEASE"
-	invokeHookProcessModeBlock  = "block"
-	invokeHookTestDeadline      = time.Second
-)
+const invokeHookProcessAddressEnv = "KENT_TEST_LIFECYCLE_HOOK_PROCESS_ADDRESS"
+
+// A deadline signal supplied by the test makes expiry deterministic without
+// waiting for a wall-clock deadline or changing the hook's production budget.
+type hookDeadlineContext struct {
+	context.Context
+	done <-chan struct{}
+}
+
+func (c hookDeadlineContext) Done() <-chan struct{} { return c.done }
+
+func (c hookDeadlineContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
 
 func TestInvokeHookReportsTypedTimeoutAfterTerminatingLiveProcess(t *testing.T) {
-	startedPath := t.TempDir() + "/started"
-	releasePath := t.TempDir() + "/release"
-	t.Setenv(invokeHookProcessModeEnv, invokeHookProcessModeBlock)
-	t.Setenv(invokeHookProcessStartedEnv, startedPath)
-	t.Setenv(invokeHookProcessReleaseEnv, releasePath)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for blocking hook: %v", err)
+	}
 	t.Cleanup(func() {
-		if err := os.WriteFile(releasePath, []byte("release"), 0o600); err != nil {
-			t.Errorf("release blocking lifecycle hook: %v", err)
+		if err := listener.Close(); err != nil {
+			t.Errorf("close hook listener: %v", err)
+		}
+	})
+	t.Setenv(invokeHookProcessAddressEnv, listener.Addr().String())
+	done := make(chan struct{})
+	cancel := context.CancelFunc(func() { close(done) })
+	parent := hookDeadlineContext{Context: context.Background(), done: done}
+	issues := make(chan *Issue, 1)
+	go func() {
+		issues <- invokeHook(parent, []string{
+			os.Args[0], "-test.run=^TestInvokeHookBlockingProcess$",
+		}, lifecyclecontract.Event{Category: lifecyclecontract.CategorySessionStart})
+	}()
+	reaped := false
+	t.Cleanup(func() {
+		if !reaped {
+			cancel()
+			<-issues
 		}
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), invokeHookTestDeadline)
-	defer cancel()
-
-	issues := make(chan *Issue, 1)
-	go func() {
-		issues <- invokeHook(ctx, []string{
-			os.Args[0],
-			"-test.run=^TestInvokeHookBlockingProcess$",
-		}, lifecyclecontract.Event{
-			Category: lifecyclecontract.CategorySessionStart,
-		})
-	}()
-
-	var issue *Issue
-	select {
-	case issue = <-issues:
-	case <-time.After(2 * invokeHookTestDeadline):
-		t.Fatal("live lifecycle hook did not stop at its deadline")
+	conn, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("accept blocking hook: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close blocking hook connection: %v", err)
+		}
+	})
+	var ready [1]byte
+	if _, err := io.ReadFull(conn, ready[:]); err != nil {
+		t.Fatalf("wait for hook readiness: %v", err)
+	}
+	cancel()
+	// invokeHook returns only after exec.Cmd.Run has reaped the child.
+	issue := <-issues
+	reaped = true
 	if issue == nil {
 		t.Fatal("timed-out lifecycle hook produced no issue")
-	}
-	if _, err := os.Stat(startedPath); err != nil {
-		t.Fatalf("blocking lifecycle hook did not start: %v", err)
 	}
 	process, ok := issue.Detail.(ProcessIssue)
 	if !ok {
@@ -69,20 +93,19 @@ func TestInvokeHookReportsTypedTimeoutAfterTerminatingLiveProcess(t *testing.T) 
 }
 
 func TestInvokeHookBlockingProcess(t *testing.T) {
-	if os.Getenv(invokeHookProcessModeEnv) != invokeHookProcessModeBlock {
+	address := os.Getenv(invokeHookProcessAddressEnv)
+	if address == "" {
 		return
 	}
-	startedPath := os.Getenv(invokeHookProcessStartedEnv)
-	releasePath := os.Getenv(invokeHookProcessReleaseEnv)
-	if err := os.WriteFile(startedPath, []byte("started"), 0o600); err != nil {
-		t.Fatalf("record blocking lifecycle hook start: %v", err)
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatalf("connect blocking hook: %v", err)
 	}
-	for {
-		if _, err := os.Stat(releasePath); err == nil {
-			return
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("check blocking lifecycle hook release: %v", err)
-		}
-		time.Sleep(time.Millisecond)
+	defer conn.Close()
+	if _, err := conn.Write([]byte{1}); err != nil {
+		t.Fatalf("signal blocking hook readiness: %v", err)
+	}
+	if _, err := io.Copy(io.Discard, conn); err != nil {
+		t.Fatalf("wait for hook release: %v", err)
 	}
 }

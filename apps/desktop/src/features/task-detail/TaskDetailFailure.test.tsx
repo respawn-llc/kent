@@ -34,7 +34,7 @@ it("replaces the page on attention failure and preserves its unsaved draft throu
       }),
     ],
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const title = await screen.findByRole("textbox", { name: appI18n.t("task.name") });
   await user.clear(title);
   await user.type(title, "Unsaved title");

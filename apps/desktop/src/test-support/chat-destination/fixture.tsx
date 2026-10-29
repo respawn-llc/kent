@@ -1,3 +1,4 @@
+import { transcriptSource, type ChatTranscriptHandler } from "@/test-support/chat-runtime";
 import { render } from "@testing-library/react";
 import { vi } from "bun:test";
 import { MotionConfig } from "motion/react";
@@ -22,7 +23,7 @@ import {
 } from "@/app-facade";
 import { createTestSidebarController, createTestSidebarShell } from "@/test-support/sidebar";
 import { ChatDestination, type ChatDestinationOpening } from "@/features/chat";
-import type { ChatTranscriptHandler, PromptAnswerBatchResponse } from "@/api";
+import type { PromptAnswerBatchResponse } from "@/api";
 
 const opening = {
   kind: "new_chat",
@@ -134,7 +135,7 @@ function renderDestination(
     </RouterContextProvider>,
     { reactStrictMode: true },
   );
-  return { unmount: view.unmount, router };
+  return { unmount: view.unmount, container: view.container, router };
 }
 
 function sessionWithPrompts(
@@ -151,10 +152,12 @@ function sessionWithPrompts(
   vi.spyOn(services.api.chat, "getTranscriptPage").mockResolvedValue(transcriptPage(null));
   const pending = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items: [] });
   const handlers: ChatTranscriptHandler[] = [];
-  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation((_target, handler) => {
-    handlers.push(handler);
-    return { close: vi.fn() };
-  });
+  vi.spyOn(services.api.chat, "subscribeTranscript").mockImplementation(() =>
+    transcriptSource((handler) => {
+      handlers.push(handler);
+      return { close: vi.fn() };
+    }),
+  );
   const response = deferred<PromptAnswerBatchResponse>();
   const answer = vi.spyOn(services.api.chat, "answerPromptBatch").mockReturnValue(response.promise);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

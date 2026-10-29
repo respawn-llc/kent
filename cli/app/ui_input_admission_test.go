@@ -11,6 +11,7 @@ import (
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 
@@ -59,20 +60,65 @@ func TestInputShortcutsSelectServerAdmissionIntent(t *testing.T) {
 	}
 }
 
+func TestNewSessionInputShortcutsAdoptAcceptedSession(t *testing.T) {
+	for _, key := range []struct {
+		name  string
+		msg   tea.Msg
+		queue bool
+	}{
+		{"Enter", tea.KeyMsg{Type: tea.KeyEnter}, false},
+		{"Tab", tea.KeyMsg{Type: tea.KeyTab}, true},
+		{"CtrlEnter", customKeyMsg{Kind: customKeyCtrlEnter}, true},
+	} {
+		for _, text := range []string{"ordinary input", "/prompt:check arguments", "$echo ready"} {
+			t.Run(key.name+"/"+text, func(t *testing.T) {
+				model := newProjectedTestUIModel(nil,
+					WithUIPromptCommandCatalogEntries([]commands.PromptCommandCatalogEntry{{Name: "prompt:check"}}))
+				model.presentationTarget = &uiNewSessionTarget{
+					creation: &chatpb.NewChatTarget{}, settingsLoad: uiNewSettingsReady{},
+				}
+				id := runtimeids.NewSessionID().String()
+				service := &shellPreparationClient{selectedSessionID: &id}
+				model.chatMutations = service
+				model.commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(model.promptCatalogEntries)
+				testSetMainInput(model, text)
+				_, command := model.Update(key.msg)
+				for _, message := range collectCmdMessages(t, command) {
+					if done, ok := message.(newSessionActionDoneMsg); ok {
+						model.Update(done)
+					}
+				}
+				if key.queue && (len(service.queues) != 1 || len(service.inputs) != 0) ||
+					!key.queue && (len(service.inputs) != 1 || len(service.queues) != 0) {
+					t.Fatal("first input used the wrong admission operation")
+				}
+				if model.currentRuntimeSessionID() != id || model.newSessionTarget() != nil || len(model.injectedQueue) != 0 {
+					t.Fatal("first input did not adopt the created Session")
+				}
+			})
+		}
+	}
+}
+
 type inputAdmissionTestClient struct {
 	runtimeControlFakeClient
 	rejections map[runtimeids.QueueItemID]error
 }
 
-func (c *inputAdmissionTestClient) SubmitRuntimeInput(_ context.Context, request clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
-	c.submitCalls++
-	if err := c.rejections[request.QueueItemID]; err != nil {
-		return clientui.UserTurnSubmission{}, err
+func (c *inputAdmissionTestClient) Steer(ctx context.Context, request *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error) {
+	id, err := runtimeids.QueueItemIDFromProto(request.QueueItemId)
+	if err != nil {
+		return nil, err
 	}
-	return clientui.UserTurnSubmission{
-		ResultKind: clientui.UserTurnResultKindQueued,
-		Queued:     clientui.QueuedUserMessage{ID: request.QueueItemID.String(), Text: runtimeSubmitInputText(request)},
-	}, nil
+	if err := c.rejections[id]; err != nil {
+		c.submitCalls++
+		return nil, err
+	}
+	return c.runtimeControlFakeClient.Steer(ctx, request)
+}
+
+func (c *inputAdmissionTestClient) Queue(ctx context.Context, request *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error) {
+	return c.Steer(ctx, &chatpb.SteerRequest{Target: request.Target, Activation: request.Activation, QueueItemId: request.QueueItemId})
 }
 
 func TestInputAdmissionsSettleIndependently(t *testing.T) {
@@ -209,8 +255,8 @@ func TestQueueShortcutKeepsCompactionOnDedicatedOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if client.submitCalls != 0 || len(model.injectedQueue) != 0 ||
-		client.compactRequest.Admission.CanonicalInput() != "/compact keep details" {
-		t.Fatalf("Queue direct operation: input calls=%d pending=%d compaction=%+v draft=%q", client.submitCalls, len(model.injectedQueue), client.compactRequest, model.mainEditor.Text())
+		client.compactGuidance == nil || *client.compactGuidance != "keep details" {
+		t.Fatalf("Queue direct operation: input calls=%d pending=%d compaction=%+v draft=%q", client.submitCalls, len(model.injectedQueue), client.compactGuidance, model.mainEditor.Text())
 	}
 }
 

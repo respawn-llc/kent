@@ -117,9 +117,6 @@ message SessionNamingFailure {
   optional int64 short_id = 4 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
-// A one-shot completed assistant-final turn, not pending attention. It is
-// ephemeral: subscribers receive neither replay nor delivery acknowledgments.
-// Clients render the content and use Session identity for navigation.
 message SessionTurnEnd {
   string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string session_id = 2 [

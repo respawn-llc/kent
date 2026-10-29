@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -124,11 +124,6 @@ func TestServiceTranscriptReadsHonorCanceledContext(t *testing.T) {
 				t.Fatalf("error = %v, want context canceled", err)
 			}
 		})
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := service.SessionTranscriptTailEntries(ctx, store.Meta().SessionID); !errors.Is(err, context.Canceled) {
-		t.Fatalf("tail error = %v, want context canceled", err)
 	}
 }
 

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	testharness "core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
 	"core/server/llm"
-	"core/server/runtime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
@@ -364,13 +364,6 @@ func nextRegistryAttentionEvent[T any](t *testing.T, sub interface {
 	return event
 }
 
-func shortRegistryContext(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	t.Cleanup(cancel)
-	return ctx
-}
-
 func resolvedQuestionIDMatches(event *taskpb.AttentionNotificationEvent, id string) bool {
 	return event.GetResolved().GetId().GetKind() == taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION &&
 		event.GetResolved().GetId().GetUuid() == id
@@ -379,6 +372,13 @@ func resolvedQuestionIDMatches(event *taskpb.AttentionNotificationEvent, id stri
 func registryTestWorkflowID() *runtimeids.WorkflowID {
 	workflowID := testharness.WorkflowIDValue("registry-workflow-task")
 	return &workflowID
+}
+
+func shortRegistryContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	t.Cleanup(cancel)
+	return ctx
 }
 
 func taskBatchAskRequest(id string) askquestion.AskQuestionRequest {

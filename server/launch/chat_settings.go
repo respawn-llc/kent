@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/serverapi"
@@ -25,7 +25,9 @@ type PreparedChatSettings struct {
 }
 
 type PreparedChatAgentCatalogEntry struct {
+	Defaults             PreparedBaseTarget
 	ConnectionID         *config.ConnectionID
+	ConnectionSelection  *config.ConnectionSelection
 	Choice               *chatsettingspb.AgentChoice
 	Settings             *PreparedChatSettings
 	SelectionError       error
@@ -44,24 +46,25 @@ type PreparedChatAgentCatalog struct {
 func PrepareChatAgentCatalog(
 	app config.App,
 	skipProviderReadinessValidation bool,
+	invocation serverapi.RunPromptOverrides,
 ) (PreparedChatAgentCatalog, error) {
 	return prepareChatAgentCatalog(context.Background(), app, RunPromptPreparationContext{
 		Mode:                            ModeInteractive,
 		SkipProviderReadinessValidation: skipProviderReadinessValidation,
-	})
+	}, invocation)
 
 }
 
 func PrepareChatAgentSelection(ctx context.Context, app config.App, selector string, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalogEntry, error) {
 	return prepareChatAgentEntry(ctx, app, selector, RunPromptPreparationContext{
 		Mode: defaultAgentMode(meta), Rotation: rotation, AllocateConnection: true,
-	}, false)
+	}, false, serverapi.RunPromptOverrides{})
 }
 
 func RevalidateChatAgentSelection(app config.App, selector string, meta session.Meta, connection config.ConnectionID) (PreparedChatAgentCatalogEntry, error) {
 	return prepareChatAgentEntry(context.Background(), app, selector, RunPromptPreparationContext{
 		Mode: defaultAgentMode(meta), RetainedConnectionSelection: &connection,
-	}, false)
+	}, false, serverapi.RunPromptOverrides{})
 }
 
 func PrepareSessionChatAgentCatalog(ctx context.Context, app config.App, meta session.Meta, rotation *ConnectionRotation) (PreparedChatAgentCatalog, error) {
@@ -92,9 +95,21 @@ func defaultAgentMode(meta session.Meta) Mode {
 	return ModeInteractive
 }
 
-func prepareChatAgentCatalog(ctx context.Context, app config.App, preparation RunPromptPreparationContext) (PreparedChatAgentCatalog, error) {
-	return buildChatAgentCatalog(app, nil, func(selector string) (PreparedChatAgentCatalogEntry, error) {
-		return prepareChatAgentEntry(ctx, app, selector, preparation, false)
+func prepareChatAgentCatalog(ctx context.Context, app config.App, preparation RunPromptPreparationContext, invocation serverapi.RunPromptOverrides) (PreparedChatAgentCatalog, error) {
+	selection, err := invocation.AgentRoleOverride()
+	if err != nil {
+		return PreparedChatAgentCatalog{}, err
+	}
+	var selected *string
+	if selection.Present {
+		role := selection.Role
+		if selection.Default {
+			role = config.DefaultSubagentRole
+		}
+		selected = &role
+	}
+	return buildChatAgentCatalog(app, selected, func(selector string) (PreparedChatAgentCatalogEntry, error) {
+		return prepareChatAgentEntry(ctx, app, selector, preparation, false, invocation)
 	})
 }
 
@@ -107,7 +122,7 @@ func prepareChatAgentCatalogForSession(ctx context.Context, app config.App, prep
 			}
 			return chatAgentCatalogEntry(app, selector, currentTarget, capabilities, llm.SupportsFastModeProvider(capabilities))
 		}
-		return prepareChatAgentEntry(ctx, app, selector, preparation, true)
+		return prepareChatAgentEntry(ctx, app, selector, preparation, true, serverapi.RunPromptOverrides{})
 	})
 }
 
@@ -124,6 +139,24 @@ func buildChatAgentCatalog(app config.App, current *string, prepare func(string)
 		entry, err := prepare(selector)
 		if err != nil {
 			return PreparedChatAgentCatalog{}, err
+		}
+		configured := app.Settings
+		if selector != config.DefaultSubagentRole {
+			var err error
+			configured, err = config.OverlaySubagentRoleProviderSettings(app, app.Settings.Subagents[selector])
+			if err != nil {
+				return PreparedChatAgentCatalog{}, err
+			}
+		}
+		members, _, membershipErr := ConnectionMembership(configured)
+		if membershipErr == nil {
+			selection := config.ConnectionSelection(members)
+			entry.ConnectionSelection = &selection
+		} else {
+			var reference *config.ConnectionReferenceError
+			if !errors.As(membershipErr, &reference) {
+				return PreparedChatAgentCatalog{}, membershipErr
+			}
 		}
 		entries = append(entries, entry)
 	}
@@ -159,13 +192,14 @@ func (c PreparedChatAgentCatalog) Lookup(agent string) (PreparedChatAgentCatalog
 	return PreparedChatAgentCatalogEntry{}, false
 }
 
-func prepareChatAgentEntry(ctx context.Context, app config.App, selector string, preparation RunPromptPreparationContext, allowUnavailable bool) (PreparedChatAgentCatalogEntry, error) {
+func prepareChatAgentEntry(ctx context.Context, app config.App, selector string, preparation RunPromptPreparationContext, allowUnavailable bool, invocation serverapi.RunPromptOverrides) (PreparedChatAgentCatalogEntry, error) {
 	fail := func(category serverapi.ChatSettingsAgentPreparationCategory) (PreparedChatAgentCatalogEntry, error) {
 		return PreparedChatAgentCatalogEntry{}, &serverapi.ChatSettingsAgentPreparationError{
 			Agent: selector, Category: category,
 		}
 	}
-	prepared, err := prepareAgent(ctx, app, serverapi.RunPromptOverrides{AgentRole: &selector}, preparation, applyDerivedModelContextBudgetOverrides)
+	invocation.AgentRole = &selector
+	prepared, err := prepareAgent(ctx, app, invocation, preparation, applyDerivedModelContextBudgetOverrides)
 	if err == nil && prepared.Unavailable != nil {
 		if allowUnavailable {
 			return partialChatAgentEntry(app, selector, *prepared.Unavailable), nil
@@ -212,6 +246,7 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 		return PreparedChatAgentCatalogEntry{}, err
 	}
 	entry := PreparedChatAgentCatalogEntry{
+		Defaults:     target,
 		ConnectionID: connection,
 		Choice: &chatsettingspb.AgentChoice{
 			Role:               selector,

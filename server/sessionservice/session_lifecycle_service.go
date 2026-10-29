@@ -6,12 +6,11 @@ import (
 	"errors"
 	"strings"
 
-	"core/server/auth"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/projectview"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -33,7 +32,6 @@ type SessionLifecycleService struct {
 	authority       *sessionruntime.Authority
 	retargeter      sessionWorkspaceRetargeter
 	navigation      sessionNavigationTargetResolver
-	authManager     *auth.Manager
 	metadata        SessionLifecycleMetadata
 	rotation        *launch.ConnectionRotation
 	debug           bool
@@ -56,11 +54,10 @@ type sessionNavigationTargetResolver interface {
 	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error)
 }
 
-func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, authManager *auth.Manager, owner SessionLifecycleMetadata) *SessionLifecycleService {
+func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, owner SessionLifecycleMetadata) *SessionLifecycleService {
 	return &SessionLifecycleService{
 		persistenceRoot: strings.TrimSpace(persistenceRoot),
 		authority:       authority,
-		authManager:     authManager,
 		metadata:        owner,
 	}
 }
@@ -115,9 +112,6 @@ func (s *SessionLifecycleService) resolvePersistedSessionMeta(ctx context.Contex
 }
 
 func (s *SessionLifecycleService) Promote(ctx context.Context, req *sessionlaunchpb.SessionPromoteRequest) (*emptypb.Empty, error) {
-	if err := protoapi.Validate(req); err != nil {
-		return nil, err
-	}
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -188,9 +182,6 @@ func (s *SessionLifecycleService) ResolveTransition(ctx context.Context, req *se
 
 func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req *sessionlaunchpb.SessionResolveTransitionRequest) (*sessionlaunchpb.SessionDirective, error) {
 	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT {
-		if s.authManager == nil {
-			return &sessionlaunchpb.SessionDirective{}, errors.New("auth manager is required for logout")
-		}
 		currentID := req.GetSessionId()
 		if currentID == "" {
 			return &sessionlaunchpb.SessionDirective{Directive: &sessionlaunchpb.SessionDirective_SelectSession{
@@ -213,13 +204,16 @@ func (s *SessionLifecycleService) resolveTransitionOnce(ctx context.Context, req
 		return resolved, err
 	}
 	if req.Transition.Action == sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION {
-		meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
-		if err != nil {
-			return &sessionlaunchpb.SessionDirective{}, err
-		}
 		resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{Transition: sessionTransition{
 			Action: req.Transition.Action, InitialInput: textutil.Pointer(req.Transition.InitialInput), TargetSessionID: req.Transition.GetTargetSessionId(),
 		}})
+		if err != nil {
+			return &sessionlaunchpb.SessionDirective{}, err
+		}
+		if req.SessionId == nil {
+			return s.bindNavigationTransition(ctx, resolved)
+		}
+		meta, err := s.resolvePersistedSessionMeta(ctx, req.GetSessionId())
 		if err != nil {
 			return &sessionlaunchpb.SessionDirective{}, err
 		}
@@ -271,6 +265,14 @@ func (s *SessionLifecycleService) authorizeNavigationTransition(ctx context.Cont
 	authorizedTarget := session.NavigationTargetSessionID(current)
 	if authorizedTarget == nil || *authorizedTarget != requestedTarget {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target does not match current session provenance")
+	}
+	return s.bindNavigationTransition(ctx, resolved)
+}
+
+func (s *SessionLifecycleService) bindNavigationTransition(ctx context.Context, resolved *sessionlaunchpb.SessionDirective) (*sessionlaunchpb.SessionDirective, error) {
+	requestedTarget, err := runtimeids.ParseSessionID(resolved.GetLaunch().GetIntent().GetOpenExistingSessionId())
+	if err != nil {
+		return nil, err
 	}
 	if s == nil || s.navigation == nil {
 		return &sessionlaunchpb.SessionDirective{}, errors.New("session navigation target resolver is required")

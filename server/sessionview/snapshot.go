@@ -5,11 +5,11 @@ import (
 	"errors"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/goalview"
 	"core/server/metadata"
-	"core/server/runtime"
 	"core/server/runtimeview"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -206,17 +206,6 @@ func (s dormantSessionSnapshot) TranscriptPage(ctx context.Context, req *transcr
 		return nil, err
 	}
 	return resultWithContext(ctx, page)
-}
-
-func (s dormantSessionSnapshot) TranscriptTailEntries(ctx context.Context) ([]runtime.ChatEntry, error) {
-	if s.view == nil {
-		return nil, errors.New("persisted Session view is required")
-	}
-	segment, err := s.newestSegment(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return resultWithContext(ctx, append([]runtime.ChatEntry(nil), segment.Snapshot.Entries...))
 }
 
 func (s dormantSessionSnapshot) newestSegment(ctx context.Context) (runtime.TranscriptSegmentPage, error) {

@@ -119,8 +119,6 @@ function goalSetOperationError(generic: RpcError, failure: ChatWireError): ChatO
         throw new ContractError("Goal Set internal-failure error detail is missing.");
       }
       return new ChatOperationError(generic, detail);
-    case "":
-      throw new ContractError("Chat operation returned an empty error code.");
     default:
       return new ChatOperationError(generic, {
         kind: "unknown",
@@ -135,9 +133,6 @@ function standardChatOperationError(generic: RpcError, failure: ChatWireError): 
   const detail = chatErrorDetailFromWire(failure);
   if (detail !== null) {
     return new ChatOperationError(generic, detail);
-  }
-  if (failure.code.length === 0) {
-    throw new ContractError("Chat operation returned an empty error code.");
   }
   return new ChatOperationError(generic, { kind: "unknown", code: failure.code, knownDetail: null });
 }

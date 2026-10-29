@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "bun:test";
 import { Toaster as SonnerToaster } from "sonner";
 
-import { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "@/ui";
+import { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./markdown";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 
 function taskBodyText(expected: string): HTMLElement {
@@ -243,7 +243,7 @@ describe("Markdown adapters", () => {
   it.each([StaticMarkdown, StreamingMarkdown])(
     "opens Markdown links directly through the native browser-opening action",
     async (Markdown) => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const services = createTestServices([]);
       const open = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
       render(
@@ -264,7 +264,7 @@ describe("Markdown adapters", () => {
   it.each([StaticMarkdown, StreamingMarkdown])(
     "opens middle-clicked Markdown links through the native browser-opening action",
     async (Markdown) => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       const services = createTestServices([]);
       const open = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
       const url = "https://github.com/vercel/streamdown/issues/592";
@@ -280,7 +280,7 @@ describe("Markdown adapters", () => {
   );
 
   it("keeps unfinished streaming links inert until the destination is complete", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const services = createTestServices([]);
     const open = vi.spyOn(services.nativeBridge.links, "openExternal").mockResolvedValue();
     const content = (value: string) => (
@@ -300,7 +300,7 @@ describe("Markdown adapters", () => {
   });
 
   it("reports a failed native browser-opening action through app diagnostics", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const services = createTestServices([]);
     const failure = new Error("Browser opening failed");
     vi.spyOn(services.nativeBridge.links, "openExternal").mockRejectedValue(failure);

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"core/cli/app/internal/runtimeattach"
-	"core/shared/clientui"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 
@@ -23,8 +22,10 @@ func (c uiInputController) startSubmission(text string) tea.Cmd {
 
 func (c uiInputController) startTypedSubmission(text string, input runtimeinput.Input) tea.Cmd {
 	m := c.model
-	if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
-		return disconnectCmd
+	if m.newSessionTarget() == nil {
+		if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, text); blocked {
+			return disconnectCmd
+		}
 	}
 	m.layout().syncViewport()
 	return tea.Batch(m.enqueueInput(text, input, runtimeinput.PendingWorkLaneSteer), m.reconcileSpinnerTicking(false))
@@ -32,6 +33,10 @@ func (c uiInputController) startTypedSubmission(text string, input runtimeinput.
 
 func (c uiInputController) startCompaction(submittedText, args string) tea.Cmd {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		invocation := chatCompactionInvocation(optionalCompactionGuidance(args))
+		return m.newSessionActionCmd(chatCompactionAction{invocation: invocation}, &submittedText)
+	}
 	if m.isCompacting() {
 		return nil
 	}
@@ -49,25 +54,12 @@ func (c uiInputController) compactCmd(
 	guidance *string,
 ) tea.Cmd {
 	m := c.model
-	client := m.runtimeClient()
 	sessionID := m.pendingWorkRefresh.sessionID
+	action := chatCompactionAction{invocation: chatCompactionInvocation(guidance)}
+	execute := m.captureChatAction(action, &submittedText)
 	return func() tea.Msg {
-		if client == nil {
-			return compactDoneMsg{
-				sessionID:     sessionID,
-				submittedText: submittedText,
-				err:           errors.New("runtime engine is not configured"),
-			}
-		}
-		result, err := m.compactRuntimeInput(context.Background(), clientui.RuntimeCompactRequest{
-			Admission: runtimeinput.ManualCompactionAdmission{
-				Guidance: guidance,
-			},
-		})
-		return compactDoneMsg{
-			sessionID: sessionID, submittedText: submittedText,
-			diagnostic: result.Diagnostic, err: err,
-		}
+		result := execute()
+		return compactDoneMsg{sessionID: sessionID, submittedText: submittedText, diagnostic: result.diagnostic, err: result.err}
 	}
 }
 

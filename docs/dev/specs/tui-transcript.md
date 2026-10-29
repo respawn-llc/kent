@@ -15,6 +15,9 @@
 - Main UI startup stays in the normal buffer. Ongoing-mode replay must be visible in terminal scrollback.
 - **Ongoing normal-buffer history is append-only.**
 - **Once a transcript line is emitted into scrollback, it is immutable: no retroactive restyling, no in-place rewrites, no clear-and-replay, and no emitted-history reconciliation.**
+- **Scrollback must be a fire-and-forget, black-box sink. Kent must forget emitted presentation and must not inspect it, track its contents, or coordinate later output against it. Source-backed tracking of an unfinished Streaming Message belongs outside this stateless sink.**
+- **Ongoing Mode must emit eligible content at the first suitable opportunity. Provider output indexes, internal stream organization, response acceptance, and persistence order must not delay otherwise eligible output. Saved conversation order must not determine Scrollback order.**
+- **Emission exclusions must protect coherent, immutable output: unstable Markdown stays mutable, tool rows must not break up an assistant message, and tools requiring animation stay in the Mutable Band. These exclusions must not become general ordering barriers for unrelated ready output.**
 - Compaction appends committed content to the same Session's transcript. It must not rewrite that transcript.
 - Compaction and handoff never truncate user-visible transcript history.
 - A successful compaction commits exactly one ongoing-visible compaction summary.
@@ -32,15 +35,15 @@
 - Scratch rehydration never restarts the TUI process, clears immutable scrollback, compares against emitted lines, or suppresses duplicate-looking output.
 - Live streaming, ordinary committed emission, startup hydration, and Scratch Rehydration emit every user turn, assistant commentary turn, and assistant final turn from its complete source Markdown. These paths never substitute condensed text, a compact label, a line-limited preview, or an ellipsis for that source.
 - Assistant finalization matches the committed entry to its Streaming Message identity and compares only with the active stream source. If committed text extends the streamed source, Ongoing Mode emits only the missing suffix. Any other mismatch without a real connection gap is a developer error.
-- **Pending tool activity lives only in the Mutable Band. It shows a loading spinner until Kent commits the completed tool row to Scrollback.**
+- **Pending tool activity lives only in the Mutable Band. It shows a loading spinner until the tool finishes. Once the tool finishes, Ongoing Mode must emit its completed row at the first opportunity without breaking up an assistant message.**
 - Messages in TUI use icon-like, single-symbol glyphs: `@` for web search, `§` for Reviewer feedback, `⇄` for file edits (edit/patch tools), `$` for shell tool calls including failed shell exits, `⚠` for warnings, `!` for Reviewer errors, other error notices, and default tool errors, `⚙` for Thinking updates, Headless Mode entry/exit, Workflow Mode entry/exit, Worktree Mode entry/exit, and Session rebind notices, `ℹ` for other neutral notices, and `?` for questions.
 - The first immutable row of every user turn uses `❯`. The first immutable row of every final assistant response uses `❮`, including responses entering scrollback through source-backed streaming promotion. Later logical lines begin at column one with no role-prefix padding. Terminal soft wraps reflow naturally. Width-formatted constructs may reserve the first-line prefix width in their layout budget without adding leading padding.
 - **Pending tool-call previews in live region use the same rendering/layout as committed tool-call previews, with no pending-only labels.**
 - A pending Question's live row shows only the Question text without a tool name or prompt kind.
-- **Tool completion appends exactly one final committed line in Kent commit order. Ongoing Mode never changes an earlier tool line.**
+- **Tool completion appends exactly one final committed line. Ongoing Mode must not emit unfinished tool input into Scrollback and append separate completion facts later. Ongoing Mode never changes an earlier tool line.**
 - A pending whole-file deletion keeps its path visible without a removal-count badge while the count is unavailable. In ongoing and detail, a failed whole-file deletion is path-only, while a successful whole-file deletion uses the existing compact removal badge to show its logical removed-line count, including a known count of zero.
 - **A shell invocation that moves to the background renders both its committed tool row and volatile background-activity row with a secondary `$`, faint foreground command, and `· backgrounded` suffix. The command truncates before the suffix so the complete suffix is visible whenever the terminal can fit it. These rows never label the state as `running`.**
-- **Parallel tool calls commit in canonical server order: provider-required order when present, otherwise the Agent Step's stable result order. Execution-completion races do not change that order. Clients consume server emission order and never reorder tool rows.**
+- **Parallel tool calls commit to saved conversation history in canonical server order: provider-required order when present, otherwise the Agent Step's stable result order. Execution-completion races do not change that saved order. Parallel tool rows must enter Scrollback when eligible under the emission exclusions above. Provider-required conversation order and durable result order must not impose additional Scrollback ordering barriers.**
 - **In main-input mode, `Up`/`Down` are reserved for prompt-history recall at whole-buffer boundaries or multiline cursor movement. They do not scroll ongoing transcript.**
 - `PgUp`/`PgDn` also do not scroll ongoing transcript state.
 - **Ongoing mouse capture must be disabled. Native text selection must be available.**
@@ -103,10 +106,11 @@
 
 - One product matrix must define transcript visibility. Kent must not use ad hoc filters.
 - Visibility changes presentation only. It must not change Session history.
-- Outside an active Goal and Workflow Mode, an explicitly present empty or whitespace-only assistant final answer ends work silently. It creates no visible assistant row, completion notification, or terminal bell.
-- A response with omitted assistant final content and actual tool calls executes those calls without a missing-content warning and proceeds.
-- A response with omitted assistant final content and reasoning or nonempty commentary content proceeds without a missing-content warning.
-- A response with omitted assistant final content and no tool calls, reasoning, nonempty commentary content, or final content fails as a provider-contract error.
+- Without a provider turn-completion fact, outside an active Goal and Workflow Mode, an explicitly present empty or whitespace-only assistant final answer ends work silently. It creates no visible assistant row, completion notification, or terminal bell.
+- Outside an active Goal and Workflow Mode, a completed Responses generation must end the turn unless local tool execution, pending input, or an explicit `end_turn: false` requires another Step. Empty output and absent assistant phase must not require another Step. Completion without assistant text must create no visible assistant row, completion notification, or terminal bell.
+- A response with omitted assistant final content and local tool calls must execute those calls without a missing-content warning and proceed.
+- Without a provider turn-completion fact, a response with omitted assistant final content and reasoning or nonempty commentary content proceeds without a missing-content warning.
+- Without a provider turn-completion fact, a response with omitted assistant final content and no tool calls, reasoning, nonempty commentary content, or final content fails as a provider-contract error.
 - During an active Goal or Workflow Mode, a blank final answer follows that mode's ordinary incomplete-output behavior and must not silently stop.
 - Visibility values are `O` full ongoing+detail, `OC` collapsed/short ongoing plus full detail, `D` detail-only, and `X` hidden.
 - Unknown/malformed entries with recoverable text are `O`. Empty unknown/malformed entries are `D` diagnostics.
@@ -227,6 +231,7 @@
 - A mid-turn message becomes durable only when Kent delivers it.
 - The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. Otherwise it exits. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A later Running lifecycle with a different Live Execution's Step ID sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
 - If Interrupt fails, the TUI must refresh authoritative Runtime state and replace its stale activity projection. The refresh must not report idle while the server reports active work.
+- If an independent Runtime state read after accepted Stop fails, the TUI must show the read error and retain its last authoritative activity projection. Existing controls remain unchanged. The failure must not replay Stop or add automatic retries.
 - When a live Runtime projection reports a prompt wait but the corresponding pending prompt is absent, Ongoing Mode requests Scratch Rehydration to recover the authoritative prompt. The execution is interruptible while that projection is being recovered.
 - Interrupt injects detail-only developer-role control message `User interrupted you`.
 - Post-interrupt state returns idle with input ready.

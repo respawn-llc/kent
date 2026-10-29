@@ -367,7 +367,7 @@
 - A Question belongs to its Session. Workflow attention refers to that Question without creating a second Task-owned copy.
 - Workflow Question attention carries Session, Step, and Tool Call ID only in its Question payload. The attention item and its Current Node do not repeat Question Session identity.
 - Live Questions and live Approvals exist only within their Exact Execution Scope. After process death, Kent must not restore them, replay answers, or apply a blocked Workflow effect. The affected Current Node follows ordinary lost-execution interruption behavior.
-- The bounded active Session transcript supplies Question content to read surfaces. An unfinished transcript operation without a matching Exact Execution Scope cannot create a live Question or `waiting_question` Task status.
+- Live pending Questions supply Workflow Question content to read surfaces. An unfinished transcript operation without a matching Exact Execution Scope does not create a live Question or `waiting_question` Task status.
 - A pending Workflow Transition Approval belongs to the current Task and survives restart.
 - Approval is a Transition Branch property.
 - If any branch of a selected Transition requires Approval, the complete Transition waits for one Approval before any target becomes current or begins work.
@@ -541,11 +541,11 @@
 - If startup admission is in progress, an otherwise authorized Task Interrupt waits for that short Workflow decision to finish, then interrupts matching live work if present.
 - A Workflow-completed Agent Step and a finalizing Agent are not interruptible while their Exact Execution Scope exists only for Step closure or retirement.
 - Start and Resume admit selected parallel branches independently. A failed branch must not undo or block a sibling that started successfully.
-- Resume starts a fresh Exact Execution Scope only after the previous scope has fully stopped. Steering must stay within the current scope.
+- Resume must preserve an already-running matching Exact Execution Scope and succeed without restarting it. Resume starts a fresh Exact Execution Scope only after the previous scope has fully stopped. Steering must stay within the current scope.
 - Restart must not restore live Questions, live Approvals, Automatic Intents, or Exact Execution Scopes.
 - Restart must not repair Current Nodes, recover execution, or emit interruption notifications.
 - A Task with executable Current Nodes and no live or queued execution must offer Resume unless a pending Transition Approval owns its next action. The explicit action must include required Execution Target selection.
-- When the operator explicitly resumes a Task, Workflow Execution must verify that its execution is quiescent before reconciling saved executable Current Nodes to interrupted state and continuing Resume. Reconciliation must leave pending Transition Approvals intact and must not emit interruption notifications.
+- When the operator explicitly resumes a Task, Workflow Execution must reconcile only saved executable Current Nodes without live or queued execution to interrupted state and continue Resume for eligible Nodes independently of already-running siblings. Reconciliation must leave pending Transition Approvals intact and must not emit interruption notifications.
 - Opening or reconnecting a client must not reconstruct or replay attention notifications from saved Workflow state or pending prompts. Notification subscriptions must deliver live events only and must not store notifications for disconnected clients.
 - A pending Transition Approval survives restart with the exact frozen Transition that the operator saw.
 - Resume must not replay answers or apply a Workflow effect blocked by a prior durability failure.
@@ -574,7 +574,7 @@
 - Workflow attention is task-scoped. It includes only unresolved Questions, unresolved Workflow Approvals, and executable Nodes interrupted by errors.
 - Workflow validity is not attention and must not create Inbox items.
 - Core Task detail includes an unresolved-attention count but not the attention items. It must not scan transcript history.
-- The Task-specific attention feed can read the newest active transcript segment to recover unresolved Question content. Desktop Task detail loads this feed independently without delaying core Task detail.
+- The Task-specific attention feed reads unresolved Question content from live pending Questions, without transcript-backed recovery. Desktop Task detail loads this feed independently without delaying core Task detail.
 - Task Activity is a server-paginated projection of durable Comments and saved Session creation. It contains no workflow movement, Node completion, interruption, attempt, or diagnostic history. Clients render Session creation as localized `Session started` activity.
 - Task Activity uses the offset pagination contract defined below.
 - Task Activity requests may omit offset and limit. An omitted offset starts at zero, offsets are zero-based and non-negative, and an omitted limit defaults to 100 with a maximum of 100.

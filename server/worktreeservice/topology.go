@@ -1,0 +1,329 @@
+package worktree
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"core/server/metadata"
+	"core/server/sessionstore"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
+	"core/shared/worktreecontract"
+)
+
+func (s *Service) projectTopology(ctx context.Context, workspaceID string, workspaceRoot string) ([]*worktreepb.TopologyEntry, error) {
+	if s == nil || s.metadata == nil || s.git == nil {
+		return nil, errors.New("worktree service dependencies are required")
+	}
+	gitEntries, err := s.git.List(ctx, workspaceRoot)
+	if err != nil {
+		var listError *GitWorktreeListError
+		if !errors.As(err, &listError) || listError.Kind != GitWorktreeListErrorNotRepository {
+			return nil, err
+		}
+	}
+	records, err := s.metadata.ListWorktreeRecordsByWorkspaceID(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	return projectTopologyEntries(workspaceRoot, gitEntries, records)
+}
+
+func projectTopologyEntries(workspaceRoot string, gitEntries []GitWorktree, records []metadata.WorktreeRecord) ([]*worktreepb.TopologyEntry, error) {
+	byRoot := make(map[string]metadata.WorktreeRecord, len(records))
+	for _, record := range records {
+		root := record.CanonicalRoot
+		if _, exists := byRoot[root]; exists {
+			return nil, fmt.Errorf("duplicate Kent worktree root %q", root)
+		}
+		byRoot[root] = record
+	}
+	out := make([]*worktreepb.TopologyEntry, 0, len(gitEntries)+len(records))
+	gitRoots := make(map[string]struct{}, len(gitEntries))
+	for _, gitEntry := range gitEntries {
+		root := gitEntry.Root
+		if _, exists := gitRoots[root]; exists {
+			return nil, fmt.Errorf("duplicate Git worktree root %q", root)
+		}
+		gitRoots[root] = struct{}{}
+		record, registered := byRoot[root]
+		delete(byRoot, root)
+		gitFacts := gitFactsFromEntry(gitEntry)
+		if root == workspaceRoot {
+			out = append(out, &worktreepb.TopologyEntry{Topology: &worktreepb.TopologyEntry_MainWorkspace{
+				MainWorkspace: &worktreepb.MainWorkspaceFacts{Git: gitFacts},
+			}})
+			continue
+		}
+		if registered {
+			out = append(out, registeredTopologyEntry(syncedWorktree{record: record, git: gitEntry}))
+			continue
+		}
+		out = append(out, &worktreepb.TopologyEntry{Topology: &worktreepb.TopologyEntry_External{
+			External: &worktreepb.ExternalFacts{Git: gitFacts},
+		}})
+	}
+	for _, record := range records {
+		if _, missing := byRoot[record.CanonicalRoot]; !missing {
+			continue
+		}
+		out = append(out, &worktreepb.TopologyEntry{Topology: &worktreepb.TopologyEntry_Missing{
+			Missing: &worktreepb.MissingFacts{Kent: kentFactsFromRecord(record)},
+		}})
+	}
+	return out, nil
+}
+
+func projectWorktreeList(entries []*worktreepb.TopologyEntry, target *worktreepb.SessionExecutionTarget) ([]*worktreepb.ListEntry, error) {
+	out := make([]*worktreepb.ListEntry, 0, len(entries))
+	for index, topology := range entries {
+		selector, err := topologySelectorFor(entries, index)
+		if err != nil {
+			return nil, err
+		}
+		entry, err := projectListEntry(
+			topology,
+			selector,
+			target != nil && topologyIsCurrent(topology, target),
+			target != nil,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("project worktree list entry %d: %w", index, err)
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+func (s *Service) projectWorktreeList(ctx context.Context, entries []*worktreepb.TopologyEntry, target *worktreepb.SessionExecutionTarget) ([]*worktreepb.ListEntry, error) {
+	projected, err := projectWorktreeList(entries, target)
+	if err != nil {
+		return nil, err
+	}
+	if s.runtimeActivitySnapshotReader == nil {
+		return nil, errors.New("worktree Runtime activity snapshot reader is required")
+	}
+	activeSessions, err := s.runtimeActivitySnapshotReader.ActiveRuntimeActivitySnapshots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	activeWorktrees := make(map[string]struct{}, len(activeSessions))
+	for _, snapshot := range activeSessions {
+		target, err := s.metadata.ResolveOptionalSessionExecutionTarget(ctx, snapshot.SessionID)
+		if errors.Is(err, session.ErrSessionNotFound) {
+			// Runtime activity and persisted Session targets are read independently.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if target == nil || target.GetWorktree() == nil {
+			continue
+		}
+		activeWorktrees[target.GetWorktree().GetId()] = struct{}{}
+	}
+	for _, entry := range projected {
+		worktreeID := topologyWorktreeID(entry.Topology)
+		if worktreeID == nil {
+			continue
+		}
+		taskCount, err := s.metadata.Queries().CountNonTerminalTasksByManagedWorktree(ctx, sql.NullString{
+			String: *worktreeID,
+			Valid:  true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		_, hasActiveSession := activeWorktrees[*worktreeID]
+		entry.Projection.IsInUse = taskCount > 0 || hasActiveSession
+	}
+	return projected, nil
+}
+
+func projectListEntry(topology *worktreepb.TopologyEntry, selector string, isCurrent bool, sessionScoped bool) (*worktreepb.ListEntry, error) {
+	projection := &worktreepb.ListProjection{Selector: selector, IsCurrent: isCurrent}
+	var git *worktreepb.GitFacts
+	switch {
+	case topology.GetMainWorkspace() != nil:
+		git = topology.GetMainWorkspace().GetGit()
+	case topology.GetRegistered() != nil:
+		git = topology.GetRegistered().GetGit()
+	case topology.GetExternal() != nil:
+		git = topology.GetExternal().GetGit()
+		if git != nil && git.BranchName == nil {
+			fallback := filepath.Base(git.CanonicalRoot)
+			projection.FallbackIdentity = &fallback
+		}
+	case topology.GetMissing() == nil:
+		return nil, errors.New("worktree topology variant is invalid")
+	}
+	if !sessionScoped {
+		projection.IsCurrent = false
+		return &worktreepb.ListEntry{Topology: topology, Projection: projection}, nil
+	}
+	if git != nil && !isCurrent && git.PathAvailable {
+		projection.Switch = &worktreepb.SwitchOperation{
+			Kind: worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_LEAVE_MAIN,
+		}
+		if topology.GetMainWorkspace() == nil {
+			projection.Switch.Kind = worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_ENTER
+			projection.Switch.Selector = &projection.Selector
+		}
+	}
+	deletionSelector, err := deletionSelector(topology)
+	switch {
+	case err == nil:
+		projection.DeletePreview = &worktreepb.DeletePreviewOperation{Selector: deletionSelector}
+	case !errors.Is(err, worktreecontract.ErrWorktreeBlocked):
+		return nil, err
+	}
+	return &worktreepb.ListEntry{Topology: topology, Projection: projection}, nil
+}
+
+func topologyIsCurrent(entry *worktreepb.TopologyEntry, target *worktreepb.SessionExecutionTarget) bool {
+	if target.Worktree == nil {
+		return entry.GetMainWorkspace() != nil
+	}
+	worktreeID := topologyWorktreeID(entry)
+	return worktreeID != nil && strings.TrimSpace(*worktreeID) == strings.TrimSpace(target.Worktree.Id)
+}
+
+func (s *Service) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {
+	selected, err := s.resolveManagementContext(ctx, worktreecontract.SessionManagementScope(req.SessionId))
+	if err != nil {
+		return nil, err
+	}
+	resolution, err := s.resolveWorktreeSelector(ctx, selected.binding, req.Selector)
+	if err != nil {
+		return nil, err
+	}
+	projected, err := s.projectWorktreeList(ctx, resolution.entries, selected.target())
+	if err != nil {
+		return nil, err
+	}
+	return &worktreepb.SelectorResolveSuccess{Worktree: projected[resolution.match.index]}, nil
+}
+
+type worktreeSelectorResolution struct {
+	entries []*worktreepb.TopologyEntry
+	match   topologySelectorMatch
+}
+
+func (s *Service) resolveWorktreeSelector(ctx context.Context, binding metadata.Binding, selector string) (worktreeSelectorResolution, error) {
+	entries, err := s.projectTopology(ctx, binding.WorkspaceID, binding.CanonicalRoot)
+	if err != nil {
+		return worktreeSelectorResolution{}, err
+	}
+	match, err := resolveTopologySelector(entries, selector)
+	if err != nil {
+		return worktreeSelectorResolution{}, err
+	}
+	return worktreeSelectorResolution{entries: entries, match: match}, nil
+}
+
+func (s *Service) PreviewWorktreeDelete(ctx context.Context, req *worktreepb.DeletePreviewRequest) (*worktreepb.DeletePreviewSuccess, error) {
+	selected, err := s.resolveManagementContext(ctx, req.Scope)
+	if err != nil {
+		return nil, err
+	}
+	resolution, err := s.resolveWorktreeSelector(ctx, selected.binding, req.Selector)
+	if err != nil {
+		return nil, err
+	}
+	selector, err := deletionSelector(resolution.match.entry)
+	if err != nil {
+		return nil, err
+	}
+	cleanliness, err := s.evaluateDeleteCleanliness(ctx, resolution.match.entry)
+	if err != nil {
+		return nil, err
+	}
+	return &worktreepb.DeletePreviewSuccess{
+		Worktree:         resolution.match.entry,
+		DeletionSelector: selector,
+		Cleanliness:      cleanliness,
+	}, nil
+}
+
+func deletionSelector(entry *worktreepb.TopologyEntry) (string, error) {
+	switch {
+	case entry == nil:
+		return "", errors.New("worktree topology entry is required")
+	case entry.GetMainWorkspace() != nil:
+		return "", worktreecontract.ErrWorktreeBlocked
+	case entry.GetRegistered() != nil:
+		if entry.GetRegistered().GetGit().GetIsMainWorktree() {
+			return "", worktreecontract.ErrWorktreeBlocked
+		}
+		return entry.GetRegistered().GetKent().GetWorktreeId(), nil
+	case entry.GetExternal() != nil:
+		if entry.GetExternal().GetGit().GetIsMainWorktree() {
+			return "", worktreecontract.ErrWorktreeBlocked
+		}
+		return entry.GetExternal().GetGit().GetCanonicalRoot(), nil
+	case entry.GetMissing() != nil:
+		return entry.GetMissing().GetKent().GetWorktreeId(), nil
+	default:
+		return "", errors.New("worktree topology variant is invalid")
+	}
+}
+
+func gitFactsFromEntry(entry GitWorktree) *worktreepb.GitFacts {
+	facts := &worktreepb.GitFacts{
+		CanonicalRoot:  strings.TrimSpace(entry.Root),
+		HeadObject:     strings.TrimSpace(entry.HeadOID),
+		Detached:       entry.Detached,
+		Bare:           entry.Bare,
+		IsMainWorktree: entry.IsMainWorktree,
+		PathAvailable:  PathAvailability(entry.Root) == pathAvailabilityAvailable,
+	}
+	if entry.Branch != nil {
+		branchRef := entry.Branch.Ref()
+		branchName := entry.Branch.Name()
+		facts.BranchRef = &branchRef
+		facts.BranchName = &branchName
+	}
+	if value := strings.TrimSpace(entry.LockedReason); value != "" {
+		facts.LockedReason = &value
+	}
+	if value := strings.TrimSpace(entry.PrunableReason); value != "" {
+		facts.PrunableReason = &value
+	}
+	return facts
+}
+
+func kentFactsFromRecord(record metadata.WorktreeRecord) *worktreepb.KentFacts {
+	facts := &worktreepb.KentFacts{
+		WorktreeId:    strings.TrimSpace(record.ID),
+		CanonicalRoot: strings.TrimSpace(record.CanonicalRoot),
+		DisplayName:   strings.TrimSpace(record.DisplayName),
+		Managed:       record.Managed,
+		CreatedBranch: record.CreatedBranch,
+	}
+	if value := strings.TrimSpace(record.OriginSessionID); value != "" {
+		facts.OriginSessionId = &value
+	}
+	return facts
+}
+
+func registeredTopologyEntry(item syncedWorktree) *worktreepb.TopologyEntry {
+	return &worktreepb.TopologyEntry{Topology: &worktreepb.TopologyEntry_Registered{
+		Registered: &worktreepb.RegisteredFacts{
+			Git:  gitFactsFromEntry(item.git),
+			Kent: kentFactsFromRecord(item.record),
+		},
+	}}
+}
+
+func topologyEntryByWorktreeID(entries []*worktreepb.TopologyEntry, worktreeID string) (*worktreepb.TopologyEntry, bool) {
+	for _, entry := range entries {
+		id := topologyWorktreeID(entry)
+		if id != nil && strings.TrimSpace(*id) == strings.TrimSpace(worktreeID) {
+			return entry, true
+		}
+	}
+	return nil, false
+}

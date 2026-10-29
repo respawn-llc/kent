@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { copyFileSync, mkdtempSync, rmdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,46 @@ const { Linter } = desktopRequire("eslint");
 const fixtureRoot = fileURLToPath(
   new URL("../desktop/eslint-fixtures/architecture", import.meta.url),
 );
+
+const justRejectionFixtures = [
+  "forbidden-effect.ts",
+  "forbidden-effect-registry-barrel.ts",
+  "forbidden-effect-registry-namespace.ts",
+].map((name) => `src/features/alpha/${name}`);
+
+const effectFixturePaths = [
+  "tooling/../tooling/forbidden-effect.html",
+  "tooling/../tooling/forbidden-effect.astro",
+  "tooling/escaped path#fragment/component.astro",
+  "tooling/allowed-effect-script-data.html",
+  "src/app-facade/allowed-effect-integration.ts",
+  "src/app-facade/allowed-pre-effect-subscription.ts",
+  "src/app-facade/effect-barrel.ts",
+  "src/app-facade/forbidden-effect-subscription.ts",
+  "src/app-facade/forbidden-effect-union-subscription.ts",
+  "packages/native-bridge/src/allowed-effect-native-storage.ts",
+  "packages/native-bridge/src/forbidden-effect-native-subscription.ts",
+  "src/app-facade/forbidden-indirect-effect-subscription.ts",
+  ...justRejectionFixtures,
+];
+// Compile stable fixtures once before the independent semantic tests run.
+const effectFixtureResults = await checkEffectPolicy(
+  effectFixturePaths.map((path) => `${fixtureRoot}/${path}`),
+);
+const effectResultsByPath = new Map(
+  effectFixtureResults.map((result) => [result.filePath, result]),
+);
+
+function effectResultsFor(paths) {
+  return paths.map((path) => {
+    const result = effectResultsByPath.get(join(fixtureRoot, path));
+    assert.ok(
+      result !== undefined,
+      `Effect policy returned no result for ${path}`,
+    );
+    return result;
+  });
+}
 
 test("position keys are allowed only in the immutable Web Search detail renderer", () => {
   const linter = new Linter();
@@ -178,6 +218,27 @@ async function lintArchitectureFixtures(paths) {
   return new Map(results.map((result) => [result.filePath, result.messages]));
 }
 
+test("UI consumers can import the public Markdown and link entrypoints", async () => {
+  const paths = [
+    "src/features/alpha/allowed-markdown-entrypoints.ts",
+    "src/app-facade/allowed-markdown-links.ts",
+  ];
+  const messagesByPath = await lintArchitectureFixtures(paths);
+  for (const path of paths)
+    assert.deepEqual(messagesFor(messagesByPath, path), []);
+});
+
+test("UI consumers cannot import Markdown internals or alternate entrypoint paths", async () => {
+  const paths = [
+    "src/features/alpha/forbidden-markdown-internal.ts",
+    "src/features/alpha/forbidden-markdown-link-internal.ts",
+    "src/features/alpha/forbidden-markdown-alternate-entrypoint.ts",
+  ];
+  const messagesByPath = await lintArchitectureFixtures(paths);
+  for (const path of paths)
+    assertRule(messagesByPath, path, "boundaries/dependencies");
+});
+
 function messagesFor(messagesByPath, path) {
   const messages = messagesByPath.get(join(fixtureRoot, path));
   assert.ok(
@@ -229,10 +290,10 @@ test("Effect policy fails closed for exported namespaces and dynamic loading", a
   }
 });
 
-test("the repository policy checks HTML scripts and Astro frontmatter, scripts and expressions", async () => {
-  const results = await checkEffectPolicy([
-    join(fixtureRoot, "tooling/forbidden-effect.html"),
-    join(fixtureRoot, "tooling/forbidden-effect.astro"),
+test("the repository policy checks HTML scripts and Astro frontmatter, scripts and expressions", () => {
+  const results = effectResultsFor([
+    "tooling/forbidden-effect.html.0.ts",
+    "tooling/forbidden-effect.astro.tsx",
   ]);
   assert.equal(results.length, 2);
   for (const result of results) {
@@ -245,41 +306,49 @@ test("the repository policy checks HTML scripts and Astro frontmatter, scripts a
   }
 });
 
-test("Astro policy checks escape filenames in compiler metadata", async () => {
-  // Both Windows separators and Unix quotes require JSON escaping by the compiler.
-  const directory = mkdtempSync(
-    join(fixtureRoot, process.platform === "win32" ? "path-" : 'quoted"path-'),
-  );
-  const path = join(directory, "component.astro");
-  try {
-    copyFileSync(join(fixtureRoot, "tooling/forbidden-effect.astro"), path);
-    const results = await checkEffectPolicy([path]);
-    assert.ok(results.some((result) => result.errorCount > 0));
-    assert.ok(
-      results.some((result) =>
+test(
+  "Astro policy checks escape filenames in compiler metadata",
+  { timeout: 30_000 },
+  async () => {
+    // Windows separators require encoding; other platforms need a quoted component.
+    const directory = await mkdtemp(
+      join(
+        fixtureRoot,
+        process.platform === "win32" ? "escaped-path-" : 'quoted"path-',
+      ),
+    );
+    try {
+      const path = join(directory, "component.astro");
+      await copyFile(
+        join(fixtureRoot, "tooling/escaped path#fragment/component.astro"),
+        path,
+      );
+      const [result] = await checkEffectPolicy([path]);
+      assert.ok(result.errorCount > 0);
+      assert.equal(result.fatalErrorCount, 0);
+      assert.ok(
         result.messages.some(
           (message) => message.ruleId === "app/no-unowned-effect",
         ),
-      ),
-    );
-  } finally {
-    unlinkSync(path);
-    rmdirSync(directory);
-  }
-});
+      );
+    } finally {
+      await rm(directory, { recursive: true });
+    }
+  },
+);
 
-test("HTML script data remains data while JavaScript scripts are checked", async () => {
-  const results = await checkEffectPolicy([
-    join(fixtureRoot, "tooling/allowed-effect-script-data.html"),
+test("HTML script data remains data while JavaScript scripts are checked", () => {
+  const results = effectResultsFor([
+    "tooling/allowed-effect-script-data.html.0.ts",
   ]);
   assert.equal(results.length, 1);
   assert.deepEqual(results[0].messages, []);
 });
 
-test("embedded policy sources use the same normalized paths as the compiler", async () => {
-  const results = await checkEffectPolicy([
-    `${fixtureRoot}/tooling/../tooling/forbidden-effect.astro`,
-    `${fixtureRoot}/tooling/../tooling/forbidden-effect.html`,
+test("embedded policy sources use the same normalized paths as the compiler", () => {
+  const results = effectResultsFor([
+    "tooling/forbidden-effect.astro.tsx",
+    "tooling/forbidden-effect.html.0.ts",
   ]);
   assert.equal(results.length, 2);
   for (const result of results) {
@@ -292,12 +361,12 @@ test("embedded policy sources use the same normalized paths as the compiler", as
   }
 });
 
-test("staged Effect contracts reject custom subscriptions but retain native/Query inputs and pre-Effect exports", async () => {
-  const results = await checkEffectPolicy([
-    join(fixtureRoot, "src/app-facade/allowed-effect-integration.ts"),
-    join(fixtureRoot, "src/app-facade/allowed-pre-effect-subscription.ts"),
-    join(fixtureRoot, "src/app-facade/effect-barrel.ts"),
-    join(fixtureRoot, "src/app-facade/forbidden-effect-subscription.ts"),
+test("staged Effect contracts reject custom subscriptions but retain native/Query inputs and pre-Effect exports", () => {
+  const results = effectResultsFor([
+    "src/app-facade/allowed-effect-integration.ts",
+    "src/app-facade/allowed-pre-effect-subscription.ts",
+    "src/app-facade/effect-barrel.ts",
+    "src/app-facade/forbidden-effect-subscription.ts",
   ]);
   for (const result of results.slice(0, 3))
     assert.deepEqual(result.messages, [], result.filePath);
@@ -308,9 +377,9 @@ test("staged Effect contracts reject custom subscriptions but retain native/Quer
   );
 });
 
-test("Effect policy rejects union subscription signatures without a checker failure", async () => {
-  const [result] = await checkEffectPolicy([
-    join(fixtureRoot, "src/app-facade/forbidden-effect-union-subscription.ts"),
+test("Effect policy rejects union subscription signatures without a checker failure", () => {
+  const [result] = effectResultsFor([
+    "src/app-facade/forbidden-effect-union-subscription.ts",
   ]);
   assert.ok(
     result.messages.some(
@@ -320,16 +389,10 @@ test("Effect policy rejects union subscription signatures without a checker fail
   assert.equal(result.fatalErrorCount, 0);
 });
 
-test("native conversion permits private callback storage but not public callback observations", async () => {
-  const [allowed, forbidden] = await checkEffectPolicy([
-    join(
-      fixtureRoot,
-      "packages/native-bridge/src/allowed-effect-native-storage.ts",
-    ),
-    join(
-      fixtureRoot,
-      "packages/native-bridge/src/forbidden-effect-native-subscription.ts",
-    ),
+test("native conversion permits private callback storage but not public callback observations", () => {
+  const [allowed, forbidden] = effectResultsFor([
+    "packages/native-bridge/src/allowed-effect-native-storage.ts",
+    "packages/native-bridge/src/forbidden-effect-native-subscription.ts",
   ]);
   assert.deepEqual(allowed.messages, []);
   assert.equal(
@@ -340,12 +403,9 @@ test("native conversion permits private callback storage but not public callback
   );
 });
 
-test("staged contracts follow Effect values across application imports", async () => {
-  const [result] = await checkEffectPolicy([
-    join(
-      fixtureRoot,
-      "src/app-facade/forbidden-indirect-effect-subscription.ts",
-    ),
+test("staged contracts follow Effect values across application imports", () => {
+  const [result] = effectResultsFor([
+    "src/app-facade/forbidden-indirect-effect-subscription.ts",
   ]);
   assert.ok(
     result.messages.some(
@@ -354,18 +414,30 @@ test("staged contracts follow Effect values across application imports", async (
   );
 });
 
-for (const fixture of [
-  "forbidden-effect.ts",
-  "forbidden-effect-registry-barrel.ts",
-  "forbidden-effect-registry-namespace.ts",
-])
-  test(`the required Just policy command rejects ${fixture}`, () => {
+for (const fixture of justRejectionFixtures)
+  test(`Effect policy rejects ${fixture}`, () => {
+    const [result] = effectResultsFor([fixture]);
+    assert.ok(result.errorCount > 0);
+    assert.equal(result.fatalErrorCount, 0);
+    assert.ok(
+      result.messages.every(
+        (message) => message.ruleId === "app/no-unowned-effect",
+      ),
+    );
+  });
+
+test(
+  "the required Just policy command rejects the forbidden Effect fixtures",
+  { timeout: 30_000 },
+  () => {
     const result = spawnSync(
       "just",
       [
         "_lint",
         "_effect-policy",
-        `apps/desktop/eslint-fixtures/architecture/src/features/alpha/${fixture}`,
+        ...justRejectionFixtures.map(
+          (fixture) => `apps/desktop/eslint-fixtures/architecture/${fixture}`,
+        ),
       ],
       {
         cwd: fileURLToPath(new URL("../..", import.meta.url)),
@@ -374,4 +446,5 @@ for (const fixture of [
     );
     assert.ifError(result.error);
     assert.equal(result.status, 1, result.stderr);
-  });
+  },
+);

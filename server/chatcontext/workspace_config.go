@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/server/llm"
 	"core/server/metadata"
+	"database/sql"
 	"errors"
 	"strings"
 
@@ -77,12 +78,22 @@ func ResolveMainWorkspaceRoot(persistenceRoot, workspaceRoot string) (string, er
 }
 
 func resolveMainWorkspaceRoot(store *metadata.Store, workspaceRoot string) (string, error) {
-	canonicalRoot, binding, resolveErr := store.ResolveWorkspacePath(context.Background(), workspaceRoot)
-	if resolveErr != nil {
-		return "", resolveErr
+	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return "", err
 	}
-	if binding != nil {
-		return binding.CanonicalRoot, nil
+	// Configuration depends on a managed worktree's main Workspace, not on
+	// which Project owns an ordinary directory shared by several Projects.
+	worktree, err := store.GetWorktreeRecordByCanonicalRoot(context.Background(), canonicalRoot)
+	if errors.Is(err, sql.ErrNoRows) {
+		return canonicalRoot, nil
 	}
-	return canonicalRoot, nil
+	if err != nil {
+		return "", err
+	}
+	binding, err := store.LookupWorkspaceBindingByID(context.Background(), worktree.WorkspaceID)
+	if err != nil {
+		return "", err
+	}
+	return binding.CanonicalRoot, nil
 }

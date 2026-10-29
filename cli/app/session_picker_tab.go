@@ -47,9 +47,6 @@ func (sessionPickerCreateSelection) isSessionPickerSelection()  {}
 func (sessionPickerSessionSelection) isSessionPickerSelection() {}
 
 func newSessionPickerSessionSelection(sessionID runtimeids.SessionID) sessionPickerSessionSelection {
-	if sessionID.IsZero() {
-		panic("session picker selection requires a session ID")
-	}
 	return sessionPickerSessionSelection{sessionID: sessionID}
 }
 

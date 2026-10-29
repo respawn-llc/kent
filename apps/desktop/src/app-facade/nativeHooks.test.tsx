@@ -4,6 +4,12 @@ import { expect, it, mock, vi } from "bun:test";
 import * as Stream from "effect/Stream";
 
 let currentWindow: unknown;
+const invokeNative = vi.fn(async () => undefined);
+const actualTauriCore = await import("@tauri-apps/api/core");
+await mock.module("@tauri-apps/api/core", () => ({
+  ...actualTauriCore,
+  invoke: invokeNative,
+}));
 const actualTauriWindow = await import("@tauri-apps/api/window");
 await mock.module("@tauri-apps/api/window", () => ({
   ...actualTauriWindow,
@@ -29,9 +35,26 @@ function Reader({ id }: Readonly<{ id: string }>) {
   return <output data-testid={id}>{JSON.stringify(focused)}</output>;
 }
 
+it("reopens the main window from a popup without focusing the popup", async () => {
+  const popup = {
+    show: vi.fn(async () => undefined),
+    setFocus: vi.fn(async () => undefined),
+    isFocused: vi.fn(async () => false),
+  };
+  currentWindow = popup;
+  const controls = createTauriWindowFocusControls();
+  await controls.focusMain();
+  expect(invokeNative).toHaveBeenCalledWith("open_main_window", { destination: null });
+  expect(popup.show).not.toHaveBeenCalled();
+  expect(popup.setFocus).not.toHaveBeenCalled();
+  expect(await controls.isFocused()).toBe(false);
+  expect(popup.isFocused).toHaveBeenCalledTimes(1);
+});
+
 it("shares focus observation across readers and releases it after the owner leaves", async () => {
   const bridge = createBrowserNativeBridge();
   const observe = vi.spyOn(bridge.window, "focusChanges");
+  const register = vi.spyOn(window, "addEventListener");
   const remove = vi.spyOn(window, "removeEventListener");
   const services = createTestServices([], bridge);
   const view = render(
@@ -42,12 +65,15 @@ it("shares focus observation across readers and releases it after the owner leav
   );
   await waitFor(() => {
     expect(observe).toHaveBeenCalledTimes(1);
+    expect(register.mock.calls.some(([event]) => event === "focus")).toBe(true);
   });
   await act(async () => {
     window.dispatchEvent(new Event("focus"));
   });
-  expect(screen.getByTestId("first")).toHaveTextContent("true");
-  expect(screen.getByTestId("second")).toHaveTextContent("true");
+  await waitFor(() => {
+    expect(screen.getByTestId("first")).toHaveTextContent("true");
+    expect(screen.getByTestId("second")).toHaveTextContent("true");
+  });
   view.rerender(
     <TestAppProviders services={services}>
       <Reader id="second" />
@@ -56,13 +82,16 @@ it("shares focus observation across readers and releases it after the owner leav
   await act(async () => {
     window.dispatchEvent(new Event("blur"));
   });
-  expect(screen.getByTestId("second")).toHaveTextContent("false");
+  await waitFor(() => {
+    expect(screen.getByTestId("second")).toHaveTextContent("false");
+  });
   expect(observe).toHaveBeenCalledTimes(1);
   view.unmount();
   await waitFor(() => {
     expect(remove.mock.calls.some(([event]) => event === "focus")).toBe(true);
   });
   remove.mockRestore();
+  register.mockRestore();
 });
 
 it("releases a native focus registration that completes after its observation leaves", async () => {

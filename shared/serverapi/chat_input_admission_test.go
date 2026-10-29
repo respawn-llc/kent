@@ -19,7 +19,7 @@ func TestChatInputAcceptanceRequiresDisposition(t *testing.T) {
 	}
 }
 
-func TestChatShellRequiresExistingSession(t *testing.T) {
+func TestChatShellValidatesNewAndExistingSessionTargets(t *testing.T) {
 	id := runtimeids.NewSessionID().String()
 	request := &chatpb.QueueRequest{
 		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{
@@ -51,8 +51,8 @@ func TestChatShellRequiresExistingSession(t *testing.T) {
 	if err := protoapi.Validate(request.Target); err != nil {
 		t.Fatal(err)
 	}
-	if err := protoapi.Validate(request); err == nil {
-		t.Fatal("New Chat Shell accepted")
+	if err := protoapi.Validate(request); err != nil {
+		t.Fatalf("New Chat Shell rejected: %v", err)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 )
 import (
 	"core/cli/tui/ongoing"
-	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -226,7 +225,7 @@ func TestOngoingFrameInputKeepsServerBackedQueuedStateTranscriptOwned(t *testing
 	m := sizedTestUIModel(newProjectedTestUIModel(&runtimeControlFakeClient{}), 48, 10)
 	m.injectedQueue = []*injectedRuntimeQueueItem{{
 
-		Request: clientui.RuntimeSubmitRequest{QueueItemID: runtimeids.NewQueueItemID()},
+		Request: inputAdmissionRequest{QueueItemID: runtimeids.NewQueueItemID()},
 		Text:    "server accepted",
 		State:   injectedRuntimeQueueEnqueued}}
 

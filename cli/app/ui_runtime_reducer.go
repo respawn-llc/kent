@@ -12,9 +12,12 @@ import (
 func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case runtimeConnectionStateChangedMsg:
+		if !m.isCurrentObservation(msg.scope) {
+			return handledUIFeatureUpdate(m, nil)
+		}
 		m.observeRuntimeRequestResult(msg.err)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(waitRuntimeConnectionStateChange(m.runtimeConnectionEvents)))
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(waitRuntimeConnectionStateChange(m.runtimeConnectionEvents, m.observationScope)))
 	case runtimeMainViewRefreshedMsg:
 		cmd := m.handleRuntimeMainViewRefreshed(msg)
 		m.layout().syncViewport()
@@ -142,13 +145,13 @@ func (m *uiModel) detailTranscriptResponseCurrent(requestSessionID, responseSess
 	currentSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	requestSessionID = strings.TrimSpace(requestSessionID)
 	responseSessionID = strings.TrimSpace(responseSessionID)
-	if currentSessionID != "" && requestSessionID != "" && currentSessionID != requestSessionID {
+	if currentSessionID != "" && currentSessionID != requestSessionID {
 		return false
 	}
-	if currentSessionID != "" && responseSessionID != "" && currentSessionID != responseSessionID {
+	if currentSessionID != "" && currentSessionID != responseSessionID {
 		return false
 	}
-	if requestSessionID != "" && responseSessionID != "" && requestSessionID != responseSessionID {
+	if requestSessionID != responseSessionID {
 		return false
 	}
 	return true

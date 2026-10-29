@@ -27,6 +27,7 @@ export const chatComposerEnglish = {
   discard: "Discard",
   stop: "Stop",
   send: "Send / Steer",
+  queue: "Add to queue",
   empty: "Enter a message to send",
   loadingSettings: "Loading Chat settings",
   loadingDraft: "Loading saved draft",

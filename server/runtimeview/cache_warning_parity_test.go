@@ -3,13 +3,13 @@ package runtimeview
 import (
 	"testing"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,7 +25,12 @@ func TestCacheWarningLivePersistedHydrationAndPageParity(t *testing.T) {
 		{"outside step", nil, config.CacheWarningModeVerbose, transcript.EntryVisibilityOngoing},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			record, err := session.NewEventRecord(42, fixture.stepID, session.CacheWarningRecord{
+			store := newRuntimeViewStore(t)
+			eventLog, err := store.MaterializeEventLog()
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, _, err := eventLog.AppendRecord(fixture.stepID, session.CacheWarningRecord{
 				Scope: session.CacheScopeConversation, Reason: session.CacheWarningReasonReuseDropped,
 				LostInputTokens: textutil.Value(173824),
 			})
@@ -39,18 +44,16 @@ func TestCacheWarningLivePersistedHydrationAndPageParity(t *testing.T) {
 					LostInputTokens: textutil.Value(173824),
 				},
 				CacheWarningVisibility: fixture.visibility,
-				CommittedProvenance:    &runtime.TranscriptCommittedRowProvenance{EventSequence: record.Seq()},
+				CommittedProvenance:    &runtime.TranscriptCommittedRowProvenance{EventSequence: record.Seq(), CommittedAtUnixMs: record.CommittedAtUnixMs()},
 			}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			scan := runtime.NewPersistedTranscriptScan(runtime.PersistedTranscriptScanRequest{
-				CacheWarningMode: fixture.mode,
-			})
-			if err := scan.ApplyPersistedEvent(record); err != nil {
+			segment, err := runtime.TranscriptNewestSegmentPageFromEventLog(eventLog, fixture.mode)
+			if err != nil {
 				t.Fatal(err)
 			}
-			snapshot := scan.CollectedPageSnapshot()
+			snapshot := segment.Snapshot
 			page, err := TranscriptPageFromSegment(
 				"12345678-1234-4234-8234-123456789012", nil,
 				runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
@@ -59,9 +62,8 @@ func TestCacheWarningLivePersistedHydrationAndPageParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-				CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
-			}, nil)
+			hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{},
+				runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot), nil)
 			if len(live) != 1 || len(page.Entries) != 1 || len(hydration.TailSegment.Entries) != 1 {
 				t.Fatalf("expected one warning: live=%d page=%d hydration=%d",
 					len(live), len(page.Entries), len(hydration.TailSegment.Entries))

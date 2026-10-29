@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/llm"
 	"core/shared/config"
 )
@@ -102,21 +102,30 @@ type connectionAuth struct {
 	id    config.ConnectionID
 }
 
-func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.DispatchAuth, err error) {
-	defer func() {
-		if err != nil {
-			err = &llm.AuthError{ConnectionID: &a.id, Err: err}
-		}
-	}()
+func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (*llm.DispatchAuth, error) {
 	// Definition edits change credential references for future dispatches;
 	// a runtime client retains only the connection identity.
 	app, err := config.LoadGlobal(config.LoadOptions{ConfigRoot: a.owner.root})
 	if err != nil {
-		return nil, err
+		return nil, &llm.AuthError{ConnectionID: &a.id, Err: err}
 	}
 	definition, present := app.Settings.Connections[a.id]
 	if !present {
-		return nil, fmt.Errorf("provider connection %q is no longer defined", a.id)
+		return nil, &llm.AuthError{ConnectionID: &a.id, Err: fmt.Errorf("provider connection %q is no longer defined", a.id)}
+	}
+	return a.owner.ResolveDefinitionAuth(ctx, a.id, definition)
+}
+
+// ResolveDefinitionAuth keeps an invocation's destination and credential reference
+// bound to the same selected definition. Ordinary chat reloads before calling it.
+func (r *ConnectionResolver) ResolveDefinitionAuth(ctx context.Context, id config.ConnectionID, definition config.ProviderConnection) (result *llm.DispatchAuth, err error) {
+	defer func() {
+		if err != nil {
+			err = &llm.AuthError{ConnectionID: &id, Err: err}
+		}
+	}()
+	if err := definition.Validate(); err != nil {
+		return nil, err
 	}
 	switch definition.Protocol {
 	case config.ConnectionResponses, config.ConnectionGrokAPIKey:
@@ -124,16 +133,16 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.Di
 			return nil, nil
 		}
 		name := *definition.EnvironmentVariable
-		value, err := a.owner.apiKey(a.id, name)
+		value, err := r.apiKey(id, name)
 		if err != nil {
 			return nil, err
 		}
 		return &llm.DispatchAuth{Header: "Bearer " + value}, nil
 	case config.ConnectionChatGPT, config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI:
-		if a.owner.manager == nil {
-			return nil, fmt.Errorf("connection %s: %w", a.id, auth.ErrAuthNotConfigured)
+		if r.manager == nil {
+			return nil, fmt.Errorf("connection %s: %w", id, auth.ErrAuthNotConfigured)
 		}
-		credential, err := a.owner.manager.CurrentOAuth(ctx, a.id, definition.Protocol)
+		credential, err := r.manager.CurrentOAuth(ctx, id, definition.Protocol)
 		if err != nil {
 			return nil, err
 		}
@@ -146,6 +155,6 @@ func (a connectionAuth) ResolveDispatchAuth(ctx context.Context) (result *llm.Di
 			Mode:   mode,
 		}, nil
 	default:
-		return nil, fmt.Errorf("connection %s has unsupported protocol %q", a.id, definition.Protocol)
+		return nil, fmt.Errorf("connection %s has unsupported protocol %q", id, definition.Protocol)
 	}
 }

@@ -50,10 +50,7 @@ func SessionRetargetFailureText(commandName string, cause error) string {
 	if !errors.As(cause, &retargetErr) {
 		return cause.Error()
 	}
-	id, err := runtimeids.ParseSessionID(retargetErr.SessionID)
-	if err != nil {
-		return errors.Join(cause, err).Error()
-	}
+	id := runtimeids.SessionIDFromProto(retargetErr.SessionID)
 	selector := (runtimeids.SessionIdentity{ID: id, ShortID: retargetErr.ShortID}).String()
 	details := fmt.Sprintf(
 		"Session %s in source Project %q (%s); target path %q.",

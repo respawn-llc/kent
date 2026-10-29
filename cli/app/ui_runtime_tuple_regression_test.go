@@ -30,7 +30,7 @@ func TestRuntimeMainViewRefreshCoalescesAndDrainsAfterCompletion(t *testing.T) {
 				responses: []*sessionpb.MainViewSuccess{{MainView: initial}, {MainView: latest}},
 				errs:      []error{tc.err},
 			}
-			client := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+			client := newTestSessionRuntimeClient(reads)
 			client.storeMainView(initial)
 			m := newProjectedTestUIModel(client)
 			first := m.startRuntimeMainViewRefresh()
@@ -73,7 +73,7 @@ func TestRuntimeMainViewRefreshIgnoresObsoleteCompletion(t *testing.T) {
 	initial := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	latest := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
 	reads := &countingSessionViewClient{view: initial}
-	client := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	client := newTestSessionRuntimeClient(reads)
 	client.storeMainView(initial)
 	m := newProjectedTestUIModel(client)
 	first := m.startRuntimeMainViewRefresh()
@@ -110,8 +110,7 @@ func TestRuntimeMainViewRefreshIgnoresObsoleteCompletion(t *testing.T) {
 }
 
 func TestDelayedTranscriptRuntimeTupleCannotRollBackNewerUnaryState(t *testing.T) {
-	controls := newUnavailableRuntimeControlService()
-	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{}, controls)
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	v9 := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	runtimeClient.storeMainView(v9)
 	m := newProjectedTestUIModel(runtimeClient)
@@ -178,7 +177,7 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 		EffectiveWorkdir: "/workspace",
 	}
 	reads := &countingSessionViewClient{view: v10}
-	runtimeClient := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	v9 := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	runtimeClient.storeMainView(v9)
 	m := newProjectedTestUIModel(runtimeClient)
@@ -231,7 +230,7 @@ func TestRuntimeMainViewRefreshPreservesMetadataChangedAfterRequestStarted(t *te
 		ThinkingLevel:     "stale unary thinking",
 	}
 	reads := &countingSessionViewClient{view: v10}
-	runtimeClient := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	v9 := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	v9.Status = &runtimepb.Status{ReviewerFrequency: "initial", ThinkingLevel: "initial"}
 	runtimeClient.storeMainView(v9)
@@ -272,7 +271,7 @@ func runtimeTupleTestView(
 ) *runtimepb.MainView {
 	return &runtimepb.MainView{
 		Version:  &runtimepb.ReadModelVersion{Epoch: "runtime-tuple-test", Generation: 1, Sequence: sequence},
-		Session:  &runtimepb.SessionView{SessionId: "session-1"},
+		Session:  &runtimepb.SessionView{SessionId: detailTestSessionID},
 		Status:   &runtimepb.Status{},
 		Activity: activity,
 	}

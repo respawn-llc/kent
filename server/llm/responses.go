@@ -3,11 +3,12 @@ package llm
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"core/shared/modelcontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type ResponsesRequest struct {
@@ -60,6 +61,8 @@ func RequestAsResponses(request Request) ResponsesRequest {
 }
 
 type ResponsesResponse struct {
+	NativeResponse    *NativeResponse
+	EndTurn           *bool
 	attemptDiagnostic *providerAttemptDiagnostic
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
@@ -98,6 +101,13 @@ type ResponsesClient struct {
 }
 
 type UsageObserver func(context.Context, string, Usage)
+
+func (c *ResponsesClient) Close() error {
+	if closer, ok := c.transport.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
+}
 
 func NewResponsesClient(transport ResponsesTransport, observer UsageObserver) *ResponsesClient {
 	return &ResponsesClient{transport: transport, usageObserver: observer}
@@ -144,7 +154,8 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 	if assistantPhase != "" {
 		typedAssistantPhase = textutil.Value(assistantPhase)
 	}
-	return Response{
+	result := Response{
+		EndTurn: textutil.Pointer(providerResp.EndTurn),
 		Assistant: Message{
 			Role:           RoleAssistant,
 			Content:        resolveAssistantContent(RoleAssistant, assistantPhase, providerResp.AssistantText),
@@ -161,7 +172,9 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 		ReasoningItems:    append([]ReasoningItem(nil), providerResp.ReasoningItems...),
 		OutputItems:       CloneResponseItems(providerResp.OutputItems),
 		Usage:             providerResp.Usage,
-	}, nil
+	}
+	result.Assistant.NativeResponse = providerResp.NativeResponse
+	return result, nil
 }
 
 func resolveAssistantContent(role Role, phase MessagePhase, content *string) *string {

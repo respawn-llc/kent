@@ -37,7 +37,6 @@ type WorkflowTaskDetailReadModel interface {
 }
 
 type WorkflowTaskDependencyReadModel interface {
-	GetTaskDependencies(context.Context, string) (*taskpb.TaskDependencies, error)
 	CountUnsatisfiedBlockers(context.Context, string) (int, error)
 	ListTaskDependencies(context.Context, string, *taskpb.DependencyDirection) (*taskpb.DependencyListSuccess, error)
 }

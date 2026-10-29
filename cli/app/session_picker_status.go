@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -40,9 +39,6 @@ func loadSessionPickerProviderInfo(ctx context.Context, connections apicontract.
 	catalog, err := connections.GetConnections(ctx, &authpb.GetConnectionsRequest{})
 	if err != nil {
 		return nil, err
-	}
-	if catalog == nil {
-		return nil, errors.New("connection catalog is required")
 	}
 	switch len(catalog.Connections) {
 	case 0:
@@ -103,25 +99,10 @@ func sessionPickerModelSummary(facts *sessionPickerModelFacts) *string {
 	if facts == nil {
 		return nil
 	}
-	if facts.Name == nil {
-		panic("session picker model facts require a model name")
-	}
 	name := strings.TrimSpace(*facts.Name)
-	if name == "" || name != *facts.Name {
-		panic("session picker model facts require a nonblank trimmed model name")
-	}
 	thinkingLevel := ""
 	if facts.ThinkingLevel != nil {
 		thinkingLevel = strings.TrimSpace(*facts.ThinkingLevel)
-		if thinkingLevel == "" || thinkingLevel != *facts.ThinkingLevel {
-			panic("session picker model facts require a nonblank trimmed thinking level")
-		}
-	}
-	if facts.Verbosity != nil {
-		verbosity := strings.TrimSpace(string(*facts.Verbosity))
-		if verbosity == "" || verbosity != string(*facts.Verbosity) {
-			panic("session picker model facts require nonblank trimmed verbosity")
-		}
 	}
 	return textutil.OptionalTrimmedString(status.ModelDisplaySummary(name, thinkingLevel))
 }

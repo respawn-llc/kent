@@ -14,9 +14,9 @@ import (
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/registry"
-	"core/server/session"
-	"core/server/session/sessiontest"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -427,6 +427,61 @@ func TestPlanLaunchSessionCreatesIndependentMainSessionWithInitialChatState(t *t
 			result.Plan.QuestionsEnabled,
 			result.Plan.AutoCompactionEnabled,
 		)
+	}
+}
+
+func TestInitialChatThinkingUsesInvocationModelCapabilities(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	cfg.Settings.Model = "gpt-6-sol"
+	cfg.Settings.ThinkingLevel = "medium"
+	service := newSessionLaunchTestService(cfg, t.TempDir())
+	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode:      launch.ModeInteractive,
+		Intent:    serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Overrides: serverapi.RunPromptOverrides{Model: "gpt-5.6-sol", ThinkingLevel: "ultra"},
+		InitialChat: &InitialChatCreation{Settings: serverapi.InitialChatSettings{
+			AgentRole: config.DefaultSubagentRole, Supervisor: "off",
+			Thinking: textutil.Value("ultra"), Fast: textutil.Value(false),
+			QuestionsEnabled: true, AutoCompactionEnabled: true,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := serviceTestPersistence.ResolvePersistedSession(t.Context(), result.Identity.ID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ChatSettings == nil || record.Meta.ChatSettings.Thinking == nil || *record.Meta.ChatSettings.Thinking != "ultra" ||
+		result.Plan.ActiveSettings.ThinkingLevel != "ultra" || result.Plan.ActiveSettings.Model != "gpt-5.6-sol" {
+		t.Fatalf("invocation model Thinking lost: persisted=%+v effective=%+v", record.Meta.ChatSettings, result.Plan.ActiveSettings)
+	}
+}
+
+func TestInitialChatComposerThinkingSupersedesInvocation(t *testing.T) {
+	cfg := loadSessionLaunchTestConfig(t, t.TempDir(), t.TempDir())
+	cfg.Settings.Model = "gpt-6-sol"
+	service := newSessionLaunchTestService(cfg, t.TempDir())
+	result, err := service.PlanLaunchSession(t.Context(), PlanRequest{
+		Mode:      launch.ModeInteractive,
+		Intent:    serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+		Overrides: serverapi.RunPromptOverrides{Model: "gpt-5.6-sol", ThinkingLevel: "ultra"},
+		InitialChat: &InitialChatCreation{Settings: serverapi.InitialChatSettings{
+			AgentRole: config.DefaultSubagentRole, Supervisor: "off",
+			Thinking: textutil.Value("high"), Fast: textutil.Value(false),
+			QuestionsEnabled: true, AutoCompactionEnabled: true,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := serviceTestPersistence.ResolvePersistedSession(t.Context(), result.Identity.ID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ChatSettings == nil || record.Meta.ChatSettings.Thinking == nil || *record.Meta.ChatSettings.Thinking != "high" ||
+		result.Plan.ActiveSettings.ThinkingLevel != "high" || result.Plan.ActiveSettings.Model != "gpt-5.6-sol" {
+		t.Fatalf("composer Thinking lost: persisted=%+v effective=%+v", record.Meta.ChatSettings, result.Plan.ActiveSettings)
 	}
 }
 

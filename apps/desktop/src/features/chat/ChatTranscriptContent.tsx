@@ -13,7 +13,7 @@ import {
   TranscriptReasoningSlot,
   TranscriptThinkingStatus,
 } from "./transcriptRows";
-import { TranscriptToolSlot } from "./toolRows";
+import { TranscriptToolSlot, type TranscriptToolSlotItem } from "./toolRows";
 
 const estimateSize = () => 120;
 
@@ -70,30 +70,30 @@ function Tool({
   target,
   effectiveWorkdir,
 }: Readonly<{
-  item: Extract<TranscriptRenderItem, { kind: "tool" }>;
+  item: Extract<TranscriptRenderItem, { kind: "tool" | "tool_call" }>;
   target: ChatSessionTarget;
   effectiveWorkdir: string | null;
 }>) {
   if (item.state === "committed" && isAskQuestionToolRow(item.row))
     return <TranscriptAskQuestionSlot row={item.row} />;
-  const presentation = item.value.Presentation;
+  const presentation = item.kind === "tool_call" ? item.value.Call.Presentation : item.value.Presentation;
   if (presentation?.Presentation === "ask_question") return null;
   const nonQuestion =
     presentation == null ? null : { ...presentation, Presentation: presentation.Presentation };
-  return item.state === "live" ? (
-    <TranscriptToolSlot
-      target={target}
-      effectiveWorkdir={effectiveWorkdir}
-      item={{ kind: "live", tool: { ...item.value, Presentation: nonQuestion } }}
-    />
-  ) : (
-    <TranscriptToolSlot
-      target={target}
-      effectiveWorkdir={effectiveWorkdir}
-      item={{
-        kind: "committed",
-        row: { ...item.row, Kind: "tool", Tool: { ...item.value, Presentation: nonQuestion } },
-      }}
-    />
-  );
+  let slotItem: TranscriptToolSlotItem;
+  if (item.kind === "tool_call") {
+    slotItem = {
+      kind: "call",
+      tool: { ...item.value.Call, Presentation: nonQuestion },
+      activity: item.value.Activity === null ? "inactive" : "active",
+    };
+  } else if (item.state === "live") {
+    slotItem = { kind: "call", tool: { ...item.value, Presentation: nonQuestion }, activity: "active" };
+  } else {
+    slotItem = {
+      kind: "committed",
+      row: { ...item.row, Kind: "tool", Tool: { ...item.value, Presentation: nonQuestion } },
+    };
+  }
+  return <TranscriptToolSlot target={target} effectiveWorkdir={effectiveWorkdir} item={slotItem} />;
 }

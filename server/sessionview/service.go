@@ -5,12 +5,12 @@ import (
 	"errors"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"
 	"core/shared/config"
@@ -270,14 +270,6 @@ func (s *Service) GetSessionMainView(ctx context.Context, req *sessionpb.MainVie
 		return nil, err
 	}
 	return &sessionpb.MainViewSuccess{MainView: view}, nil
-}
-
-func (s *Service) SessionTranscriptTailEntries(ctx context.Context, sessionID string) ([]runtime.ChatEntry, error) {
-	view, err := session.ResolvePersistedSessionView(ctx, s.persisted, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return (dormantSessionSnapshot{view: view, cacheWarningMode: s.cacheWarningMode}).TranscriptTailEntries(ctx)
 }
 
 func (s *Service) GetSessionTranscriptPage(ctx context.Context, req *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error) {

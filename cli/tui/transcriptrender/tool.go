@@ -9,8 +9,8 @@ import (
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -110,9 +110,20 @@ func renderAnsweredQuestion(
 }
 
 func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string, spinner string) Line {
-	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
 	syntax := newSyntaxProjector(themeName)
-	meta.syntax = &syntax
+	lines := pendingToolLines(tool, width, &syntax)
+	if len(lines) == 0 {
+		return Line{}
+	}
+	if spinner == "" {
+		return lines[0]
+	}
+	return lines[0].WithLeadingSymbolText(spinner)
+}
+
+func pendingToolLines(tool *transcriptpb.ToolStart, width int, syntax *syntaxProjector) []Line {
+	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
+	meta.syntax = syntax
 	role := toolRole(meta)
 	text := compactToolText(meta, tool.ToolName)
 	inlineMeta := ""
@@ -136,14 +147,7 @@ func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string
 	} else {
 		lines = renderTextBlockWithInlineMeta(role, text, inlineMeta, width, ModeOngoing, meta)
 	}
-	if len(lines) == 0 {
-		return Line{}
-	}
-	line := lines[0]
-	if spinner == "" {
-		return line
-	}
-	return line.WithLeadingSymbolText(spinner)
+	return lines
 }
 
 type toolMeta struct {
@@ -155,10 +159,7 @@ type toolMeta struct {
 }
 
 func projectedToolMeta(toolName string, presentation *transcriptpb.ToolPresentation) toolMeta {
-	in, err := protoapi.ToolPresentationFromProto(toolName, presentation)
-	if err != nil {
-		panic(fmt.Sprintf("render invalid tool presentation: %v", err))
-	}
+	in := protoapi.ToolPresentationFromProto(toolName, presentation)
 	adapted := transcript.ToolCallMeta{ToolName: strings.TrimSpace(toolName)}
 	if in != nil {
 		adapted = *in

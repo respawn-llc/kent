@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/config"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -31,32 +31,24 @@ func sessionLifecycleSessionID(t *testing.T, raw string) runtimeids.SessionID {
 	return sessionID
 }
 
-func createAttachedAuthoritativeAppSession(t *testing.T, persistenceRoot, projectID, workspaceRoot string) *session.Store {
+func createAttachedAuthoritativeAppSession(t *testing.T, metadataStore *metadata.Store, projectID, workspaceRoot string) *session.Store {
 	t.Helper()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
 	if _, err := metadataStore.AttachWorkspaceToProject(context.Background(), projectID, workspaceRoot); err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 	store, err := session.Create(
-		filepath.Join(persistenceRoot, "projects", projectID, "sessions"),
+		filepath.Join(metadataStore.PersistenceRoot(), "projects", projectID, "sessions"),
 		filepath.Base(filepath.Clean(workspaceRoot)),
 		workspaceRoot,
 		sessioncontract.SessionCategoryMain,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("session.Create: %v", err)
 	}
 	if err := store.EnsureDurable(); err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("EnsureDurable: %v", err)
 	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
 	return store
 }
 
@@ -176,8 +168,8 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 		},
 	}
 	model := newUIModelDefaults(nil)
-	model.sessionID = "session-1"
-	model.drafts = newUIDraftPersistence(client, model.sessionID, model.mainEditor.Text())
+	model.setKnownSessionTarget(detailTestSessionID)
+	model.drafts = newUIDraftPersistence(client, &draftContent{sessionID: model.presentationTarget.(uiKnownSessionTarget).id, input: model.mainEditor.Text()})
 	testSetMainInput(model, "visible draft")
 	model.injectedQueue = []*injectedRuntimeQueueItem{{
 
@@ -197,7 +189,7 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	if done.err != nil {
 		t.Fatalf("persist draft: %v", done.err)
 	}
-	if captured.Input != "visible draft" || captured.SessionId != "session-1" {
+	if captured.Input != "visible draft" || captured.SessionId != detailTestSessionID {
 		t.Fatalf("captured draft request = %+v, want composer input only", captured)
 	}
 	model.finishDraftSave(done)

@@ -1,0 +1,621 @@
+package session
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"core/shared/rollbacktarget"
+	"core/shared/runtimeids"
+	"core/shared/sessioncontract"
+	"core/shared/textutil"
+)
+
+var errForkReplayBoundary = errors.New("fork replay boundary reached")
+
+// forkReplayFlushEventCount and forkReplayFlushByteBudget bound how much of the
+// parent conversation is buffered in memory before a chunk is flushed to the
+// child store. Fork/clone stream the parent event log instead of materializing
+// it so arbitrarily large histories never load fully into memory.
+const (
+	forkReplayFlushEventCount = 512
+	forkReplayFlushByteBudget = 1 << 20
+)
+
+type forkReplayResourceSnapshot struct {
+	BufferedRecords         int
+	MaxBufferedRecords      int
+	BufferedEncodedBytes    int
+	MaxBufferedEncodedBytes int
+	LargestRecordBytes      int
+}
+
+type forkReplayBatch struct {
+	records []EventRecord
+	stats   forkReplayResourceSnapshot
+}
+
+func newForkReplayBatch() *forkReplayBatch {
+	return &forkReplayBatch{
+		records: make([]EventRecord, 0, forkReplayFlushEventCount),
+	}
+}
+
+func (b *forkReplayBatch) shouldFlushBefore(recordBytes int) bool {
+	if b == nil || len(b.records) == 0 {
+		return false
+	}
+	return len(b.records) >= forkReplayFlushEventCount ||
+		recordBytes > forkReplayFlushByteBudget-b.stats.BufferedEncodedBytes
+}
+
+func (b *forkReplayBatch) add(record EventRecord, recordBytes int) error {
+	if b == nil {
+		return errors.New("fork replay batch is required")
+	}
+	if recordBytes <= 0 {
+		return fmt.Errorf("fork replay record bytes must be positive: %d", recordBytes)
+	}
+	if b.shouldFlushBefore(recordBytes) {
+		return fmt.Errorf(
+			"fork replay batch must flush before retaining record %d: records=%d bytes=%d next=%d",
+			record.Seq(),
+			len(b.records),
+			b.stats.BufferedEncodedBytes,
+			recordBytes,
+		)
+	}
+	b.records = append(b.records, record)
+	b.stats.BufferedRecords = len(b.records)
+	b.stats.BufferedEncodedBytes += recordBytes
+	if b.stats.BufferedRecords > b.stats.MaxBufferedRecords {
+		b.stats.MaxBufferedRecords = b.stats.BufferedRecords
+	}
+	if b.stats.BufferedEncodedBytes > b.stats.MaxBufferedEncodedBytes {
+		b.stats.MaxBufferedEncodedBytes = b.stats.BufferedEncodedBytes
+	}
+	if recordBytes > b.stats.LargestRecordBytes {
+		b.stats.LargestRecordBytes = recordBytes
+	}
+	return nil
+}
+
+func (b *forkReplayBatch) reset() {
+	if b == nil {
+		return
+	}
+	clear(b.records)
+	b.records = b.records[:0]
+	b.stats.BufferedRecords = 0
+	b.stats.BufferedEncodedBytes = 0
+}
+
+func (b *forkReplayBatch) snapshot() forkReplayResourceSnapshot {
+	if b == nil {
+		return forkReplayResourceSnapshot{}
+	}
+	return b.stats
+}
+
+func (b *forkReplayBatch) validateDrained() error {
+	stats := b.snapshot()
+	maxAllowedBytes := forkReplayFlushByteBudget
+	if stats.LargestRecordBytes > maxAllowedBytes {
+		maxAllowedBytes = stats.LargestRecordBytes
+	}
+	if stats.BufferedRecords != 0 || stats.BufferedEncodedBytes != 0 {
+		return fmt.Errorf("fork replay batch retained resources after replay: %+v", stats)
+	}
+	if stats.MaxBufferedRecords > forkReplayFlushEventCount ||
+		stats.MaxBufferedEncodedBytes > maxAllowedBytes {
+		return fmt.Errorf("fork replay resource budget exceeded: %+v", stats)
+	}
+	return nil
+}
+
+// ForkAtUserMessage creates a child session whose history is the parent's
+// conversation up to (but excluding) the visible user message persisted at
+// userMessageSeq. It returns the forked store and the 1-based ordinal of that
+// user message among the parent's visible user messages (for naming/display).
+// User-driven forks select a fresh interactive contract, not a continuation.
+func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
+	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
+		InheritGoal: true,
+	}, userMessageSeq, thinking)
+}
+
+// CloneSession creates a child session that replays the parent's entire
+// conversation history. Workflow fan-out copies retain the outgoing contract for
+// a permitted lazy compaction, or reuse the source's committed summary.
+func CloneSession(parentLog MaterializedEventLog, forkName *string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, error) {
+	parent, err := materializedForkParent(parentLog)
+	if err != nil {
+		return nil, err
+	}
+	meta := parent.Meta()
+	descriptor, err := NewCreateSessionDescriptor(runtimeids.NewSessionID(), filepath.Dir(parent.Dir()), meta.WorkspaceContainer, meta.WorkspaceRoot, category)
+	if err != nil {
+		return nil, err
+	}
+	options := []StoreOption{func(options *storeOptions) { *options = parent.options }}
+	plan, err := PrepareClone(descriptor, PersistedSessionRecord{SessionDir: parent.Dir(), Meta: &meta}, forkName, thinking, options...)
+	if err != nil {
+		return nil, err
+	}
+	return MaterializeClone(context.Background(), plan, parentLog, options...)
+}
+
+// streamChildFromParent creates a child session and streams the parent event
+// log into it in bounded chunks. A targetSeq > 0 stops replay just before the
+// visible user message persisted at that sequence (fork-at-message); targetSeq
+// == 0 clones everything. It returns the 1-based ordinal of the cut user
+// message among the parent's visible user messages (0 when cloning).
+func streamChildFromParent(
+	parentLog MaterializedEventLog,
+	forkName string,
+	category sessioncontract.SessionCategory,
+	contextOptions ChildContextOptions,
+	targetSeq int64,
+	thinking ForkThinking,
+) (_ *Store, _ int, resultErr error) {
+	if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
+		return nil, 0, err
+	}
+	parent, err := materializedForkParent(parentLog)
+	if err != nil {
+		return nil, 0, err
+	}
+	parentMeta := parent.Meta()
+	containerDir := filepath.Dir(parent.Dir())
+	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, category, parent.options)
+	if err != nil {
+		return nil, 0, err
+	}
+	child.eventLogCreationVersion = eventLogVersionPointer(parentLog.log.version)
+	keepChild := false
+	defer func() {
+		if !keepChild {
+			resultErr = errors.Join(resultErr, child.RemoveDurable())
+		}
+	}()
+	if err := InitializeCreationContext(child, parent, SessionCreationSourcePreviousSession, contextOptions); err != nil {
+		return nil, 0, err
+	}
+
+	name, err := sessioncontract.NormalizeSessionName(&forkName)
+	if err != nil {
+		return nil, 0, err
+	}
+	child.mu.Lock()
+	child.meta.Name = name
+	child.meta.ChatSettings = &ChatSettingsOverrides{Thinking: textutil.Value(thinking.Desired)}
+	if thinking.PreserveNativeUpdates {
+		child.meta.OriginalThinkingEffort = textutil.Pointer(parentMeta.OriginalThinkingEffort)
+	}
+	child.mu.Unlock()
+
+	if err := child.EnsureDurable(); err != nil {
+		return nil, 0, fmt.Errorf("persist fork child before replay: %w", err)
+	}
+	childLog, err := child.MaterializeEventLog()
+	if err != nil {
+		return nil, 0, fmt.Errorf("materialize fork child event log: %w", err)
+	}
+	derived, cutOrdinal, err := streamReplay(parentLog, childLog.log.version, childLog.appendReplayRecordsWithEndByteCursor, targetSeq, thinking.PreserveNativeUpdates)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stream fork replay events: %w", err)
+	}
+	if targetSeq > 0 && cutOrdinal == 0 {
+		return nil, 0, fmt.Errorf("user message seq %d is out of range", targetSeq)
+	}
+	if err := child.applyForkDerivedState(derived); err != nil {
+		return nil, 0, fmt.Errorf("finalize fork replay: %w", err)
+	}
+	keepChild = true
+	return child, cutOrdinal, nil
+}
+
+// ForkThinking is resolved by the launch owner for the child's first provider
+// request. Independent children do not copy conversation input or this state.
+type ForkThinking struct {
+	Desired               string
+	PreserveNativeUpdates bool
+}
+
+func materializedForkParent(parentLog MaterializedEventLog) (*Store, error) {
+	parent := parentLog.store
+	if parent == nil {
+		return nil, fmt.Errorf("parent materialized event log is required")
+	}
+	if err := parentLog.ValidateOwner(parent); err != nil {
+		return nil, fmt.Errorf("validate parent materialized event log: %w", err)
+	}
+	return parent, nil
+}
+
+// streamReplay walks the parent event log and appends each event to the
+// child in bounded chunks, folding replay-derived metadata incrementally. When
+// targetSeq > 0 it stops just before the visible user message persisted at that
+// sequence and returns that message's 1-based visible-user-message ordinal; it
+// returns 0 when the target is not found (or when cloning the whole log).
+func streamReplay(parentLog MaterializedEventLog, version int, appendBatch func([]EventRecord) (recordAppendOutcome, error), targetSeq int64, preserveNativeUpdates bool) (replayDerivedState, int, error) {
+	derived := replayDerivedState{}
+	visibleUserCount := 0
+	cutOrdinal := 0
+	batch := newForkReplayBatch()
+	var latestRollbackCandidate *rollbacktarget.CandidateLocator
+	flush := func() error {
+		if len(batch.records) == 0 {
+			return nil
+		}
+		appended, err := appendBatch(batch.records)
+		if err != nil {
+			return err
+		}
+		for index := range batch.records {
+			visible, err := isForkVisibleUserMessage(batch.records[index])
+			if err != nil {
+				return err
+			}
+			if !visible {
+				continue
+			}
+			latestRollbackCandidate = &rollbacktarget.CandidateLocator{
+				UserMessageSeq:       appended.records[index].Seq(),
+				CandidatePageEndByte: *appended.endByteCursor,
+			}
+		}
+		batch.reset()
+		return nil
+	}
+	walkErr := parentLog.WalkRecords(func(record EventRecord) error {
+		visible, err := isForkVisibleUserMessage(record)
+		if err != nil {
+			return err
+		}
+		if visible {
+			visibleUserCount++
+			if targetSeq > 0 && record.Seq() == targetSeq {
+				cutOrdinal = visibleUserCount
+				return errForkReplayBoundary
+			}
+		}
+		payload, err := record.Payload()
+		if err != nil {
+			return err
+		}
+		if _, configuration := payload.(ConfigurationUpdateRecord); configuration && !preserveNativeUpdates {
+			return nil
+		}
+		if IsContextBoundary(payload.eventKind()) {
+			if err := flush(); err != nil {
+				return err
+			}
+			candidate, err := normalizeRollbackCandidate(latestRollbackCandidate)
+			if err != nil {
+				return err
+			}
+			switch boundary := payload.(type) {
+			case HistoryReplacementRecord:
+				if !preserveNativeUpdates {
+					var items []ProviderHistoryItem
+					for _, item := range boundary.Items {
+						if item.Type != ProviderHistoryItemTypeConfigurationUpdate {
+							items = append(items, item)
+						}
+					}
+					boundary.Items = items
+				}
+				boundary.LatestRollbackCandidate = candidate
+				payload = boundary
+			}
+			record, err = newEventRecord(record.Seq(), record.StepID(), payload, record.CommittedAtUnixMs())
+			if err != nil {
+				return err
+			}
+		}
+		recordBytes, err := replayRecordByteSizeForVersion(record, version)
+		if err != nil {
+			return err
+		}
+		if batch.shouldFlushBefore(recordBytes) {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		if err := derived.apply(record); err != nil {
+			return err
+		}
+		if err := batch.add(record, recordBytes); err != nil {
+			return err
+		}
+		if len(batch.records) >= forkReplayFlushEventCount ||
+			batch.stats.BufferedEncodedBytes >= forkReplayFlushByteBudget {
+			return flush()
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, errForkReplayBoundary) {
+		return derived, 0, walkErr
+	}
+	if err := flush(); err != nil {
+		return derived, 0, err
+	}
+	if err := batch.validateDrained(); err != nil {
+		return derived, 0, err
+	}
+	return derived, cutOrdinal, nil
+}
+
+func isForkVisibleUserMessage(record EventRecord) (bool, error) {
+	payload, err := record.Payload()
+	if err != nil {
+		return false, err
+	}
+	message, ok := payload.(MessageRecord)
+	return ok && hasVisibleUserMessageFields(
+		message.Role,
+		message.MessageType,
+		message.Content,
+	), nil
+}
+
+func replayRecordByteSize(record EventRecord) (int, error) {
+	return replayRecordByteSizeForVersion(record, EventLogVersionV1)
+}
+
+func replayRecordByteSizeForVersion(record EventRecord, version int) (int, error) {
+	payload, err := record.Payload()
+	if err != nil {
+		return 0, err
+	}
+	payload, err = projectEventPayloadForVersion(version, payload)
+	if err != nil {
+		return 0, err
+	}
+	projected, err := newEventRecord(record.Seq(), record.StepID(), payload, record.CommittedAtUnixMs())
+	if err != nil && version == EventLogVersionV1 {
+		projected, err = newEventRecord(record.Seq(), record.StepID(), payload, nil)
+	}
+	if err != nil {
+		return 0, err
+	}
+	encoded, err := encodeEventRecordForVersion(version, projected)
+	if err != nil {
+		return 0, fmt.Errorf("encode replay record %d for bounded chunking: %w", record.Seq(), err)
+	}
+	return len(encoded) + 1, nil
+}
+
+func (s *Store) applyForkDerivedState(derived replayDerivedState) error {
+	if err := s.SetHeadlessActive(derived.headlessActive); err != nil {
+		return err
+	}
+	if err := s.SetCompactionSoonReminderIssued(derived.reminderIssued); err != nil {
+		return err
+	}
+	return s.EnsureDurable()
+}
+
+func cloneLockedContract(in *LockedContract) *LockedContract {
+	if in == nil {
+		return nil
+	}
+	copyLocked := *in
+	if len(in.EnabledTools) > 0 {
+		copyLocked.EnabledTools = append([]string(nil), in.EnabledTools...)
+	}
+	if in.ToolPreambles != nil {
+		toolPreambles := *in.ToolPreambles
+		copyLocked.ToolPreambles = &toolPreambles
+	}
+	copyLocked.ProviderContract.SupportsProviderVerbosity = textutil.Pointer(in.ProviderContract.SupportsProviderVerbosity)
+	copyLocked.SystemPrompt = strings.TrimSpace(in.SystemPrompt)
+	copyLocked.ReviewerPrompt = strings.TrimSpace(in.ReviewerPrompt)
+	return &copyLocked
+}
+
+func cloneContinuationContext(in *ContinuationContext) *ContinuationContext {
+	if in == nil {
+		return nil
+	}
+	copyContext := *in
+	copyContext.AgentRole = textutil.Pointer(in.AgentRole)
+	return &copyContext
+}
+
+type LockedContractInheritance uint8
+
+const (
+	InheritNoContract LockedContractInheritance = iota
+	InheritFullContract
+)
+
+type ChildContextOptions struct {
+	LockedContract LockedContractInheritance
+	// InheritContinuation preserves workflow context, delegation ancestry,
+	// and role for continuation children, not user-driven forks.
+	InheritContinuation bool
+	// InheritGoal preserves the parent's current goal for user-facing
+	// Edit/Fork children. Complete-history workflow clones leave this false.
+	InheritGoal bool
+}
+
+type SessionCreationSourceKind uint8
+
+const (
+	SessionCreationSourceIndependent SessionCreationSourceKind = iota
+	SessionCreationSourcePreviousSession
+	SessionCreationSourceParentAgent
+	SessionCreationSourceNavigationOnly
+)
+
+type CreationContextSource interface {
+	Meta() Meta
+}
+
+type creationContextMetaSource struct {
+	meta Meta
+}
+
+func CreationContextSourceFromMeta(meta Meta) CreationContextSource {
+	return creationContextMetaSource{meta: cloneMeta(meta)}
+}
+
+func (source creationContextMetaSource) Meta() Meta {
+	return cloneMeta(source.meta)
+}
+
+// InitializeCreationContext atomically initializes immutable provenance and
+// source-owned execution context before a fresh session becomes durable.
+func InitializeCreationContext(child *Store, source CreationContextSource, kind SessionCreationSourceKind, opts ChildContextOptions) error {
+	if child == nil {
+		return fmt.Errorf("child store is required")
+	}
+	sourcePresent := source != nil
+	if store, ok := source.(*Store); ok && store == nil {
+		sourcePresent = false
+	}
+	switch kind {
+	case SessionCreationSourceIndependent:
+		if sourcePresent {
+			return fmt.Errorf("independent session creation cannot have a source")
+		}
+	case SessionCreationSourcePreviousSession, SessionCreationSourceParentAgent, SessionCreationSourceNavigationOnly:
+		if !sourcePresent {
+			return fmt.Errorf("session creation source is required")
+		}
+	default:
+		return fmt.Errorf("session creation source kind is invalid")
+	}
+	var sourceMeta Meta
+	if sourcePresent {
+		sourceMeta = source.Meta()
+	}
+	var sourceID runtimeids.SessionID
+	if sourcePresent {
+		var err error
+		sourceID, err = runtimeids.ParseSessionID(sourceMeta.SessionID)
+		if err != nil {
+			return fmt.Errorf("invalid creation source session id: %w", err)
+		}
+	}
+	child.mutationMu.Lock()
+	child.mu.Lock()
+	if child.persisted {
+		child.mu.Unlock()
+		child.mutationMu.Unlock()
+		return fmt.Errorf("session creation context is immutable after durability")
+	}
+	child.meta.PreviousSessionID = nil
+	child.meta.ParentAgentSessionID = nil
+	if kind == SessionCreationSourceIndependent || kind == SessionCreationSourceNavigationOnly {
+		if kind == SessionCreationSourceNavigationOnly {
+			child.meta.PreviousSessionID = &sourceID
+		}
+		child.meta.UpdatedAt = time.Now().UTC()
+		child.mu.Unlock()
+		child.mutationMu.Unlock()
+		return nil
+	}
+	switch opts.LockedContract {
+	case InheritFullContract:
+		child.meta.Locked = cloneLockedContract(sourceMeta.Locked)
+	case InheritNoContract:
+		child.meta.Locked = nil
+	default:
+		child.mu.Unlock()
+		child.mutationMu.Unlock()
+		return errors.New("invalid locked contract inheritance policy")
+	}
+	child.meta.WorkspaceRoot = sourceMeta.WorkspaceRoot
+	if opts.InheritContinuation || kind == SessionCreationSourceParentAgent {
+		child.meta.WorkflowSnapshot = cloneWorkflowSnapshot(sourceMeta.WorkflowSnapshot)
+	} else {
+		child.meta.WorkflowSnapshot = nil
+	}
+	child.meta.WorkspaceContainer = sourceMeta.WorkspaceContainer
+	child.meta.WorktreeReminder = CloneWorktreeReminderState(sourceMeta.WorktreeReminder)
+	child.meta.UsageState = nil
+	if opts.InheritGoal {
+		child.meta.Goal = cloneGoalState(sourceMeta.Goal)
+	} else {
+		child.meta.Goal = nil
+	}
+	switch kind {
+	case SessionCreationSourcePreviousSession:
+		child.meta.PreviousSessionID = &sourceID
+		if opts.InheritContinuation && sourceMeta.ParentAgentSessionID != nil {
+			parentAgentSessionID := *sourceMeta.ParentAgentSessionID
+			child.meta.ParentAgentSessionID = &parentAgentSessionID
+		}
+	case SessionCreationSourceParentAgent:
+		child.meta.ParentAgentSessionID = &sourceID
+	}
+	if opts.InheritContinuation {
+		child.meta.Continuation = cloneContinuationContext(sourceMeta.Continuation)
+	} else {
+		child.meta.Continuation = nil
+	}
+	child.meta.UpdatedAt = time.Now().UTC()
+	child.initialContextFacts = SessionContextFacts{}
+	child.mu.Unlock()
+	child.contextFactsMu.Lock()
+	child.contextFacts = SessionContextFacts{}
+	child.contextFactsMu.Unlock()
+	child.mutationMu.Unlock()
+	return nil
+}
+
+// replayDerivedState folds the fork-derived child metadata over the replayed
+// event stream one event at a time so callers never need the full history in
+// memory. The derived flags reflect events up to the fork boundary, which can
+// differ from the parent's latest state when forking at an earlier message.
+type replayDerivedState struct {
+	headlessActive bool
+	reminderIssued bool
+}
+
+func (d *replayDerivedState) apply(record EventRecord) error {
+	payload, err := record.Payload()
+	if err != nil {
+		return err
+	}
+	switch payload := payload.(type) {
+	case MessageRecord:
+		d.applyMessage(payload)
+	case GenerationContextRecord:
+		for _, messages := range [][]MessageRecord{payload.BeforeSummary, payload.AfterSummary} {
+			for _, message := range messages {
+				d.applyMessage(message)
+			}
+		}
+	case HistoryReplacementRecord:
+		d.reminderIssued = false
+	}
+	return nil
+}
+
+func (d *replayDerivedState) applyMessage(message MessageRecord) {
+	if message.Role == MessageRoleDeveloper && message.MessageType != nil {
+		switch *message.MessageType {
+		case MessageTypeHeadlessMode:
+			d.headlessActive = true
+		case MessageTypeHeadlessModeExit:
+			d.headlessActive = false
+		}
+	}
+	if isCompactionSoonReminderMessage(message) {
+		d.reminderIssued = true
+	}
+}
+
+func isCompactionSoonReminderMessage(message MessageRecord) bool {
+	return message.Role == MessageRoleDeveloper &&
+		message.MessageType != nil &&
+		*message.MessageType == MessageTypeCompactionSoonReminder &&
+		message.Content != nil
+}

@@ -21,7 +21,7 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	remoteclient "core/shared/client"
@@ -41,11 +41,11 @@ import (
 	"core/shared/worktreecontract"
 )
 
-func newGatewayTestServerForConfig(t *testing.T, cfg config.App) (*core.Core, *httptest.Server) {
-	return newGatewayTestServerForConfigOptions(t, cfg, core.Options{})
+func newGatewayTestServerForConfig(t *testing.T, cfg config.App, store *metadata.Store) (*core.Core, *httptest.Server) {
+	return newGatewayTestServerForConfigOptions(t, cfg, store, core.Options{})
 }
 
-func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options core.Options) (*core.Core, *httptest.Server) {
+func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, store *metadata.Store, options core.Options) (*core.Core, *httptest.Server) {
 	t.Helper()
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 	authSupport := newGatewayTestAuthSupport(t, cfg.PersistenceRoot, true)
@@ -54,7 +54,10 @@ func newGatewayTestServerForConfigOptions(t *testing.T, cfg config.App, options 
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
-	appCore, err := core.NewWithContextOptions(context.Background(), cfg, authSupport, background, options)
+	appCore, err := core.NewWithContextOptions(context.Background(), cfg, authSupport, background, core.Options{
+		MetadataStore: store, RuntimeClientFactory: options.RuntimeClientFactory,
+		RootLease: options.RootLease, WorkspaceConfigLoadOptions: options.WorkspaceConfigLoadOptions,
+	})
 	if err != nil {
 		t.Fatalf("core.NewWithContextOptions: %v", err)
 	}
@@ -78,9 +81,9 @@ func resolveGatewayTestConfig(t *testing.T, workspace string) serverbootstrap.Co
 	return resolved
 }
 
-func registerGatewayTestBinding(t *testing.T, cfg config.App) metadata.Binding {
+func registerGatewayTestBinding(t *testing.T, store *metadata.Store, cfg config.App) metadata.Binding {
 	t.Helper()
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	binding, err := store.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
@@ -141,12 +144,13 @@ func TestGatewayProjectRemoteContinuesAfterActiveStepScheduledCrossProjectMove(t
 	configureGatewayTestServerPort(t)
 
 	sourceConfig := resolveGatewayTestConfig(t, sourceWorkspace)
-	sourceBinding := registerGatewayTestBinding(t, sourceConfig.Config)
+	metadataStore := testsetup.OpenStore(t, sourceConfig.Config.PersistenceRoot)
+	sourceBinding := registerGatewayTestBinding(t, metadataStore, sourceConfig.Config)
 	targetConfig := resolveGatewayTestConfig(t, targetWorkspace)
-	targetBinding := registerGatewayTestBinding(t, targetConfig.Config)
+	targetBinding := registerGatewayTestBinding(t, metadataStore, targetConfig.Config)
 
 	modelClient := &gatewaySelfRebindLLMClient{}
-	appCore, server := newGatewayTestServerForConfigOptions(t, sourceConfig.Config, core.Options{
+	appCore, server := newGatewayTestServerForConfigOptions(t, sourceConfig.Config, metadataStore, core.Options{
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
 			return modelClient, nil
 		}),
@@ -317,10 +321,11 @@ func TestGatewaySessionReattachCapabilitySurvivesGatewayReplacement(t *testing.T
 	configureGatewayTestServerPort(t)
 
 	sourceConfig := resolveGatewayTestConfig(t, sourceWorkspace)
-	sourceBinding := registerGatewayTestBinding(t, sourceConfig.Config)
+	metadataStore := testsetup.OpenStore(t, sourceConfig.Config.PersistenceRoot)
+	sourceBinding := registerGatewayTestBinding(t, metadataStore, sourceConfig.Config)
 	targetConfig := resolveGatewayTestConfig(t, targetWorkspace)
-	targetBinding := registerGatewayTestBinding(t, targetConfig.Config)
-	appCore, _ := newGatewayTestServerForConfig(t, sourceConfig.Config)
+	targetBinding := registerGatewayTestBinding(t, metadataStore, targetConfig.Config)
+	appCore, _ := newGatewayTestServerForConfig(t, sourceConfig.Config, metadataStore)
 	movedSession := createGatewayAuthoritativeSession(t, appCore)
 
 	firstGateway, err := NewGateway(appCore, gatewayTestIdentity())
@@ -380,18 +385,14 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	configureGatewayTestServerPort(t)
 
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	bindingB, err := metadataStore.AttachWorkspaceToProject(context.Background(), bindingA.ProjectID, workspaceB)
 	if err != nil {
 		t.Fatalf("AttachWorkspaceToProject B: %v", err)
 	}
 
-	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
@@ -447,18 +448,14 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	configureGatewayTestServerPort(t)
 
 	resolvedB := resolveGatewayTestConfig(t, workspaceB)
-	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedB.Config.PersistenceRoot)
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
 	if _, err := metadataStore.AttachWorkspaceToProject(context.Background(), bindingB.ProjectID, resolvedA.Config.WorkspaceRoot); err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
 
-	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
 
 	storeB, err := session.Create(
 		filepath.Join(filepath.Join(resolvedA.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
@@ -497,7 +494,7 @@ func TestGatewayAttachSessionClearsWorkspaceOverrideForLaterPlans(t *testing.T) 
 	}
 }
 
-func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
+func TestGatewayScopesProcessListAndAllowsGlobalProcessAccess(t *testing.T) {
 	home := t.TempDir()
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
@@ -505,16 +502,12 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	configureGatewayTestServerPort(t)
 
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB := resolveGatewayTestConfig(t, workspaceB)
-	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 
-	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config)
+	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
 	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 
 	storeA := createGatewayAuthoritativeSession(t, appCore)
@@ -570,11 +563,30 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	if len(listed.Processes) != 1 || listed.Processes[0].Id != ownResult.SessionID {
 		t.Fatalf("expected only own project process, got %+v", listed.Processes)
 	}
-	if _, err := remote.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: foreignResult.SessionID}); err == nil {
-		t.Fatal("expected foreign process get to be rejected")
+	unbound, err := remoteclient.DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
 	}
-	if _, err := remote.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: foreignResult.SessionID, MaxChars: 128}); err == nil {
-		t.Fatal("expected foreign process inline output to be rejected")
+	defer func() { _ = unbound.Close() }()
+	for name, client := range map[string]*remoteclient.Remote{"unbound": unbound, "unrelated Project": remote} {
+		t.Run(name, func(t *testing.T) {
+			got, err := client.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: foreignResult.SessionID})
+			if err != nil {
+				t.Fatalf("GetProcess: %v", err)
+			}
+			if got.Process == nil || got.Process.Id != foreignResult.SessionID {
+				t.Fatalf("GetProcess = %+v, want process %s", got, foreignResult.SessionID)
+			}
+			if _, err := client.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: foreignResult.SessionID, MaxChars: 128}); err != nil {
+				t.Fatalf("GetInlineOutput: %v", err)
+			}
+			if _, err := client.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: "unknown-process"}); err == nil {
+				t.Fatal("GetProcess accepted an unknown process ID")
+			}
+			if _, err := client.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: "unknown-process", MaxChars: 128}); err == nil {
+				t.Fatal("GetInlineOutput accepted an unknown process ID")
+			}
+		})
 	}
 	if _, err := remote.KillProcess(context.Background(), &processpb.KillRequest{ProcessId: foreignResult.SessionID}); err != nil {
 		t.Fatalf("expected globally identified foreign process kill to succeed, got %v", err)
@@ -584,6 +596,34 @@ func TestGatewayScopesProcessViewsAndAllowsGlobalKill(t *testing.T) {
 	}
 	if bindingA.ProjectID == bindingB.ProjectID {
 		t.Fatalf("expected distinct project ids, both=%q", bindingA.ProjectID)
+	}
+}
+
+func TestGatewayProcessAccessWithoutProviderCredentials(t *testing.T) {
+	appCore, server, _ := newGatewayTestServerWithAuth(t, false)
+	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
+	store := createGatewayAuthoritativeSession(t, appCore)
+	started, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-lc", "sleep 1"},
+		DisplayCommand: "sleep 1",
+		OwnerSessionID: store.Meta().SessionID,
+		Workdir:        appCore.Config().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start process: %v", err)
+	}
+	remote, err := remoteclient.DialRemoteURL(context.Background(), "ws"+server.URL[len("http"):])
+	if err != nil {
+		t.Fatalf("DialRemoteURL: %v", err)
+	}
+	defer func() { _ = remote.Close() }()
+	if _, err := remote.GetProcess(context.Background(), &processpb.GetRequest{ProcessId: started.SessionID}); err != nil {
+		t.Fatalf("GetProcess before provider authentication: %v", err)
+	}
+	if _, err := remote.GetInlineOutput(context.Background(), &processpb.InlineOutputRequest{ProcessId: started.SessionID, MaxChars: 128}); err != nil {
+		t.Fatalf("GetInlineOutput before provider authentication: %v", err)
 	}
 }
 

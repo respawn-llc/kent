@@ -37,7 +37,7 @@ func runtimeControlGeneratedError(failure runtimeControlFailure) error {
 	if value, ok := failure.(interface {
 		GetPendingWorkNotPending() *runtimepb.PendingWorkNotPendingDetails
 	}); ok && value.GetPendingWorkNotPending() != nil {
-		id, err := runtimeids.ParseQueueItemID(value.GetPendingWorkNotPending().ItemId)
+		id, err := runtimeids.QueueItemIDFromProto(value.GetPendingWorkNotPending().ItemId)
 		if err != nil {
 			return err
 		}
@@ -93,11 +93,6 @@ func (c *Remote) CompactContext(ctx context.Context, request *runtimepb.CompactC
 	_, err := callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "CompactContext"), request, &runtimepb.CompactContextResult{},
 		func(failure *runtimepb.CompactContextError) error { return runtimeControlGeneratedError(failure) })
 	return err
-}
-
-func (c *Remote) Interrupt(ctx context.Context, request *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error) {
-	return callGeneratedBinary(c, ctx, bootstrapMethod(runtimepb.File_kent_api_runtime_runtime_proto, "TurnService", "Interrupt"), request, &runtimepb.InterruptResult{},
-		func(failure *runtimepb.InterruptError) error { return runtimeControlGeneratedError(failure) })
 }
 
 func (c *Remote) ListPendingWork(ctx context.Context, request *runtimepb.ListPendingWorkRequest) (*runtimepb.ListPendingWorkSuccess, error) {

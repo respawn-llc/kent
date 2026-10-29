@@ -1,12 +1,10 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"strings"
 
 	"core/cli/app/internal/runtimeattach"
-	"core/shared/clientui"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -22,10 +20,16 @@ const (
 	injectedRuntimeQueueEnqueued      injectedRuntimeQueueState = "enqueued"
 )
 
+type inputAdmissionRequest struct {
+	Input       runtimeinput.Input
+	Intent      runtimeinput.PendingWorkLane
+	QueueItemID runtimeids.QueueItemID
+}
+
 // Admission records correlate transport and transcript results; they never
 // schedule, retry, or own accepted Runtime work.
 type injectedRuntimeQueueItem struct {
-	Request   clientui.RuntimeSubmitRequest
+	Request   inputAdmissionRequest
 	SessionID string
 	Text      string
 	State     injectedRuntimeQueueState
@@ -33,23 +37,33 @@ type injectedRuntimeQueueItem struct {
 }
 
 func (m *uiModel) enqueueInput(text string, input runtimeinput.Input, intent runtimeinput.PendingWorkLane) tea.Cmd {
+	actionIntent := newSessionInputEnter
+	if intent == runtimeinput.PendingWorkLaneQueue {
+		actionIntent = newSessionInputQueue
+	}
+	if m.newSessionTarget() != nil {
+		return tea.Batch(m.newSessionInputCmd(text, input, actionIntent), m.reconcileSpinnerTicking(false))
+	}
 	if command, shell := parseUserShellCommand(text); shell {
 		input = runtimeinput.Shell(command)
 	}
 	pending := &injectedRuntimeQueueItem{
-		Request: clientui.RuntimeSubmitRequest{
+		Request: inputAdmissionRequest{
 			Input: input, Intent: intent, QueueItemID: runtimeids.NewQueueItemID(),
 		},
-		SessionID: m.sessionID,
+		SessionID: m.currentRuntimeSessionID(),
 		Text:      text, State: injectedRuntimeQueuePendingCreate,
 	}
 	m.injectedQueue = append(m.injectedQueue, pending)
-	client := m.runtimeClient()
+	activation, err := chatActivationFromInput(input)
+	if err != nil {
+		return func() tea.Msg { return injectedQueueCreateDoneMsg{pending: pending, err: err} }
+	}
+	execute := m.captureChatAction(chatInputAction{
+		input: activation, intent: actionIntent, queueItemID: pending.Request.QueueItemID,
+	}, &text)
 	command := func() tea.Msg {
-		if client == nil {
-			return injectedQueueCreateDoneMsg{pending: pending, err: errors.New("runtime engine is not configured")}
-		}
-		submission, err := client.SubmitRuntimeInput(context.Background(), pending.Request)
+		submission, err := execute().submission(text)
 		return injectedQueueCreateDoneMsg{
 			pending: pending, selectedSessionID: submission.SessionID,
 			item: submission.Queued, diagnostic: submission.Diagnostic, err: err,
@@ -69,6 +83,13 @@ func (m *uiModel) hasPendingInputAdmission() bool {
 
 func (c uiInputController) queueOrStartSubmission(text string) (tea.Model, tea.Cmd) {
 	m := c.model
+	if m.newSessionTarget() != nil {
+		if blocked, cmd := m.gateNewSessionInput(text, newSessionInputQueue); blocked {
+			return m, cmd
+		}
+		m.clearInput()
+		return m, m.enqueueInput(text, runtimeinput.Text(text), runtimeinput.PendingWorkLaneQueue)
+	}
 	if blocked, cmd := c.blockDisconnectedSubmission(false, ""); blocked {
 		return m, cmd
 	}
@@ -124,7 +145,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		return m, nil
 	}
 	item := m.injectedQueue[index]
-	if item.SessionID != m.sessionID {
+	if item.SessionID != m.currentRuntimeSessionID() {
 		m.removeInjectedQueueItemAt(index)
 		return m, nil
 	}
@@ -146,7 +167,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 		}
 		return m, tea.Batch(terminalCmd, status)
 	}
-	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.sessionID {
+	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.currentRuntimeSessionID() {
 		m.removeInjectedQueueItemAt(index)
 		m.nextSessionID = *msg.selectedSessionID
 		m.exitAction = UIActionOpenSession

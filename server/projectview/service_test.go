@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"core/internal/testharness/testsetup"
@@ -13,8 +14,8 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/runtimewire"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowexecution"
@@ -196,49 +197,51 @@ func TestDeleteProjectSessionArtifactsRejectsRelativeProjectIDs(t *testing.T) {
 }
 
 func TestMetadataServicePaginatesProjectWorkspaceCatalog(t *testing.T) {
-	store, _, binding := newProjectViewMetadataStore(t)
-	first := attachProjectViewWorkspace(t, store, binding.ProjectID)
-	time.Sleep(2 * time.Millisecond)
-	second := attachProjectViewWorkspace(t, store, binding.ProjectID)
-	svc := newProjectViewMetadataService(t, store)
+	synctest.Test(t, func(t *testing.T) {
+		store, _, binding := newProjectViewMetadataStore(t)
+		first := attachProjectViewWorkspace(t, store, binding.ProjectID)
+		time.Sleep(2 * time.Millisecond)
+		second := attachProjectViewWorkspace(t, store, binding.ProjectID)
+		svc := newProjectViewMetadataService(t, store)
 
-	page1, err := svc.ListProjectWorkspaces(context.Background(), &projectpb.ProjectWorkspaceListRequest{
-		ProjectId: binding.ProjectID,
-		Offset:    0,
-		Limit:     2,
-	})
-	if err != nil {
-		t.Fatalf("ListProjectWorkspaces page1: %v", err)
-	}
-	if got := catalogWorkspaceIDs(page1.Workspaces); len(got) != 2 || got[0] != binding.WorkspaceID || got[1] != second.WorkspaceID {
-		t.Fatalf("page1 workspace ids = %+v, want [%s %s]", got, binding.WorkspaceID, second.WorkspaceID)
-	}
-	if !page1.Workspaces[0].IsDefault || page1.Workspaces[1].IsDefault {
-		t.Fatalf("page1 default markers = %+v, want only first row default", page1.Workspaces)
-	}
-	if page1.NextOffset == nil || *page1.NextOffset != 2 {
-		t.Fatalf("page1 next offset = %v, want 2", page1.NextOffset)
-	}
+		page1, err := svc.ListProjectWorkspaces(context.Background(), &projectpb.ProjectWorkspaceListRequest{
+			ProjectId: binding.ProjectID,
+			Offset:    0,
+			Limit:     2,
+		})
+		if err != nil {
+			t.Fatalf("ListProjectWorkspaces page1: %v", err)
+		}
+		if got := catalogWorkspaceIDs(page1.Workspaces); len(got) != 2 || got[0] != binding.WorkspaceID || got[1] != second.WorkspaceID {
+			t.Fatalf("page1 workspace ids = %+v, want [%s %s]", got, binding.WorkspaceID, second.WorkspaceID)
+		}
+		if !page1.Workspaces[0].IsDefault || page1.Workspaces[1].IsDefault {
+			t.Fatalf("page1 default markers = %+v, want only first row default", page1.Workspaces)
+		}
+		if page1.NextOffset == nil || *page1.NextOffset != 2 {
+			t.Fatalf("page1 next offset = %v, want 2", page1.NextOffset)
+		}
 
-	page2, err := svc.ListProjectWorkspaces(context.Background(), &projectpb.ProjectWorkspaceListRequest{
-		ProjectId: binding.ProjectID,
-		Offset:    *page1.NextOffset,
-		Limit:     2,
+		page2, err := svc.ListProjectWorkspaces(context.Background(), &projectpb.ProjectWorkspaceListRequest{
+			ProjectId: binding.ProjectID,
+			Offset:    *page1.NextOffset,
+			Limit:     2,
+		})
+		if err != nil {
+			t.Fatalf("ListProjectWorkspaces page2: %v", err)
+		}
+		if got := catalogWorkspaceIDs(page2.Workspaces); len(got) != 1 || got[0] != first.WorkspaceID {
+			t.Fatalf("page2 workspace ids = %+v, want [%s]", got, first.WorkspaceID)
+		}
+		if page2.NextOffset != nil {
+			t.Fatalf("page2 next offset = %v, want nil", page2.NextOffset)
+		}
 	})
-	if err != nil {
-		t.Fatalf("ListProjectWorkspaces page2: %v", err)
-	}
-	if got := catalogWorkspaceIDs(page2.Workspaces); len(got) != 1 || got[0] != first.WorkspaceID {
-		t.Fatalf("page2 workspace ids = %+v, want [%s]", got, first.WorkspaceID)
-	}
-	if page2.NextOffset != nil {
-		t.Fatalf("page2 next offset = %v, want nil", page2.NextOffset)
-	}
 }
 
 func TestMetadataServiceSetsDefaultWorkspaceByProjectScopedPath(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	second, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Second project")
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Second project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -533,7 +536,7 @@ func TestServiceListsSessionPageWithOffsetWindow(t *testing.T) {
 
 func TestMetadataServiceUnlinksOnlySelectedProjectBindingByPath(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	second, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Second project")
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Second project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -615,7 +618,7 @@ func TestMetadataServiceConcurrentWorkspaceDetachSucceeds(t *testing.T) {
 
 func TestMetadataServiceUnlinkWrongProjectIDSelectorDoesNotMutate(t *testing.T) {
 	store, _, binding := newProjectViewMetadataStore(t)
-	other, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Other project")
+	other, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Other project", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace: %v", err)
 	}
@@ -798,7 +801,7 @@ func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
 
 func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
 	store, cfg, first := newProjectViewMetadataStore(t)
-	second, err := store.CreateProjectForWorkspace(context.Background(), cfg.WorkspaceRoot, "second")
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), cfg.WorkspaceRoot, "second", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace second: %v", err)
 	}

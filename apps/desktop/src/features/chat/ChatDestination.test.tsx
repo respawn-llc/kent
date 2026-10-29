@@ -574,7 +574,7 @@ it.each(["settings", "workspace"] as const)(
     const send = vi.spyOn(services.api.chat, "steer");
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     renderDestination(services, client, opening);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.type(await screen.findByRole("textbox"), "unsent input");
     if (source === "workspace") {
       await user.click(screen.getByRole("button", { name: opening.workspace.name }));

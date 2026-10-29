@@ -3,10 +3,8 @@ This repository contains Kent - a coding agent focused on output quality, built 
 ## Repository Layout
 - `cli/app`
   - Startup orchestration, auth gating, session selection, and top-level UI composition.
-- `server/runtime`
-  - Agent step loop, retries, transcript assembly, tool orchestration, lock handling, interrupts.
-- `server/runtimecommand`
-  - Runtime Command ordering and dormant goal-command mutation authority.
+- `server/agentruntime`
+  - Agent step loop, retries, transcript assembly, tool orchestration, Pending Work admission and ordering, lock handling, interrupts.
 - `server/bootstrap`
   - Server-owned bootstrap composition for config/container resolution, auth-manager creation, and runtime-support setup.
 - `server/startup`
@@ -21,13 +19,13 @@ This repository contains Kent - a coding agent focused on output quality, built 
   - Server-owned bootstrap continuation resolution and session open/create/hydration planning shared by interactive and headless flows.
 - `server/runtimewire`
   - Server-owned runtime preparation, local tool registry construction, background-event routing, outside-workspace approvals, and runtime event bridging.
-- `server/session`
+- `server/sessionstore`
   - Session persistence (`events.jsonl`) and resume/list primitives.
 - `server/tools`
   - Tool contracts and concrete tools (`shell`, `patch`, `ask_question`).
 - `server/llm`
   - Model-facing contracts and OpenAI transport/client adapters.
-- `server/auth`
+- `server/authmanager`
   - Global auth state, method switching policy, startup gate, OAuth refresh plumbing.
 - `cli/tui`
   - Mode-specific UI behavior (`ongoing`/`detail`) and rendering helpers.
@@ -129,7 +127,7 @@ Just is the sole public developer command interface. Do not add standalone devel
 - Documentation review must verify technical accuracy and apply the same reader-question and action-or-decision test to each added sentence.
 - Do not add request-time sanitizers over persisted conversation/tool items. Perform ANSI stripping and command-output cleanup in shell post-processing before persisting tool results. Never perform that cleanup in model request assembly.
 - Do not add provider-adapter history shapers in model request serialization. Provider-specific input payload shape must be materialized at transcript/persistence projection boundaries. Provider adapters must serialize prepared items and reject invalid unprepared items. They must not silently drop, promote, prefix, stringify, or normalize historical items.
-- Runtime output mutations belong behind the `server/runtime` steer/queue boundary. Do not add ad-hoc appenders, prompt injectors, direct runtime event emitters, or bespoke queue flush paths for model-visible context, transcript rows, tool completions, local diagnostics, or runtime status events. Build typed steering calls. Queues store those calls. Compaction starts a new active list from compacting output and then steers runtime context into it.
+- Runtime output mutations belong behind the `server/agentruntime` steer/queue boundary. Do not add ad-hoc appenders, prompt injectors, direct runtime event emitters, or bespoke queue flush paths for model-visible context, transcript rows, tool completions, local diagnostics, or runtime status events. Build typed steering calls. Queues store those calls. Compaction starts a new active list from compacting output and then steers runtime context into it.
 - When a server contract change is incompatible with existing GUI/TUI clients, raise the protocol version in `shared/protocol/version.json`. This version bump requires no explicit user approval.
 - Kent's exact protocol-version gate rejects incompatible clients. Do not maintain Protobuf compatibility shims, legacy definitions, or reserved field names/numbers solely for older Kent clients. Unchanged fields keep their numbers. Persisted or externally consumed formats require their own explicit product contract.
 

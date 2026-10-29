@@ -1139,11 +1139,7 @@ func projectTaskSetupGuidance(action taskSetupObservedActionKind, taskRef string
 		retained = terminal.GetNotRequired().GetRetainedPreviousWorktree()
 	case terminal.GetFailed() != nil:
 		failed := terminal.GetFailed()
-		diagnostic, err := taskSetupDiagnostic(failed.Diagnostic)
-		if err != nil {
-			return taskSetupGuidance{}, err
-		}
-		result := taskSetupGuidance{Outcome: taskSetupOutcomeObservedSetupFailure, Diagnostic: diagnostic, ScriptPath: failed.ScriptPath}
+		result := taskSetupGuidance{Outcome: taskSetupOutcomeObservedSetupFailure, Diagnostic: proto.String(failed.Diagnostic), ScriptPath: failed.ScriptPath}
 		if failed.RetainedWorktree != nil {
 			result.RetainedRoot = &failed.RetainedWorktree.Git.CanonicalRoot
 		}

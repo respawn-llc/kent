@@ -48,7 +48,7 @@ function transitionPreview(choiceCount: number): TaskMovePreviewResponse {
 
 describe("ManualMoveDialog", () => {
   it("requires a choice, then a non-blank required value before submitting", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { onSubmit } = renderDialog(transitionPreview(2));
 
     const radios = screen.getAllByRole("radio");
@@ -99,7 +99,7 @@ describe("ManualMoveDialog", () => {
   });
 
   it("auto-selects a sole choice, preserves prefills, and supports cancellation", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onCancel = vi.fn();
     const { onSubmit } = renderDialog(
       {

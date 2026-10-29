@@ -21,6 +21,7 @@ import { TaskInitiatingActionProvider } from "./TaskResumeButton";
 import type { TaskDraft } from "./TaskDetailRows";
 import type { TaskDetailReads, TaskDetailViewModel } from "./TaskDetailViewModel";
 import type { useTaskDetailActions } from "./TaskDetailViewModel";
+import { useTaskSpeech } from "./TaskDetailSpeech";
 
 export function TaskDetailContent({
   activity,
@@ -56,6 +57,7 @@ export function TaskDetailContent({
   sidebarMode?: SidebarMode | undefined;
 }>) {
   const navigation = useAppNavigation();
+  const speech = useTaskSpeech();
   const relationshipNavigationAvailable = hasRelationshipNavigation(navigator, openSidebar);
   const editing = useAtomValue(model.editing.state);
   const {
@@ -86,6 +88,7 @@ export function TaskDetailContent({
   });
 
   function saveDraft(nextDraft: TaskDraft = draft, onSaved?: () => void): void {
+    if (speech.description.busy) return;
     actions.save({ draft: nextDraft, onChanged: onMutated, ...(onSaved === undefined ? {} : { onSaved }) });
   }
 
@@ -125,7 +128,7 @@ export function TaskDetailContent({
             editingPending:
               actions.commentRequest.isPending && actions.commentRequest.variables.kind !== "delete",
             submit: () => {
-              actions.submitComment({ onChanged: onMutated });
+              if (!speech.comment.busy) actions.submitComment({ onChanged: onMutated });
             },
             remove: (id) => {
               actions.deleteComment({ id, onChanged: onMutated });
@@ -134,7 +137,7 @@ export function TaskDetailContent({
           detail={detail}
           draft={draft}
           draftDirty={editing.dirty}
-          canSaveDraft={editing.canSave}
+          canSaveDraft={editing.canSave && !speech.description.busy}
           descriptionPresentation={descriptionPresentation}
           editingComment={editingComment}
           focusRequestKey={dependencyFocusRequestKey(detail.id, localDependencyFocusRequest)}

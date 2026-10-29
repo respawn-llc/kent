@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -37,7 +37,7 @@ func TestChatAgentCatalogDistinguishesConnectionSets(t *testing.T) {
 		`[subagents.equivalent]`,
 		`connection = ["b", "a"]`,
 	)
-	catalog, err := PrepareChatAgentCatalog(app, false)
+	catalog, err := PrepareChatAgentCatalog(app, false, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndPreservesNamedAgents(t *testin
 			AgentCallable: false,
 		},
 	}
-	catalog, err := PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true)
+	catalog, err := PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndPreservesNamedAgents(t *testin
 			"thinking_level": {Kind: config.SourceInput, Property: config.PropertyAddress{Key: "thinking_level"}},
 		},
 	}
-	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true)
+	_, err = PrepareChatAgentCatalog(testsetup.ProgrammaticConfig(t, settings), true, serverapi.RunPromptOverrides{})
 	var typed *serverapi.ChatSettingsAgentPreparationError
 	if !errors.As(err, &typed) ||
 		typed.Agent != "broken" ||

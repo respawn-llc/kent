@@ -97,8 +97,6 @@ export function createChatSettingsApi(
       const response = requireChatSuccess(method, result);
       if (target.kind === "session" && response.target.case === "session") {
         const replacement = response.target.value.connectionReplacement;
-        if (replacement !== undefined && (!replacement.previous.trim() || !replacement.current.trim()))
-          throw new ContractError("Chat Settings Connection replacement is invalid.");
         return {
           kind: "session",
           settings: settings(response.target.value.settings),

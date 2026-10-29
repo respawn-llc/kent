@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"core/prompts"
+	"core/server/agentruntime"
 	"core/server/goalview"
-	"core/server/runtime"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -150,9 +150,8 @@ func (s *Service) mutateGoal(
 	if s == nil || s.authority == nil {
 		return runtime.GoalCommandResult{}, errors.New("session runtime authority is required")
 	}
-	stepText := strings.TrimSpace(rawStepID)
 	if mutation.Actor == session.GoalActorAgent {
-		stepID, err := runtimeids.ParseStepID(stepText)
+		stepID, err := runtimeids.StepIDFromProto(rawStepID)
 		if err != nil {
 			return runtime.GoalCommandResult{}, err
 		}

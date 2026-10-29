@@ -2,8 +2,8 @@ package sessionruntime
 
 import (
 	"context"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"errors"
@@ -48,9 +48,6 @@ func (a *Authority) openRuntime(
 	}
 	if err := context.Cause(ctx); err != nil {
 		return runtimeids.SessionResourceRef{}, err
-	}
-	if request.SessionID.IsZero() {
-		return runtimeids.SessionResourceRef{}, errors.New("session id is required")
 	}
 	gate, releaseGate := a.gateFor(request.SessionID)
 	defer releaseGate()

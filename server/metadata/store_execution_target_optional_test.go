@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 
 	"github.com/google/uuid"
 )

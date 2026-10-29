@@ -69,5 +69,6 @@ func readLinuxProcess(pid int) (managedProcessSnapshotEntry, error) {
 		parentPID:      parentPID,
 		processGroupID: processGroupID,
 		startedAt:      startedAt,
+		exited:         fields[0] == "Z" || fields[0] == "X",
 	}, nil
 }

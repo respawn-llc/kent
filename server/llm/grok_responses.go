@@ -63,24 +63,21 @@ func (grokResponsesPolicy) prepareDispatch(string, string, *CodexDispatchContext
 	return nil, nil
 }
 
-func (grokResponsesPolicy) requestOptions(string, ResponsesRequest, responsesDispatchPreparation) []option.RequestOption {
-	return nil
+func (grokResponsesPolicy) requestHeaders(string, ResponsesRequest, responsesDispatchPreparation) http.Header {
+	return http.Header{}
 }
 
-func (grokCLIResponsesPolicy) requestOptions(identifier string, request ResponsesRequest, _ responsesDispatchPreparation) []option.RequestOption {
-	opts := []option.RequestOption{
-		option.WithHeader("x-xai-token-auth", "xai-grok-cli"),
-		option.WithHeader("x-grok-client-version", grokCLIProtocolVersion),
-		option.WithHeader("x-grok-model-override", request.Model),
-		option.WithHeader("x-grok-agent-id", identifier),
-	}
+func (grokCLIResponsesPolicy) requestHeaders(identifier string, request ResponsesRequest, _ responsesDispatchPreparation) http.Header {
+	headers := http.Header{}
+	headers.Set("x-xai-token-auth", "xai-grok-cli")
+	headers.Set("x-grok-client-version", grokCLIProtocolVersion)
+	headers.Set("x-grok-model-override", request.Model)
+	headers.Set("x-grok-agent-id", identifier)
 	if request.SessionID != nil {
-		opts = append(opts,
-			option.WithHeader("x-grok-conv-id", *request.SessionID),
-			option.WithHeader("x-grok-session-id", *request.SessionID),
-		)
+		headers.Set("x-grok-conv-id", *request.SessionID)
+		headers.Set("x-grok-session-id", *request.SessionID)
 	}
-	return opts
+	return headers
 }
 
 func (grokResponsesPolicy) configurePayload(_ responsesRequestPayloadBuilder, request ResponsesRequest, _ OpenAIAuthMode, out *responses.ResponseNewParams) error {

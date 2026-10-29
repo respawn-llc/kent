@@ -3,6 +3,7 @@ package app
 import processpb "core/shared/protoapi/gen/kent/api/process"
 
 import (
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	tea "github.com/charmbracelet/bubbletea"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func TestUIUpdateRoutesWorktreeMessagesThroughReducer(t *testing.T) {
 	m.worktrees.listPending = true
 	m.worktreeListGeneration = 7
 
-	next, _ := m.Update(worktreeListDoneMsg{token: 7})
+	next, _ := m.Update(worktreeListDoneMsg{token: 7, workspace: &worktreepb.WorkspaceListSuccess{}})
 	updated := next.(*uiModel)
 
 	if updated.worktrees.isLoading() {

@@ -1,0 +1,135 @@
+package runtime
+
+import (
+	"context"
+	"encoding/json"
+	"sync"
+	"testing"
+
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+)
+
+func TestDeclinedQuestionProducesErrorToolCompletionWithoutSyntheticUserMessage(t *testing.T) {
+	broker := tools.NewAskQuestionBroker()
+	broker.SetLifecycleAskHandler(func(context.Context, tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+		return nil, context.Canceled
+	})
+	var eventMu sync.Mutex
+	var events []Event
+	engine := mustNewTestEngine(
+		t,
+		mustCreateTestSession(t),
+		&fakeClient{},
+		newTestToolRegistry(t, tools.HandlerRegistration{
+			ID:      toolspec.ToolAskQuestion,
+			Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
+		}),
+		Config{
+			Model:        "gpt-6-sol",
+			EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+			OnEvent: func(event Event) {
+				eventMu.Lock()
+				events = append(events, event)
+				eventMu.Unlock()
+			},
+		},
+	)
+	stepID := runtimeTestStepID("step-1")
+	restoreStep := setTestActiveStep(engine, stepID)
+	defer restoreStep()
+
+	results, err := engine.executeToolCalls(context.Background(), stepID, []llm.ToolCall{{
+		ID:    "question-1",
+		Name:  string(toolspec.ToolAskQuestion),
+		Input: json.RawMessage(`{"question":"Proceed?"}`),
+	}})
+	if err != nil {
+		t.Fatalf("executeToolCalls: %v", err)
+	}
+	if len(results) != 1 || !results[0].IsError {
+		t.Fatalf("declined Question result = %+v, want one error result", results)
+	}
+
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	completions := 0
+	for _, event := range events {
+		if event.Kind == EventUserMessageFlushed {
+			t.Fatalf("declined Question emitted synthetic user message: %+v", event)
+		}
+		if event.Kind == EventToolCallCompleted && event.ToolResult != nil && event.ToolResult.CallID == "question-1" {
+			completions++
+			if !event.ToolResult.IsError {
+				t.Fatalf("declined Question completion = %+v, want error", event.ToolResult)
+			}
+		}
+	}
+	if completions != 1 {
+		t.Fatalf("declined Question completion count = %d, want 1", completions)
+	}
+}
+
+func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
+	broker := tools.NewAskQuestionBroker()
+	var mu sync.Mutex
+	var materialized []string
+	broker.SetLifecycleAskHandler(func(_ context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+		mu.Lock()
+		materialized = append(materialized, req.ToolCallID)
+		mu.Unlock()
+		if req.ToolCallID == "question-1" {
+			return nil, context.Canceled
+		}
+		return tools.AskQuestionAnswer{Freeform: textutil.Value("continue")}, nil
+	})
+	var skipped []tools.AskQuestionBatchMetadata
+	engine := mustNewTestEngine(
+		t,
+		mustCreateTestSession(t),
+		&fakeClient{},
+		newTestToolRegistry(t, tools.HandlerRegistration{
+			ID:      toolspec.ToolAskQuestion,
+			Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
+		}),
+		Config{
+			Model:        "gpt-6-sol",
+			EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+			AskQuestionBatchSkipped: func(batch tools.AskQuestionBatchMetadata) {
+				mu.Lock()
+				defer mu.Unlock()
+				skipped = append(skipped, batch)
+			},
+		},
+	)
+	stepID := runtimeTestStepID("step-1")
+	restoreStep := setTestActiveStep(engine, stepID)
+	defer restoreStep()
+
+	results, err := engine.executeToolCalls(context.Background(), stepID, []llm.ToolCall{
+		{
+			ID:    "question-1",
+			Name:  string(toolspec.ToolAskQuestion),
+			Input: json.RawMessage(`{"question":"First?"}`),
+		},
+		{
+			ID:    "question-2",
+			Name:  string(toolspec.ToolAskQuestion),
+			Input: json.RawMessage(`{"question":"Second?"}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("executeToolCalls: %v", err)
+	}
+	if len(results) != 2 || !results[0].IsError || results[1].IsError {
+		t.Fatalf("decline/successor results = %+v", results)
+	}
+	if len(materialized) != 2 || materialized[0] == materialized[1] {
+		t.Fatalf("materialized Questions = %v, want both prepared Questions", materialized)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("decline marked prepared successor skipped: %+v", skipped)
+	}
+}

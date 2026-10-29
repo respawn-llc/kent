@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/runtimeactivity"
 	"core/shared/invariant"
 	"core/shared/protoapi"

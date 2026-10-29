@@ -43,7 +43,7 @@ func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnect
 			break
 		}
 	}
-	result := &authpb.ConnectionDefinition{Id: string(id), Protocol: protocol, Endpoint: definition.Endpoint, EnvironmentVariable: definition.EnvironmentVariable}
+	result := &authpb.ConnectionDefinition{Id: string(id), Protocol: protocol, Endpoint: definition.Endpoint, EnvironmentVariable: definition.EnvironmentVariable, SpeechToTextModel: definition.SpeechToTextModel}
 	if definition.Capabilities != (config.ProviderCapabilitiesOverride{}) {
 		result.Capabilities = providerCapabilitiesToProto(definition.Capabilities)
 	}
@@ -52,7 +52,7 @@ func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnect
 
 func ConnectionFromProto(value *authpb.ConnectionDefinition) (config.ConnectionID, config.ProviderConnection, error) {
 	id := config.ConnectionID(value.Id)
-	definition := config.ProviderConnection{Endpoint: value.Endpoint, EnvironmentVariable: value.EnvironmentVariable}
+	definition := config.ProviderConnection{Endpoint: value.Endpoint, EnvironmentVariable: value.EnvironmentVariable, SpeechToTextModel: value.SpeechToTextModel}
 	definition.Protocol = connectionProtocolValues[value.Protocol]
 	if definition.Protocol == config.ConnectionResponses {
 		if err := config.ValidateResponsesEndpoint(*definition.Endpoint); err != nil {

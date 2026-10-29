@@ -61,11 +61,6 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 			return nil, err
 		}
 	}
-	if interactive {
-		if err := remoteServer.EnsureConnectionSetup(ctx); err != nil {
-			return nil, err
-		}
-	}
 	closeRemote = false
 	return server, nil
 }

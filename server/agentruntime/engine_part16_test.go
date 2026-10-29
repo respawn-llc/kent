@@ -1,0 +1,103 @@
+package runtime
+
+import (
+	"context"
+	"core/server/llm"
+	"core/server/tools"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+	"encoding/json"
+	"testing"
+)
+
+func TestAutoCompactionDoesNotRetryNonOverflow400(t *testing.T) {
+	store := mustCreateTestSession(t)
+
+	client := &fakeCompactionClient{
+		responses: []llm.Response{
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working")},
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
+				},
+				Usage: llm.Usage{InputTokens: textutil.Value(390000), OutputTokens: textutil.Value(1000), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 390000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+		compactionErrors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeUnknown, ProviderType: "invalid_request_error", ProviderCode: "invalid_tool_arguments", Message: "tool arguments must be an object"},
+			nil,
+		},
+		compactionResponses: []llm.CompactionResponse{
+			{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
+					Type:             llm.ResponseItemTypeCompaction,
+					ID:               textutil.Value("cmp_1"),
+					EncryptedContent: textutil.Value("enc_1"),
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+	}
+
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "gpt-6-luna"})
+
+	if _, err := eng.SubmitUserMessage(context.Background(), "run tools"); err == nil {
+		t.Fatal("expected compaction to fail on non-overflow 400")
+	}
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("expected one compact call for non-overflow 400, got %d", len(client.compactionCalls))
+	}
+}
+
+func TestOpenAIModelCompact404DoesNotFallbackToLocalCompaction(t *testing.T) {
+	store := mustCreateTestSession(t)
+
+	client := &fakeCompactionClient{
+		responses: []llm.Response{
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working")},
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
+				},
+				Usage: llm.Usage{InputTokens: textutil.Value(190000), OutputTokens: textutil.Value(2000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 190000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
+				Usage:     llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
+				Usage:     llm.Usage{InputTokens: textutil.Value(4000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 4000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+		compactionErr: &llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(404), Code: llm.UnifiedErrorCodeUnknown, Message: "not found"},
+		caps: llm.ProviderCapabilities{
+			ProviderID:                    "openai",
+			SupportsResponsesAPI:          true,
+			SupportsResponsesCompact:      true,
+			SupportsReasoningEncrypted:    true,
+			SupportsServerSideContextEdit: true,
+			IsOpenAIFirstParty:            true,
+		},
+	}
+
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:               "gpt-6-sol",
+		ContextWindowTokens: 200_000,
+	})
+
+	msg, err := eng.SubmitUserMessage(context.Background(), "run tools")
+	if err == nil {
+		t.Fatalf("expected compaction error, got success message %+v", msg)
+	}
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("expected one compact call, got %d", len(client.compactionCalls))
+	}
+	for _, req := range client.calls {
+		for _, item := range req.Items {
+			if item.Type == llm.ResponseItemTypeMessage && item.MessageType != nil && *item.MessageType == llm.MessageTypeCompactionSummary {
+				t.Fatalf("did not expect local compaction summary fallback, request=%+v", req.Items)
+			}
+		}
+	}
+}

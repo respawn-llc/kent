@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,12 +17,12 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/launch"
 	"core/server/runprompt"
-	"core/server/session"
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -103,6 +104,67 @@ func TestChatShellPreparesDormantSessionWithoutModel(t *testing.T) {
 		_, err := os.Stat(output)
 		return err == nil
 	}, "accepted Shell did not complete")
+}
+
+func TestNewChatShellCreatesSessionAndExecutesOnceWithoutModel(t *testing.T) {
+	app, source, _ := newRunThinkingSession(t, nil)
+	binding, err := app.MetadataStore().ResolveSessionNavigationBinding(t.Context(), source.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(source.Meta().WorkspaceRoot, "new-shell-count")
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target:      newChatCommandTarget(t, app, binding.ProjectId, binding.WorkspaceId),
+		Activation:  &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: "echo invoked >> " + output}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.GetAccepted() == nil || result.Session.SessionId == source.Meta().SessionID {
+		t.Fatalf("shell did not settle on its created Session: %+v", result)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.ModelRequestCount != 0 {
+		t.Fatalf("shell made %d model requests", record.Meta.ModelRequestCount)
+	}
+	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), time.Millisecond, func() bool {
+		content, err := os.ReadFile(output)
+		return err == nil && len(strings.Fields(string(content))) == 1
+	}, "accepted Shell did not execute")
+	content, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.Fields(string(content))) != 1 {
+		t.Fatalf("shell executed more than once: %q", content)
+	}
+	requireChatSessionCount(t, app, binding.ProjectId, 1)
+}
+
+func TestNewChatShellFailureRetainsCreatedSessionAndDraft(t *testing.T) {
+	app, _, binding, _ := newChatCommandCore(t, errors.New("runtime preparation failed"))
+	target := newChatCommandTarget(t, app, binding.ProjectID, binding.WorkspaceID)
+	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId:       runtimeids.NewQueueItemID().String(),
+		Target:            target,
+		Activation:        &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: "pwd"}}},
+		InitialInputDraft: textutil.Value("unsent shell draft"),
+	})
+	if err != nil || result.GetNotAccepted() == nil {
+		t.Fatalf("failed shell result = %v, %v", result, err)
+	}
+	record, err := app.MetadataStore().ResolvePersistedSession(t.Context(), result.Session.SessionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Meta.InputDraft != "unsent shell draft" || record.Meta.ModelRequestCount != 0 {
+		t.Fatalf("failed shell lost draft or called model: %+v", record.Meta)
+	}
+	requireChatSessionCount(t, app, binding.ProjectID, 1)
 }
 
 func TestRunThinkingExplicitDefaultSurvivesFailedContinuation(t *testing.T) {

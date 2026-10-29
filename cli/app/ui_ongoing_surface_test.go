@@ -47,16 +47,34 @@ func TestNativeOngoingSurfaceWritesBypassRendererGate(t *testing.T) {
 	gate := newUIRendererOutputGateState()
 	gate.SetSuppressRendererWrites(true)
 	var out bytes.Buffer
+	renderer := newUIRendererOutputGateWriter(&out, gate)
+	if _, err := renderer.Write([]byte("suppressed renderer frame")); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatal("suppressed renderer frame reached terminal output")
+	}
 	surface := ongoing.NewSurface(&out)
 
-	if _, err := surface.Render(ongoing.FrameInput{
+	frame := ongoing.FrameInput{
 		Size:     ongoing.Size{Width: 20, Height: 3},
-		Sections: []ongoing.FrameSection{{Kind: ongoing.FrameSectionStatus, Lines: []string{"ready"}}}}); err != nil {
+		Sections: []ongoing.FrameSection{{Kind: ongoing.FrameSectionStatus, Lines: []string{"ready"}}}}
+	if _, err := surface.Render(frame); err != nil {
 		t.Fatalf("render ongoing surface: %v", err)
 	}
-
-	if got, want := out.String(), "\x1b[r\x1b[?6l\x1b]133;C\x1b\\\x1b[3;1H\x1b]133;C\x1b\\\x1b[2K\x1b[3;1H\x1b]133;A;redraw=1\x1b\\ready\x1b[?25l"; got != want {
-		t.Fatalf("ongoing surface bytes = %q, want %q", got, want)
+	capture, err := pty.NewCapture(
+		pty.MustDimensions(frame.Size.Height, frame.Size.Width),
+		[]pty.Chunk{pty.NewChunk(0, time.Millisecond, out.Bytes())},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := analyzer.Analyze(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(analysis.Screen.RenderText()), frame.Sections[0].Lines[0]; got != want {
+		t.Fatalf("native surface content = %q, want %q", got, want)
 	}
 }
 

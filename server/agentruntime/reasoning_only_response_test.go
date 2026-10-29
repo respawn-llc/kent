@@ -1,0 +1,172 @@
+package runtime
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"testing"
+
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/tools"
+	"core/shared/config"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+)
+
+func TestWorkflowOpaqueNativeResponseContinuesWithoutFeedback(t *testing.T) {
+	t.Parallel()
+	raw := []byte(`{"type":"future_provider_item","id":"opaque_workflow","data":"opaque"}`)
+	message, err := llm.MessageFromNativeResponse(session.NativeResponseBody{
+		Format: session.NativeResponseOpenAI, Items: [][]byte{raw},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeWorkflowController{}
+	completionTool := &externalCompletionTool{}
+	client := &fakeClient{responses: []llm.Response{
+		{
+			EndTurn: textutil.Value(true), Assistant: message,
+			OutputItems: message.NativeResponse.PresentationItems(),
+			Usage:       llm.Usage{WindowTokens: 200000},
+		},
+		commentaryResponse("complete the workflow", llm.ToolCall{
+			ID: "call_complete", Name: string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"kent task complete"}`),
+		}),
+	}}
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolExecCommand, Handler: completionTool,
+	}), Config{})
+	workflow := testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand)
+	publishTestWorkflowExecution(t, engine, workflow)
+	completionTool.complete = bindExternalAgentCompletion(t, engine, controller, workflow.ScopeID)
+	if _, err := engine.SubmitWorkflowTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	assertModelCallCount(t, client, 2)
+	if requestHasDeveloperErrorFeedback(client.calls[1]) || controller.violations.Load() != 0 {
+		t.Fatal("opaque native output caused Workflow feedback")
+	}
+	for _, item := range client.calls[1].Items {
+		if bytes.Equal(item.Raw, raw) {
+			return
+		}
+	}
+	t.Fatal("Workflow continuation lost native output")
+}
+
+func TestWorkflowReasoningOnlyResponseContinuesWithoutFeedback(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	completionTool := &externalCompletionTool{}
+	client := &fakeClient{responses: []llm.Response{
+		{
+			EndTurn: textutil.Value(true),
+			Assistant: llm.Message{
+				Role: llm.RoleAssistant,
+				ReasoningItems: []llm.ReasoningItem{{
+					ID:               "rs_1",
+					EncryptedContent: "encrypted-reasoning",
+				}},
+			},
+			ReasoningItems: []llm.ReasoningItem{{
+				ID:               "rs_1",
+				EncryptedContent: "encrypted-reasoning",
+			}},
+			OutputItems: []llm.ResponseItem{{
+				Type:             llm.ResponseItemTypeReasoning,
+				ID:               textutil.Value("rs_1"),
+				EncryptedContent: textutil.Value("encrypted-reasoning"),
+			}},
+			Usage: llm.Usage{WindowTokens: 200000},
+		},
+		commentaryResponse("complete the workflow", llm.ToolCall{
+			ID:    "call_complete",
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"kent task complete"}`),
+		}),
+	}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID:      toolspec.ToolExecCommand,
+		Handler: completionTool,
+	}), Config{})
+	workflowConfig := testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand)
+	publishTestWorkflowExecution(t, eng, workflowConfig)
+	completionTool.complete = bindExternalAgentCompletion(t, eng, controller, workflowConfig.ScopeID)
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit workflow turn: %v", err)
+	}
+
+	assertModelCallCount(t, client, 2)
+	if got := controller.violations.Load(); got != 0 {
+		t.Fatalf("workflow violations = %d, want 0", got)
+	}
+	reasoningPersisted := false
+	for _, item := range client.calls[1].Items {
+		if item.Type == llm.ResponseItemTypeReasoning &&
+			item.ID != nil && *item.ID == "rs_1" &&
+			item.EncryptedContent != nil && *item.EncryptedContent == "encrypted-reasoning" {
+			reasoningPersisted = true
+		}
+	}
+	if !reasoningPersisted {
+		t.Fatalf("continuation request omitted reasoning output: %+v", client.calls[1].Items)
+	}
+	for _, message := range requestMessages(client.calls[1]) {
+		if message.Role == llm.RoleDeveloper && message.MessageType != nil && *message.MessageType == llm.MessageTypeErrorFeedback {
+			t.Fatalf("reasoning-only response added feedback: %+v", message)
+		}
+	}
+}
+
+func TestWorkflowEmptyFinalResponseUsesGenericEmptyFinalFeedback(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	controller := &fakeWorkflowController{}
+	completionTool := &externalCompletionTool{}
+	client := &fakeClient{responses: []llm.Response{
+		{
+			EndTurn: textutil.Value(true),
+			Assistant: llm.Message{
+				Role:    llm.RoleAssistant,
+				Phase:   textutil.Value(llm.MessagePhaseFinal),
+				Content: textutil.Value(""),
+			},
+			OutputItems: []llm.ResponseItem{{
+				Type:    llm.ResponseItemTypeMessage,
+				Role:    textutil.Value(llm.RoleAssistant),
+				Phase:   textutil.Value(llm.MessagePhaseFinal),
+				Content: textutil.Value(""),
+			}},
+			Usage: llm.Usage{WindowTokens: 200000},
+		},
+		commentaryResponse("complete the workflow", llm.ToolCall{
+			ID:    "call_complete",
+			Name:  string(toolspec.ToolExecCommand),
+			Input: json.RawMessage(`{"cmd":"kent task complete"}`),
+		}),
+	}}
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID:      toolspec.ToolExecCommand,
+		Handler: completionTool,
+	}), Config{})
+	workflowConfig := testWorkflowConfig(controller, config.WorkflowCompletionModeShellCommand)
+	publishTestWorkflowExecution(t, eng, workflowConfig)
+	completionTool.complete = bindExternalAgentCompletion(t, eng, controller, workflowConfig.ScopeID)
+
+	if _, err := eng.SubmitWorkflowTurn(context.Background()); err != nil {
+		t.Fatalf("submit workflow turn: %v", err)
+	}
+
+	assertModelCallCount(t, client, 2)
+	if got := controller.violations.Load(); got != 0 {
+		t.Fatalf("workflow violations = %d, want 0", got)
+	}
+	if !requestHasDeveloperErrorFeedback(client.calls[1]) {
+		t.Fatalf("empty final did not add generic developer feedback")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -123,6 +124,55 @@ func TestGenerateRejectsMalformedHostedToolEvidence(t *testing.T) {
 	}, StreamCallbacks{})
 	if err == nil {
 		t.Fatal("Generate succeeded with malformed hosted-tool evidence")
+	}
+}
+
+func TestGenerateRetainsHostedSearchWithoutOptionalAction(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		item string
+	}{
+		{name: "omitted", item: `{"type":"web_search_call","id":"web_without_action","status":"completed","usage":{"searches":1}}`},
+		{name: "null", item: `{"type":"web_search_call","id":"web_without_action","status":"completed","action":null,"usage":{"searches":1}}`},
+	} {
+		for _, completedOutput := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/completed_output_%t", test.name, completedOutput), func(t *testing.T) {
+				item := test.item
+				output := "[]"
+				if completedOutput {
+					output = "[" + item + "]"
+				}
+				transport := newOpenAIStreamTestTransport(t,
+					`{"type":"response.output_item.done","output_index":0,"item":`+item+`}`,
+					`{"type":"response.completed","response":{"model":"gpt-6-sol","output":`+output+`}}`,
+					`[DONE]`,
+				)
+				response, err := transport.Generate(context.Background(), ResponsesRequest{
+					Model: "gpt-6-sol", SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, ReasoningEffort: "high",
+				}, StreamCallbacks{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !completedOutput {
+					if len(response.OutputItems) != 0 || len(response.ProviderEvidence.HostedTools) != 0 {
+						t.Fatalf("stream-only hosted search accepted: %+v", response)
+					}
+					return
+				}
+				if len(response.OutputItems) != 1 || !bytes.Equal(response.OutputItems[0].Raw, []byte(item)) {
+					t.Fatalf("hosted output changed: %+v", response.OutputItems)
+				}
+				if len(response.ProviderEvidence.HostedTools) != 1 {
+					t.Fatalf("hosted evidence = %+v", response.ProviderEvidence.HostedTools)
+				}
+				hosted := response.ProviderEvidence.HostedTools[0]
+				if hosted.ID == nil || *hosted.ID != "web_without_action" ||
+					hosted.Status == nil || *hosted.Status != "completed" ||
+					hosted.ActionKind != nil || hosted.Usage == nil {
+					t.Fatalf("hosted evidence = %+v, want identity and usage without an invented action", hosted)
+				}
+			})
+		}
 	}
 }
 

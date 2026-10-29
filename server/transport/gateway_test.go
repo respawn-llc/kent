@@ -17,15 +17,14 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/chatmutation"
 	"core/server/core"
-	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
@@ -391,13 +390,6 @@ func gatewaySessionExecutionTarget(t *testing.T, conn *websocket.Conn, requestID
 	return response.GetSuccess().GetMainView().GetSession().GetExecutionTarget()
 }
 
-func registerGatewayWorkspace(t *testing.T, workspace string) {
-	t.Helper()
-	configureGatewayTestServerPort(t)
-	resolved := resolveGatewayTestConfig(t, workspace)
-	registerGatewayTestBinding(t, resolved.Config)
-}
-
 func configureGatewayTestServerPort(t *testing.T) {
 	t.Helper()
 	port := 56000 + int(gatewayTestPortCounter.Add(1))
@@ -501,7 +493,7 @@ func TestNewGatewayRejectsTypedNilDependencies(t *testing.T) {
 func newGatewayTestAuthSupport(t *testing.T, root string, ready bool) serverbootstrap.AuthSupport {
 	t.Helper()
 	store := auth.NewMemoryStore(auth.EmptyState())
-	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, store, nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, store, nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
@@ -1051,14 +1043,10 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	configureGatewayTestServerPort(t)
 
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB := resolveGatewayTestConfig(t, workspaceB)
-	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 	foreignSession, err := session.Create(
 		filepath.Join(filepath.Join(resolvedB.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
@@ -1085,7 +1073,7 @@ func TestGatewayRejectsSessionAccessOutsideAttachedProject(t *testing.T) {
 	}
 	_ = opened
 
-	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], bindingA.ProjectID)
 	if err != nil {
@@ -1235,14 +1223,10 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 	configureGatewayTestServerPort(t)
 
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB := resolveGatewayTestConfig(t, workspaceB)
-	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
-	metadataStore, err := metadata.Open(resolvedA.Config.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 	foreignSession, err := session.Create(
 		filepath.Join(filepath.Join(resolvedB.Config.PersistenceRoot, "projects"), bindingB.ProjectID, "sessions"),
 		"workspace-b",
@@ -1261,7 +1245,9 @@ func TestGatewayAllowsUnscopedSessionRetargetOutsideServerDefaultProject(t *test
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	defer func() { _ = background.Close() }()
-	appCore, err := core.New(resolvedA.Config, authSupport, background)
+	appCore, err := core.NewWithContextOptions(t.Context(), resolvedA.Config, authSupport, background, core.Options{
+		MetadataStore: metadataStore,
+	})
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
@@ -1282,14 +1268,12 @@ func TestGatewayAllowsOptionalSessionLifecycleRequestsWithoutSessionID(t *testin
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
-	registerGatewayWorkspace(t, workspace)
+	configureGatewayTestServerPort(t)
 
 	resolved := resolveGatewayTestConfig(t, workspace)
-	binding, err := metadata.ResolveBinding(context.Background(), resolved.Config.PersistenceRoot, resolved.Config.WorkspaceRoot)
-	if err != nil {
-		t.Fatalf("ResolveBinding: %v", err)
-	}
-	_, server := newGatewayTestServerForConfig(t, resolved.Config)
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	binding := registerGatewayTestBinding(t, metadataStore, resolved.Config)
+	_, server := newGatewayTestServerForConfig(t, resolved.Config, metadataStore)
 
 	remote, err := remoteclient.DialRemoteURLForProject(context.Background(), "ws"+server.URL[len("http"):], binding.ProjectID)
 	if err != nil {
@@ -1378,11 +1362,12 @@ func TestGatewayProjectReattachClearsStaleSessionAttachment(t *testing.T) {
 	configureGatewayTestServerPort(t)
 
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB := resolveGatewayTestConfig(t, workspaceB)
-	bindingB := registerGatewayTestBinding(t, resolvedB.Config)
+	bindingB := registerGatewayTestBinding(t, metadataStore, resolvedB.Config)
 
-	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config)
+	appCore, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
 	storeA := createGatewayAuthoritativeSession(t, appCore)
 
 	conn := dialGateway(t, server)
@@ -1408,10 +1393,11 @@ func TestGatewayPreservesAttachProjectWorkspaceNotRegistered(t *testing.T) {
 	configureGatewayTestServerPort(t)
 
 	resolvedA := resolveGatewayTestConfig(t, workspaceA)
-	bindingA := registerGatewayTestBinding(t, resolvedA.Config)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
 	resolvedB := resolveGatewayTestConfig(t, workspaceB)
 
-	_, server := newGatewayTestServerForConfig(t, resolvedA.Config)
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
 
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()

@@ -4,6 +4,7 @@
 - Generated Protobuf messages are the API-boundary contract for official Go and TypeScript clients.
 - Kent carries serialized Protobuf API messages in typed binary WebSocket envelopes. gRPC and Connect transport semantics are outside this contract.
 - Viewed-image original bodies may use authenticated streaming HTTP delivery with the same Session access checks and protocol-version gating. Normal API messages must use their existing transport.
+- Speech recording bodies may use a dedicated authenticated HTTP upload under the [Speech Input contract](speech-input.md). Speech capability metadata and upload results must use generated Protobuf contracts and the protocol-version gate.
 - Kent's protocol version is the sole compatibility authority for API schema changes.
 - Every contract change must increment the protocol version.
 - Clients and servers must use the same protocol version.
@@ -37,7 +38,7 @@
 - Connection-local correlation values must not reach service or domain code, persistence, replay, memoization, or reconciliation.
 - Notifications and events must not carry connection-local correlation values.
 - Every unary method must declare either multiplexed or dedicated connection policy. An unspecified policy is invalid.
-- Server Update Status, Workflow Task Search, Runtime Submit User Turn, Runtime Compact Context, Runtime Interrupt, Runtime Live Stop, Runtime Live Wait, and Runtime Live Watch use dedicated unary connections.
+- Server Update Status, Workflow Task Search, Runtime Submit User Turn, Runtime Compact Context, Runtime Live Stop, Runtime Live Wait, and Runtime Live Watch use dedicated unary connections.
 - Interactive Session opening must promote a Subagent Session through an explicit Session mutation without loading a Runtime. Session planning is data-only.
 - Subscription, progress, and notification connection behavior derives from operation kind.
 - A dedicated unary call owns one WebSocket and performs the applicable handshake, authentication, and attachment steps on that connection.
@@ -45,6 +46,7 @@
 - Caller cancellation never terminates a Chat Operation, rolls back a committed Session, changes accepted work, changes the client's multiplexed control connection, or changes another operation.
 - The transport must not add a cancel-frame variant for server-owned work.
 - Their operation specifications own call, notification, subscription, progress, authentication, attachment, and cancellation semantics.
+- Speech requests must use the connection-bound cancellation exception defined in [Speech Input](speech-input.md). This exception must not change other server-owned work.
 - Subscription and progress operations use the terminal completion and failure behavior defined by their owning operation specifications. Transport framing adds no generic terminal product outcome.
 
 ## Message Design
@@ -67,7 +69,7 @@
 - Optional wrapper messages are reserved for semantics where absence differs from present-empty.
 - Operations with no request content or no success data must use `google.protobuf.Empty`.
 - Successful Runtime activation must return an empty success payload. Clients observe Runtime state through server-owned reads and subscriptions.
-- Chat actions must share one typed representation for invocation preparation choices. User Shell actions must use typed activations in the ordinary Chat Steer and Queue requests with the same existing-Session target and server-owned preparation.
+- Chat actions must share one typed representation for invocation preparation choices. User Shell actions must use typed activations in the ordinary Chat Steer and Queue requests with the same Session target and server-owned preparation.
 - API instants must use `google.protobuf.Timestamp`.
 - API elapsed amounts must use `google.protobuf.Duration`.
 - Raw numeric time representations are permitted only when an external system owns that representation.

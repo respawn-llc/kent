@@ -11,6 +11,7 @@ import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { createAttentionViewModel } from "./AttentionViewModel";
 import * as Stream from "effect/Stream";
 import { validateNativeNotification } from "@app/native-bridge";
+import { turnCompletionPresentation } from "./turnCompletionPresentation";
 
 it.each([
   { focused: true, title: "Session" },
@@ -88,11 +89,13 @@ it.each([
     expect(focused ? status.push : notify).toHaveBeenCalledTimes(1);
   });
   expect(focused ? notify : status.push).not.toHaveBeenCalled();
-  if (Array.from(title).length > 77) {
-    const presentation = focused ? status.push.mock.calls[0]?.[0] : notify.mock.calls[0]?.[0];
-    expect(presentation?.title).toBe(Array.from(title).slice(0, 77).join("") + "...");
-    expect(presentation?.body).toBeUndefined();
-  }
+  const presentation = focused ? status.push.mock.calls[0]?.[0] : notify.mock.calls[0]?.[0];
+  expect(presentation).toMatchObject(
+    turnCompletionPresentation({
+      title: appI18n.t("app.attention.sessionEnded", { name: title }),
+      body: "Completed work",
+    }),
+  );
   await act(async () => {
     if (focused) status.push.mock.calls[0]?.[0].onClick?.();
     else {
