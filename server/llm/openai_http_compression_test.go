@@ -40,7 +40,7 @@ func TestCompactChatGPTCodexCompressesLargeResponsesBodyWithZstd(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		var compressed bytes.Buffer
 		writer := gzip.NewWriter(&compressed)
-		_, _ = writer.Write([]byte("data: " + completedCompactionSSEJSON + "\n\ndata: [DONE]\n\n"))
+		_, _ = writer.Write([]byte("data: " + completedCompactionItemSSEJSON + "\n\ndata: " + completedCompactionSSEJSON + "\n\ndata: [DONE]\n\n"))
 		_ = writer.Close()
 		w.Header().Set("Content-Encoding", "gzip")
 		_, _ = w.Write(compressed.Bytes())
@@ -182,7 +182,7 @@ func TestCompactChatGPTCodexCompressesResponsesBody(t *testing.T) {
 		requestEncoding = r.Header.Get("Content-Encoding")
 		requestBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"compaction\",\"id\":\"cmp_1\",\"encrypted_content\":\"enc_1\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"compaction\",\"id\":\"cmp_1\",\"encrypted_content\":\"enc_1\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"compaction\",\"id\":\"cmp_1\",\"encrypted_content\":\"enc_1\"}],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n"))
 	}))
 	defer server.Close()
 
@@ -224,7 +224,7 @@ func TestCompactLogicalRetrySendsCompressedSemanticEquivalents(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: "+completedCompactionSSEJSON+"\n\n")
+		_, _ = io.WriteString(w, "data: "+completedCompactionItemSSEJSON+"\n\ndata: "+completedCompactionSSEJSON+"\n\n")
 	}))
 	defer server.Close()
 

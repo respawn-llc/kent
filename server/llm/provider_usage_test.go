@@ -15,6 +15,8 @@ import (
 
 func TestGenerateRetainsProviderUsageEvidence(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":"search"}}}`,
+		`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}`,
 		`{"type":"response.completed","response":{"id":"resp_usage_1","created_at":1720000000,"model":"gpt-served","service_tier":"priority","usage":{"input_tokens":11,"input_tokens_details":{"cached_tokens":4,"cache_write_tokens":2},"output_tokens":7,"output_tokens_details":{"reasoning_tokens":3},"total_tokens":18,"provider_extension":{"units":"3.5"}},"usage_metadata":{"amount":"0.42","provider":"codex"},"output":[{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":"search"}},{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}]}}`,
 		`[DONE]`,
 	)
@@ -116,6 +118,7 @@ func TestProviderUsageEvidencePreservesNullAndZeroUsage(t *testing.T) {
 
 func TestGenerateRejectsMalformedHostedToolEvidence(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":1}}}`,
 		`{"type":"response.completed","response":{"model":"gpt-6-sol","output":[{"type":"web_search_call","id":"web_1","status":"completed","action":{"type":1}}]}}`,
 		`[DONE]`,
 	)
@@ -178,7 +181,7 @@ func TestCompactRetainsProviderUsageEvidence(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(
-			"data: " +
+			"data: " + `{"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"checkpoint_1","encrypted_content":"enc_1"}}` + "\n\ndata: " +
 				`{"type":"response.completed","response":{"id":"compact_1","created_at":1720000001,"model":"gpt-compacted","service_tier":"default","usage":{"input_tokens":9,"output_tokens":4,"total_tokens":13,"input_tokens_details":{"cache_write_tokens":6},"output_tokens_details":{"reasoning_tokens":1}},"output":[{"type":"compaction","id":"checkpoint_1","encrypted_content":"enc_1"}]}}` +
 				"\n\ndata: [DONE]\n\n",
 		))

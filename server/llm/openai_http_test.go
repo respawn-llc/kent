@@ -774,7 +774,7 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_anon_1\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18}}}\n\ndata: [DONE]\n\n")
+		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_anon_1\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18}}}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
 	transport := newTestHTTPTransport(t, anonymousAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://example.openrouter.ai/v1")}))

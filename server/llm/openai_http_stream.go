@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -27,7 +27,6 @@ type responseStreamAccumulator struct {
 	assistantStartedByOutput map[int64]bool
 	assistantMessages        *assistantMessageAccumulator
 	reasoning                *reasoningAccumulator
-	passthrough              *passthroughOutputAccumulator
 	standardServedModel      *string
 	completed                *responses.Response
 	finalizedOutput          map[int64]responses.ResponseOutputItemUnion
@@ -50,7 +49,6 @@ func newResponseStreamAccumulator(callbacks StreamCallbacks, windowTokens int, p
 		windowTokens:      windowTokens,
 		assistantMessages: newAssistantMessageAccumulator(),
 		reasoning:         newReasoningAccumulator(),
-		passthrough:       newPassthroughOutputAccumulator(),
 	}
 }
 
@@ -90,7 +88,6 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		}
 		a.reasoning.UpsertReasoningItem(evt.Item, evt.OutputIndex)
 		a.recordReasoningAccumulatorError()
-		a.passthrough.Upsert(evt.Item, evt.OutputIndex, a.policy)
 		if evt.Type == "response.output_item.done" && evt.Item.Type == "message" && a.callbacks.OnAssistantSourceComplete != nil {
 			item := a.assistantMessages.byIndex[evt.OutputIndex].message
 			item.OutputIndex = evt.OutputIndex
@@ -340,7 +337,15 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	output := a.completedOutput()
+	indexes := make([]int64, 0, len(a.finalizedOutput))
+	for index := range a.finalizedOutput {
+		indexes = append(indexes, index)
+	}
+	slices.Sort(indexes)
+	output := make([]responses.ResponseOutputItemUnion, 0, len(indexes))
+	for _, index := range indexes {
+		output = append(output, a.finalizedOutput[index])
+	}
 	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(output, a.policy)
 	if err != nil {
 		return ResponsesResponse{}, err
@@ -379,8 +384,8 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		finalPhase = parsedPhase
 		finalProviderPhase = parsedProviderPhase
 	}
-	// Added items are previews; finalized items and terminal output are committed
-	// provider output, including when response.completed carries an empty output.
+	// Like Codex, accept only output_item.done items. The completed
+	// event supplies completion metadata, not conversation output.
 	finalCalls := parsedCalls
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
@@ -436,25 +441,6 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		Usage:            usage,
 		ProviderEvidence: providerEvidence,
 	}, nil
-}
-
-// completedOutput assembles the provider's finalized output once for execution,
-// native persistence, and the next WebSocket continuation checkpoint.
-func (a *responseStreamAccumulator) completedOutput() []responses.ResponseOutputItemUnion {
-	if len(a.completed.Output) > 0 {
-		return a.completed.Output
-	}
-	items := a.finalizedOutput
-	indexes := make([]int64, 0, len(items))
-	for index := range items {
-		indexes = append(indexes, index)
-	}
-	sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
-	output := make([]responses.ResponseOutputItemUnion, 0, len(items))
-	for _, index := range indexes {
-		output = append(output, items[index])
-	}
-	return output
 }
 
 func providerUsageEvidenceFromResponse(
@@ -518,11 +504,6 @@ func providerUsageEvidenceFromResponse(
 		}
 		evidence.HostedTools = append(evidence.HostedTools, tool)
 		return nil
-	}
-	for _, item := range response.Output {
-		if err := appendHostedTool(item); err != nil {
-			return modelcontract.ProviderUsageEvidence{}, err
-		}
 	}
 	for _, item := range outputItems {
 		if item.Type != ResponseItemTypeOther || len(item.Raw) == 0 {
@@ -806,73 +787,4 @@ func optionalStringValue(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-type passthroughOutputAccumulator struct {
-	byIndex map[int64]ResponseItem
-	order   []int64
-}
-
-func newPassthroughOutputAccumulator() *passthroughOutputAccumulator {
-	return &passthroughOutputAccumulator{
-		byIndex: make(map[int64]ResponseItem),
-		order:   make([]int64, 0, 4),
-	}
-}
-
-func (a *passthroughOutputAccumulator) Upsert(item responses.ResponseOutputItemUnion, outputIndex int64, policy responsesPolicy) {
-	if a == nil {
-		return
-	}
-	if item.Type == "compaction" {
-		parsed, err := (compactionOutputItemParser{}).Parse(item, nil)
-		if err != nil || len(parsed.CanonicalItems) != 1 {
-			return
-		}
-		checkpoint := parsed.CanonicalItems[0]
-		checkpoint.OutputIndex = outputIndex
-		if _, exists := a.byIndex[outputIndex]; !exists {
-			a.order = append(a.order, outputIndex)
-		}
-		a.byIndex[outputIndex] = checkpoint
-		return
-	}
-	if isKnownResponseOutputItemType(item.Type) && !(item.Type == "custom_tool_call" && policy.isHostedCustomToolCall(item.CallID)) {
-		return
-	}
-	raw := json.RawMessage(item.RawJSON())
-	if len(raw) == 0 || !json.Valid(raw) {
-		return
-	}
-	if _, exists := a.byIndex[outputIndex]; !exists {
-		a.order = append(a.order, outputIndex)
-	}
-	copyRaw := append(json.RawMessage(nil), raw...)
-	a.byIndex[outputIndex] = ResponseItem{Type: ResponseItemTypeOther, ID: textutil.OptionalExactString(item.ID), OutputIndex: outputIndex, Raw: copyRaw}
-}
-
-func (a *passthroughOutputAccumulator) Items() []ResponseItem {
-	if a == nil {
-		return nil
-	}
-	out := make([]ResponseItem, 0, len(a.order))
-	for _, outputIndex := range a.order {
-		item, ok := a.byIndex[outputIndex]
-		if !ok {
-			continue
-		}
-		copyItem := item
-		copyItem.Raw = append(json.RawMessage(nil), item.Raw...)
-		out = append(out, copyItem)
-	}
-	return out
-}
-
-func isKnownResponseOutputItemType(itemType string) bool {
-	switch strings.TrimSpace(itemType) {
-	case "message", "function_call", "custom_tool_call", "reasoning", "compaction":
-		return true
-	default:
-		return false
-	}
 }

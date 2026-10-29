@@ -160,7 +160,7 @@ func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T)
 					if turns == 4 && (create.Previous != nil || len(create.Input) != 1) {
 						t.Errorf("replacement context did not reset: %s", raw)
 					}
-					return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
+					return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native), fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
 				})
 			}))
 			defer server.Close()
@@ -207,7 +207,7 @@ func TestResponsesCompactionReplacesContextWithoutReplacingSocket(t *testing.T) 
 		if r.Header.Get("Upgrade") != "websocket" {
 			compactions.Add(1)
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compacted","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"encrypted"}]}}`+"\n\n")
+			_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"compaction\",\"id\":\"checkpoint\",\"encrypted_content\":\"encrypted\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compacted\",\"output\":[{\"type\":\"compaction\",\"id\":\"checkpoint\",\"encrypted_content\":\"encrypted\"}]}}"+"\n\n")
 			return
 		}
 		openings.Add(1)
@@ -508,6 +508,9 @@ func TestFirstPartyResponsesStreamsThroughManagedWebsocket(t *testing.T) {
 			`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reasoning-native","delta":"plan"}`,
 			`{"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"native","role":"assistant","content":[]}}`,
 			`{"type":"response.output_text.delta","output_index":1,"delta":"answer"}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reasoning-native","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"opaque"}}`,
+			`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}]}}`,
+			`{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"call-item","call_id":"call-native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}`,
 			`{"type":"response.completed","response":{"id":"resp-native","status":"completed","model":"gpt-6-sol","output":[{"type":"reasoning","id":"reasoning-native","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"opaque"},{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}]},{"type":"function_call","id":"call-item","call_id":"call-native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}],"usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}}`,
 		} {
 			if err := socket.Write(ctx, websocket.MessageText, []byte(event)); err != nil {
