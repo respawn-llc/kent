@@ -8,6 +8,20 @@ import (
 	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
 )
 
+// compactionReminderTokensPerToolCall estimates post-reminder runway separately
+// from the whole-context heuristic in config.EstimatedTokensPerToolCall.
+//
+// Under the 1,400-token estimate, the lower quartile of actual / promised calls
+// was 0.587: 1,400 / 0.587 is about 2,385, rounded to 2,400. This is a conservative
+// planning estimate, not a mean prediction. Historical remaining-token budgets
+// were unavailable; rounded promises served as a proxy for those budgets.
+//
+// Provider-overflow repairs have no distinct persisted trigger marker. Excluding
+// 12 intervals with nonspecific error feedback gave a lower quartile of 0.593;
+// neither cohort is known to be overflow-free. Variable tool/result sizes mean
+// the estimate cannot guarantee a number of calls.
+const compactionReminderTokensPerToolCall = 2_400
+
 type compactionPlanningSnapshot struct {
 	autoCompactionEnabled         bool
 	preSubmitCompactionLeadTokens *int
@@ -116,7 +130,9 @@ func (p *compactionPlanner) estimatedToolCallsUntilForcedHandoff(snapshot compac
 			snapshot.currentUsedTokens, reservedOutput, forcedLimit,
 		))
 	}
-	return compaction.EstimatedToolCallsForTokenBudget(remaining)
+	// Floor rather than round: a partial call budget does not justify promising
+	// another call. Positive runway below one call budget therefore estimates zero.
+	return remaining / compactionReminderTokensPerToolCall
 }
 
 func (p *compactionPlanner) reservedOutputTokens(snapshot compactionPlanningSnapshot) int {
