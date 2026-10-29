@@ -187,10 +187,14 @@ it.each([
       view.handlers[0]?.onEvent({ kind: "committed_row", sequence: sequence + 1, payload: row(nextEvent) });
     });
     if (accepted) {
-      await waitFor(() => { expect(view.deliveries).toHaveLength(hydrated ? 3 : 5); });
+      await waitFor(() => {
+        expect(view.deliveries).toHaveLength(hydrated ? 3 : 5);
+      });
       expect(view.errors).toEqual([]);
     } else {
-      await waitFor(() => { expect(view.errors).toHaveLength(1); });
+      await waitFor(() => {
+        expect(view.errors).toHaveLength(1);
+      });
       expect(view.deliveries).toHaveLength(4);
       expect(view.errors[0]).toBeInstanceOf(ContractError);
     }

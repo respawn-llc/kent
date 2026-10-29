@@ -14,6 +14,7 @@
 @property(nonatomic) BOOL stopping;
 @property(nonatomic) BOOL completed;
 @property(nonatomic) CMTime lastMeterTime;
+@property(nonatomic) CMTime sourceStartTime;
 @end
 
 @implementation KentMicrophone
@@ -97,7 +98,9 @@
         self.writer = [[AVAssetWriter alloc] initWithContentType:UTTypeMPEG4Movie];
         self.writer.outputFileTypeProfile = AVFileTypeProfileMPEG4AppleHLS;
         self.writer.preferredOutputSegmentInterval = CMTimeMake(1, 4);
-        self.writer.initialSegmentStartTime = CMSampleBufferGetPresentationTimeStamp(sample);
+        // Fragmented MP4 consumers may ignore edit lists. Keep fragment timestamps
+        // relative to the recording, not the capture device's host clock.
+        self.writer.initialSegmentStartTime = kCMTimeZero;
         self.writer.delegate = self;
         self.input = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeAudio
             outputSettings:settings sourceFormatHint:CMSampleBufferGetFormatDescription(sample)];
@@ -111,11 +114,28 @@
             [self stopWithError:self.writer.error.localizedDescription];
             return;
         }
-        [self.writer startSessionAtSourceTime:CMSampleBufferGetPresentationTimeStamp(sample)];
+        self.sourceStartTime = CMSampleBufferGetPresentationTimeStamp(sample);
+        [self.writer startSessionAtSourceTime:kCMTimeZero];
         // Silence is a real buffer and establishes readiness too.
         self.callbacks.ready(self.context);
     }
-    if (!self.input.readyForMoreMediaData || ![self.input appendSampleBuffer:sample]) {
+    CMSampleTimingInfo timing;
+    OSStatus status = CMSampleBufferGetSampleTimingInfo(sample, 0, &timing);
+    CMSampleBufferRef relativeSample = NULL;
+    if (status == noErr) {
+        timing.presentationTimeStamp = CMTimeSubtract(timing.presentationTimeStamp, self.sourceStartTime);
+        if (CMTIME_IS_VALID(timing.decodeTimeStamp)) {
+            timing.decodeTimeStamp = CMTimeSubtract(timing.decodeTimeStamp, self.sourceStartTime);
+        }
+        status = CMSampleBufferCreateCopyWithNewTiming(kCFAllocatorDefault, sample, 1, &timing, &relativeSample);
+    }
+    if (status != noErr) {
+        [self stopWithError:[NSString stringWithFormat:@"Microphone sample timing failed (%d)", (int)status]];
+        return;
+    }
+    BOOL appended = self.input.readyForMoreMediaData && [self.input appendSampleBuffer:relativeSample];
+    CFRelease(relativeSample);
+    if (!appended) {
         [self stopWithError:self.writer.error.localizedDescription ?: @"Microphone encoder could not keep up"];
         return;
     }

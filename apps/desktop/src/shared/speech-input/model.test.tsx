@@ -204,6 +204,37 @@ it("keeps native capture preparing until a real silent audio buffer arrives with
   f.client.clear();
 });
 
+it("shows ordinary native speech above silence on the recording meter", async () => {
+  const f = nativeRecordingFixture();
+  act(() => {
+    f.view.result.current.actions.start();
+  });
+  await waitFor(() => {
+    expect(f.start).toHaveBeenCalled();
+  });
+  act(() => {
+    f.emit({ kind: "ready" });
+  });
+  await waitFor(() => {
+    expect(f.view.result.current.state.phase).toBe("recording");
+  });
+  const analyser = f.view.result.current.state.recording?.analyser;
+  if (analyser === undefined) throw new Error("Recording meter unavailable");
+  const values = new Uint8Array(analyser.frequencyBinCount);
+  act(() => {
+    f.emit({ kind: "meter", power: 0 });
+  });
+  analyser.getByteFrequencyData(values);
+  expect(values[0]).toBe(0);
+  act(() => {
+    f.emit({ kind: "meter", power: 10 ** (-32.3 / 20) });
+  });
+  analyser.getByteFrequencyData(values);
+  expect(values[0]).toBeGreaterThan(128);
+  f.view.unmount();
+  f.client.clear();
+});
+
 it("leaves native preparation after acquisition fails without hanging destination cleanup", async () => {
   const f = nativeRecordingFixture();
   f.start.mockRejectedValueOnce(new Error("native acquisition failed"));
