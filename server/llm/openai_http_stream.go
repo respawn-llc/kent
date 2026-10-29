@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -29,6 +30,7 @@ type responseStreamAccumulator struct {
 	passthrough              *passthroughOutputAccumulator
 	standardServedModel      *string
 	completed                *responses.Response
+	finalizedOutput          map[int64]responses.ResponseOutputItemUnion
 	responseError            *responseStreamError
 }
 
@@ -74,6 +76,12 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 	case "response.output_text.done":
 		a.assistantMessages.SetFinalizedText(evt.OutputIndex, evt.Text)
 	case "response.output_item.added", "response.output_item.done":
+		if evt.Type == "response.output_item.done" {
+			if a.finalizedOutput == nil {
+				a.finalizedOutput = make(map[int64]responses.ResponseOutputItemUnion)
+			}
+			a.finalizedOutput[evt.OutputIndex] = evt.Item
+		}
 		if err := a.assistantMessages.Upsert(evt.Item, evt.OutputIndex); err != nil {
 			a.responseError = &responseStreamError{
 				ProviderContract: &responseStreamProviderContract{Message: err.Error()},
@@ -332,7 +340,8 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output, a.policy)
+	output := a.completedOutput()
+	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(output, a.policy)
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
@@ -370,8 +379,8 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		finalPhase = parsedPhase
 		finalProviderPhase = parsedProviderPhase
 	}
-	// Stream events are previews. The terminal response is the complete output,
-	// so omitted calls must not become accepted executions or replayed history.
+	// Added items are previews; finalized items and terminal output are committed
+	// provider output, including when response.completed carries an empty output.
 	finalCalls := parsedCalls
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
@@ -386,13 +395,13 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		return ResponsesResponse{}, evidenceErr
 	}
 
-	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(a.completed.Output))}
+	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(output))}
 	body.AssistantPresentation = assistantPresentation
 	switch a.policy.(type) {
 	case grokResponsesPolicy, grokCLIResponsesPolicy:
 		body.Format = session.NativeResponseGrok
 	}
-	for i, item := range a.completed.Output {
+	for i, item := range output {
 		body.Items[i] = []byte(item.RawJSON())
 	}
 	var native *NativeResponse
@@ -427,6 +436,25 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		Usage:            usage,
 		ProviderEvidence: providerEvidence,
 	}, nil
+}
+
+// completedOutput assembles the provider's finalized output once for execution,
+// native persistence, and the next WebSocket continuation checkpoint.
+func (a *responseStreamAccumulator) completedOutput() []responses.ResponseOutputItemUnion {
+	if len(a.completed.Output) > 0 {
+		return a.completed.Output
+	}
+	items := a.finalizedOutput
+	indexes := make([]int64, 0, len(items))
+	for index := range items {
+		indexes = append(indexes, index)
+	}
+	sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
+	output := make([]responses.ResponseOutputItemUnion, 0, len(items))
+	for _, index := range indexes {
+		output = append(output, items[index])
+	}
+	return output
 }
 
 func providerUsageEvidenceFromResponse(

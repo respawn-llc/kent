@@ -153,12 +153,6 @@ func TestGenerateRetainsHostedSearchWithoutOptionalAction(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !completedOutput {
-					if len(response.OutputItems) != 0 || len(response.ProviderEvidence.HostedTools) != 0 {
-						t.Fatalf("stream-only hosted search accepted: %+v", response)
-					}
-					return
-				}
 				if len(response.OutputItems) != 1 || !bytes.Equal(response.OutputItems[0].Raw, []byte(item)) {
 					t.Fatalf("hosted output changed: %+v", response.OutputItems)
 				}

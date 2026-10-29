@@ -685,3 +685,55 @@ func TestResponsesStopAbandonsOnlyActiveSocketAndNextCallStartsFresh(t *testing.
 		t.Fatalf("fresh invocation: sockets=%d credentials=%d", openings.Load(), auth.calls.Load())
 	}
 }
+
+func TestResponsesSocketContinuesWithCommittedToolOutput(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","id":"fc_first","call_id":"call_first","name":"exec_command","arguments":"{}","status":"completed"}`)
+	output := json.RawMessage(`{"type":"function_call_output","call_id":"call_first","output":"result"}`)
+	var turns int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			turns++
+			var create struct {
+				Input    []json.RawMessage `json:"input"`
+				Previous *string           `json:"previous_response_id"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Fatal(err)
+			}
+			if turns == 2 {
+				if create.Previous == nil || *create.Previous != "response-first" || len(create.Input) != 1 || !bytes.Equal(create.Input[0], output) {
+					t.Errorf("tool continuation lost committed output: %s", raw)
+				}
+				return []string{`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}}`, `{"type":"response.completed","response":{"id":"response-final","output":[]}}`}
+			}
+			return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, call), `{"type":"response.completed","response":{"id":"response-first","output":[]}}`}
+		})
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	request := testCodexResponsesRequest(newTestCodexDispatch(t))
+	response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.ToolCalls) != 1 || response.NativeResponse == nil || len(response.OutputItems) != 1 {
+		t.Fatalf("finalized tool call lost: %+v", response)
+	}
+	request.Items = append(request.Items, response.OutputItems...)
+	request.Items = append(request.Items, ResponseItem{Raw: output})
+	restored, err := MessageFromNativeResponse(*response.NativeResponse.Record())
+	if err != nil || len(restored.ToolCalls) != 1 || restored.ToolCalls[0].ID != response.ToolCalls[0].ID {
+		t.Fatalf("restored tool call lost: %+v, %v", restored, err)
+	}
+	final, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.NativeResponse == nil || final.AssistantText == nil || final.ProviderPhase == nil {
+		t.Fatalf("finalized answer lost: %+v", final)
+	}
+	restored, err = MessageFromNativeResponse(*final.NativeResponse.Record())
+	if err != nil || restored.Content == nil || restored.Phase == nil || *restored.Phase != MessagePhaseFinal {
+		t.Fatalf("restored answer lost: %+v, %v", restored, err)
+	}
+}

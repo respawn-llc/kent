@@ -115,12 +115,6 @@ func TestGrokHostedCustomCallsAreNotLocalAndKeepWireHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !completed {
-				if len(first.ToolCalls) != 0 || len(first.OutputItems) != 0 {
-					t.Fatalf("items omitted by terminal output were accepted: calls=%+v items=%+v", first.ToolCalls, first.OutputItems)
-				}
-				return
-			}
 			if len(first.ToolCalls) != 1 || first.ToolCalls[0].ID != "patch_call" {
 				t.Fatalf("local executions = %+v", first.ToolCalls)
 			}
