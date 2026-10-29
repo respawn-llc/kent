@@ -851,3 +851,70 @@ func TestNativeStreamingKeepsMessageIdentityAcrossHostedCalls(t *testing.T) {
 		t.Fatal("native result did not update its accepted call's locator")
 	}
 }
+
+func TestNativeHostedSearchContinuesWithoutFunctionOutput(t *testing.T) {
+	search := json.RawMessage(`{"type":"web_search_call","id":"ws_0313da9b2982b984016ae34b10012887d296d9492dbd73b558","status":"completed","action":{"type":"search","query":"example"}}`)
+	local := json.RawMessage(`{"type":"function_call","id":"local-item","call_id":"local-call","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}`)
+	final := json.RawMessage(`{"type":"message","id":"final-hosted","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}`)
+	var requests atomic.Int32
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
+		var request struct {
+			Input []struct {
+				Type   string `json:"type"`
+				CallID string `json:"call_id"`
+			} `json:"input"`
+		}
+		if err := json.Unmarshal(raw, &request); err != nil {
+			t.Error(err)
+			return nil
+		}
+		for _, item := range request.Input {
+			if item.Type == "function_call_output" && item.CallID == "ws_0313da9b2982b984016ae34b10012887d296d9492dbd73b558" {
+				return []string{`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"invalid_request_error","message":"No matching function call"}}`}
+			}
+		}
+		if requests.Add(1) == 1 {
+			return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, search), fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, local), `{"type":"response.completed","response":{"id":"hosted-first","output":[]}}`}
+		}
+		return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, final), `{"type":"response.completed","response":{"id":"hosted-final","output":[]}}`}
+	}))
+	store := mustCreateTestSession(t)
+	config := Config{Model: "gpt-6-sol", WebSearchMode: "native", EnabledTools: []toolspec.ID{toolspec.ToolWebSearch, toolspec.ToolExecCommand}}
+	registry := newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}})
+	engine := mustNewTestEngine(t, store, client, registry, config)
+	if _, err := engine.SubmitUserMessage(t.Context(), "search and inspect"); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("hosted/local continuation requests=%d", requests.Load())
+	}
+	check := func(engine *Engine) {
+		items := buildActiveTurnRequestForTest(t, engine, nil, true).Items
+		var searches, localResults int
+		for _, item := range items {
+			if bytes.Equal(item.Raw, search) {
+				searches++
+			}
+			if item.Type == llm.ResponseItemTypeFunctionCallOutput {
+				if item.CallID != nil && *item.CallID == "ws_0313da9b2982b984016ae34b10012887d296d9492dbd73b558" {
+					t.Fatal("hosted search acquired a local function output")
+				}
+				if item.CallID != nil && *item.CallID == "local-call" {
+					localResults++
+				}
+			}
+		}
+		if searches != 1 || localResults != 1 {
+			t.Fatalf("searches=%d local results=%d", searches, localResults)
+		}
+	}
+	check(engine)
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, registry, config)
+	check(reopened)
+	if _, err := reopened.SubmitUserMessage(t.Context(), "continue after reload"); err != nil {
+		t.Fatal(err)
+	}
+}

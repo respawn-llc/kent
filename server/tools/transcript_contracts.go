@@ -739,15 +739,17 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}
 	return HostedExecution{
 		Call: HostedCall{
-			ID:    callID,
-			Name:  toolspec.ToolWebSearch,
-			Input: inputRaw,
+			ID:           callID,
+			Name:         toolspec.ToolWebSearch,
+			Input:        inputRaw,
+			ProviderItem: append(json.RawMessage(nil), raw...),
 		},
 		Result: Result{
-			CallID:  callID,
-			Name:    toolspec.ToolWebSearch,
-			Output:  output,
-			IsError: isError,
+			CallID:           callID,
+			Name:             toolspec.ToolWebSearch,
+			Output:           output,
+			IsError:          isError,
+			ProviderItemOnly: true,
 		},
 	}, true
 }
