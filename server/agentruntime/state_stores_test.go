@@ -48,9 +48,13 @@ func TestCompactionPlannerDerivesThresholdsAndRunway(t *testing.T) {
 		reservedOutput     int
 		estimatedToolCalls int
 	}{
-		{name: "at reminder threshold", currentUsedTokens: 765_000, reservedOutput: 8_000, estimatedToolCalls: 91},
-		{name: "near forced limit", currentUsedTokens: 880_000, estimatedToolCalls: 14},
-		{name: "reserved output reduces runway", currentUsedTokens: 891_000, reservedOutput: 8_000, estimatedToolCalls: 1},
+		{name: "at reminder threshold", currentUsedTokens: 765_000, reservedOutput: 8_000, estimatedToolCalls: 52},
+		{name: "near forced limit", currentUsedTokens: 880_000, estimatedToolCalls: 8},
+		{name: "reserved output reduces runway", currentUsedTokens: 891_000, reservedOutput: 8_000, estimatedToolCalls: 0},
+		{name: "less than one call budget", currentUsedTokens: 897_601, estimatedToolCalls: 0},
+		{name: "exactly one call budget", currentUsedTokens: 897_600, estimatedToolCalls: 1},
+		{name: "partial second call is not promised", currentUsedTokens: 895_201, estimatedToolCalls: 1},
+		{name: "exactly two call budgets", currentUsedTokens: 895_200, estimatedToolCalls: 2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
