@@ -140,10 +140,7 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 		}
 	}
 	input := responses.ResponseInputParam(payload.Input.OfInputItemList[start:])
-	create.Input = responses.ResponsesClientEventResponseCreateInputUnionParam{}
-	if len(input) > 0 {
-		create.Input.OfResponse = &input
-	}
+	create.Input = responses.ResponsesClientEventResponseCreateInputUnionParam{OfResponse: &input}
 	observer := codexTurnStateObserver(preparation.projection, request.CodexDispatch)
 	var turnState *string
 	if value, present := observer.turnStateForRequest(); present {

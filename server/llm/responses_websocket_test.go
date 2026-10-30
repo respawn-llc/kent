@@ -202,6 +202,64 @@ func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T)
 	}
 }
 
+func TestResponsesSocketContinuesWithRequiredEmptyInput(t *testing.T) {
+	for _, emptyInitial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("empty_initial=%t", emptyInitial), func(t *testing.T) {
+			var turns atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+					turn := turns.Add(1)
+					var create struct {
+						Input    *[]json.RawMessage `json:"input"`
+						Previous *string            `json:"previous_response_id"`
+					}
+					if err := json.Unmarshal(raw, &create); err != nil {
+						t.Error(err)
+					}
+					if create.Input == nil {
+						return []string{`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"missing_required_parameter","param":"input","message":"Missing required input"}}`}
+					}
+					wantItems := 0
+					if (turn == 1 && !emptyInitial) || turn == 4 {
+						wantItems = 1
+					}
+					if len(*create.Input) != wantItems {
+						t.Errorf("turn %d input items=%d, want %d", turn, len(*create.Input), wantItems)
+					}
+					if turn > 1 && (create.Previous == nil || *create.Previous != fmt.Sprintf("response-%d", turn-1)) {
+						t.Errorf("turn %d lost its continuation: %s", turn, raw)
+					}
+					native := fmt.Sprintf(`{"type":"message","id":"message-%d","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"continue","annotations":[]}]}`, turn)
+					return []string{
+						fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native),
+						fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-%d","end_turn":false,"output":[]}}`, turn),
+					}
+				})
+			}))
+			defer server.Close()
+			transport := newCanonicalOAuthTestTransport(t, server)
+			request := ResponsesRequest{
+				Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session-1"),
+				CodexDispatch: newTestCodexDispatch(t), ToolChoiceMode: ToolChoiceModeAutomatic,
+			}
+			user := ResponseItem{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)}
+			if !emptyInitial {
+				request.Items = []ResponseItem{user}
+			}
+			for turn := 1; turn <= 4; turn++ {
+				if turn == 4 {
+					request.Items = append(request.Items, user)
+				}
+				response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+				if err != nil {
+					t.Fatalf("turn %d: %v", turn, err)
+				}
+				request.Items = append(request.Items, response.OutputItems...)
+			}
+		})
+	}
+}
+
 func TestResponsesCompactionReplacesContextWithoutReplacingSocket(t *testing.T) {
 	var openings, turns, compactions atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

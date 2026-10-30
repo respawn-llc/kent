@@ -86,12 +86,10 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 
 	out := responses.ResponseNewParams{
 		Model: request.Model,
+		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
 	}
 	if cacheKey := strings.TrimSpace(request.PromptCacheKey); cacheKey != "" && SupportsPromptCacheKeyProvider(b.capabilities) {
 		out.PromptCacheKey = openai.String(cacheKey)
-	}
-	if len(input) > 0 {
-		out.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: input}
 	}
 	if instructions := strings.TrimSpace(request.SystemPrompt); instructions != "" {
 		out.Instructions = openai.String(instructions)
