@@ -34,24 +34,27 @@ func TestEmptyNativeResponsePreservesContinuation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var calls, openings atomic.Int32
 			handler := nativeResponsesSocketHandler(t, func(raw json.RawMessage) []string {
+				var request struct {
+					Input    *[]json.RawMessage `json:"input"`
+					Previous *string            `json:"previous_response_id"`
+				}
+				if err := json.Unmarshal(raw, &request); err != nil {
+					t.Error(err)
+				}
+				if request.Input == nil {
+					return []string{`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"missing_required_parameter","param":"input","message":"Missing required input"}}`}
+				}
 				output := []json.RawMessage{test.output}
 				if test.output == nil {
 					output = []json.RawMessage{}
 				}
 				turn := calls.Add(1)
 				if turn > 1 {
-					var request struct {
-						Input    []json.RawMessage `json:"input"`
-						Previous *string           `json:"previous_response_id"`
-					}
-					if err := json.Unmarshal(raw, &request); err != nil {
-						t.Error(err)
-					}
 					expectedInput := 1
 					if turn <= test.responses {
 						expectedInput = 0
 					}
-					if request.Previous == nil || *request.Previous != fmt.Sprintf("resp_%d", turn-1) || len(request.Input) != expectedInput {
+					if request.Previous == nil || *request.Previous != fmt.Sprintf("resp_%d", turn-1) || len(*request.Input) != expectedInput {
 						t.Errorf("continuation lost or history retransmitted: %s", raw)
 					}
 					output = []json.RawMessage{json.RawMessage(`{"type":"message","id":"answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"next answer","annotations":[]}]}`)}
