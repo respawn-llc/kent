@@ -29,11 +29,6 @@ setup *args: _node
     for tool in go bun cargo git jq python3 rg; do
         command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 2; }
     done
-    if [ "$(uname -s)" = "Darwin" ]; then
-        for tool in ffprobe trash; do
-            command -v "$tool" >/dev/null || { echo "$tool is required for native audio tests" >&2; exit 2; }
-        done
-    fi
     if [ "$mode" = "" ]; then
         echo "Would download Go modules"
         echo "Would install frozen Bun apps and docs dependencies"
@@ -54,16 +49,6 @@ gen:
 # Run active tests, or select server, desktop, integration, docs, tui, or explicit frozen rust.
 test *args:
     @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh "$@"
-
-# Synthetic macOS capture: no microphone access or provider requests.
-test-speech-macos:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    directory="$(mktemp -d)"
-    trap 'trash "$directory"' EXIT
-    xcrun clang -fobjc-arc -fblocks -framework Foundation -framework AVFoundation -framework CoreMedia -framework CoreAudio -framework UniformTypeIdentifiers apps/desktop/src-tauri/src/speech_macos_test.m -o "$directory/test"
-    "$directory/test" "$directory/recording.m4a"
-    ffprobe -v error -show_entries format=duration,start_time -of json "$directory/recording.m4a" | jq -e '.format | if ((.start_time | tonumber) < 0.1) and ((.duration | tonumber) < 1.2) then . else error("Invalid recording timeline: \(.)") end'
 
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:

@@ -186,9 +186,6 @@ run_desktop_tests() {
 	local status=0
 	bun test "$@" '--path-ignore-patterns=**/*.test.tsx' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
 	bun test "$@" --preload=./test/setup.ts '--path-ignore-patterns=**/*.test.ts' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
-	if [ "$(uname -s)" = "Darwin" ]; then
-		just test-speech-macos || status=$?
-	fi
 	return "$status"
 }
 

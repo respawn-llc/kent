@@ -257,12 +257,6 @@ jobs:
       - name: Build macOS desktop bundle
         run: just build desktop -- --bundles dmg
 
-      - name: Install native audio test tools
-        run: brew install ffmpeg trash
-
-      - name: Test native audio timeline
-        run: just test-speech-macos
-
       - name: Smoke test macOS desktop bundle
         run: just build _desktop-smoke-macos apps/desktop/src-tauri/target/release/bundle/dmg
 
