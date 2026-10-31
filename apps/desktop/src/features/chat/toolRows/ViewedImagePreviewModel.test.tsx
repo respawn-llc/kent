@@ -109,6 +109,28 @@ it("shows an inline failure instead of leaving a broken image", async () => {
   expect(screen.getByRole("button", { expanded: true })).toBeInTheDocument();
 });
 
+it.each([
+  { width: 1980, height: 512, valid: true },
+  { width: 0, height: 512, valid: false },
+])("handles decoded image dimensions $width × $height", async ({ width, height, valid }) => {
+  const context = fixture();
+  renderPreview(context);
+  fireEvent.click(screen.getByRole("button"));
+  const image = await screen.findByAltText("");
+  Object.defineProperties(image, {
+    naturalWidth: { value: width },
+    naturalHeight: { value: height },
+  });
+  await act(async () => {
+    fireEvent.load(image);
+  });
+  if (valid) {
+    expect(screen.getByAltText("")).toBe(image);
+  } else {
+    await waitFor(() => expect(screen.queryByAltText("")).not.toBeInTheDocument());
+  }
+});
+
 it("shows source-resolution failures inline in the expanded row", async () => {
   const context = fixture();
   context.resolveSource.mockRejectedValue(new Error("source request failed"));
