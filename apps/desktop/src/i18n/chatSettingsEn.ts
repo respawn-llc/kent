@@ -1,7 +1,7 @@
 export const chatSettingsEnglish = {
   switchAgent: "Invalidate caches?",
-  confirmSwitch: "Yes",
-  cancelSwitch: "No",
+  confirmSwitch: "Switch",
+  cancelSwitch: "Cancel",
   switchAgentWarning:
     "Switching the role now will invalidate caches, causing ~10x cost for the next request and may lose model reasoning, degrading intelligence",
   sessionConnection: "Session Connection: {{id}} ({{mode}})",

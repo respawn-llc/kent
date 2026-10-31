@@ -146,7 +146,9 @@ function ImagePreview(props: PreviewContext) {
           initial={{ opacity: 0 }}
           animate={{ opacity: loaded ? 1 : 0 }}
           transition={transition}
-          className={loaded ? "transcript-viewed-image" : "transcript-viewed-image absolute inset-0 size-full"}
+          className={
+            loaded ? "transcript-viewed-image" : "transcript-viewed-image absolute inset-0 size-full"
+          }
         />
       )}
     </motion.div>

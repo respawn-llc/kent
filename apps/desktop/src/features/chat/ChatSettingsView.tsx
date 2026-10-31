@@ -271,7 +271,7 @@ function AgentSwitchDialog({
     >
       <div className="grid gap-[var(--space-3)]">
         <p>{t("chatSettings.switchAgentWarning")}</p>
-        <div className="flex justify-end gap-[var(--space-2)]">
+        <div className="ml-auto grid min-h-9 w-fit grid-cols-2 items-stretch gap-[var(--space-2)]">
           <Button
             loading={feature.agentPending}
             disabled={feature.agentPending}
