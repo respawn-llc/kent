@@ -39,7 +39,12 @@ export function ComposerIcon({
   return (
     <Icon
       aria-hidden="true"
-      className={cx("shrink-0", kind === "fast" ? "size-[1em]" : "size-4", className)}
+      className={cx(
+        "shrink-0",
+        kind === "fast" ? "size-[1em]" : "size-4",
+        kind === "send" && "-translate-x-px translate-y-px",
+        className,
+      )}
       nonScalingStroke
       strokeWidth={1.5}
     />
