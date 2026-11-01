@@ -263,6 +263,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 	executedToolCall := false
 	patchEditsApplied, mismatchWarningCommitted := false, false
 	stepNo := 0
+	recoveredWithoutProgress := false
 	for {
 		stepNo++
 		if err := ctx.Err(); err != nil {
@@ -282,8 +283,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
 		}
-		e.assertWorkflowInstructionsPresent(stepNo)
-
 		var streamSteerErr error
 		candidate, err := e.generateWithMissingToolOutputRepair(
 			ctx,
@@ -291,6 +290,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			func() (llm.Request, error) {
 				request, err := s.buildActiveTurnRequestAtBoundary(ctx, stepID, options, &mismatchWarningCommitted)
 				if err == nil {
+					e.assertWorkflowInstructionsPresent(stepNo)
 					// The first request commits this turn's Queue item. Rebuilding
 					// that request may accept more Steers, never another Queue item.
 					options.UserInputSelection = steerUserInjections()
@@ -324,12 +324,29 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			},
 		)
 		if err != nil {
+			var dispatchErr *generationDispatchError
+			if !recoveredWithoutProgress && errors.As(err, &dispatchErr) &&
+				isProviderMessageLimit(dispatchErr) &&
+				e.compactionPlannerState().autoCompactionAvailable(e.compactionPlanningSnapshot()) {
+				if resetErr := e.resetReasoningAndClearStreamingState(stepID); resetErr != nil {
+					return stepLoopResult{}, errors.Join(err, resetErr)
+				}
+				_, receipt, compactErr := e.compactNow(ctx, stepID, compactionModeAuto, compactionInstructionsInput{}, false)
+				if compactErr != nil {
+					return stepLoopResult{}, compactErr
+				}
+				if receipt.Committed {
+					recoveredWithoutProgress = true
+					continue
+				}
+			}
 			return stepLoopResult{}, err
 		}
 		if streamSteerErr != nil {
 			return stepLoopResult{}, fmt.Errorf("apply streamed output: %w", streamSteerErr)
 		}
 		resp := candidate.response
+		recoveredWithoutProgress = false
 
 		prepared, err := s.prepareCompletedResponse(ctx, stepID, resp, options)
 		if err != nil {

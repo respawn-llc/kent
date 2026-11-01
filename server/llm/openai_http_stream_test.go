@@ -407,38 +407,42 @@ func TestGenerate_SalvagesCompletedResponseBeforeTrailingMalformedEvent(t *testi
 }
 
 func TestGenerate_MapsResponseIncompleteEventToProviderAPIError(t *testing.T) {
-	transport := newOpenAIRawStreamTestTransport(t, strings.Join([]string{
-		`event: response.output_text.delta`,
-		`data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}`,
-		``,
-		`event: response.incomplete`,
-		`data: {"type":"response.incomplete","sequence_number":2,"response":{"id":"resp_1","created_at":1,"incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"partial"}]}]}}`,
-		``,
-		``,
-	}, "\n"))
+	for _, reason := range []string{"max_output_tokens", "max_messages"} {
+		t.Run(reason, func(t *testing.T) {
+			transport := newOpenAIRawStreamTestTransport(t, strings.Join([]string{
+				`event: response.output_text.delta`,
+				`data: {"type":"response.output_text.delta","output_index":0,"delta":"partial"}`,
+				``,
+				`event: response.incomplete`,
+				`data: {"type":"response.incomplete","sequence_number":2,"response":{"id":"resp_1","created_at":1,"incomplete_details":{"reason":"` + reason + `"},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"partial"}]}]}}`,
+				``,
+				``,
+			}, "\n"))
 
-	_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
-	if err == nil {
-		t.Fatal("expected response incomplete event")
-	}
-	var providerErr *ProviderAPIError
-	if !errors.As(err, &providerErr) {
-		t.Fatalf("expected ProviderAPIError, got %T", err)
-	}
-	if providerErr.ProviderType != "response.incomplete" {
-		t.Fatalf("provider type = %q, want response.incomplete", providerErr.ProviderType)
-	}
-	if providerErr.ProviderCode != "max_output_tokens" {
-		t.Fatalf("provider code = %q, want max_output_tokens", providerErr.ProviderCode)
-	}
-	if providerErr.ProviderParam != "response.incomplete_details.reason" {
-		t.Fatalf("provider param = %q, want response.incomplete_details.reason", providerErr.ProviderParam)
-	}
-	if !HasHTTPStatus(providerErr, http.StatusOK) {
-		t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
-	}
-	if !IsNonRetriableModelError(err) {
-		t.Fatalf("expected response.incomplete terminal error to be non-retriable: %v", err)
+			_, err := transport.Generate(context.Background(), ResponsesRequest{SessionID: textutil.Value("test-session"), ToolChoiceMode: ToolChoiceModeAutomatic, Model: "gpt-6-sol", ReasoningEffort: "high"}, StreamCallbacks{})
+			if err == nil {
+				t.Fatal("expected response incomplete event")
+			}
+			var providerErr *ProviderAPIError
+			if !errors.As(err, &providerErr) {
+				t.Fatalf("expected ProviderAPIError, got %T", err)
+			}
+			if providerErr.ProviderType != "response.incomplete" {
+				t.Fatalf("provider type = %q, want response.incomplete", providerErr.ProviderType)
+			}
+			if providerErr.ProviderCode != reason {
+				t.Fatalf("provider code = %q, want %s", providerErr.ProviderCode, reason)
+			}
+			if providerErr.ProviderParam != "response.incomplete_details.reason" {
+				t.Fatalf("provider param = %q, want response.incomplete_details.reason", providerErr.ProviderParam)
+			}
+			if !HasHTTPStatus(providerErr, http.StatusOK) {
+				t.Fatalf("provider status = %d, want %d", providerErr.StatusCode, http.StatusOK)
+			}
+			if !IsNonRetriableModelError(err) {
+				t.Fatalf("expected response.incomplete terminal error to be non-retriable: %v", err)
+			}
+		})
 	}
 }
 

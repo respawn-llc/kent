@@ -546,6 +546,7 @@ func (s *transcriptRuntimeState) AppendConfigurationItem(item llm.ResponseItem) 
 	chat.mu.Lock()
 	defer chat.mu.Unlock()
 	chat.providerItems = append(chat.providerItems, llm.CloneResponseItems([]llm.ResponseItem{item})...)
+	chat.assistantSpans = append(chat.assistantSpans, nil)
 	chat.transcriptEntryCount++
 	chat.providerTokenEstimateDirty = true
 }

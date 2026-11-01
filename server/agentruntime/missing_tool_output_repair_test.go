@@ -378,7 +378,7 @@ func TestCompactionMissingToolOutputRepairAppendsAndRetries(t *testing.T) {
 		if factoryErr != nil {
 			return factoryErr
 		}
-		_, _, _, compactErr := eng.compactWithContextRepairRetry(ctx, stepID, eng.transcriptRuntimeState().SnapshotItems(), "", dispatchFactory, modelRequestSingleAttempt)
+		_, _, _, compactErr := eng.compactWithContextRepairRetry(ctx, stepID, eng.transcriptRuntimeState().SnapshotItems(), "", dispatchFactory, modelRequestSingleAttempt, nil)
 		return compactErr
 	})
 	if err != nil {
@@ -429,7 +429,7 @@ func TestCompactionCheckpointContractErrorReturnsExactRepairedInput(t *testing.T
 			return factoryErr
 		}
 		var compactErr error
-		_, sentInput, _, compactErr = eng.compactWithContextRepairRetry(ctx, stepID, request.Items, "", dispatchFactory, modelRequestRetriesAllowed)
+		_, sentInput, _, compactErr = eng.compactWithContextRepairRetry(ctx, stepID, request.Items, "", dispatchFactory, modelRequestRetriesAllowed, nil)
 		return compactErr
 	})
 	if !errors.Is(err, checkpointErr) {
@@ -578,7 +578,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, _, _, compactErr := eng.compactWithContextRepairRetry(ctx, stepID, request.Items, "", dispatchFactory, modelRequestRetriesAllowed)
+		_, _, _, compactErr := eng.compactWithContextRepairRetry(ctx, stepID, request.Items, "", dispatchFactory, modelRequestRetriesAllowed, nil)
 		return compactErr
 	})
 }

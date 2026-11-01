@@ -1201,8 +1201,13 @@ func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, conne
 		if err == nil {
 			return candidate, nil
 		}
+		terminalErr := err
+		var dispatchErr *modelDispatchError
+		if errors.As(err, &dispatchErr) {
+			terminalErr = &generationDispatchError{err}
+		}
 		if !llm.HasHTTPStatus(err, 400) || llm.IsUsageExhaustionError(err) {
-			return successfulRequestCandidate{}, err
+			return successfulRequestCandidate{}, terminalErr
 		}
 		if emitted.Load() && onAttemptReset != nil {
 			onAttemptReset()
@@ -1215,7 +1220,7 @@ func (e *Engine) generateRepairAttempt(ctx context.Context, stepID string, conne
 			return successfulRequestCandidate{}, errors.Join(err, repairErr)
 		}
 		if repaired == 0 {
-			return successfulRequestCandidate{}, err
+			return successfulRequestCandidate{}, terminalErr
 		}
 	}
 }
@@ -1239,7 +1244,11 @@ func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, cli
 	}
 	resp, err := e.generateObservedWithRetry(ctx, stepID, client, observed, retryPolicy, callbacks, onAttemptReset)
 	if err != nil {
-		return successfulRequestCandidate{}, err
+		var observationErr *cacheObservationDispatchError
+		if errors.As(err, &observationErr) {
+			return successfulRequestCandidate{}, err
+		}
+		return successfulRequestCandidate{}, &modelDispatchError{err}
 	}
 	return newSuccessfulRequestCandidate(estimator, observed.request, resp), nil
 }

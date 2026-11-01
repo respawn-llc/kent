@@ -365,6 +365,7 @@ func TestResponsesSocketErrorsRetainProviderFactsWithoutHandshakeStatus(t *testi
 		{name: "quota", event: `{"type":"error","error":{"code":"insufficient_quota","type":"allowance","message":"unavailable"}}`, code: UnifiedErrorCodeUsageExhausted, providerCode: "insufficient_quota", nonRetriable: true},
 		{name: "failed", event: `{"type":"response.failed","response":{"id":"failed","error":{"code":"server_is_overloaded","message":"busy"}}}`, code: UnifiedErrorCodeProviderOverload, providerCode: "server_is_overloaded"},
 		{name: "incomplete", event: `{"type":"response.incomplete","response":{"id":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`, code: UnifiedErrorCodeUnknown, providerCode: "max_output_tokens", nonRetriable: true},
+		{name: "message limit", event: `{"type":"response.incomplete","response":{"id":"incomplete","incomplete_details":{"reason":"max_messages"}}}`, code: UnifiedErrorCodeUnknown, providerCode: "max_messages", nonRetriable: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

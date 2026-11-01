@@ -105,8 +105,9 @@ type storedToolCompletion struct {
 type chatStore struct {
 	mu sync.RWMutex
 
-	providerItems []llm.ResponseItem
-	compact       *compactionCheckpoint
+	providerItems  []llm.ResponseItem
+	assistantSpans []*acceptedAssistantSpan
+	compact        *compactionCheckpoint
 
 	toolCompletions                   map[string]tools.Result
 	toolCompletionProviderItems       map[string][]llm.ResponseItem
@@ -182,6 +183,13 @@ func (s *chatStore) appendMessage(stepID *string, msg llm.Message) error {
 		}
 	}
 	s.providerItems = append(s.providerItems, providerItems...)
+	var span *acceptedAssistantSpan
+	if msg.Role == llm.RoleAssistant {
+		span = &acceptedAssistantSpan{protected: msg.MessageType != nil, position: len(s.providerItems) - len(providerItems)}
+	}
+	for range providerItems {
+		s.assistantSpans = append(s.assistantSpans, span)
+	}
 	s.applyMessageStatsLocked(stepID, msg)
 	s.providerTokenEstimateDirty = true
 	return nil
@@ -231,6 +239,7 @@ func (s *chatStore) installWorkingSetLocked(checkpoint *compactionCheckpoint, co
 	s.transcriptEntryCount += len(projectedEntries)
 	s.compact = checkpoint
 	s.providerItems = nil
+	s.assistantSpans = nil
 	s.pruneToolCompletionsToWorkingSetLocked()
 	s.providerTokenEstimateDirty = true
 }
@@ -570,9 +579,18 @@ func (s *chatStore) snapshotMessages() []llm.Message {
 }
 
 func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
+	items, replacementEnd, _ := s.snapshotOwnedProviderItemsLocked()
+	return items, replacementEnd
+}
+
+func (s *chatStore) snapshotOwnedProviderItemsLocked() ([]llm.ResponseItem, *int, []*acceptedAssistantSpan) {
 	items := s.providerItemsSourceLocked()
+	sourceOwners := make([]*acceptedAssistantSpan, len(items))
+	base := len(items) - len(s.providerItems)
+	copy(sourceOwners[base:], s.assistantSpans)
 	materializedToolResults := collectMaterializedToolCalls(items)
 	out := make([]llm.ResponseItem, 0, len(items)+len(s.toolCompletions))
+	owners := make([]*acceptedAssistantSpan, 0, cap(out))
 	pendingOutputs := make([]llm.ResponseItem, 0, len(s.toolCompletions))
 	inFunctionOutputRun := false
 	var replacementEnd *int
@@ -581,6 +599,7 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 			return
 		}
 		out = append(out, pendingOutputs...)
+		owners = append(owners, make([]*acceptedAssistantSpan, len(pendingOutputs))...)
 		pendingOutputs = pendingOutputs[:0]
 	}
 	for index, item := range items {
@@ -596,6 +615,7 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 			}
 		}
 		out = append(out, item)
+		owners = append(owners, sourceOwners[index])
 		if !isToolCallItem(item.Type) {
 			if isToolOutputItem(item.Type) {
 				inFunctionOutputRun = true
@@ -634,7 +654,8 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 	if s.compact != nil && replacementEnd == nil {
 		replacementEnd = textutil.Value(len(out))
 	}
-	return out, replacementEnd
+	joinCompletionOwners(out, owners)
+	return out, replacementEnd, owners
 }
 
 // danglingToolCalls reports tool calls in the current provider-bound item

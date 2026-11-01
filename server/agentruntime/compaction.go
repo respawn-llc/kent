@@ -568,7 +568,7 @@ func (e *Engine) compactNowWithAcceptance(
 		return compactionResult{}, session.CommitReceipt{}, errCompactionDisabledModeNone
 	}
 
-	input, replacementEnd := e.transcriptRuntimeState().SnapshotRequestItems()
+	input, replacementEnd, omission := e.transcriptRuntimeState().snapshotCompactionInput()
 	if len(input) == 0 {
 		return compactionResult{}, session.CommitReceipt{}, nil
 	}
@@ -631,10 +631,11 @@ func (e *Engine) compactNowWithAcceptance(
 	}
 	if thinking.update != nil {
 		input = append(input, *thinking.update)
+		omission.owners = append(omission.owners, nil)
 	}
 	if enginePlan.engineKind == compactionEngineRemote {
 		var remoteInput []llm.ResponseItem
-		result, remoteInput, err = e.compactRemote(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy)
+		result, remoteInput, err = e.compactRemote(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy, omission)
 		var checkpointErr *llm.CompactionCheckpointContractError
 		if err != nil && errors.As(err, &checkpointErr) {
 			if e.cfg.Debug {
@@ -663,7 +664,7 @@ func (e *Engine) compactNowWithAcceptance(
 				if factoryErr != nil {
 					err = errors.Join(err, factoryErr)
 				} else {
-					localResult, localErr := e.compactLocal(ctx, stepID, remoteInput, providerID, instructions, localFactory, retryPolicy)
+					localResult, localErr := e.compactLocal(ctx, stepID, remoteInput, providerID, instructions, localFactory, retryPolicy, omission)
 					localResult.overflowRepair = result.overflowRepair.Add(localResult.overflowRepair)
 					result = localResult
 					if localErr != nil {
@@ -675,7 +676,7 @@ func (e *Engine) compactNowWithAcceptance(
 			}
 		}
 	} else {
-		result, err = e.compactLocal(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy)
+		result, err = e.compactLocal(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy, omission)
 	}
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
