@@ -123,3 +123,84 @@ func TestActivityWriteFailureSurfacesWithoutReplayingTool(t *testing.T) {
 		t.Fatal("failed activity write published")
 	}
 }
+
+func TestBackgroundCompletionUsesFinishTimeAndKeepsNewerActivity(t *testing.T) {
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
+	finished := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
+	event := BackgroundShellEvent{Type: BackgroundShellEventCompleted, ID: "background", FinishedAt: &finished}
+	if err := engine.RecordBackgroundShellUpdate(event); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(finished) {
+		t.Fatalf("background activity = %v, want finish %v", got, finished)
+	}
+	newer := finished.Add(time.Minute)
+	if err := store.RecordModelToolActivity(newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.RecordBackgroundShellUpdate(event); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(newer) {
+		t.Fatalf("delayed completion replaced newer activity: %v", got)
+	}
+}
+
+type approvalActivityTool struct{ broker *tools.AskQuestionBroker }
+
+func (h approvalActivityTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
+	resolution, err := h.broker.Ask(ctx, tools.AskQuestionRequest{
+		Question: "Allow tool execution?",
+		Approval: true, ToolCallID: call.ID, StepID: call.StepID,
+		ApprovalOptions: []tools.AskQuestionApprovalOption{
+			{Decision: tools.AskQuestionApprovalDecisionAllowOnce},
+			{Decision: tools.AskQuestionApprovalDecisionDeny},
+		},
+	})
+	if err != nil {
+		return tools.ErrorResult(call, err.Error()), nil
+	}
+	if resolution.(tools.AskQuestionApproval).Decision == tools.AskQuestionApprovalDecisionDeny {
+		return tools.ErrorResult(call, "denied"), nil
+	}
+	return tools.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
+}
+
+func TestAccessApprovalWaitOnlyCountsSubsequentExecutedWork(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		decision     tools.AskQuestionApprovalDecision
+		err          error
+		wantActivity bool
+	}{
+		{name: "denied", decision: tools.AskQuestionApprovalDecisionDeny},
+		{name: "failed wait", err: errors.New("wait failed")},
+		{name: "allowed", decision: tools.AskQuestionApprovalDecisionAllowOnce, wantActivity: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			broker := tools.NewAskQuestionBroker()
+			broker.SetLifecycleAskHandler(func(context.Context, tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+				if test.err != nil {
+					return nil, test.err
+				}
+				return tools.AskQuestionApproval{Decision: test.decision}, nil
+			})
+			store := mustCreateTestSession(t)
+			engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
+				tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: approvalActivityTool{broker}},
+			), Config{Model: "gpt-6-sol"})
+			stepID := runtimeTestStepID(test.name)
+			restore := setTestActiveStep(engine, stepID)
+			defer restore()
+			if _, err := engine.executeToolCalls(t.Context(), stepID, []llm.ToolCall{{
+				ID: "approval", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"true"}`),
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.ContextFacts().LastModelToolActivityAt != nil; got != test.wantActivity {
+				t.Fatalf("has activity = %v, want %v", got, test.wantActivity)
+			}
+		})
+	}
+}
