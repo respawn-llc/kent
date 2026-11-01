@@ -104,6 +104,7 @@
 - A connection change from a secondary window's startup blocker must require whole-app restart. Secondary windows must use the main window's active server even when another address is saved for the next restart.
 - A connection change from Settings must save for the next restart and keep the current server active until then. Switching servers must not mix server-specific local client state or stop server work. The unsent New Chat draft must be shared across servers.
 - Settings must not display the connected server's config path or a Server configuration tooltip. Settings must provide an open-file link action alongside Server connection. When the exact server-reported path exists locally, Desktop must enable opening it in the default platform application, including for remote connections, without machine verification.
+- The server-configuration action must occupy a full-width clickable row, with its label on the left and Open plus an outward-arrow icon on the right.
 - Theme must offer System, Light, and Dark and default to System. System must follow OS theme changes. The theme setting must replace the debug theme toggle.
 - Reduced motion must offer Off and On and default to Off. On must disable animations. OS reduced motion must disable animations even when Off is selected.
 - Transparency must default to On. Off must make the window opaque without disabling in-window blur.

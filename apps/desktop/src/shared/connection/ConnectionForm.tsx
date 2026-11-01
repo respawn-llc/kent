@@ -38,37 +38,37 @@ export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean
         action.submit(draft ?? snapshot.saved.serverAddress);
       }}
     >
-      <div className="min-w-0 flex-1">
-        <TextInput
-          label={t("settings.serverAddress")}
-          labelHelp={t(mode === "mainStartup" ? "settings.help.connect" : "settings.help.connection")}
-          className="font-mono"
-          value={draft ?? snapshot.saved.serverAddress}
-          error={
-            action.error instanceof SettingsCommandError && action.error.failure.kind === "address"
-              ? t("settings.invalidAddress")
-              : undefined
-          }
-          onChange={(event) => {
-            setDraft(event.target.value);
-          }}
-          trailingControl={
-            mode === "mainStartup" ? undefined : (
-              <ControlTooltip label={t("settings.saveConnection")}>
-                <Button
-                  type="submit"
-                  size="icon"
-                  variant="primary"
-                  aria-label={t("settings.saveConnection")}
-                  disabled={action.isPending}
-                  loading={action.isPending}
-                >
-                  <Save size={16} strokeWidth={1.75} />
-                </Button>
-              </ControlTooltip>
-            )
-          }
-        />
+      <div className="flex min-w-0 flex-wrap items-end gap-[var(--space-2)]">
+        <div className="min-w-[min(100%,16rem)] flex-1">
+          <TextInput
+            label={t("settings.serverAddress")}
+            labelHelp={t(mode === "mainStartup" ? "settings.help.connect" : "settings.help.connection")}
+            className="font-mono"
+            value={draft ?? snapshot.saved.serverAddress}
+            error={
+              action.error instanceof SettingsCommandError && action.error.failure.kind === "address"
+                ? t("settings.invalidAddress")
+                : undefined
+            }
+            onChange={(event) => {
+              setDraft(event.target.value);
+            }}
+          />
+        </div>
+        {mode === "restart" && (
+          <ControlTooltip label={t("settings.saveConnection")} className="shrink-0">
+            <Button
+              type="submit"
+              size="icon"
+              variant="primary"
+              aria-label={t("settings.saveConnection")}
+              disabled={action.isPending}
+              loading={action.isPending}
+            >
+              <Save size={16} strokeWidth={1.75} />
+            </Button>
+          </ControlTooltip>
+        )}
       </div>
       {mode === "mainStartup" && (
         <Button

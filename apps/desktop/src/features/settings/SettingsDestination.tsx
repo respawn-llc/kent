@@ -3,6 +3,7 @@ import { useScrollSpy } from "@mantine/hooks";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { ArrowUpRight } from "lucide-react";
 import {
   useAppServices,
   useQueryAction,
@@ -267,19 +268,26 @@ function ConfigNotice({
   const { t } = useTranslation();
   if (path === null) return null;
   return (
-    <div className="justify-self-start">
+    <div className="w-full">
       <DisabledInteractionGuard
+        className="w-full"
         disabled={!available || opening}
         reason={!available ? t("settings.configUnavailable") : undefined}
       >
         <Button
-          className="px-0 text-sm underline underline-offset-4"
+          className="w-full text-sm"
           variant="ghost"
           disabled={!available || opening}
           onClick={onOpen}
           loading={opening}
         >
-          {t("settings.openConfig")}
+          <span className="flex w-full items-center justify-between gap-[var(--space-3)] text-left">
+            <span>{t("settings.serverConfig")}</span>
+            <span className="inline-flex shrink-0 items-center gap-[var(--space-1)]">
+              {t("settings.open")}
+              <ArrowUpRight size={16} />
+            </span>
+          </span>
         </Button>
       </DisabledInteractionGuard>
     </div>
