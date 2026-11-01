@@ -360,6 +360,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Configuration Resolution
 
+- Speech transcription prompt configuration must follow [Speech Input](speech-input.md).
 - Global settings default to `~/.kent/config.toml` unless the persistence root changes. Shared workspace settings use `.kent/config.toml`. Private Main Workspace settings use `.kent/config.local.toml`.
 - Sources must apply in ascending precedence: built-in defaults, global settings, shared workspace settings, private Main Workspace settings, environment, and command-line overrides.
 - Kent must merge explicitly supplied settings by full property key. A later value must replace only the same property. Omitted properties must inherit. This rule must apply to default-agent and nested settings, same-named subagent roles, tool and skill toggles, and Supervisor settings. An explicit `false` must override an earlier value.

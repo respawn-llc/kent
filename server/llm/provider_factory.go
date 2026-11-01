@@ -154,7 +154,13 @@ func providerContracts() []ProviderContract {
 				{
 					ProviderID:         "openai",
 					generationProtocol: responsesWebsocket,
-					Speech:             speechProfile("https://api.openai.com/v1/audio/transcriptions", textutil.Value("gpt-transcribe"), 25_000_000),
+					Speech: speechProfile("https://api.openai.com/v1/audio/transcriptions", textutil.Value("gpt-transcribe"), 25_000_000, []string{
+						"gpt-transcribe",
+						"gpt-4o-transcribe",
+						"gpt-4o-mini-transcribe",
+						"gpt-4o-mini-transcribe-2025-12-15",
+						"whisper-1",
+					}),
 					ResponsesPolicy:    openAIResponsesPolicy{},
 					TokenEstimator:     OpenAITokenEstimator{},
 					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeOpenAI),
@@ -194,7 +200,7 @@ func providerContracts() []ProviderContract {
 				{
 					ProviderID:         "chatgpt-codex",
 					generationProtocol: responsesWebsocket,
-					Speech:             speechProfile("https://chatgpt.com/backend-api/transcribe", nil, 25_000_000),
+					Speech:             speechProfile("https://chatgpt.com/backend-api/transcribe", nil, 25_000_000, nil),
 					ResponsesPolicy:    openAIResponsesPolicy{},
 					TokenEstimator:     OpenAITokenEstimator{},
 					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeOpenAI),
@@ -245,7 +251,7 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string, policy res
 	}
 	var speech *SpeechProfile
 	if protocol == config.ConnectionGrokOAuthAPI || protocol == config.ConnectionGrokAPIKey {
-		speech = speechProfile("https://api.x.ai/v1/stt", textutil.Value("grok-voice-transcribe-2.0"), 500_000_000)
+		speech = speechProfile("https://api.x.ai/v1/stt", textutil.Value("grok-voice-transcribe-2.0"), 500_000_000, nil)
 	}
 	return ProviderVariantContract{
 		generationProtocol: generation,
