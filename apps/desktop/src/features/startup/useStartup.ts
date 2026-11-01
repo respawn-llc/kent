@@ -27,7 +27,7 @@ type StartupState =
   | Readonly<{ kind: "loading" }>
   | Readonly<{ kind: "ready"; readiness: ServerReadiness }>
   | Readonly<{ kind: "server-missing"; detail: string }>
-  | Readonly<{ kind: "error"; titleKey: string; body: string }>;
+  | Readonly<{ kind: "error"; titleKey: string; body: string; details: string | null }>;
 
 export type StartupViewModel = ReturnType<typeof useStartup>;
 
@@ -73,7 +73,12 @@ function projectStartup(
   }
   if (readiness.isError) {
     if (readiness.error instanceof ProtocolMismatchError) {
-      return startupError("startup.updateTitle", errorMessage(readiness.error), t("startup.unknownFailure"));
+      return startupError(
+        "startup.updateTitle",
+        t("startup.updateSameBuild"),
+        t("startup.unknownFailure"),
+        errorMessage(readiness.error),
+      );
     }
     if (readiness.error instanceof TransportError) {
       // The loopback Kent server is unreachable — the desktop is a thin client and the
@@ -87,7 +92,12 @@ function projectStartup(
     // persistence-root mismatch, or an RPC/contract error). Surface it as a startup
     // error with retry rather than the first-run setup guide, which would be misleading
     // when the fix is to start or connect to the correct server.
-    return startupError("startup.errorTitle", errorMessage(readiness.error), t("startup.unknownFailure"));
+    return startupError(
+      "startup.errorTitle",
+      t("startup.readFailureHelp"),
+      t("startup.unknownFailure"),
+      errorMessage(readiness.error),
+    );
   }
   if (!readiness.data.ready) {
     return startupError(
@@ -110,8 +120,13 @@ function projectStartup(
   return { kind: "ready", readiness: readiness.data };
 }
 
-function startupError(titleKey: string, body: string, fallbackBody: string): StartupState {
-  return { kind: "error", titleKey, body: body.length > 0 ? body : fallbackBody };
+function startupError(
+  titleKey: string,
+  body: string,
+  fallbackBody: string,
+  details: string | null = null,
+): StartupState {
+  return { kind: "error", titleKey, body: body.length > 0 ? body : fallbackBody, details };
 }
 
 function readinessCause(readiness: ServerReadiness, fallbackBody: string): string {

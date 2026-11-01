@@ -46,6 +46,7 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
       <StartupConnection>
         <ErrorState
           body={startup.body}
+          details={startup.details}
           chromePadding
           onRetry={startup.retry}
           reveal={false}

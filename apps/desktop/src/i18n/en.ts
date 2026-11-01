@@ -221,6 +221,8 @@ export const englishResources = {
       unknownBody: "Check local GUI logs and retry after the service is healthy.",
       unknownFailure: "Unknown startup failure",
       readinessFailed: "Readiness check failed.",
+      readFailureHelp:
+        "Kent could not check whether the server is ready. Try again. If it keeps failing, check the server logs and include the details below when reporting the problem.",
       clientProtocol: "Client protocol {{protocol}}.",
       serverProtocol: "Server protocol {{protocol}}.",
       updateSameBuild: "Update Kent CLI/service and desktop app from the same build.",
