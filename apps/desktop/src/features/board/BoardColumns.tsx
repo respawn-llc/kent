@@ -212,7 +212,9 @@ export function KanbanColumn({
                 <button
                   aria-label={t("app.collapse")}
                   className={columnToggleButtonClassName}
-                  onClick={() => { onColumnDisclosure("collapse"); }}
+                  onClick={() => {
+                    onColumnDisclosure("collapse");
+                  }}
                   type="button"
                 >
                   <Minimize2 aria-hidden="true" size={16} strokeWidth={1.7} />
@@ -294,7 +296,9 @@ function CollapsedColumnHeader({
       <button
         aria-label={t("board.expandColumn", { name: column.name })}
         className={columnToggleButtonClassName}
-        onClick={() => { onColumnDisclosure("expand"); }}
+        onClick={() => {
+          onColumnDisclosure("expand");
+        }}
         type="button"
       >
         <Maximize2 aria-hidden="true" size={16} strokeWidth={1.7} />
