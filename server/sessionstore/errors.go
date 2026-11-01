@@ -2,6 +2,18 @@ package session
 
 import "errors"
 
+// IndeterminatePersistenceError prevents further writes through a Store whose
+// last database commit could not be confirmed by its persistence observer.
+type IndeterminatePersistenceError struct {
+	Cause error
+}
+
+func (e *IndeterminatePersistenceError) Error() string {
+	return "Session save failed: " + e.Cause.Error()
+}
+
+func (e *IndeterminatePersistenceError) Unwrap() error { return e.Cause }
+
 // Sentinel errors produced by the session store and its loaders. Callers and
 // tests match these with errors.Is rather than comparing rendered message text,
 // which is free to change without affecting behavior. Dynamic context (ids,

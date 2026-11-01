@@ -126,7 +126,7 @@ func TestLocalCompactionKeepsCommittedThinkingAcrossToolRetry(t *testing.T) {
 				client.response = finalOutputItemResponse("summary")
 				client.mu.Unlock()
 				if call == 1 {
-					persisted = collectThinkingForkItems(t, mustMaterializeTestEventLog(t, store))
+					persisted = collectThinkingForkItems(t, mustMaterializeTestEventLog(t, mustOpenTestSession(t, store.Dir())))
 				}
 				return nil
 			}

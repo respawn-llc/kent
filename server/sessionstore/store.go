@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"core/shared/config"
+	"core/shared/invariant"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
@@ -49,24 +50,24 @@ func (e InvalidSessionCategoryError) Unwrap() error {
 }
 
 type Store struct {
-	mu                      sync.Mutex
-	mutationMu              sync.Mutex
-	contextFactsMu          sync.Mutex
-	sessionDir              string
-	eventsFP                string
-	meta                    Meta
-	shortID                 *runtimeids.SessionShortID
-	contextFacts            SessionContextFacts
-	initialContextFacts     SessionContextFacts
-	conversationFreshness   ConversationFreshness
-	persisted               bool
-	metadataVersion         uint64
-	persistedMetaVersion    uint64
-	options                 storeOptions
-	materializedEventLog    *currentEventLog
-	eventLogCreationVersion *int
-	eventLogMaterialization *eventLogMaterializationSnapshot
-	recoveryErr             error
+	mu                       sync.Mutex
+	mutationMu               sync.Mutex
+	contextFactsMu           sync.Mutex
+	sessionDir               string
+	eventsFP                 string
+	meta                     Meta
+	shortID                  *runtimeids.SessionShortID
+	contextFacts             SessionContextFacts
+	initialContextFacts      SessionContextFacts
+	conversationFreshness    ConversationFreshness
+	persisted                bool
+	metadataVersion          uint64
+	persistedMetaVersion     uint64
+	terminalPersistenceError *IndeterminatePersistenceError
+	options                  storeOptions
+	materializedEventLog     *currentEventLog
+	eventLogCreationVersion  *int
+	eventLogMaterialization  *eventLogMaterializationSnapshot
 }
 
 func eventLogVersionPointer(version int) *int {
@@ -208,13 +209,16 @@ func Create(workspaceContainerDir, workspaceContainerName, workspaceRoot string,
 		return nil, err
 	}
 	s.mu.Lock()
-	observation, err := s.persistMetaLocked()
+	observation, err := s.preparePersistenceObservationLocked()
 	s.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	if err := s.observePersistence(observation); err != nil {
-		return nil, errors.Join(err, s.RemoveDurable())
+	if receipt, err := s.observePersistenceReceipt(observation); err != nil {
+		if !receipt.Committed && errors.Is(err, ErrMutationDefinitelyUncommitted) {
+			return nil, errors.Join(err, s.RemoveDurable())
+		}
+		return nil, err
 	}
 	record, err := ResolvePersistedSessionRecord(context.Background(), s.options.resolver, s.meta.SessionID)
 	if err != nil {
@@ -348,9 +352,6 @@ func openPersistedSession(
 		return nil, err
 	}
 	defer joinEventLogPersistenceLockRelease(&resultErr, lock, lockPath)
-	if err := s.recoverAppendTransactionWithEventLogLockHeld(); err != nil {
-		return nil, err
-	}
 	s.metadataVersion = 1
 	s.persistedMetaVersion = 1
 	if s.meta.ConversationEstablished {
@@ -475,6 +476,9 @@ func (s *Store) RunArtifactRelocation(target ArtifactRelocationTarget, relocate 
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.terminalPersistenceError != nil {
+		return s.terminalPersistenceError
+	}
 	sessionID := strings.TrimSpace(s.meta.SessionID)
 	if sessionID == "" {
 		return errors.New("session id is required")
@@ -510,6 +514,9 @@ func (s *Store) RemoveDurable() error {
 	defer s.mutationMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.terminalPersistenceError != nil {
+		return s.terminalPersistenceError
+	}
 	if strings.TrimSpace(s.sessionDir) == "" {
 		return errors.New("session dir is required")
 	}
@@ -605,19 +612,18 @@ func (s *Store) mutateAndPersist(mutator func() error) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	if err := mutator(); err != nil {
+		s.restoreMetadataMutationLocked(checkpoint)
 		s.mu.Unlock()
 		return err
 	}
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
-func (s *Store) unlockAndObservePersistence(observation *persistenceObservation, err error) error {
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return s.observePersistence(observation)
+func (s *Store) unlockAndObservePersistence(checkpoint metadataMutationCheckpoint) error {
+	_, err := s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
+	return err
 }
 
 func (s *Store) metadataMutationCheckpointLocked() metadataMutationCheckpoint {
@@ -634,38 +640,26 @@ func (s *Store) restoreMetadataMutationLocked(checkpoint metadataMutationCheckpo
 	s.persistedMetaVersion = checkpoint.persistedMetaVersion
 }
 
-func (s *Store) closeMutationAuthorityLocked(operation string, err error) error {
-	recoveryErr := s.recoveryError(operation, err)
-	s.recoveryErr = recoveryErr
-	return recoveryErr
-}
-
-func (s *Store) recoveryError(operation string, err error) error {
-	return storeRecoveryError(s.meta.SessionID, operation, err)
-}
-
 func (s *Store) persistMetadataMutationWithCommitReceiptLocked(checkpoint metadataMutationCheckpoint) (CommitReceipt, error) {
-	observation, err := s.persistMetaLocked()
+	observation, err := s.preparePersistenceObservationLocked()
 	if err != nil {
 		s.restoreMetadataMutationLocked(checkpoint)
 		s.mu.Unlock()
 		return CommitReceipt{}, DefinitelyUncommittedMutation(err)
 	}
-	record, recordErr := s.newAppendRecoveryRecord(checkpoint.meta, s.meta, appendRecoveryCommitted, nil)
-	if recordErr == nil {
-		recordErr = s.writeAppendRecoveryRecord(record)
-	}
-	if recordErr != nil {
-		s.restoreMetadataMutationLocked(checkpoint)
-		if cleanupErr := s.clearAppendRecoveryRecord(); cleanupErr != nil {
-			recordErr = s.closeMutationAuthorityLocked("rollback metadata recovery", errors.Join(recordErr, cleanupErr))
-		}
-		s.mu.Unlock()
-		return CommitReceipt{}, DefinitelyUncommittedMutation(recordErr)
-	}
+	postMeta := cloneMeta(s.meta)
+	s.restoreMetadataMutationLocked(checkpoint)
 	s.mu.Unlock()
-	return CommitReceipt{Committed: true},
-		s.observePersistenceAndClearAppendRecovery(observation)
+	receipt, persistErr := s.observePersistenceReceipt(observation)
+	if !receipt.Committed {
+		return receipt, persistErr
+	}
+	s.mu.Lock()
+	s.meta = postMeta
+	s.metadataVersion = observation.version
+	s.persistedMetaVersion = observation.version
+	s.mu.Unlock()
+	return receipt, persistErr
 }
 
 func (s *Store) mutateLockedContractWithCommitStatus(mutator func(*LockedContract)) (LockedContractMutationResult, error) {
@@ -800,6 +794,7 @@ func (s *Store) SetInputDraft(inputDraft string, protectedUpdate *ProtectedInput
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.InputDraft = inputDraft
 	s.meta.ProtectedInputDraft = nil
 	if protected != nil {
@@ -811,7 +806,7 @@ func (s *Store) SetInputDraft(inputDraft string, protectedUpdate *ProtectedInput
 		s.mu.Unlock()
 		return nil
 	}
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) SetHeadlessActive(active bool) error {
@@ -826,9 +821,10 @@ func (s *Store) SetHeadlessActive(active bool) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.HeadlessActive = active
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) PromoteSubagentToMain() (bool, error) {
@@ -853,10 +849,12 @@ func (s *Store) PromoteSubagentToMain() (bool, error) {
 		s.mu.Unlock()
 		return false, err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	mainCategory := sessioncontract.SessionCategoryMain
 	s.meta.Category = &mainCategory
 	s.meta.UpdatedAt = storeTimestamp(s.options)
-	return true, s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	receipt, err := s.persistMetadataMutationWithCommitReceiptLocked(checkpoint)
+	return receipt.Committed, err
 }
 
 func sessionCategoryPointer(category sessioncontract.SessionCategory) *sessioncontract.SessionCategory {
@@ -888,9 +886,10 @@ func (s *Store) SetCompactionSoonReminderIssued(issued bool) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.CompactionSoonReminderIssued = issued
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) SetWorktreeReminderState(state *WorktreeReminderState) error {
@@ -923,9 +922,10 @@ func (s *Store) SetWorktreeReminderState(state *WorktreeReminderState) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.WorktreeReminder = CloneWorktreeReminderState(nextState)
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func normalizeMetaWorktreeReminder(meta *Meta) error {
@@ -964,9 +964,10 @@ func (s *Store) SetSessionRebindReminder(reminder *SessionRebindReminder) error 
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.RebindReminder = CloneSessionRebindReminder(next)
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func normalizeMetaSessionRebindReminder(meta *Meta) error {
@@ -1197,13 +1198,14 @@ func (s *Store) SetContinuationContext(ctx ContinuationContext) error {
 			return err
 		}
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.Continuation = normalized
 	s.meta.UpdatedAt = time.Now().UTC()
 	if !s.persisted {
 		s.mu.Unlock()
 		return nil
 	}
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) MarkGeneratedRecoveredWarningIssued() error {
@@ -1243,9 +1245,10 @@ func (s *Store) BackfillLockedProviderContract(contract LockedProviderCapabiliti
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.Locked.ProviderContract = contract
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) BackfillLockedSystemPrompt(systemPrompt string) error {
@@ -1261,10 +1264,11 @@ func (s *Store) BackfillLockedSystemPrompt(systemPrompt string) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.Locked.SystemPrompt = trimmed
 	s.meta.Locked.HasSystemPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
@@ -1280,10 +1284,11 @@ func (s *Store) BackfillLockedReviewerPrompt(reviewerPrompt string) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	s.meta.Locked.ReviewerPrompt = trimmed
 	s.meta.Locked.HasReviewerPrompt = true
 	s.meta.UpdatedAt = time.Now().UTC()
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) RefreshLockedMainPromptSnapshot(snapshot LockedMainPromptSnapshot) (LockedContractMutationResult, error) {
@@ -1308,16 +1313,10 @@ func (s *Store) BackfillLockedRequestShape(fields LockedRequestShapeBackfill) (L
 	})
 }
 
-func (s *Store) persistMetaLocked() (*persistenceObservation, error) {
+func (s *Store) preparePersistenceObservationLocked() (*persistenceObservation, error) {
 	if err := s.requireMetadataPersistenceLocked(); err != nil {
 		return nil, err
 	}
-	return s.persistMetaAfterRecoveryVerifiedLocked()
-}
-
-// persistMetaAfterRecoveryVerifiedLocked advances metadata only while the
-// caller retains s.mu after requireMetadataPersistenceLocked succeeds.
-func (s *Store) persistMetaAfterRecoveryVerifiedLocked() (*persistenceObservation, error) {
 	if err := s.ensurePersistedLocked(); err != nil {
 		return nil, err
 	}
@@ -1367,61 +1366,44 @@ func (s *Store) persistenceSnapshotLocked() *PersistedStoreSnapshot {
 }
 
 func (s *Store) requireMetadataPersistenceLocked() error {
-	if s.recoveryErr != nil {
-		return s.recoveryErr
+	if s.terminalPersistenceError != nil {
+		return s.terminalPersistenceError
 	}
 	if s.options.observer == nil {
 		return errPersistenceObserverRequired
 	}
-	record, err := s.readAppendRecoveryRecord()
-	if err != nil || record == nil {
-		return err
-	}
-	digest, err := digestMeta(s.meta)
-	if err != nil {
-		return err
-	}
-	if record.Phase != appendRecoveryCommitted || digest != record.Post.SHA256 {
-		return s.closeMutationAuthorityLocked("supersede unresolved recovery", errors.New("pending recovery does not describe current metadata"))
-	}
-	observation := &persistenceObservation{snapshot: s.persistenceSnapshotLocked(), version: s.metadataVersion}
-	s.mu.Unlock()
-	err = s.observePersistenceAndClearAppendRecovery(observation)
-	s.mu.Lock()
-	return err
+	return nil
 }
 
-func (s *Store) observePersistence(observation *persistenceObservation) error {
+func (s *Store) observePersistenceReceipt(observation *persistenceObservation) (CommitReceipt, error) {
 	if observation == nil {
-		return nil
+		return CommitReceipt{}, DefinitelyUncommittedMutation(errors.New("persistence observation is required"))
 	}
 	if s == nil || observation.snapshot == nil || s.options.observer == nil {
-		return nil
+		return CommitReceipt{}, DefinitelyUncommittedMutation(errPersistenceObserverRequired)
 	}
-	if err := s.options.observer.ObservePersistedStore(context.Background(), *observation.snapshot); err != nil {
-		return err
+	receipt, err := s.options.observer.ObservePersistedStore(context.Background(), *observation.snapshot)
+	if !receipt.Committed {
+		if err == nil {
+			err = errors.New("metadata persistence returned without committing")
+		}
+		if !errors.Is(err, ErrMutationDefinitelyUncommitted) {
+			s.mu.Lock()
+			if s.terminalPersistenceError == nil {
+				s.terminalPersistenceError = &IndeterminatePersistenceError{Cause: err}
+			}
+			err = s.terminalPersistenceError
+			s.mu.Unlock()
+			invariant.NewPolicy().Check(false, invariant.FailureDiagnostic(invariant.ScopeSessionPersistence, "commit_metadata_snapshot", err))
+		}
+		return receipt, err
 	}
 	s.mu.Lock()
 	if observation.version > s.persistedMetaVersion {
 		s.persistedMetaVersion = observation.version
 	}
 	s.mu.Unlock()
-	return nil
-}
-
-func (s *Store) observePersistenceAndClearAppendRecovery(
-	observation *persistenceObservation,
-) error {
-	if err := s.observePersistence(observation); err != nil {
-		return err
-	}
-	if observation == nil || observation.snapshot == nil {
-		return nil
-	}
-	if err := s.clearAppendRecoveryRecord(); err != nil {
-		return storeRecoveryError(observation.snapshot.Meta.SessionID, "clear committed mutation", err)
-	}
-	return nil
+	return receipt, err
 }
 
 func (s *Store) observeEventLogReconciliation(observation *eventLogReconciliationObservation) error {

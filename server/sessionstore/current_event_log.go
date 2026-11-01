@@ -27,14 +27,9 @@ type currentEventLog struct {
 	lastSequence       int64
 	lastCompleteOffset int64
 	boundaryIncomplete bool
+	committedBoundary  bool
 	mode               currentEventLogMode
 	durabilityObserver DurabilityObserver
-}
-
-type currentEventLogAppendTransaction struct {
-	prepare  func(startOffset int64, payload []byte) error
-	commit   func() error
-	rollback func(fp *os.File, startOffset int64, appendErr error) error
 }
 
 type EventRecordWindow struct {
@@ -92,6 +87,14 @@ func openCurrentEventLog(
 	path string,
 	mode currentEventLogMode,
 ) (_ *currentEventLog, resultErr error) {
+	return openCurrentEventLogAtSequence(path, mode, nil)
+}
+
+func openCurrentEventLogAtSequence(
+	path string,
+	mode currentEventLogMode,
+	committedSequence *int64,
+) (_ *currentEventLog, resultErr error) {
 	switch mode {
 	case currentEventLogAuthoritative, currentEventLogReadOnly, currentEventLogPersistedSnapshot:
 	default:
@@ -121,7 +124,7 @@ func openCurrentEventLog(
 		return nil, fmt.Errorf("stat current event log: %w", err)
 	}
 	size := info.Size()
-	if size == 0 && mode == currentEventLogPersistedSnapshot {
+	if size == 0 && mode == currentEventLogPersistedSnapshot && (committedSequence == nil || *committedSequence == 0) {
 		return &currentEventLog{
 			path:    path,
 			version: EventLogVersionV2,
@@ -132,7 +135,13 @@ func openCurrentEventLog(
 	if err != nil {
 		return nil, currentEventLogReadError(mode, err)
 	}
-	if mode == currentEventLogAuthoritative {
+	if committedSequence != nil {
+		size, err = committedEventLogEnd(fp, size, firstEventOffset, *committedSequence, header.Version)
+		if err != nil {
+			return nil, currentEventLogReadError(mode, err)
+		}
+	}
+	if mode == currentEventLogAuthoritative && committedSequence == nil {
 		size, _, err = repairCurrentEventLogTail(fp, size, firstEventOffset)
 		if err != nil {
 			return nil, err
@@ -153,6 +162,7 @@ func openCurrentEventLog(
 		lastSequence:       lastSequence,
 		lastCompleteOffset: lastCompleteOffset,
 		boundaryIncomplete: boundaryIncomplete,
+		committedBoundary:  committedSequence != nil,
 		mode:               mode,
 	}, nil
 }
@@ -165,13 +175,6 @@ func currentEventLogReadError(mode currentEventLogMode, err error) error {
 }
 
 func (l *currentEventLog) appendRecords(records []EventRecord) (endOffset int64, resultErr error) {
-	return l.appendRecordsWithTransaction(records, nil)
-}
-
-func (l *currentEventLog) appendRecordsWithTransaction(
-	records []EventRecord,
-	transaction *currentEventLogAppendTransaction,
-) (endOffset int64, resultErr error) {
 	if l == nil {
 		return 0, fmt.Errorf("current event log is required")
 	}
@@ -236,6 +239,21 @@ func (l *currentEventLog) appendRecordsWithTransaction(
 	if err != nil {
 		return 0, fmt.Errorf("stat current event log before append: %w", err)
 	}
+	if l.committedBoundary {
+		end, err := committedEventLogEnd(fp, info.Size(), l.firstEventOffset, l.lastSequence, l.version)
+		if err != nil {
+			return 0, err
+		}
+		if info.Size() > end {
+			if err := fp.Truncate(end); err != nil {
+				return 0, fmt.Errorf("discard uncommitted event-log suffix: %w", err)
+			}
+		}
+		info, err = fp.Stat()
+		if err != nil {
+			return 0, err
+		}
+	}
 	currentSize, needsSeparator, err := repairCurrentEventLogTail(fp, info.Size(), l.firstEventOffset)
 	if err != nil {
 		return 0, err
@@ -260,38 +278,19 @@ func (l *currentEventLog) appendRecordsWithTransaction(
 	if err != nil {
 		return 0, err
 	}
-	if transaction != nil && transaction.prepare != nil {
-		if err := transaction.prepare(currentSize, payload); err != nil {
-			return 0, err
-		}
+	if l.committedBoundary && len(payload) > 16<<20 {
+		return 0, errors.New("event-log append exceeds the bounded uncommitted suffix size")
 	}
 	written, err := writeAll(fp, payload)
 	endOffset = currentSize + int64(written)
 	if err != nil {
-		if transaction != nil && transaction.rollback != nil {
-			return endOffset, transaction.rollback(fp, currentSize, err)
-		}
 		return endOffset, err
 	}
-	if transaction != nil {
-		if err := l.syncAppend(fp); err != nil {
-			if transaction.rollback != nil {
-				return endOffset, transaction.rollback(fp, currentSize, fmt.Errorf("fsync current event log: %w", err))
-			}
-			return endOffset, fmt.Errorf("fsync current event log: %w", err)
-		}
-		if transaction.commit != nil {
-			if err := transaction.commit(); err != nil {
-				if transaction.rollback != nil {
-					return endOffset, transaction.rollback(fp, currentSize, err)
-				}
-				return endOffset, err
-			}
-		}
-	} else if err := l.syncAppend(fp); err != nil {
+	if err := l.syncAppend(fp); err != nil {
 		return endOffset, fmt.Errorf("fsync current event log: %w", err)
 	}
 	l.lastSequence = records[len(records)-1].Seq()
+	l.lastCompleteOffset = endOffset
 	return endOffset, nil
 }
 
@@ -659,7 +658,7 @@ func (l *currentEventLog) readSegmentBackward(
 }
 
 func (l *currentEventLog) boundedReadSize(actual int64) int64 {
-	if l.mode == currentEventLogPersistedSnapshot && l.lastCompleteOffset < actual {
+	if (l.committedBoundary || l.mode == currentEventLogPersistedSnapshot) && l.lastCompleteOffset < actual {
 		return l.lastCompleteOffset
 	}
 	return actual
@@ -912,7 +911,7 @@ func decodeEventRecordForVersion(version int, line []byte) (EventRecord, error) 
 }
 
 func readPreviousCurrentEventLine(
-	fp *os.File,
+	fp io.ReaderAt,
 	endOffset int64,
 	firstEventOffset int64,
 ) (line []byte, startOffset int64, terminated bool, err error) {

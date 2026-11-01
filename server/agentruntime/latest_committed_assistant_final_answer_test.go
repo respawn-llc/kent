@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"core/server/llm"
@@ -178,15 +177,8 @@ func TestLatestCommittedAssistantFinalAnswerFailsOnMalformedRelevantEvents(t *te
 	if err != nil {
 		t.Fatalf("marshal malformed relevant event: %v", err)
 	}
-	appendRawCurrentEventLine(t, store, line)
-
-	answer, err := LatestCommittedAssistantFinalAnswerFromEventLog(eventLog)
-	var itemErr session.ProviderHistoryItemError
-	if answer != nil ||
-		!errors.Is(err, session.ErrProviderHistoryItem) ||
-		!errors.As(err, &itemErr) ||
-		itemErr.Type != session.ProviderHistoryItemTypeOther ||
-		itemErr.Reason != session.ProviderHistoryItemMissingRaw {
-		t.Fatalf("latest final answer malformed-event result = answer:%+v error:%v item:%+v", answer, err, itemErr)
+	store = appendRawCurrentEventLine(t, store, line)
+	if _, err := store.MaterializeEventLog(); err == nil {
+		t.Fatal("committed malformed history was accepted")
 	}
 }

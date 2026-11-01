@@ -12,7 +12,7 @@ import (
 	"core/shared/toolspec"
 )
 
-func TestForkedSessionRecoversCompletedTriggerHandoff(t *testing.T) {
+func TestForkedSessionPreservesHandoffHistoryWithoutResumingIt(t *testing.T) {
 	store := mustCreateTestSession(t)
 	engine := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
 	if err := steerTestActiveStep(engine, "seed", steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("first")}})); err != nil {
@@ -33,8 +33,8 @@ func TestForkedSessionRecoversCompletedTriggerHandoff(t *testing.T) {
 		t.Fatalf("fork handoff session: %v", err)
 	}
 	forked := mustNewHandoffTestEngine(t, forkedStore, &fakeClient{}, Config{})
-	if pending := forked.handoffRuntimeState().RequestSnapshot(); pending == nil {
-		t.Fatal("fork lost completed trigger-handoff recovery")
+	if pending := forked.handoffRuntimeState().RequestSnapshot(); pending != nil {
+		t.Fatal("fork resumed unfinished handoff")
 	}
 	assertBoundedTriggerHandoffCompletion(t, forkedStore, handoffCall.ID, false)
 }

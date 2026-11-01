@@ -129,7 +129,7 @@ func (o *blockingSessionMetadataObserver) Arm() {
 	o.block = true
 }
 
-func (o *blockingSessionMetadataObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o *blockingSessionMetadataObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	o.mu.Lock()
 	block := o.block
 	o.block = false
@@ -139,10 +139,13 @@ func (o *blockingSessionMetadataObserver) ObservePersistedStore(ctx context.Cont
 		select {
 		case <-o.release:
 		case <-ctx.Done():
-			return ctx.Err()
+			return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(ctx.Err())
 		}
 	}
-	return o.store.ImportSessionSnapshot(ctx, snapshot)
+	if err := o.store.ImportSessionSnapshot(ctx, snapshot); err != nil {
+		return session.CommitReceipt{}, err
+	}
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 func (o *blockingSessionMetadataObserver) ObserveEventLogReconciliation(context.Context, session.PersistedEventLogReconciliation) error {

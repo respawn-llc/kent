@@ -319,11 +319,13 @@ type testPersistenceObserver struct {
 func (o testPersistenceObserver) ObservePersistedStore(
 	ctx context.Context,
 	snapshot session.PersistedStoreSnapshot,
-) error {
-	return errors.Join(
-		o.reconciler.ObservePersistedStore(ctx, snapshot),
-		o.observer.ObservePersistedStore(ctx, snapshot),
-	)
+) (session.CommitReceipt, error) {
+	receipt, err := o.reconciler.ObservePersistedStore(ctx, snapshot)
+	if err != nil {
+		return receipt, err
+	}
+	_, observationErr := o.observer.ObservePersistedStore(ctx, snapshot)
+	return receipt, observationErr
 }
 
 func (o testPersistenceObserver) ObserveEventLogReconciliation(
@@ -366,7 +368,7 @@ func blockTestSessionMetadataMutations(t *testing.T, store *session.Store) {
 	}
 }
 
-func appendRawCurrentEventLine(t *testing.T, store *session.Store, line []byte) {
+func appendRawCurrentEventLine(t *testing.T, store *session.Store, line []byte) *session.Store {
 	t.Helper()
 	path := filepath.Join(store.Dir(), "events.jsonl")
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
@@ -380,6 +382,18 @@ func appendRawCurrentEventLine(t *testing.T, store *session.Store, line []byte) 
 	if err := file.Close(); err != nil {
 		t.Fatalf("close persisted event log after raw append: %v", err)
 	}
+	var record struct {
+		Seq int64 `json:"seq"`
+	}
+	if err := json.Unmarshal(line, &record); err != nil {
+		t.Fatal(err)
+	}
+	meta := store.Meta()
+	meta.LastSequence = record.Seq
+	if _, err := runtimeTestSessionPersistence.ObservePersistedStore(t.Context(), session.PersistedStoreSnapshot{SessionDir: store.Dir(), Meta: meta}); err != nil {
+		t.Fatal(err)
+	}
+	return mustOpenTestSession(t, store.Dir())
 }
 
 func mustCreateTestSessionAt(t *testing.T, root string, options ...session.StoreOption) *session.Store {

@@ -426,7 +426,7 @@ func TestReconcileReasoningConsumesTraceAfterCommittedObserverError(t *testing.T
 	})); err != nil {
 		t.Fatalf("seed provisional reasoning: %v", err)
 	}
-	gate.FailNext(observerErr)
+	gate.FailAfterCommit(observerErr)
 	err := executor.reconcileReasoning(runtimeTestStepID("step"), []llm.ReasoningEntry{{
 		Role:             textPointer(string(transcript.EntryRoleReasoning)),
 		Text:             "completed",

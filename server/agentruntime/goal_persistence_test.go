@@ -35,7 +35,7 @@ func TestGoalPersistenceDoesNotWaitForModelBoundary(t *testing.T) {
 	}
 }
 
-func TestGoalNoticeFailureDoesNotUndoCommittedGoalAndSurfacesRuntimeFeedback(t *testing.T) {
+func TestGoalNoticeCommitFailureKeepsGoalAndSurfacesRuntimeFeedback(t *testing.T) {
 	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
@@ -64,16 +64,16 @@ func TestGoalNoticeFailureDoesNotUndoCommittedGoalAndSurfacesRuntimeFeedback(t *
 			count++
 		}
 	}
-	if count != 1 {
-		t.Fatalf("goal notices = %d, want one committed notice without replay", count)
+	if count != 0 {
+		t.Fatalf("goal notices = %d, want no uncommitted notice", count)
 	}
 }
 
 func TestGoalSetContinuesNoticeAfterCommittedMetadataIssue(t *testing.T) {
-	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
-	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
+	observer := &armedCommittedAppendFailObserver{}
+	store := mustCreateTestSessionAt(t, t.TempDir(), withRuntimeTestPersistenceObserver(observer))
 	engine := mustNewExecTestEngine(t, store, &fakeClient{}, Config{Model: "gpt-6-sol"})
-	gate.FailNext(errors.New("goal metadata observer failed"))
+	observer.armed = true
 
 	result, err := engine.SetGoal(t.Context(), "continue after metadata issue", session.GoalActorUser)
 	if err == nil {

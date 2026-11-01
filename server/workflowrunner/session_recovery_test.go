@@ -20,11 +20,12 @@ type gatedMetadataSessionPersistence struct {
 	metadata *metadata.Store
 }
 
-func (p gatedMetadataSessionPersistence) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
-	if err := p.sessions.ObservePersistedStore(ctx, snapshot); err != nil {
-		return err
+func (p gatedMetadataSessionPersistence) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
+	if err := p.metadata.ImportSessionSnapshot(ctx, snapshot); err != nil {
+		return session.CommitReceipt{}, err
 	}
-	return p.metadata.ImportSessionSnapshot(ctx, snapshot)
+	_, err := p.sessions.ObservePersistedStore(ctx, snapshot)
+	return session.CommitReceipt{Committed: true}, err
 }
 
 func (p gatedMetadataSessionPersistence) ObserveEventLogReconciliation(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {

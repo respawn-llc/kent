@@ -14,11 +14,12 @@ func (s *Store) CaptureInitialPromptPreview(content string) error {
 		s.mu.Unlock()
 		return err
 	}
+	checkpoint := s.metadataMutationCheckpointLocked()
 	if !s.captureFirstPromptPreviewLocked(content) {
 		s.mu.Unlock()
 		return nil
 	}
-	return s.unlockAndObservePersistence(s.persistMetaAfterRecoveryVerifiedLocked())
+	return s.unlockAndObservePersistence(checkpoint)
 }
 
 func (s *Store) captureFirstPromptPreviewLocked(content string) bool {
