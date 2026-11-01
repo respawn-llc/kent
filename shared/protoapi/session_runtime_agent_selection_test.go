@@ -23,7 +23,7 @@ func TestIdleResumePolicySurvivesRuntimeSettingsTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, seconds := range []int{3600, 2, 0, int(^uint(0) >> 1)} {
+	for _, seconds := range []int{3600, 2, 0, 9_007_199_254_740_991} {
 		settings := app.Settings
 		settings.IdleResumeReminderSeconds = seconds
 		wire, err := protoapi.SessionSettingsToProto(settings)
@@ -45,6 +45,14 @@ func TestIdleResumePolicySurvivesRuntimeSettingsTransport(t *testing.T) {
 		if decoded.IdleResumeReminderSeconds != seconds {
 			t.Fatalf("runtime threshold after transport = %d, want %d", decoded.IdleResumeReminderSeconds, seconds)
 		}
+	}
+}
+
+func TestIdleResumeSettingsTransportRejectsUnsafeThreshold(t *testing.T) {
+	wire := testSessionSettings(t)
+	wire.IdleResumeReminderSeconds = 9_007_199_254_740_992
+	if err := protoapi.Validate(wire); err == nil {
+		t.Fatal("unsafe idle threshold accepted by Settings contract")
 	}
 }
 

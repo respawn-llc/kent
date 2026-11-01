@@ -9,7 +9,7 @@
 - Question and Session access-Approval waits must count as waits rather than ordinary tool work. A completed long-running ordinary tool must count as work rather than sleep.
 - Kent must skip the reminder when the activity time is absent. Existing Sessions and rollback forks must start without backfilled activity time.
 - Kent must skip the reminder for a fresh Session or the first message after compaction without a subsequent conversation message. This exclusion must use actual conversation state and must not clear the activity time.
-- The global setting `idle_resume_reminder_seconds` must default to `3600`. Zero must disable the reminder. Negative values must be rejected. Only elapsed time strictly greater than the configured threshold must qualify.
+- The global setting `idle_resume_reminder_seconds` must default to `3600`. Zero must disable the reminder. Values outside `0` through `9007199254740991` must be rejected. Only elapsed time strictly greater than the configured threshold must qualify.
 - Elapsed time must use absolute timestamps. A backward clock must not qualify.
 - Kent must emit at most one reminder when model work resumes after a batch of Question answers, never one per answer.
 - Kent must persist the reminder lazily at the ordinary input-commit boundary, immediately before accompanying new human input, or before resumed model work when there is no human input.

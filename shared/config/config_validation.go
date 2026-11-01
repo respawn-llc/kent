@@ -127,8 +127,9 @@ func validateConnectionUsageFallbackSeconds(state settingsState, _ map[string]Or
 }
 
 func validateIdleResumeReminderSeconds(state settingsState, _ map[string]Origin) error {
-	if state.Settings.IdleResumeReminderSeconds < 0 {
-		return fmt.Errorf("idle_resume_reminder_seconds must be >= 0")
+	const maximum = 9_007_199_254_740_991
+	if state.Settings.IdleResumeReminderSeconds < 0 || state.Settings.IdleResumeReminderSeconds > maximum {
+		return fmt.Errorf("idle_resume_reminder_seconds must be between 0 and %d", maximum)
 	}
 	return nil
 }
