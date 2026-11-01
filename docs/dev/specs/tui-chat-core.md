@@ -41,16 +41,16 @@
 
 ## Queueing and steering
 
-- `Tab` queues or sends, and `Ctrl+Enter` is an alias.
+- `Tab` must submit to the server-owned post-turn Queue, and `Ctrl+Enter` is an alias. If the Session is idle and can start ordinary work, a queued model message must start a turn immediately. The TUI must not keep a pre-admission Queue.
 - While the Agent Turn is busy, `Enter` adds another Steer without locking the composer.
 - Server acceptance, the separate post-turn Queue, Steering timing, Runtime-affecting slash commands, and process-loss behavior follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) specification.
 - Each accepted human Steer is a separate FIFO message. Each steer issued from another Session is a separate message.
-- Pending messages survive only until delivery or process exit. The backend overload invariant is owned by the Runtime Steering specification.
+- Accepted pending messages must survive TUI exit or disconnection but may be lost on server exit. The backend overload invariant is owned by the Runtime Steering specification.
 - Pending Work renders as a visible pane between transcript and input until drained. The pane shows Queue messages first in Queue order and then Steer items in server acceptance order.
 - There is no standalone per-item removal or reordering affordance. The only TUI removal action is the busy `Ctrl+C` interrupt, which drains pending human Send/Steer and post-turn Queue messages into the main input (see Interrupts And Exit). Operational Pending Work is accepted and must not be removed by this action.
 - When the live TUI observes the server's interruption event, it best-effort restores the listed Queue and Steer messages to the composer verbatim in server acceptance order, followed by the composer draft.
 - When the live TUI observes a definitely-unapplied technical restoration, it restores the canonical presentation through the same composer merge behavior. Every observing TUI restores the same broadcast independently, and Kent must not replay it after reconnect.
-- Pending Queue and Steer messages are not persisted for restoration. Process exit before the TUI observes the interrupt loses them.
+- Pending Queue and Steer messages are not persisted for restoration. TUI exit before observing an interruption must lose that ephemeral restoration, not cancel accepted server work.
 - The following creation-failure behavior applies to every queued message or Steer.
 - If Kent cannot create the queued message or Steer, the failed message returns to the composer and requires an explicit user action to send again. The failed message must not be pending or retry automatically.
 - A terminal Runtime activation, authentication, metadata, target, filesystem, tool, validation, open, or publication failure uses this creation-failure behavior. Cancellation or disconnection ends a pending activation wait without creating a Queue Item.

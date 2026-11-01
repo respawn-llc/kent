@@ -6,8 +6,8 @@ import (
 
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
-	"core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	"core/shared/transcriptmodel/patchformat"
 )
 
 // ToolPresentationToProto projects the native, merged display facts shared by

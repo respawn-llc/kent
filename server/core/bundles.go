@@ -27,7 +27,7 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowrunner"
 	"core/server/workflowsvc"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/apicontract"
 	"core/shared/config"
 )
@@ -35,6 +35,7 @@ import (
 type Bundles struct {
 	Auth        *AuthBundle
 	Capability  *capabilityfacts.Service
+	Speech      apicontract.SpeechService
 	Chat        *ChatBundle
 	cleanup     []lifecycleResource
 	Persistence *PersistenceBundle
@@ -55,12 +56,10 @@ type AuthBundle struct {
 }
 
 type ChatBundle struct {
-	operations *chatmutation.OperationOwner
-	mutations  apicontract.ChatMutationService
+	mutations apicontract.ChatMutationService
 }
 
 type PersistenceBundle struct {
-	rootLock      *RootLockLease
 	metadataStore *metadata.Store
 }
 
@@ -108,8 +107,7 @@ type WorktreeBundle struct {
 }
 
 type WorkflowBundle struct {
-	workflows  apicontract.WorkflowService
-	controller *workflowexecution.CurrentNodeController
+	workflows apicontract.WorkflowService
 }
 
 func (s *Core) safeBundles() *Bundles {
@@ -170,6 +168,7 @@ type bundleCompositionInput struct {
 	workspaceConfigResolver chatcontext.FixedRootWorkspaceResolver
 	authSupport             serverbootstrap.AuthSupport
 	capabilityFactsService  *capabilityfacts.Service
+	speechService           apicontract.SpeechService
 	background              *shelltool.Manager
 	rootLease               *RootLockLease
 	metadataStore           *metadata.Store
@@ -202,7 +201,8 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 	return &Bundles{
 		Auth:       newAuthBundle(in.authSupport, in.authBootstrapService, in.authStatusService, in.serverStatusService),
 		Capability: in.capabilityFactsService,
-		Chat:       &ChatBundle{operations: in.chatOperationOwner},
+		Speech:     in.speechService,
+		Chat:       &ChatBundle{},
 		cleanup: []lifecycleResource{
 			{name: "Session settings observation", close: in.settingsChanges.Close},
 			{name: "persistence root lock", close: in.rootLease.Close},
@@ -246,13 +246,13 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 				return in.chatOperationOwner.Close()
 			}},
 		},
-		Persistence: newPersistenceBundle(in.rootLease, in.metadataStore),
+		Persistence: newPersistenceBundle(in.metadataStore),
 		Processes:   in.processService,
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
 		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.settingsChanges),
-		Workflows:   newWorkflowBundle(in.workflowService, in.workflowController),
+		Workflows:   newWorkflowBundle(in.workflowService),
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
 	}
 }
@@ -266,11 +266,8 @@ func newAuthBundle(authSupport serverbootstrap.AuthSupport, bootstrapService *au
 	}
 }
 
-func newPersistenceBundle(rootLease *RootLockLease, metadataStore *metadata.Store) *PersistenceBundle {
-	return &PersistenceBundle{
-		rootLock:      rootLease,
-		metadataStore: metadataStore,
-	}
+func newPersistenceBundle(metadataStore *metadata.Store) *PersistenceBundle {
+	return &PersistenceBundle{metadataStore: metadataStore}
 }
 
 func newProjectBundle(cfg config.App, workspaceConfigResolver chatcontext.FixedRootWorkspaceResolver, projectViews apicontract.ProjectViewService) *ProjectBundle {
@@ -306,8 +303,8 @@ func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.R
 	}
 }
 
-func newWorkflowBundle(workflowService *workflowsvc.Service, controller *workflowexecution.CurrentNodeController) *WorkflowBundle {
-	return &WorkflowBundle{workflows: workflowService, controller: controller}
+func newWorkflowBundle(workflowService *workflowsvc.Service) *WorkflowBundle {
+	return &WorkflowBundle{workflows: workflowService}
 }
 
 func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService, settingsChanges *sessionlaunch.SettingsBroadcaster) *SessionBundle {

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { RegistryProvider } from "@effect/atom-react";
 import { TestAppProviders as AppProviders, type TestAppServices } from "../app-services";
+import { SpeechDestinationProvider } from "@/shared/speech-input";
 
 export function TestAppProviders({
   children,
@@ -8,7 +9,9 @@ export function TestAppProviders({
 }: Readonly<{ children: ReactNode; services: TestAppServices }>) {
   return (
     <RegistryProvider>
-      <AppProviders services={services}>{children}</AppProviders>
+      <AppProviders services={services}>
+        <SpeechDestinationProvider>{children}</SpeechDestinationProvider>
+      </AppProviders>
     </RegistryProvider>
   );
 }

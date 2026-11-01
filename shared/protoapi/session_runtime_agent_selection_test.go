@@ -1,6 +1,7 @@
 package protoapi_test
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,40 +50,40 @@ func TestRoleDeclarationsSurviveSettingsTransportUnderEnvironmentOverride(t *tes
 func TestToolSelectionGeneratedOriginValidation(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		change func(*sessionlaunchpb.ConfigOrigin)
+		change func(*configurationpb.ConfigOrigin)
 		valid  bool
 	}{
 		{name: "CLI", valid: true},
-		{name: "environment", valid: true, change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_Environment{Environment: "KENT_TOOLS"}
+		{name: "environment", valid: true, change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_Environment{Environment: "KENT_TOOLS"}
 		}},
-		{name: "default", change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}}
+		{name: "default", change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}}
 		}},
-		{name: "file", change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_File{File: &sessionlaunchpb.ConfigFileSource{Layer: sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL, Path: "/config.toml"}}
+		{name: "file", change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_File{File: &configurationpb.ConfigFileSource{Layer: configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL, Path: "/config.toml"}}
 		}},
-		{name: "input", change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_Input{Input: &emptypb.Empty{}}
+		{name: "input", change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_Input{Input: &emptypb.Empty{}}
 		}},
-		{name: "session", change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_Session{Session: &emptypb.Empty{}}
+		{name: "session", change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_Session{Session: &emptypb.Empty{}}
 		}},
-		{name: "wrong key", change: func(o *sessionlaunchpb.ConfigOrigin) { o.Property.Key = "model" }},
-		{name: "role", change: func(o *sessionlaunchpb.ConfigOrigin) { o.Property.Role = textutil.Value("worker") }},
-		{name: "blank CLI", change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_CliOption{CliOption: " "}
+		{name: "wrong key", change: func(o *configurationpb.ConfigOrigin) { o.Property.Key = "model" }},
+		{name: "role", change: func(o *configurationpb.ConfigOrigin) { o.Property.Role = textutil.Value("worker") }},
+		{name: "blank CLI", change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_CliOption{CliOption: " "}
 		}},
-		{name: "blank environment", change: func(o *sessionlaunchpb.ConfigOrigin) {
-			o.Source = &sessionlaunchpb.ConfigOrigin_Environment{Environment: "\t"}
+		{name: "blank environment", change: func(o *configurationpb.ConfigOrigin) {
+			o.Source = &configurationpb.ConfigOrigin_Environment{Environment: "\t"}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			origin := &sessionlaunchpb.ConfigOrigin{Property: &sessionlaunchpb.ConfigPropertyAddress{Key: "tools"}, Source: &sessionlaunchpb.ConfigOrigin_CliOption{CliOption: "--tools"}}
+			origin := &configurationpb.ConfigOrigin{Property: &configurationpb.ConfigPropertyAddress{Key: "tools"}, Source: &configurationpb.ConfigOrigin_CliOption{CliOption: "--tools"}}
 			if test.change != nil {
 				test.change(origin)
 			}
-			err := protoapi.Validate(&sessionlaunchpb.ToolSelection{Origin: origin})
+			err := protoapi.Validate(&configurationpb.ToolSelection{Origin: origin})
 			if (err == nil) != test.valid {
 				t.Fatalf("generated validation: valid=%v error=%v", test.valid, err)
 			}

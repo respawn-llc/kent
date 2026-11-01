@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/imagefileio"
 )
 

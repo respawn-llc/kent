@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/textutil"
 )

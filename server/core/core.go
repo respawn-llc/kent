@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/chatcontext"
 	"core/server/launch"
 	"core/server/metadata"
@@ -74,9 +74,6 @@ func (s *Core) ProjectExists(ctx context.Context, projectID string) error {
 
 func (s *Core) SessionBelongsToProject(ctx context.Context, sessionID string, projectID string) error {
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return fmt.Errorf("session id is required")
-	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	if trimmedProjectID == "" {
 		return fmt.Errorf("project id is required")
@@ -296,7 +293,7 @@ func (s *Core) newSessionLaunchService(projectCtx projectContext) *sessionlaunch
 		Rotation:          s.connectionRotation,
 		Config:            projectCtx.config,
 		ContainerDir:      projectCtx.projectSession,
-		StoreOptions:      s.safeBundles().Persistence.metadataStore.AuthoritativeSessionStoreOptions(),
+		StoreOptions:      s.safeBundles().Persistence.metadataStore.ProjectSessionStoreOptions(projectCtx.projectID),
 		PersistedSessions: s.safeBundles().Persistence.metadataStore,
 		CallerSessions:    s.safeBundles().Persistence.metadataStore,
 		ExecutionTargets:  s.safeBundles().Persistence.metadataStore,
@@ -469,6 +466,13 @@ func (s *Core) CapabilityFactsClient() apicontract.CapabilityFactsService {
 		return nil
 	}
 	return capability
+}
+
+func (s *Core) SpeechClient() apicontract.SpeechService {
+	if s == nil {
+		return nil
+	}
+	return s.safeBundles().Speech
 }
 
 func (s *Core) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {

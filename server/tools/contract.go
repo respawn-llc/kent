@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 const (

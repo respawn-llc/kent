@@ -113,12 +113,16 @@ func TestFieldVerticalMovementAccountsForPrefixWrapping(t *testing.T) {
 	field := NewField()
 	field.Prefix = "› "
 	field.Editor.Replace("abcdef")
+	before := field.Render(4).Cursor
 
 	if !field.MoveUp(4) {
 		t.Fatal("expected prefixed field to move up")
 	}
-	if got, want := field.Editor.Cursor(), len("ab"); got != want {
+	if got, want := field.Editor.Cursor(), len("a"); got != want {
 		t.Fatalf("cursor after move up = %d, want %d", got, want)
+	}
+	if after := field.Render(4).Cursor; after.Row != before.Row-1 {
+		t.Fatalf("up moved cursor from %+v to %+v, want previous row", before, after)
 	}
 }
 
@@ -167,11 +171,15 @@ func TestFieldMaskedUnicodeVerticalMovementMapsDisplayToSourceCursor(t *testing.
 	field := NewField()
 	field.Mask = '*'
 	field.Editor.Replace("界界界")
+	before := field.Render(1).Cursor
 
 	if !field.MoveUp(1) {
 		t.Fatal("expected masked field to move up")
 	}
-	if got, want := field.Editor.Cursor(), len("界界"); got != want {
+	if got, want := field.Editor.Cursor(), len("界"); got != want {
 		t.Fatalf("cursor after move up = %d, want source byte offset %d", got, want)
+	}
+	if after := field.Render(1).Cursor; after.Row != before.Row-1 {
+		t.Fatalf("up moved cursor from %+v to %+v, want previous row", before, after)
 	}
 }

@@ -97,9 +97,6 @@ func New(metadataStore *metadata.Store, opts ...Option) (*Store, error) {
 }
 
 func (s *Store) ListWorkflowTaskIDs(ctx context.Context, workflowID runtimeids.WorkflowID) ([]workflow.TaskID, error) {
-	if workflowID.IsZero() {
-		return nil, ErrWorkflowIDRequired
-	}
 	rows, err := s.queries.ListWorkflowTaskIDs(ctx, workflowID)
 	if err != nil {
 		return nil, err

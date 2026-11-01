@@ -9,6 +9,7 @@ type managedProcessSnapshotEntry struct {
 	parentPID      int
 	processGroupID int
 	startedAt      uint64
+	exited         bool
 }
 
 func livingManagedDescendantPIDsIn(

@@ -8,7 +8,7 @@ import (
 
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 

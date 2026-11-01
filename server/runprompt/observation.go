@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"

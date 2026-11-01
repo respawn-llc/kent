@@ -12,14 +12,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"core/internal/testharness/pty/appfixture"
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/config"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
@@ -27,7 +26,7 @@ import (
 )
 
 func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
-	home, workspace := newRegisteredAppWorkspace(t)
+	home, workspace := newConfiguredAppWorkspace(t)
 	recordPath := filepath.Join(t.TempDir(), "lifecycle.jsonl")
 	recorderCommand, err := lifecycleHookProductRecorderCommand(
 		recordPath,
@@ -50,8 +49,11 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 		"fast subagent response",
 	})
 	defer responses.Close()
-	stopServer := startStandingRunPromptServer(t, workspace, responses.URL)
-	defer stopServer()
+	stopServer, _ := startStandingRunPromptServer(t, workspace, responses.URL, nil)
+	defer func() {
+		stopServer()
+		requireNoLifecycleHookProductRecords(t, recordPath)
+	}()
 	requireNoLifecycleHookProductRecords(t, recordPath)
 
 	run := func(name string, agentRole *string, want string) {
@@ -81,28 +83,21 @@ func TestLifecycleHookExcludedFromServerHeadlessAndSubagentRuns(t *testing.T) {
 
 func requireNoLifecycleHookProductRecords(t *testing.T, recordPath string) {
 	t.Helper()
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for {
-		_, err := os.Stat(recordPath)
-		if err == nil {
-			data, readErr := os.ReadFile(recordPath)
-			if readErr != nil {
-				t.Fatalf("read unexpected lifecycle hook records: %v", readErr)
-			}
-			t.Fatalf("unexpected lifecycle hook records: %s", data)
+	_, err := os.Stat(recordPath)
+	if err == nil {
+		data, readErr := os.ReadFile(recordPath)
+		if readErr != nil {
+			t.Fatalf("read unexpected lifecycle hook records: %v", readErr)
 		}
-		if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("stat lifecycle hook records: %v", err)
-		}
-		if time.Now().After(deadline) {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+		t.Fatalf("unexpected lifecycle hook records: %s", data)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat lifecycle hook records: %v", err)
 	}
 }
 
 func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
-	_, workspace := newRegisteredAppWorkspace(t)
+	_, workspace := newConfiguredAppWorkspace(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
@@ -115,7 +110,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	}))
 	defer server.Close()
 
-	stopServer := startStandingRunPromptServer(t, workspace, server.URL)
+	stopServer, metadataStore := startStandingRunPromptServer(t, workspace, server.URL, nil)
 	defer stopServer()
 
 	var progresses []*runpromptpb.ProgressEvent
@@ -152,7 +147,7 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 	}
 
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	store := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.Identity.ID.String())
+	store := openAuthoritativeAppSession(t, metadataStore, result.Identity.ID.String())
 	meta := store.Meta()
 	wantWorkspaceRoot, err := config.CanonicalWorkspaceRoot(cfg.WorkspaceRoot)
 	if err != nil {
@@ -188,7 +183,10 @@ func TestRunPromptCreatesSessionAndPersistsDurableTranscript(t *testing.T) {
 		if !ok {
 			t.Fatalf("message payload = %T, want session.MessageRecord", mustSessionEventPayload(evt))
 		}
-		msg := appMessageFromRecord(record)
+		msg, err := appMessageFromRecord(record)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if msg.Role == llm.RoleUser && msg.Content != nil && *msg.Content == "hello from user" {
 			sawUser = true
 		}
@@ -219,13 +217,8 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	}
 	configureAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	parent := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
-	metadataStore, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
-	binding, err := metadata.ResolveBinding(ctx, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	parent, metadataStore := createAuthoritativeAppSession(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	binding, err := metadataStore.EnsureWorkspaceBinding(ctx, cfg.WorkspaceRoot)
 	if err != nil {
 		t.Fatalf("ResolveBinding: %v", err)
 	}
@@ -260,7 +253,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	}
 	fakeResponses, _ := newFakeResponsesServer(t, []string{"child reply"})
 	defer fakeResponses.Close()
-	stopServer := startStandingRunPromptServer(t, workspace, fakeResponses.URL)
+	stopServer, _ := startStandingRunPromptServer(t, workspace, fakeResponses.URL, metadataStore)
 	defer stopServer()
 
 	result, err := RunPrompt(ctx, Options{
@@ -271,7 +264,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 	if err != nil {
 		t.Fatalf("RunPrompt: %v", err)
 	}
-	child := openAuthoritativeAppSession(t, cfg.PersistenceRoot, result.Identity.ID.String())
+	child := openAuthoritativeAppSession(t, metadataStore, result.Identity.ID.String())
 	childMeta := child.Meta()
 	if childMeta.ParentAgentSessionID == nil || childMeta.ParentAgentSessionID.String() != parent.Meta().SessionID {
 		t.Fatalf("child parent-agent session id = %v, want %q", childMeta.ParentAgentSessionID, parent.Meta().SessionID)
@@ -293,7 +286,7 @@ func TestRunPromptWorkspaceContextCreatesChildWithParentWorktreeContext(t *testi
 }
 
 func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.T) {
-	home, workspace := newRegisteredAppWorkspace(t)
+	home, workspace := newConfiguredAppWorkspace(t)
 
 	configPath := filepath.Join(home, config.ConfigDirName, "config.toml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
@@ -329,7 +322,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 		t.Fatalf("write config: %v", err)
 	}
 
-	stopServer := startStandingRunPromptServer(t, workspace, server.URL)
+	stopServer, metadataStore := startStandingRunPromptServer(t, workspace, server.URL, nil)
 	defer stopServer()
 
 	result, err := RunPrompt(context.Background(), Options{
@@ -347,7 +340,7 @@ func TestRunPromptFastRoleUsesRoleLevelProviderSettingsForHeuristics(t *testing.
 	if got := payload["model"]; got != "gpt-6-sol" {
 		t.Fatalf("model payload = %#v, want startup CLI model gpt-6-sol", got)
 	}
-	store := openAuthoritativeWorkspaceSessionStore(t, workspace, result.Identity.ID.String())
+	store := openAuthoritativeAppSession(t, metadataStore, result.Identity.ID.String())
 	if store.Meta().ConnectionID == nil || *store.Meta().ConnectionID != "test" {
 		t.Fatalf("unexpected connection binding: %+v", store.Meta().ConnectionID)
 	}
@@ -372,14 +365,10 @@ func newFakeResponsesServer(t *testing.T, assistantReplies []string) (*httptest.
 	return server, &hits
 }
 
-func openAuthoritativeWorkspaceSessionStore(t *testing.T, workspaceRoot, sessionID string) *session.Store {
-	t.Helper()
-	loadOpts := config.LoadOptions{}
-	cfg := loadAppTestConfig(t, workspaceRoot, loadOpts)
-	return openAuthoritativeAppSession(t, cfg.PersistenceRoot, sessionID)
-}
-
-func appMessageFromRecord(record session.MessageRecord) llm.Message {
+func appMessageFromRecord(record session.MessageRecord) (llm.Message, error) {
+	if record.NativeResponse != nil {
+		return llm.MessageFromNativeResponse(*record.NativeResponse)
+	}
 	message := llm.Message{
 		Role:    llm.Role(record.Role),
 		Content: textutil.Value(valueOrEmpty(record.Content)),
@@ -390,7 +379,7 @@ func appMessageFromRecord(record session.MessageRecord) llm.Message {
 	if record.Phase != nil {
 		message.Phase = textutil.Value(llm.MessagePhase(*record.Phase))
 	}
-	return message
+	return message, nil
 }
 
 func valueOrEmpty(value *string) string {
@@ -414,7 +403,10 @@ func readStoredMessages(store *session.Store) ([]llm.Message, error) {
 		if !ok {
 			return nil, fmt.Errorf("message payload = %T, want session.MessageRecord", mustSessionEventPayload(evt))
 		}
-		msg := appMessageFromRecord(record)
+		msg, err := appMessageFromRecord(record)
+		if err != nil {
+			return nil, err
+		}
 		messages = append(messages, msg)
 	}
 	return messages, nil

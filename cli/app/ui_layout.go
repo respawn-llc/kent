@@ -46,7 +46,7 @@ func (m *uiModel) syncRendererOutputGate() {
 	if m == nil || m.rendererOutputGate == nil {
 		return
 	}
-	m.rendererOutputGate.SetSuppressRendererWrites(m.nativeOngoingSurfaceActive())
+	m.rendererOutputGate.SetSuppressRendererWrites(m.nativeOngoingSurfaceActive() || m.surface() == uiSurfaceAsk)
 }
 
 func (l uiViewLayout) render() string {
@@ -64,6 +64,9 @@ func (l uiViewLayout) composeStandardFrame(style uiStyles) (uiRenderFrame, bool)
 	height := l.effectiveHeight()
 	if width <= 0 || height <= 0 {
 		return uiRenderFrame{}, false
+	}
+	if m.surface() == uiSurfaceAsk {
+		return l.composeAskFrame(width, height, style), true
 	}
 	frame := uiRenderFrame{width: width, height: height, statusLine: l.renderStatusLine(width, style), padToHeight: true, tailOnly: true}
 	if m.surface() == uiSurfaceOngoingTranscript {

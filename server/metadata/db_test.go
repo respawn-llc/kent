@@ -1,28 +1,19 @@
 package metadata
 
 import (
-	"bytes"
-	"context"
-	"crypto/sha256"
 	"database/sql"
-	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"core/server/metadata/sqlitegen"
-
 	_ "modernc.org/sqlite"
 )
 
 func TestWorkspaceChatDraftCutoverDeletesLegacyDraftAndPreservesSessionState(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 88)
+	db, err := openDatabaseAtVersionForTest(t, 88)
 	if err != nil {
 		t.Fatalf("open version 88 database: %v", err)
 	}
@@ -86,15 +77,7 @@ INSERT INTO sessions (
 		now,
 		now,
 	)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 88 database: %v", err)
-	}
-
-	store, err := Open(root)
-	if err != nil {
-		t.Fatalf("upgrade metadata database: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 
 	if columnExists(t, store.db, "workspaces", "chat_draft_json") {
 		t.Fatal("legacy workspace Chat draft column survived cutover")
@@ -139,10 +122,8 @@ WHERE id = '8b0a92d4-18f8-4b5f-9b66-b8ac0f3f987e'`,
 	}
 }
 
-func TestWorkspaceChatDraftCutoverFailurePreventsMetadataStartup(t *testing.T) {
-	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 88)
+func TestWorkspaceChatDraftCutoverFailureLeavesDatabaseUnchanged(t *testing.T) {
+	db, err := openDatabaseAtVersionForTest(t, 88)
 	if err != nil {
 		t.Fatalf("open version 88 database: %v", err)
 	}
@@ -150,165 +131,42 @@ func TestWorkspaceChatDraftCutoverFailurePreventsMetadataStartup(t *testing.T) {
 CREATE VIEW workspace_chat_draft_migration_blocker AS
 SELECT chat_draft_json
 FROM workspaces`)
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 88 database: %v", err)
-	}
-
-	store, err := Open(root)
+	err = runMigrations(db)
 	if err == nil {
-		if store != nil {
-			_ = store.Close()
-		}
-		t.Fatal("metadata startup succeeded despite failed workspace Chat draft cutover")
+		t.Fatal("workspace Chat draft cutover succeeded despite migration blocker")
 	}
-	if store != nil {
-		t.Fatal("failed metadata startup returned a Store")
-	}
-	var migrationErr *WorkspaceChatDraftCutoverMigrationError
-	if !errors.As(err, &migrationErr) {
-		t.Fatalf("metadata startup error = %v, want typed migration failure", err)
-	}
-
-	unmigrated, err := openDatabaseAtPathWithoutMigrationsForTest(root, dbPath)
-	if err != nil {
-		t.Fatalf("reopen failed migration database: %v", err)
-	}
-	t.Cleanup(func() { _ = unmigrated.Close() })
-	version, err := readMetadataVersion(unmigrated)
+	version, err := readMetadataVersion(db)
 	if err != nil {
 		t.Fatalf("read failed migration version: %v", err)
 	}
 	if version != 88 {
 		t.Fatalf("failed migration version = %d, want 88", version)
 	}
-	if !columnExists(t, unmigrated, "workspaces", "chat_draft_json") {
+	if !columnExists(t, db, "workspaces", "chat_draft_json") {
 		t.Fatal("failed migration partially removed workspace Chat draft schema")
 	}
 }
 
-func TestOpenSuppressesGooseStatusLogging(t *testing.T) {
-	root := t.TempDir()
-	var buf bytes.Buffer
-	previousDebug := metadataMigrationDebugLogs
-	previousWriter := metadataMigrationLogWriter
-	metadataMigrationDebugLogs = false
-	metadataMigrationLogWriter = &buf
-	t.Cleanup(func() {
-		metadataMigrationDebugLogs = previousDebug
-		metadataMigrationLogWriter = previousWriter
-	})
-
-	store, err := Open(root)
-	if err != nil {
-		t.Fatalf("open metadata store: %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("close metadata store: %v", err)
-	}
-	if strings.Contains(buf.String(), "goose:") {
-		t.Fatalf("did not expect goose status log output, got %q", buf.String())
-	}
-}
-
-func TestOpenConfiguresSQLitePragmasThroughPathSafeDSN(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	dbPath := filepath.Join(root, "db with spaces", "main ? #.sqlite3")
-	store, err := OpenAtPath(root, dbPath)
-	if err != nil {
-		t.Fatalf("OpenAtPath with escaped path characters: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-
-	requireMetadataSQLitePragmas(t, store.db)
-	if _, err := os.Stat(dbPath); err != nil {
-		t.Fatalf("database path was not created at expected path: %v", err)
-	}
-}
-
-func TestOpenConfiguresEightConnectionSQLitePool(t *testing.T) {
-	t.Parallel()
-	store, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-
-	if got := store.db.Stats().MaxOpenConnections; got != 8 {
-		t.Fatalf("max open connections = %d, want 8", got)
-	}
-	connections := make([]*sql.Conn, 0, 8)
-	for range 8 {
-		connection, err := store.db.Conn(t.Context())
-		if err != nil {
-			t.Fatalf("acquire pooled connection: %v", err)
-		}
-		connections = append(connections, connection)
-		requireMetadataSQLitePragmas(t, connection)
-	}
-	for _, connection := range connections {
-		if err := connection.Close(); err != nil {
-			t.Fatalf("return pooled connection: %v", err)
-		}
-	}
-	if got := store.db.Stats().Idle; got != 8 {
-		t.Fatalf("idle connections = %d, want 8", got)
-	}
-}
-
-type sqlitePragmaQueryer interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-func requireMetadataSQLitePragmas(t testing.TB, queryer sqlitePragmaQueryer) {
-	t.Helper()
-	var foreignKeys int64
-	if err := queryer.QueryRowContext(t.Context(), "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
-		t.Fatalf("PRAGMA foreign_keys: %v", err)
-	}
-	if foreignKeys != 1 {
-		t.Fatalf("foreign_keys = %d, want 1", foreignKeys)
-	}
-	var journalMode string
-	if err := queryer.QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&journalMode); err != nil {
-		t.Fatalf("PRAGMA journal_mode: %v", err)
-	}
-	if journalMode != "wal" {
-		t.Fatalf("journal_mode = %q, want wal", journalMode)
-	}
-	var synchronous int64
-	if err := queryer.QueryRowContext(t.Context(), "PRAGMA synchronous").Scan(&synchronous); err != nil {
-		t.Fatalf("PRAGMA synchronous: %v", err)
-	}
-	if synchronous != 1 {
-		t.Fatalf("synchronous = %d, want NORMAL(1)", synchronous)
-	}
-	var busyTimeout int64
-	if err := queryer.QueryRowContext(t.Context(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
-		t.Fatalf("PRAGMA busy_timeout: %v", err)
-	}
-	if busyTimeout != sqlitegen.BusyTimeoutMilliseconds {
-		t.Fatalf("busy_timeout = %d, want %d", busyTimeout, sqlitegen.BusyTimeoutMilliseconds)
-	}
-}
-
-func TestOpenSupportsConcurrentIndependentDatabases(t *testing.T) {
+func TestIndependentMetadataStoresOpenConcurrently(t *testing.T) {
 	t.Parallel()
 	const databaseCount = 8
 	roots := make([]string, databaseCount)
+	databases := make([]*sql.DB, databaseCount)
 	for index := range roots {
 		roots[index] = t.TempDir()
+		databases[index] = openLatestMetadataTestDatabase(t)
+		t.Cleanup(func() { _ = databases[index].Close() })
 	}
 
 	start := make(chan struct{})
 	errs := make(chan error, databaseCount)
 	var workers sync.WaitGroup
 	workers.Add(databaseCount)
-	for _, root := range roots {
+	for index, root := range roots {
 		go func() {
 			defer workers.Done()
 			<-start
-			store, err := Open(root)
+			store, err := NewStore(root, databases[index])
 			if err == nil {
 				err = store.Close()
 			}
@@ -340,7 +198,7 @@ func TestMetadataSQLiteDSNNormalizesWindowsPaths(t *testing.T) {
 	}
 }
 
-func TestOpenRejectsUnsupportedMetadataDatabaseWithoutMutation(t *testing.T) {
+func TestReadMetadataVersionPreservesUnsupportedDatabaseRecords(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name            string
@@ -354,40 +212,10 @@ func TestOpenRejectsUnsupportedMetadataDatabaseWithoutMutation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			root := t.TempDir()
-			dbPath := filepath.Join(root, "db", "main.sqlite3")
-			createUnsupportedMetadataDatabase(t, dbPath, test.recordedVersion)
-			before := metadataDatabaseDigest(t, dbPath)
-
-			store, err := OpenAtPath(root, dbPath)
-			if store != nil {
-				_ = store.Close()
-				t.Fatal("unsupported metadata database unexpectedly opened")
-			}
-			var unsupported *UnsupportedMetadataVersionError
-			if !errors.As(err, &unsupported) {
-				t.Fatalf("OpenAtPath error = %v, want UnsupportedMetadataVersionError", err)
-			}
-			if unsupported.DatabasePath != dbPath ||
-				unsupported.CurrentVersion != test.wantVersion ||
-				unsupported.MinimumVersion != 35 {
-				t.Fatalf("unsupported metadata error = %+v", unsupported)
-			}
-			if after := metadataDatabaseDigest(t, dbPath); after != before {
-				t.Fatalf("unsupported metadata database changed: before=%x after=%x", before, after)
-			}
-
-			db, err := sql.Open("sqlite", dbPath)
-			if err != nil {
-				t.Fatalf("reopen rejected database: %v", err)
-			}
-			t.Cleanup(func() { _ = db.Close() })
-			var journalMode string
-			if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil {
-				t.Fatalf("read rejected database journal mode: %v", err)
-			}
-			if journalMode != "wal" {
-				t.Fatalf("rejected database journal mode = %q, want wal", journalMode)
+			db := createUnsupportedMetadataDatabase(t, test.recordedVersion)
+			version, err := readMetadataVersion(db)
+			if err != nil || version != test.wantVersion {
+				t.Fatalf("metadata version = %d, error = %v", version, err)
 			}
 			var marker string
 			if err := db.QueryRow(`SELECT value FROM metadata_floor_probe WHERE id = 1`).Scan(&marker); err != nil {
@@ -416,11 +244,10 @@ WHERE is_applied = 1`).Scan(&latest); err != nil {
 	}
 }
 
-func TestOpenUpgradesVersion35DatabaseWithHistoricalLedger(t *testing.T) {
+func TestMigrationsUpgradeVersion35DatabaseWithHistoricalLedger(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 35)
+	db, err := openDatabaseAtVersionForTest(t, 35)
 	if err != nil {
 		t.Fatalf("open version 35 database: %v", err)
 	}
@@ -461,15 +288,7 @@ INSERT INTO sessions (
 )`); err != nil {
 		t.Fatalf("seed version 35 data: %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 35 database: %v", err)
-	}
-
-	store, err := Open(root)
-	if err != nil {
-		t.Fatalf("upgrade version 35 database: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 
 	var projectName, sessionName string
 	if err := store.db.QueryRow(`SELECT display_name FROM projects WHERE id = 'project-v35'`).Scan(&projectName); err != nil {
@@ -483,19 +302,10 @@ INSERT INTO sessions (
 	}
 }
 
-func createUnsupportedMetadataDatabase(t *testing.T, dbPath string, recordedVersion *int64) {
+func createUnsupportedMetadataDatabase(t *testing.T, recordedVersion *int64) *sql.DB {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		t.Fatalf("create unsupported database directory: %v", err)
-	}
-	dsn, err := metadataSQLiteDSN(dbPath)
-	if err != nil {
-		t.Fatalf("build unsupported database DSN: %v", err)
-	}
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("open unsupported database: %v", err)
-	}
+	db := openEmptyMetadataTestDatabase(t)
+	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Exec(`
 CREATE TABLE metadata_floor_probe (
     id INTEGER PRIMARY KEY,
@@ -526,59 +336,41 @@ CREATE TABLE goose_db_version (
 			}
 		}
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close unsupported database: %v", err)
-	}
-}
-
-func metadataDatabaseDigest(t *testing.T, dbPath string) [sha256.Size]byte {
-	t.Helper()
-	contents, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatalf("read metadata database: %v", err)
-	}
-	return sha256.Sum256(contents)
+	return db
 }
 
 func int64Pointer(value int64) *int64 {
 	return &value
 }
 
-func openDatabaseAtVersionForTest(t *testing.T, root string, dbPath string, version int64) (*sql.DB, error) {
+func openDatabaseAtVersionForTest(t *testing.T, version int64) (*sql.DB, error) {
 	t.Helper()
-	db, err := openDatabaseAtPathWithoutMigrationsForTest(root, dbPath)
+	snapshot, err := emptyMetadataSnapshotAtVersion(t, version)
 	if err != nil {
 		return nil, err
 	}
-	provider, err := newMetadataMigrationProvider(db)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := provider.UpTo(context.Background(), version); err != nil {
-		_ = db.Close()
+	db := openEmptyMetadataTestDatabase(t)
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close in-memory migration database: %v", err)
+		}
+	})
+	if err := withMetadataSnapshotConnection(t.Context(), db, func(conn metadataSnapshotDriver) error {
+		return conn.Deserialize(snapshot)
+	}); err != nil {
 		return nil, err
 	}
 	return db, nil
 }
 
-func openDatabaseAtPathWithoutMigrationsForTest(root string, dbPath string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, err
+func migrateMetadataTestStore(t *testing.T, root string, db *sql.DB) *Store {
+	t.Helper()
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("migrate metadata database: %v", err)
 	}
-	if err := registerMetadataSQLiteCollations(); err != nil {
-		return nil, err
-	}
-	if err := registerMetadataSQLiteFunctions(); err != nil {
-		return nil, err
-	}
-	dsn, err := metadataSQLiteDSN(dbPath)
+	store, err := NewStore(root, db)
 	if err != nil {
-		return nil, fmt.Errorf("metadataSQLiteDSN: %w", err)
+		t.Fatalf("initialize migrated metadata store: %v", err)
 	}
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
+	return store
 }

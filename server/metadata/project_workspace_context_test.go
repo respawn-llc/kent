@@ -4,13 +4,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/sessioncontract"
 )
 
 func TestReadSessionProjectWorkspaceContextUsesOwningProjectAndBoundedCatalog(t *testing.T) {
 	store, cfg, source := newMetadataTestStore(t)
-	target, err := store.CreateProjectForWorkspace(t.Context(), t.TempDir(), "Target Project")
+	target, err := store.CreateProjectForWorkspaceWithKey(t.Context(), t.TempDir(), "Target Project", "TGT")
 	if err != nil {
 		t.Fatalf("create target Project: %v", err)
 	}

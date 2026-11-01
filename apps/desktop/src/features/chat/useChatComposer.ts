@@ -151,7 +151,8 @@ export function useChatComposer(options: ChatComposerOptions) {
       clearTimeout(timer);
     };
   }, [saveDraft, draft.kind, draftValue]);
-  const canSubmit = submissionEnabled({ interactionRestricted, canPrepare, draft, submission, text });
+  const submissionReady = submissionEnabled({ interactionRestricted, canPrepare, draft, submission });
+  const canSubmit = submissionReady && text.trim().length > 0;
   function submit(
     intent: "send" | "queue",
     source: "editor" | "compact-button" = "editor",
@@ -198,6 +199,7 @@ export function useChatComposer(options: ChatComposerOptions) {
     draft,
     submission,
     canSubmit,
+    submissionReady,
     inputPending,
     outgoing,
     heldReadonly,
@@ -248,15 +250,13 @@ function submissionEnabled(
     canPrepare: boolean;
     draft: DraftState;
     submission: { kind: string };
-    text: string;
   }>,
 ) {
   return (
     !input.interactionRestricted &&
     input.canPrepare &&
     input.draft.kind === "ready" &&
-    input.submission.kind === "ready" &&
-    input.text.trim().length > 0
+    input.submission.kind === "ready"
   );
 }
 

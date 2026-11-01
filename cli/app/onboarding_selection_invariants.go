@@ -138,47 +138,8 @@ func (selections onboardingSelections) invariantViolation() (onboardingInvariant
 			return violation, true
 		}
 	}
-	if violation, ok := importSelectionInvariantViolation("skill_import", selections.skillImport); ok {
-		return violation, true
-	}
-	if violation, ok := importSelectionInvariantViolation("command_import", selections.commandImport); ok {
-		return violation, true
-	}
 	if selections.baselineModelContextWindow != nil && *selections.baselineModelContextWindow <= 0 {
 		return onboardingInvariantViolation{VariantType: "preserved.baseline_model_context_window", VariantTag: fmt.Sprint(*selections.baselineModelContextWindow)}, true
-	}
-	return onboardingInvariantViolation{}, false
-}
-
-func importSelectionInvariantViolation(
-	variantPrefix string,
-	selection onboardingImportSelection,
-) (onboardingInvariantViolation, bool) {
-	if selection.Mode != onboardingImportModeSymlinkSource {
-		return onboardingInvariantViolation{}, false
-	}
-	ref := selection.ChoiceRef
-	if onboardingImportModeFromProto(ref.GetMode()) != onboardingImportModeSymlinkSource {
-		return onboardingInvariantViolation{VariantType: variantPrefix + ".choice_ref.mode", VariantTag: ref.GetMode().String()}, true
-	}
-	if violation, ok := requiredStringReferenceViolation(
-		variantPrefix+".choice_ref.import_provider_id",
-		ref.ImportProviderId,
-	); ok {
-		return violation, true
-	}
-	return requiredStringReferenceViolation(
-		variantPrefix+".choice_ref.source_root_path",
-		ref.SourceRootPath,
-	)
-}
-
-func requiredStringReferenceViolation(variantType string, value *string) (onboardingInvariantViolation, bool) {
-	if value == nil {
-		return onboardingInvariantViolation{VariantType: variantType, VariantTag: "nil"}, true
-	}
-	if strings.TrimSpace(*value) == "" {
-		return onboardingInvariantViolation{VariantType: variantType, VariantTag: *value}, true
 	}
 	return onboardingInvariantViolation{}, false
 }

@@ -16,12 +16,15 @@ import (
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/driver"
 	"core/internal/testharness/testsetup"
-	"core/server/startup"
+	"core/server/onboardingservice"
+	"core/server/transport"
+	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
+	"core/shared/protocol"
 	"core/shared/rpcwire"
 	"core/shared/theme"
 
@@ -211,34 +214,43 @@ type gatedOnboardingServer struct {
 	server *httptest.Server
 }
 
+type onboardingLifecycleGateway struct {
+	transport.GatewayDependencies
+	finalizer apicontract.OnboardingFinalizeService
+}
+
+func (g onboardingLifecycleGateway) OnboardingFinalizeClient() apicontract.OnboardingFinalizeService {
+	return g.finalizer
+}
+
 func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	t.Helper()
-	_, workspace := newRegisteredAppWorkspaceWithoutSettings(t)
-	ctx, cancel := context.WithCancel(t.Context())
-	server, err := startup.StartServeServer(ctx, startup.Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	_, workspace := newUnconfiguredAppWorkspace(t)
+	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
+	cfg.Settings = testsetup.ProviderSettings(cfg.Settings)
+	server, authSupport := newMemoryAppTestServer(t, cfg, testsetup.OpenStore(t, cfg.PersistenceRoot), config.LoadOptions{})
+	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
+		Baseline:        config.DefaultOnboardingSettings(),
+		BaselineSources: cfg.Source.Sources,
+		PersistenceRoot: cfg.PersistenceRoot,
+		WorkspaceRoot:   workspace,
+		HomeDir:         os.Getenv("HOME"),
+		SettingsPath:    cfg.Source.File(config.FileGlobal).Path,
+		Connections:     authSupport.Connections,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := server.Config()
-	testsetup.ReleaseLoopbackPort(cfg.Settings.ServerHost, cfg.Settings.ServerPort)
-	served := make(chan error, 1)
-	go func() { served <- server.Serve(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-served; err != nil && !errors.Is(err, context.Canceled) {
-			t.Error(err)
-		}
-	})
-	endpoint := config.ServerRPCURL(cfg)
-	if !testsetup.Until(time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
-		remote, err := client.DialRemoteURL(ctx, endpoint)
-		if err != nil {
-			return false
-		}
-		return remote.Close() == nil
-	}) {
-		t.Fatal("onboarding server did not start")
+	gateway, err := transport.NewGateway(onboardingLifecycleGateway{
+		GatewayDependencies: server.Core,
+		finalizer:           finalizer,
+	}, protocol.ServerIdentity{ProtocolVersion: protocol.Version, ServerID: uuid.NewString(), PID: os.Getpid()})
+	if err != nil {
+		t.Fatal(err)
 	}
+	upstream := httptest.NewServer(gateway.Handler())
+	t.Cleanup(upstream.Close)
+	endpoint := "ws" + upstream.URL[len("http"):]
 	gate := newOnboardingRPCGate(endpoint)
 	proxy := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gate.Handler))
 	t.Cleanup(proxy.Close)

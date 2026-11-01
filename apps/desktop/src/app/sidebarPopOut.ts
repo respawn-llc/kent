@@ -20,7 +20,6 @@ export function sidebarPopOutOptions(
       initialWidth: 560,
       label: `task-detail-${destination.taskID}`,
       maximizable: true,
-      presentation: "content",
       params: { taskID: destination.taskID },
       resizable: true,
       route: taskDetailNativeDialogPath,

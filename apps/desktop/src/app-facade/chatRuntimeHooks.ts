@@ -1,12 +1,21 @@
-import { useContext, useSyncExternalStore } from "react";
+import { useContext } from "react";
+import { useAtomValue, useAtomSet } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
+import * as Effect from "effect/Effect";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { skipToken, useQuery } from "@tanstack/react-query";
 import type { ChatMainView } from "@/api";
 import { sessionDisplayTitle } from "@/api";
 
 import { ChatRuntimeContext } from "./chatRuntimeContext";
 import type { ChatRuntimeOwner, ChatRuntimeOwnerSnapshot } from "./chatRuntime";
+import type { ChatTranscriptHostInput } from "./chatTranscriptHost";
+
+const absentSnapshot = Atom.make<ChatRuntimeOwnerSnapshot | null>(null);
+const absentMetadata = Atom.make<Atom.Type<ChatRuntimeOwner["metadata"]> | null>(null);
+const absentAction = Atom.fn(() => Effect.void);
+const absentDispatch = Atom.fn<ChatTranscriptHostInput>()(() => Effect.void);
+const absentJump = Atom.fn<{ onReady(): void; onError(error: Error): void }>()(() => Effect.void);
 
 export function useChatRuntimeOwner(): ChatRuntimeOwner {
   const owner = useOptionalChatRuntimeOwner();
@@ -26,23 +35,22 @@ export function useChatRuntimeSnapshot(): ChatRuntimeOwnerSnapshot {
 
 export function useOptionalChatRuntimeSnapshot(): ChatRuntimeOwnerSnapshot | null {
   const owner = useOptionalChatRuntimeOwner();
-  return useSyncExternalStore(
-    (listener) => owner?.subscribe(listener) ?? (() => undefined),
-    () => owner?.snapshot ?? null,
-    () => owner?.snapshot ?? null,
-  );
+  return useAtomValue(owner?.snapshot ?? absentSnapshot);
 }
 
 export function useChatMainViewState() {
   const owner = useChatRuntimeOwner();
-  const query = useQuery(owner.mainViewOptions());
+  const query = useAtomValue(owner.metadata);
+  const retry = useAtomSet(owner.forceMainViewRead);
   return {
     data: query.data,
     error: query.error,
     status: query.status,
     fetchStatus: query.fetchStatus,
     isFetching: query.isFetching,
-    retry: async () => owner.retryMainView(),
+    retry: () => {
+      retry(undefined);
+    },
   } as const;
 }
 
@@ -70,33 +78,46 @@ function presentationTitle(view: ChatMainView | undefined, t: TFunction): string
 export function useChatRuntimePresentation() {
   const { t } = useTranslation();
   const owner = useContext(ChatRuntimeContext);
-  const snapshot = useSyncExternalStore(
-    (listener) => owner?.subscribe(listener) ?? (() => undefined),
-    () => owner?.snapshot ?? null,
-    () => owner?.snapshot ?? null,
-  );
-  const query = useQuery<ChatMainView>(
-    owner?.mainViewOptions() ?? {
-      queryKey: ["chat-no-session"],
-      queryFn: skipToken,
-    },
-  );
+  const snapshot = useAtomValue(owner?.snapshot ?? absentSnapshot);
+  const query = useAtomValue(owner?.metadata ?? absentMetadata);
+  const retry = useAtomSet(owner?.forceMainViewRead ?? absentAction);
+  const data = query === null ? undefined : query.data;
   return {
     activeProcessCount: processCount(snapshot),
-    activity: query.data?.activity ?? null,
-    sessionName: presentationTitle(query.data, t),
+    activity: data?.activity ?? null,
+    sessionName: presentationTitle(data, t),
+    ...projectionPresentation(snapshot),
+    mainView: mainViewPresentation(query, () => {
+      retry(undefined);
+    }),
+  };
+}
+
+function mainViewPresentation(query: Atom.Type<ChatRuntimeOwner["metadata"]> | null, retry: () => void) {
+  return query === null
+    ? { kind: "absent" as const }
+    : {
+        kind: "session" as const,
+        data: query.data,
+        status: query.status,
+        error: query.error,
+        fetchStatus: query.fetchStatus,
+        retry,
+      };
+}
+
+function projectionPresentation(snapshot: ChatRuntimeOwnerSnapshot | null) {
+  return {
     goal: snapshot?.goal.kind === "observed" ? snapshot.goal.value : null,
     observationError: snapshot?.observation.kind === "error" ? snapshot.observation.error : null,
-    mainView:
-      owner === null
-        ? { kind: "absent" as const }
-        : {
-            kind: "session" as const,
-            data: query.data,
-            status: query.status,
-            error: query.error,
-            fetchStatus: query.fetchStatus,
-            retry: async () => owner.retryMainView(),
-          },
+  };
+}
+
+export function useChatTranscriptActions() {
+  const owner = useOptionalChatRuntimeOwner();
+  return {
+    dispatch: useAtomSet(owner?.transcript.dispatch ?? absentDispatch),
+    jump: useAtomSet(owner?.transcript.jump ?? absentJump),
+    retry: useAtomSet(owner?.retryTranscriptObservation ?? absentAction),
   };
 }

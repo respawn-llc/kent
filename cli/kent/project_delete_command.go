@@ -10,7 +10,6 @@ import (
 
 	"core/shared/client"
 	"core/shared/config"
-	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
@@ -126,13 +125,7 @@ func runProjectDeleteUseCase(
 		return projectDeleteFailure(projectID, "request_failed", errors.New("project deletion returned a mismatched project identity"))
 	}
 	if response.Deleted {
-		if len(response.Blockers) != 0 {
-			return projectDeleteFailure(projectID, "request_failed", errors.New("project deletion returned blockers with deleted=true"))
-		}
 		return projectDeleteOutcome{Result: &projectDeleteResult{ProjectID: projectID}}
-	}
-	if len(response.Blockers) == 0 {
-		return projectDeleteFailure(projectID, "request_failed", errors.New("project deletion returned deleted=false without blockers"))
 	}
 	blockers, err := projectDeleteBlockersForCLI(response.Blockers)
 	if err != nil {
@@ -179,10 +172,8 @@ func projectDeleteHasUnfinishedWork(ctx context.Context, operations projectDelet
 		return false, nil
 	}
 	task := response.Tasks[0]
-	expectedNativeState, err := protoapi.TaskNativeState(task.Status.Kind)
-	if err != nil || task.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE ||
-		task.Status.NativeState == taskpb.TaskNativeState_TASK_NATIVE_STATE_TERMINAL ||
-		task.Status.NativeState != expectedNativeState {
+	if task.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_DONE ||
+		task.Status.NativeState == taskpb.TaskNativeState_TASK_NATIVE_STATE_TERMINAL {
 		return false, errors.New("project deletion task preflight returned an invalid task status")
 	}
 	return true, nil
@@ -223,9 +214,6 @@ func projectDeleteBlockersForCLI(blockers []*projectpb.ProjectDeleteBlocker) ([]
 		message, err := projectDeleteBlockerMessage(blocker.Code)
 		if err != nil {
 			return nil, err
-		}
-		if blocker.Count <= 0 {
-			return nil, errors.New("project deletion returned a non-positive blocker count")
 		}
 		count := int(blocker.Count)
 		output = append(output, projectDeleteBlocker{
@@ -274,11 +262,7 @@ func writeProjectDeleteOutcome(stdout io.Writer, stderr io.Writer, outcome proje
 			return 1
 		}
 		for _, blocker := range outcome.Error.Blockers {
-			count, err := projectDeleteBlockerCount(blocker.Count)
-			if err != nil {
-				fmt.Fprintln(stderr, err)
-				return 1
-			}
+			count := projectDeleteBlockerCount(blocker.Count)
 			writeWorkflowBlockerLine(stderr, blocker.Code, blocker.Message, count)
 		}
 		fmt.Fprintln(stderr, outcome.Error.Message)
@@ -304,15 +288,12 @@ func writeProjectDeleteOutcome(stdout io.Writer, stderr io.Writer, outcome proje
 	return 0
 }
 
-func projectDeleteBlockerCount(count *int) (*int64, error) {
+func projectDeleteBlockerCount(count *int) *int64 {
 	if count == nil {
-		return nil, nil
-	}
-	if *count <= 0 {
-		return nil, errors.New("project deletion blocker count must be positive when present")
+		return nil
 	}
 	value := int64(*count)
-	return &value, nil
+	return &value
 }
 
 func (outcome projectDeleteOutcome) validate() error {
@@ -336,11 +317,8 @@ func (outcome projectDeleteOutcome) validate() error {
 			return errors.New("project deletion non-blocked outcome must omit blockers")
 		}
 		for _, blocker := range outcome.Error.Blockers {
-			if strings.TrimSpace(blocker.Code) == "" || strings.TrimSpace(blocker.Message) == "" {
-				return errors.New("project deletion blocker requires code and message")
-			}
-			if _, err := projectDeleteBlockerCount(blocker.Count); err != nil {
-				return err
+			if strings.TrimSpace(blocker.Message) == "" {
+				return errors.New("project deletion blocker requires a message")
 			}
 		}
 	}

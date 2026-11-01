@@ -106,7 +106,6 @@ export function useWorkflowScriptPathValidationQuery(workflowID: string, nodeID:
         scriptPath,
         workflowID,
       }),
-    enabled: workflowID.length > 0 && nodeID.length > 0,
     refetchInterval: scriptPathValidationRefreshMs,
     staleTime: scriptPathValidationStaleMs,
   });

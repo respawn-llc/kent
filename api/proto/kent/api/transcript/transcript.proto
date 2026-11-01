@@ -49,6 +49,12 @@ enum AssistantPhase {
   ASSISTANT_PHASE_FINAL = 2;
 }
 
+enum AssistantSourceState {
+  ASSISTANT_SOURCE_STATE_UNSPECIFIED = 0;
+  ASSISTANT_SOURCE_STATE_STREAMING = 1;
+  ASSISTANT_SOURCE_STATE_COMPLETE = 2;
+}
+
 enum AssistantAbortReason {
   ASSISTANT_ABORT_REASON_UNSPECIFIED = 0;
   ASSISTANT_ABORT_REASON_INTERRUPTED = 1;
@@ -249,6 +255,7 @@ message UserRow {
 }
 
 message AssistantRow {
+  optional AssistantSourceState source_state = 7 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -589,6 +596,7 @@ message CommittedRow {
     NoticeRow notice = 8;
     ReviewerFeedbackRow reviewer_feedback = 9;
     ReviewerErrorRow reviewer_error = 10;
+    ToolStart tool_call = 11;
   }
   option (buf.validate.message).cel = {
     id: "kent.transcript.reviewer_error_visibility"
@@ -659,6 +667,8 @@ message SessionStatus {
 }
 
 message AssistantStream {
+  AssistantSourceState source_state = 6 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional int64 output_index = 5 [(buf.validate.field).int64.gte = 0];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -675,6 +685,7 @@ message AssistantStream {
 }
 
 message AssistantDelta {
+  optional int64 output_index = 5 [(buf.validate.field).int64.gte = 0];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -691,6 +702,7 @@ message AssistantDelta {
 }
 
 message AssistantStreamAbort {
+  AssistantSourceState source_state = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -749,6 +761,7 @@ message ReasoningTraceIdentity {
 }
 
 message ReasoningTraceUpdate {
+  optional int64 output_index = 5 [(buf.validate.field).int64.gte = 0];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -766,6 +779,7 @@ message ReasoningTraceReset {
 }
 
 message ToolStart {
+  optional int64 output_index = 5 [(buf.validate.field).int64.gte = 0];
   string step_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
@@ -1187,7 +1201,7 @@ message Hydration {
   SessionStatus session_status = 2 [(buf.validate.field).required = true];
   kent.api.runtime.ReadModelUpdate runtime_read_model_update = 3 [(buf.validate.field).required = true];
   TailSegment tail_segment = 4 [(buf.validate.field).required = true];
-  optional AssistantStream active_assistant = 5;
+  repeated AssistantStream active_assistants = 5 [(buf.validate.field).repeated.items.required = true];
   optional ThinkingStatusUpdate active_thinking_status = 6;
   repeated ReasoningTraceUpdate active_reasoning_traces = 7 [(buf.validate.field).repeated.items.required = true];
   optional StepState active_step = 8;
@@ -1229,7 +1243,7 @@ message Hydration {
     message: "step-scoped hydrated facts must match the canonical runtime active step"
     expression:
       "(!has(this.active_step) || (has(this.runtime_read_model_update.activity.active_step) && this.active_step.step_id == this.runtime_read_model_update.activity.active_step.step_id && this.active_step.active_kind == this.runtime_read_model_update.activity.active_step.active_kind)) && "
-      "(!has(this.active_assistant) || (has(this.runtime_read_model_update.activity.active_step) && this.active_assistant.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
+      "this.active_assistants.all(assistant, has(this.runtime_read_model_update.activity.active_step) && assistant.step_id == this.runtime_read_model_update.activity.active_step.step_id) && "
       "(!has(this.active_thinking_status) || (has(this.runtime_read_model_update.activity.active_step) && this.active_thinking_status.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
       "this.active_reasoning_traces.all(trace, has(this.runtime_read_model_update.activity.active_step) && trace.step_id == this.runtime_read_model_update.activity.active_step.step_id) && "
       "(!has(this.active_compaction) || (has(this.runtime_read_model_update.activity.active_step) && this.active_compaction.step_id == this.runtime_read_model_update.activity.active_step.step_id)) && "
@@ -1274,6 +1288,7 @@ message Event {
     SessionSettingFeedback session_setting_feedback = 28;
     HumanInputInterrupted human_input_interrupted = 29;
     ConnectionReplacement connection_replaced = 30;
+    AssistantStream assistant_source_complete = 31;
   }
 }
 

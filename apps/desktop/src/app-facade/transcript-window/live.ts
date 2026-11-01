@@ -14,9 +14,6 @@ type Reasoning = Hydration["ActiveReasoningTraces"][number];
 function reasoningKey(stepID: string, identity: Reasoning["Identity"]): string {
   const provider = identity.Provider;
   const kent = identity.Kent;
-  if ((provider != null) === (kent != null)) {
-    throw new ContractError("Reasoning correlation must identify exactly one provider or Kent trace.");
-  }
   return provider != null
     ? JSON.stringify(["reasoning", stepID, "provider", provider.ItemID, provider.SummaryIndex])
     : JSON.stringify(["reasoning", stepID, "kent", kent]);
@@ -37,6 +34,8 @@ export function committedCorrelation(row: CommittedRow): string | null {
       return item.value.StreamID != null ? assistantKey(item.value.StreamID) : null;
     case "tool":
       return item.value.ToolCallID === null ? null : toolKey(item.value.ToolCallID);
+    case "tool_call":
+      return toolKey(item.value.Call.ToolCallID);
     case "reasoning_trace":
       return item.value.ProvisionalIdentity != null
         ? reasoningKey(item.value.StepID, item.value.ProvisionalIdentity)
@@ -49,7 +48,7 @@ export function committedCorrelation(row: CommittedRow): string | null {
   }
 }
 
-function assistant(value: NonNullable<Hydration["ActiveAssistant"]>): TranscriptProvisionalItem {
+function assistant(value: Hydration["ActiveAssistants"][number]): TranscriptProvisionalItem {
   return { kind: "assistant", state: "live", key: assistantKey(value.StreamID), value };
 }
 
@@ -64,13 +63,13 @@ function reasoning(value: Reasoning): TranscriptProvisionalItem {
 export function hydratedLive(hydration: Hydration): readonly TranscriptProvisionalItem[] {
   const items = [
     ...hydration.ActiveReasoningTraces.map(reasoning),
-    ...(hydration.ActiveAssistant === null ? [] : [assistant(hydration.ActiveAssistant)]),
+    ...hydration.ActiveAssistants.map(assistant),
     ...hydration.InFlightTools.map(tool),
   ];
   if (new Set(items.map((item) => item.key)).size !== items.length) {
     throw new ContractError("Hydration contains duplicate live correlations.");
   }
-  return items;
+  return orderProviderItems(items);
 }
 
 export function reduceLive(
@@ -81,6 +80,9 @@ export function reduceLive(
   switch (fact.kind) {
     case "assistant_delta":
       next = appendAssistantDelta(items, fact.payload);
+      break;
+    case "assistant_source_complete":
+      next = assistant(fact.payload);
       break;
     case "tool_start":
       next = tool(fact.payload);
@@ -113,7 +115,10 @@ function appendAssistantDelta(
   if (previous !== undefined && (previous.kind !== "assistant" || previous.value.StepID !== facts.StepID)) {
     throw new ContractError("Assistant delta does not match the live stream facts.");
   }
-  return assistant({ ...facts, Text: (previous?.value.Text ?? "") + Delta });
+  if (previous?.value.SourceState === "complete") {
+    throw new ContractError("Completed assistant source received more deltas.");
+  }
+  return assistant({ ...facts, Text: (previous?.value.Text ?? "") + Delta, SourceState: "streaming" });
 }
 
 function updateLiveItem(
@@ -121,11 +126,23 @@ function updateLiveItem(
   next: TranscriptProvisionalItem,
 ): readonly TranscriptProvisionalItem[] {
   const previous = items.find((item) => item.key === next.key);
-  if (previous === undefined) return [...items, next];
+  if (previous === undefined) return orderProviderItems([...items, next]);
   if (previous.value.StepID !== next.value.StepID) {
     throw new ContractError("Live correlation changed its owning Step.");
   }
   return items.map((item) => (item.key === next.key ? next : item));
+}
+
+function orderProviderItems(
+  items: readonly TranscriptProvisionalItem[],
+): readonly TranscriptProvisionalItem[] {
+  return [...items].sort((a, b) => {
+    if (a.value.StepID !== b.value.StepID) return 0;
+    const left = a.value.OutputIndex;
+    const right = b.value.OutputIndex;
+    if (left === undefined) return right === undefined ? 0 : -1;
+    return right === undefined ? 1 : left - right;
+  });
 }
 
 /** Presentation identity is retained only for resident rows and current provisional correlations. */
@@ -151,17 +168,28 @@ export function present(
   const liveKeys = new Set(provisional.map((item) => item.key));
   const promotions = new Map<string, string>();
   const committedCorrelations = new Set<string>();
+  const represented = new Set<string>();
   for (const row of [...rows, ...pool, ...admitted]) {
     const key = committedCorrelation(row);
     if (key === null) continue;
-    committedCorrelations.add(key);
+    represented.add(key);
+    if (row.Kind !== "tool_call") committedCorrelations.add(key);
     if (liveKeys.has(key)) promotions.set(locatorKey(row), key);
   }
   const remaining = provisional.filter((item) => !committedCorrelations.has(item.key));
+  const activities = new Map(
+    remaining.flatMap((item) => (item.kind === "tool" ? [[item.key, item.value] as const] : [])),
+  );
   const items: TranscriptRenderItem[] = rows
-    .map((row) => committedItem(row, priorKeys.get(locatorKey(row)) ?? promotions.get(locatorKey(row))))
+    .map((row) =>
+      committedItem(
+        row,
+        priorKeys.get(locatorKey(row)) ?? promotions.get(locatorKey(row)),
+        row.ToolCall === null ? null : (activities.get(toolKey(row.ToolCall.ToolCallID)) ?? null),
+      ),
+    )
     .filter((item) => item.row.Visibility !== "hidden");
-  if (showLive) items.push(...remaining);
+  if (showLive) items.push(...remaining.filter((item) => !represented.has(item.key)));
   if (new Set(items.map((item) => item.key)).size !== items.length) {
     throw new ContractError("Transcript rows compete for one live presentation identity.");
   }

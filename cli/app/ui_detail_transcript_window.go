@@ -340,7 +340,7 @@ func cloneTranscriptPageRequest(request *transcriptpb.PageRequest) *transcriptpb
 func transcriptPageSessionChanged(currentSessionID, nextSessionID string) bool {
 	trimmedCurrent := strings.TrimSpace(currentSessionID)
 	trimmedNext := strings.TrimSpace(nextSessionID)
-	if trimmedCurrent == "" || trimmedNext == "" {
+	if trimmedCurrent == "" {
 		return false
 	}
 	return trimmedCurrent != trimmedNext

@@ -1,33 +1,90 @@
-import { RegistryProvider, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryProvider, useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { expect, it, vi } from "bun:test";
-import { ChatRuntimeOwner } from "@/app-facade";
+import { createChatRuntimeModel, type ChatRuntimeOwnerSnapshot } from "@/app-facade";
 import { runtimeApi, runtimeHost, target, deferred, hydration } from "@/test-support/chat-runtime";
 import { question, approval, failedBatchWithFreeform } from "@/test-support/chat-prompts";
 import type { PromptAnswerBatchInput, PromptAnswerBatchResponse } from "@/api";
 import { createPromptPickerViewModel } from "./PromptPickerViewModel";
 
-function mountPicker(options: Parameters<typeof createPromptPickerViewModel>[0]) {
-  const model = createPromptPickerViewModel(options);
-  return renderHook(
-    () => ({
-      state: useAtomValue(model.state),
-      request: useAtomValue(model.request),
-      dispatch: useAtomSet(model.dispatch),
-    }),
+function mountPicker(
+  options: Omit<Parameters<typeof createPromptPickerViewModel>[0], "owner"> & {
+    owner: ReturnType<typeof setupOwner>["owner"];
+  },
+) {
+  const model = createPromptPickerViewModel({ ...options, owner: options.owner.model });
+  const view = renderHook(
+    () => {
+      useAtomMount(options.owner.model.mount);
+      return {
+        state: useAtomValue(model.state),
+        request: useAtomValue(model.request),
+        dispatch: useAtomSet(model.dispatch),
+        runtime: useAtomValue(options.owner.model.snapshot),
+        replace: useAtomSet(options.owner.model.replacePendingPrompts),
+        resolve: useAtomSet(options.owner.model.resolvePendingPrompts),
+      };
+    },
     {
       wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider>,
     },
   );
+  options.owner.read = () => view.result.current.runtime;
+  options.owner.replace = (prompts) => {
+    act(() => {
+      view.result.current.replace(prompts);
+    });
+  };
+  options.owner.resolve = (ids) => {
+    act(() => {
+      view.result.current.resolve(ids);
+    });
+  };
+  options.owner.close = () => {
+    view.unmount();
+  };
+  options.owner.replace(options.owner.initialPrompts);
+  return view;
 }
 
 function setupOwner() {
   const fixture = runtimeApi();
   const client = new QueryClient();
-  const owner = new ChatRuntimeOwner(fixture.api, target, client, runtimeHost());
-  owner.start();
+  const owner: {
+    model: ReturnType<typeof createChatRuntimeModel>;
+    initialPrompts: ChatRuntimeOwnerSnapshot["pendingPrompts"];
+    read: (() => ChatRuntimeOwnerSnapshot) | null;
+    replace: ((prompts: ChatRuntimeOwnerSnapshot["pendingPrompts"]) => void) | null;
+    resolve: ((ids: ReadonlySet<string>) => void) | null;
+    close: (() => void) | null;
+    readonly snapshot: ChatRuntimeOwnerSnapshot;
+    replacePendingPrompts(prompts: ChatRuntimeOwnerSnapshot["pendingPrompts"]): void;
+    resolvePendingPrompts(ids: ReadonlySet<string>): void;
+    dispose(): void;
+  } = {
+    model: createChatRuntimeModel(fixture.api, target, client, runtimeHost()),
+    initialPrompts: [],
+    read: null,
+    replace: null,
+    resolve: null,
+    close: null,
+    get snapshot(): ChatRuntimeOwnerSnapshot {
+      if (this.read === null) throw new Error("Picker is not mounted");
+      return this.read();
+    },
+    replacePendingPrompts(prompts: ChatRuntimeOwnerSnapshot["pendingPrompts"]) {
+      this.initialPrompts = prompts;
+      this.replace?.(prompts);
+    },
+    resolvePendingPrompts(ids: ReadonlySet<string>) {
+      this.resolve?.(ids);
+    },
+    dispose() {
+      this.close?.();
+    },
+  };
   return { fixture, client, owner };
 }
 
@@ -39,12 +96,12 @@ it("opens a question arriving through the live transcript without navigation", a
     onError: vi.fn(),
     api: { answerPromptBatch: vi.fn() },
   });
-  act(() => {
+  await act(async () => {
     fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
   });
   expect(view.result.current.state.current).toBeNull();
   const prompt = question();
-  act(() => {
+  await act(async () => {
     fixture.handlers[0]?.onEvent({
       sequence: 2,
       kind: "prompt",
@@ -53,7 +110,7 @@ it("opens a question arriving through the live transcript without navigation", a
   });
   expect(view.result.current.state.current).toBe(prompt.toolCallID);
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("retains drafts on observation loss and discards them on departure without replaying an answer", async () => {
@@ -77,7 +134,7 @@ it("retains drafts on observation loss and discards them on departure without re
     view.result.current.dispatch({ action: { kind: "confirm" } });
   });
   expect(send).toHaveBeenCalledTimes(1);
-  act(() => {
+  await act(async () => {
     fixture.handlers[0]?.onTransportLoss?.();
   });
   expect(view.result.current.state.drafts.size).toBe(1);
@@ -107,7 +164,7 @@ it("retains drafts on observation loss and discards them on departure without re
   expect(owner.snapshot.pendingPrompts).toEqual([question("next")]);
   expect(send).toHaveBeenCalledTimes(1);
   utils.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("retains declines and pending facts after delivery failure, then explicitly resends all-declined entries", async () => {
@@ -143,7 +200,7 @@ it("retains declines and pending facts after delivery failure, then explicitly r
   });
   expect(send).toHaveBeenCalledTimes(2);
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("removes externally resolved drafts and ignores an earlier successful response when the next Step is visible", async () => {
@@ -151,14 +208,6 @@ it("removes externally resolved drafts and ignores an earlier successful respons
   const first = question();
   const other = question("other");
   const later = question("later", { stepID: "423e4567-e89b-42d3-a456-426614174000" });
-  fixture.handlers[0]?.onEvent({
-    sequence: 1,
-    kind: "hydration",
-    payload: {
-      ...hydration(),
-      PendingPrompts: [first, other].map((prompt) => ({ state: "pending", prompt })),
-    },
-  });
   const response = deferred<PromptAnswerBatchResponse>();
   const send = vi.fn(async () => response.promise);
   const view = mountPicker({
@@ -167,6 +216,16 @@ it("removes externally resolved drafts and ignores an earlier successful respons
     onError: vi.fn(),
     api: { answerPromptBatch: send },
   });
+  await act(async () =>
+    fixture.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        PendingPrompts: [first, other].map((prompt) => ({ state: "pending", prompt })),
+      },
+    }),
+  );
   await act(async () => {
     view.result.current.dispatch({
       action: { kind: "activate", selection: { kind: "suggested", number: 1 } },
@@ -206,18 +265,13 @@ it("removes externally resolved drafts and ignores an earlier successful respons
   expect(owner.snapshot.pendingPrompts).toEqual([later]);
   expect(view.result.current.state.current).toBe(later.toolCallID);
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("keeps later Step authority when an earlier request fails", async () => {
   const { owner, client, fixture } = setupOwner();
   const first = question();
   const later = question("later", { stepID: "423e4567-e89b-42d3-a456-426614174000" });
-  fixture.handlers[0]?.onEvent({
-    sequence: 1,
-    kind: "hydration",
-    payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt: first }] },
-  });
   const response = deferred<PromptAnswerBatchResponse>();
   const send = vi.fn(async () => response.promise);
   const view = mountPicker({
@@ -226,6 +280,13 @@ it("keeps later Step authority when an earlier request fails", async () => {
     onError: vi.fn(),
     api: { answerPromptBatch: send },
   });
+  await act(async () =>
+    fixture.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt: first }] },
+    }),
+  );
   await act(async () => {
     view.result.current.dispatch({ action: { kind: "decline" } });
   });
@@ -252,7 +313,7 @@ it("keeps later Step authority when an earlier request fails", async () => {
   expect(view.result.current.state.current).toBe(later.toolCallID);
   expect(send).toHaveBeenCalledTimes(1);
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("uses received partial acceptance after failed delivery without a repair read and preserves drafts", async () => {
@@ -311,7 +372,7 @@ it("uses received partial acceptance after failed delivery without a repair read
     },
   ]);
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("sends one immutable batch only after every pending member is confirmed and removes shuffled outcomes", async () => {
@@ -379,7 +440,7 @@ it("sends one immutable batch only after every pending member is confirmed and r
   expect(view.result.current.request.isPending).toBe(false);
   expect(view.result.current.state.current).toBeNull();
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
 });
 
 it("reports a failed answer after navigation without restoring a disposed owner's prompts or replaying", async () => {
@@ -399,11 +460,10 @@ it("reports a failed answer after navigation without restoring a disposed owner'
   });
   expect(send).toHaveBeenCalledTimes(1);
   view.unmount();
-  await owner.dispose();
+  owner.dispose();
   response.reject(new Error("Send failed"));
   await waitFor(() => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
   expect(send).toHaveBeenCalledTimes(1);
-  expect(owner.snapshot.disposed).toBe(true);
 });

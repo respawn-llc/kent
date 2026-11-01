@@ -210,9 +210,6 @@ func metadataSQLiteReadOnlyDSN(databasePath string) (string, error) {
 }
 
 func runMigrations(db *sql.DB) error {
-	if err := registerMetadataSQLiteFunctions(); err != nil {
-		return err
-	}
 	provider, err := newMetadataMigrationProvider(db)
 	if err != nil {
 		return err

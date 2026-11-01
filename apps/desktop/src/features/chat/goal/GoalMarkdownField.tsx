@@ -1,14 +1,75 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useAnimate } from "motion/react";
 
 import { useTextFieldSubmitShortcutPolicy } from "@/app-facade";
-import { CollapsibleMarkdownField, motionDurationFromCSSVar, type MarkdownFieldSubmitIntent } from "@/ui";
+import { motionDurationFromCSSVar, Spinner, fieldActions } from "@/ui";
+import { CollapsibleMarkdownField, type MarkdownFieldSubmitIntent } from "@/ui/markdown";
+import { useSpeechField } from "@/shared/speech-input";
+import { GoalSaveButton } from "./GoalSidebarParts";
 
 const editorHeight = 220;
 
+export function NewChatGoalField({
+  draft,
+  editing,
+  setDraft,
+  setEditing,
+  canSave,
+  save,
+  pending,
+  label,
+}: Readonly<{
+  draft: string;
+  editing: boolean;
+  setDraft(text: string): void;
+  setEditing(value: boolean): void;
+  canSave: boolean;
+  save(): void;
+  pending: boolean;
+  label: string;
+}>) {
+  const speech = useSpeechField({ value: draft, onChange: setDraft });
+  const submit = () => {
+    if (!speech.busy) save();
+  };
+  return (
+    <div className="flex min-h-0 flex-col gap-[var(--space-3)]">
+      <div className="min-h-0 shrink-0">
+        <GoalMarkdownField
+          editorRef={speech.editorRef}
+          editing={editing}
+          floatingAction={fieldActions(
+            speech.control,
+            pending ? (
+              <Spinner size="sm" testID="goal-mutation-pending" />
+            ) : draft.trim().length === 0 ? undefined : (
+              <GoalSaveButton
+                disabled={!canSave || speech.busy}
+                label={speech.busy ? speech.busyReason : label}
+                onClick={submit}
+                pending={pending}
+              />
+            ),
+          )}
+          expanded
+          onChange={setDraft}
+          onEdit={() => {
+            setEditing(true);
+          }}
+          onEditingChange={setEditing}
+          onExpand={() => undefined}
+          submitIntent={{ available: canSave && !speech.busy, onSubmitIntent: submit }}
+          value={draft}
+        />
+      </div>
+    </div>
+  );
+}
+
 export type GoalMarkdownFieldProps = Readonly<{
   editing: boolean;
+  editorRef?: RefObject<HTMLTextAreaElement | null>;
   expanded: boolean;
   floatingAction: Awaited<ReactNode> | undefined;
   onChange: (value: string) => void;
@@ -21,6 +82,7 @@ export type GoalMarkdownFieldProps = Readonly<{
 
 export function GoalMarkdownField({
   editing,
+  editorRef,
   expanded,
   floatingAction,
   onChange,
@@ -50,6 +112,7 @@ export function GoalMarkdownField({
       style={{ minHeight: editorHeight, height: editing ? editorHeight : undefined }}
     >
       <CollapsibleMarkdownField
+        editorRef={editorRef}
         collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}
         disabled={false}
         editorMinHeight={editorHeight}

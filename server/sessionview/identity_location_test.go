@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/runtimeids"

@@ -30,12 +30,12 @@ func TestRuntimeMainViewRefreshCoalescesAndDrainsAfterCompletion(t *testing.T) {
 				responses: []*sessionpb.MainViewSuccess{{MainView: initial}, {MainView: latest}},
 				errs:      []error{tc.err},
 			}
-			client := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+			client := newTestSessionRuntimeClient(reads)
 			client.storeMainView(initial)
 			m := newProjectedTestUIModel(client)
-			first := m.startRuntimeMainViewRefresh(nil)
+			first := m.startRuntimeMainViewRefresh()
 			for range 3 {
-				if cmd := m.startRuntimeMainViewRefresh(nil); cmd != nil {
+				if cmd := m.startRuntimeMainViewRefresh(); cmd != nil {
 					t.Fatal("refresh started another read before the current completion")
 				}
 			}
@@ -69,65 +69,20 @@ func TestRuntimeMainViewRefreshCoalescesAndDrainsAfterCompletion(t *testing.T) {
 	}
 }
 
-func TestInterruptRefreshRestoresOnlyCapturedSubmissionAfterCoalescing(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		queued bool
-		newer  bool
-	}{
-		{name: "immediate"},
-		{name: "coalesced", queued: true},
-		{name: "newer submission", queued: true, newer: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			view := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
-			m := newProjectedClosedUIModel(&runtimeControlFakeClient{mainView: view})
-			m.sessionID = view.Session.SessionId
-			m.activeSubmit = activeSubmitState{token: 1, text: "interrupted"}
-			token := m.activeSubmit.token
-			if tc.queued {
-				inFlight := m.startRuntimeMainViewRefresh(nil)
-				if cmd := m.startRuntimeMainViewRefresh(&token); cmd != nil {
-					t.Fatal("interrupt recovery started a concurrent read")
-				}
-				m.startRuntimeMainViewRefresh(nil)
-				next := m.handleRuntimeMainViewRefreshed(inFlight().(runtimeMainViewRefreshedMsg))
-				if m.activeSubmit.token != 1 {
-					t.Fatal("earlier read restored the interrupted submission")
-				}
-				if tc.newer {
-					m.activeSubmit = activeSubmitState{token: 2, text: "new"}
-				}
-				m.handleRuntimeMainViewRefreshed(next().(runtimeMainViewRefreshedMsg))
-			} else {
-				cmd := m.startRuntimeMainViewRefresh(&token)
-				m.handleRuntimeMainViewRefreshed(cmd().(runtimeMainViewRefreshedMsg))
-			}
-			if tc.newer {
-				if m.activeSubmit.token != 2 {
-					t.Fatal("interrupt recovery cleared the newer submission")
-				}
-			} else if m.hasLocalDispatchPending() {
-				t.Fatal("idle refresh left the interrupted submission pending")
-			}
-		})
-	}
-}
-
 func TestRuntimeMainViewRefreshIgnoresObsoleteCompletion(t *testing.T) {
 	initial := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	latest := runtimeTupleTestView(10, runtimeTupleTestRunningActivity())
 	reads := &countingSessionViewClient{view: initial}
-	client := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	client := newTestSessionRuntimeClient(reads)
 	client.storeMainView(initial)
 	m := newProjectedTestUIModel(client)
-	first := m.startRuntimeMainViewRefresh(nil)
+	first := m.startRuntimeMainViewRefresh()
 	oldResult := first().(runtimeMainViewRefreshedMsg)
 	m.handleRuntimeMainViewRefreshed(oldResult)
 
 	reads.view = latest
-	current := m.startRuntimeMainViewRefresh(nil)
-	m.startRuntimeMainViewRefresh(nil)
+	current := m.startRuntimeMainViewRefresh()
+	m.startRuntimeMainViewRefresh()
 	for _, err := range []error{nil, io.EOF} {
 		oldResult.err = err
 		if cmd := m.handleRuntimeMainViewRefreshed(oldResult); cmd != nil {
@@ -138,7 +93,7 @@ func TestRuntimeMainViewRefreshIgnoresObsoleteCompletion(t *testing.T) {
 		t.Fatal("obsolete failure changed connection availability")
 	}
 	assertRuntimeTupleView(t, client.MainView(), initial)
-	if cmd := m.startRuntimeMainViewRefresh(nil); cmd != nil {
+	if cmd := m.startRuntimeMainViewRefresh(); cmd != nil {
 		t.Fatal("obsolete completion released the current read")
 	}
 	next := m.handleRuntimeMainViewRefreshed(current().(runtimeMainViewRefreshedMsg))
@@ -155,8 +110,7 @@ func TestRuntimeMainViewRefreshIgnoresObsoleteCompletion(t *testing.T) {
 }
 
 func TestDelayedTranscriptRuntimeTupleCannotRollBackNewerUnaryState(t *testing.T) {
-	controls := newUnavailableRuntimeControlService()
-	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{}, controls)
+	runtimeClient := newTestSessionRuntimeClient(&countingSessionViewClient{})
 	v9 := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	runtimeClient.storeMainView(v9)
 	m := newProjectedTestUIModel(runtimeClient)
@@ -223,7 +177,7 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 		EffectiveWorkdir: "/workspace",
 	}
 	reads := &countingSessionViewClient{view: v10}
-	runtimeClient := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	v9 := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	runtimeClient.storeMainView(v9)
 	m := newProjectedTestUIModel(runtimeClient)
@@ -237,7 +191,7 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 		t.Fatalf("accept initial hydration: %v", err)
 	}
 
-	refresh := m.startRuntimeMainViewRefresh(nil)
+	refresh := m.startRuntimeMainViewRefresh()
 	if refresh == nil {
 		t.Fatal("refresh request did not return a command")
 	}
@@ -276,13 +230,13 @@ func TestRuntimeMainViewRefreshPreservesMetadataChangedAfterRequestStarted(t *te
 		ThinkingLevel:     "stale unary thinking",
 	}
 	reads := &countingSessionViewClient{view: v10}
-	runtimeClient := newTestSessionRuntimeClient(reads, newUnavailableRuntimeControlService())
+	runtimeClient := newTestSessionRuntimeClient(reads)
 	v9 := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
 	v9.Status = &runtimepb.Status{ReviewerFrequency: "initial", ThinkingLevel: "initial"}
 	runtimeClient.storeMainView(v9)
 	m := newProjectedTestUIModel(runtimeClient)
 
-	refresh := m.startRuntimeMainViewRefresh(nil)
+	refresh := m.startRuntimeMainViewRefresh()
 	msg, ok := refresh().(runtimeMainViewRefreshedMsg)
 	if !ok {
 		t.Fatal("refresh command returned an unexpected message")
@@ -317,7 +271,7 @@ func runtimeTupleTestView(
 ) *runtimepb.MainView {
 	return &runtimepb.MainView{
 		Version:  &runtimepb.ReadModelVersion{Epoch: "runtime-tuple-test", Generation: 1, Sequence: sequence},
-		Session:  &runtimepb.SessionView{SessionId: "session-1"},
+		Session:  &runtimepb.SessionView{SessionId: detailTestSessionID},
 		Status:   &runtimepb.Status{},
 		Activity: activity,
 	}

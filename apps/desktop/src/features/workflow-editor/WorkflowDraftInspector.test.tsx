@@ -75,7 +75,7 @@ function renderEdgeInspector(
 
 describe("WorkflowDraftInspector edge selectors", () => {
   it("exposes independent assignee and thinking controls on an eligible Agent transition", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { dispatch, edgeID } = renderEdgeInspector(true);
     const selectionRegion = screen.getByRole("region", {
       name: appI18n.t("workflowEditor.edgeAssigneeSelection"),
@@ -131,7 +131,7 @@ describe("WorkflowDraftInspector edge selectors", () => {
   });
 
   it("keeps existing previous-node selectors clearable when applicability is unavailable", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const { dispatch, edgeID } = renderEdgeInspector(false, "topology", "previous_node", "previous_node");
     const selectionRegion = screen.getByRole("region", {
       name: appI18n.t("workflowEditor.edgeAssigneeSelection"),
@@ -164,7 +164,7 @@ describe("WorkflowDraftInspector edge selectors", () => {
   });
 
   it("localizes configuration unavailability from the server reason code", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderEdgeInspector(false, "no_callable_roles");
     const selectionRegion = screen.getByRole("region", {
       name: appI18n.t("workflowEditor.edgeAssigneeSelection"),

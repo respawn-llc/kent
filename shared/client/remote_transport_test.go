@@ -673,11 +673,11 @@ func TestRemoteProjectRootAttachmentRejectsDifferentWorkspaceOnReconnect(t *test
 	requireNoHandlerError(t, handlerErrs)
 }
 
-func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
+func TestRemoteLiveStopUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 	sessionID := runtimeids.NewSessionID().String()
 	service := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("TurnService")
 	submitMethod := service.Methods().ByName("SubmitUserTurn")
-	interruptMethod := service.Methods().ByName("Interrupt")
+	interruptMethod := runtimepb.File_kent_api_runtime_runtime_proto.Services().ByName("LiveService").Methods().ByName("Stop")
 	submitOperation, err := protoapi.OperationFromDescriptor(submitMethod)
 	if err != nil {
 		t.Fatal(err)
@@ -754,15 +754,8 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 				case interruptSeen <- struct{}{}:
 				default:
 				}
-				version := protoapi.NewReadModelVersion("epoch-1", 1, 1)
-				response := &runtimepb.ReadModelUpdate{
-					Version: version,
-					Activity: &runtimepb.Activity{
-						State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE,
-						Reviewer: runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE,
-					},
-				}
-				frame, err := remoteDescriptorResultFrame(interruptMethod, call.Correlation, &runtimepb.InterruptResult{Outcome: &runtimepb.InterruptResult_Success{Success: response}}, protoapi.Encode)
+				response := &runtimepb.LiveStopSuccess{Status: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_STOPPED}
+				frame, err := remoteDescriptorResultFrame(interruptMethod, call.Correlation, &runtimepb.LiveStopResult{Outcome: &runtimepb.LiveStopResult_Success{Success: response}}, protoapi.Encode)
 				if err != nil {
 					reportHandlerError(handlerErrs, "encode interrupt response: %v", err)
 					return
@@ -801,7 +794,7 @@ func TestRemoteInterruptUsesDedicatedConnWhileSubmitIsInFlight(t *testing.T) {
 
 	interruptCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if _, err := remote.Interrupt(interruptCtx, &runtimepb.InterruptRequest{SessionId: sessionID}); err != nil {
+	if _, err := remote.LiveStop(interruptCtx, &runtimepb.LiveStopRequest{SessionId: protoapi.SessionSelectorToProto(runtimeids.SessionIDFromProto(sessionID))}); err != nil {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	select {

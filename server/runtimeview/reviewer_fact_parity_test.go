@@ -3,7 +3,7 @@ package runtimeview
 import (
 	"testing"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/tools"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -11,7 +11,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -33,7 +33,7 @@ func TestReviewerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing.T) {
 	}
 	snapshot := runtime.ChatSnapshot{Entries: entries}
 	liveFacts := runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot)
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: liveFacts}, nil)
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, liveFacts)
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
 		textutil.Value("name"),
@@ -118,7 +118,7 @@ func TestQuestionAnswerFactsMatchAcrossLiveHydrationAndPageProjection(t *testing
 	}
 	snapshot := runtime.ChatSnapshot{Entries: []runtime.ChatEntry{entry}}
 	facts := runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot)
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: facts}, nil)
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, facts)
 	page, err := TranscriptPageFromSegment(
 		sessionID,
 		textutil.Value("name"),

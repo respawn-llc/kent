@@ -65,13 +65,6 @@ func renderDetailPresentation(
 	syntax syntaxProjector,
 	linkPresentation MarkdownLinkPresentation,
 ) DetailPresentation {
-	switch row.Integrity {
-	case transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
-		transcriptpb.RowIntegrity_ROW_INTEGRITY_RECOVERABLE_MALFORMED,
-		transcriptpb.RowIntegrity_ROW_INTEGRITY_UNRECOVERABLE_MALFORMED:
-	default:
-		panic(fmt.Sprintf("render detail presentation with invalid integrity classification: %d", row.Integrity))
-	}
 	collapsed := renderCommittedRow(
 		row,
 		width,

@@ -136,7 +136,7 @@ func openProjectWorkspacesRemote(
 		return nil, "", err
 	}
 	binding, ok := remote.ProjectBinding()
-	if !ok || strings.TrimSpace(binding.ProjectID) == "" {
+	if !ok {
 		return nil, "", errors.Join(
 			errors.New("Session Project binding is unavailable"),
 			remote.Close(),

@@ -17,7 +17,7 @@ const fieldErrorListSchema = z.array(z.string());
 const fieldErrorMessageSchema = z.string();
 
 type FieldShellProps = Readonly<{
-  label: string;
+  label?: string | undefined;
   labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
@@ -41,12 +41,14 @@ export function FieldShell({
 
   return (
     <div className="grid gap-[var(--space-3)]">
-      <span className="inline-flex items-center gap-[var(--space-1)]">
-        <label className={fieldLabelClassName} htmlFor={inputId}>
-          {label}
-        </label>
-        {labelHelp === undefined ? null : <HelpHint className="shrink-0" label={labelHelp} side="right" />}
-      </span>
+      {label === undefined ? null : (
+        <span className="inline-flex items-center gap-[var(--space-1)]">
+          <label className={fieldLabelClassName} htmlFor={inputId}>
+            {label}
+          </label>
+          {labelHelp === undefined ? null : <HelpHint className="shrink-0" label={labelHelp} side="right" />}
+        </span>
+      )}
       {children}
       {hint !== undefined ? (
         <span className="text-[var(--color-muted)]" id={hintId}>
@@ -126,7 +128,8 @@ export function TextInput({
 }
 
 export type TextAreaProps = Readonly<{
-  label: string;
+  floatingAction?: ReactNode;
+  label?: string | undefined;
   labelHelp?: string | undefined;
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
@@ -134,7 +137,7 @@ export type TextAreaProps = Readonly<{
   TextareaHTMLAttributes<HTMLTextAreaElement>;
 
 export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function TextArea(
-  { label, labelHelp, error, hint, className, ...props },
+  { label, labelHelp, error, hint, className, floatingAction, ...props },
   ref,
 ) {
   const generatedId = useId();
@@ -152,14 +155,21 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       label={label}
       labelHelp={labelHelp}
     >
-      <textarea
-        aria-describedby={`${hintId} ${errorId}`}
-        aria-invalid={error === undefined ? undefined : true}
-        className={cx(fieldInputClassName, "min-h-24", className)}
-        {...props}
-        id={inputId}
-        ref={ref}
-      />
+      <div className="relative min-w-0">
+        <textarea
+          aria-describedby={`${hintId} ${errorId}`}
+          aria-invalid={error === undefined ? undefined : true}
+          className={cx(fieldInputClassName, "min-h-24 w-full", floatingAction != null && "pb-12", className)}
+          {...props}
+          id={inputId}
+          ref={ref}
+        />
+        {floatingAction != null && (
+          <div className="absolute bottom-[var(--space-2)] right-[var(--space-2)] z-10 flex items-center gap-[var(--space-2)]">
+            {floatingAction}
+          </div>
+        )}
+      </div>
     </FieldShell>
   );
 });

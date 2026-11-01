@@ -64,7 +64,7 @@ func runWorkflowGraphMutation[T any](
 	if err != nil {
 		return zero, workflowGraphMutationResult{}, err
 	}
-	if !response.Saved || response.ConfirmationRequired || len(response.Blockers) != 0 || !response.CanSave {
+	if !response.Saved || response.ConfirmationRequired || !response.CanSave {
 		return zero, workflowGraphMutationResult{}, workflowGraphMutationBlocked(workflowID, response.Blockers)
 	}
 	return value, workflowGraphMutationResult{Version: response.CurrentVersion}, nil

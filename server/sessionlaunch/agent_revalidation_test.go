@@ -12,14 +12,14 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/registry"
-	"core/server/runtime"
 	"core/server/runtimewire"
-	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
+	"core/server/sessionstore"
 	"core/shared/config"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -31,7 +31,7 @@ import (
 func TestChatSettingsRefreshOnlyWhenAppliedToLiveRuntime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg, service, db, id := agentReplacementFixture(t)
-		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, nil, db)
+		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, db)
 		saveDraft := func() {
 			t.Helper()
 			if _, err := lifecycle.PersistInputDraft(t.Context(), &sessionlaunchpb.SessionPersistInputDraftRequest{

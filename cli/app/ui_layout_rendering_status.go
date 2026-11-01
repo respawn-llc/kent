@@ -283,6 +283,9 @@ func (l uiViewLayout) renderReasoningStatus(available int) string {
 }
 
 func (l uiViewLayout) renderHelpHint(style uiStyles) string {
+	if l.model.surface() == uiSurfaceAsk {
+		return style.meta.Render("↑/↓ · PgUp/PgDn · wheel to scroll")
+	}
 	if !l.shouldRenderHelpHint() {
 		return ""
 	}

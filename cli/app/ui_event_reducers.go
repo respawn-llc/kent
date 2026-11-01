@@ -76,6 +76,9 @@ func (m *uiModel) reduceNoticeMessage(msg tea.Msg) uiFeatureUpdateResult {
 func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case promptHistoryLoadedMsg:
+		if !m.isCurrentObservation(msg.scope) {
+			return handledUIFeatureUpdate(m, nil)
+		}
 		m.promptHistoryLoading = false
 		m.observeRuntimeRequestResult(msg.err)
 		if msg.err != nil {
@@ -122,6 +125,16 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.applyChatSettingsDone(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
+	case newSessionSettingsLoadedMsg:
+		cmd := m.applyNewSessionSettingsLoaded(msg)
+		m.layout().syncViewport()
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
+	case newSessionLoginDoneMsg:
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(m.applyNewSessionLoginDone(msg)))
+	case newSessionActionDoneMsg:
+		return handledUIFeatureUpdate(m, m.applyNewSessionActionDone(msg))
+	case sessionObservationLoadedMsg:
+		return handledUIFeatureUpdate(m, m.applySessionObservationLoaded(msg))
 	case goalRuntimeDoneMsg:
 		cmd := m.applyGoalRuntimeDone(msg)
 		m.layout().syncViewport()
@@ -132,16 +145,6 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
 	case injectedQueueCreateDoneMsg:
 		next, cmd := m.inputController().handleInjectedQueueCreateDone(msg)
-		nextModel := next.(*uiModel)
-		nextModel.layout().syncViewport()
-		return handledUIFeatureUpdate(nextModel, cmd)
-	case injectedQueueDiscardDoneMsg:
-		next, cmd := m.inputController().handleInjectedQueueDiscardDone(msg)
-		nextModel := next.(*uiModel)
-		nextModel.layout().syncViewport()
-		return handledUIFeatureUpdate(nextModel, cmd)
-	case submitDoneMsg:
-		next, cmd := m.inputController().handleSubmitDone(msg)
 		nextModel := next.(*uiModel)
 		nextModel.layout().syncViewport()
 		return handledUIFeatureUpdate(nextModel, cmd)

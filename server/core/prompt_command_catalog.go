@@ -83,9 +83,6 @@ func resolvePromptCommandSessionWorkspace(ctx context.Context, metadataStore *me
 		return "", "", errors.New("metadata store is required")
 	}
 	trimmedSessionID := strings.TrimSpace(sessionID)
-	if trimmedSessionID == "" {
-		return "", "", errors.New("session id is required")
-	}
 	target, err := metadataStore.ResolveSessionExecutionTarget(ctx, trimmedSessionID)
 	if err != nil {
 		return "", "", err

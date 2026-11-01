@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -31,7 +31,7 @@ func newSessionRetargetFixture(t *testing.T) sessionRetargetFixture {
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding source: %v", err)
 	}
-	targetProject, err := store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Target")
+	targetProject, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Target", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace target: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestPlanSessionWorkspaceRetargetRejectsAmbiguousForeignBindingsWithoutMutat
 	if _, err := fixture.store.AttachWorkspaceToProject(context.Background(), fixture.targetProject.ProjectID, targetRoot); err != nil {
 		t.Fatalf("AttachWorkspaceToProject target: %v", err)
 	}
-	otherProject, err := fixture.store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Other")
+	otherProject, err := fixture.store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Other", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace other: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestPlanSessionWorkspaceRetargetRejectsExplicitForeignBindingWithoutMutatio
 	if _, err := fixture.store.AttachWorkspaceToProject(context.Background(), fixture.targetProject.ProjectID, targetRoot); err != nil {
 		t.Fatalf("AttachWorkspaceToProject foreign target: %v", err)
 	}
-	requestedProject, err := fixture.store.CreateProjectForWorkspace(context.Background(), t.TempDir(), "Requested")
+	requestedProject, err := fixture.store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "Requested", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace requested: %v", err)
 	}

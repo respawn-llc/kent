@@ -52,7 +52,7 @@ func TestTaskSourceRetainsDetachedWorkspaceWithClearedReference(t *testing.T) {
 	if _, err := workflowfixture.MoveTask(t, f.ctx, f.metadata, f.store, workflowstore.ManualMoveRequest{TaskID: task.ID, TargetNodeID: node}); err != nil {
 		t.Fatal(err)
 	}
-	blockers, err := f.metadata.UnlinkProjectWorkspace(f.ctx, f.binding.ProjectID, source.WorkspaceID)
+	blockers, err := f.metadata.UnlinkProjectWorkspaceWithRuntimeBlockers(f.ctx, f.binding.ProjectID, source.WorkspaceID, nil, nil)
 	if err != nil || len(blockers) != 0 {
 		t.Fatalf("detach: blockers=%+v err=%v", blockers, err)
 	}

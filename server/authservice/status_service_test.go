@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"core/internal/testharness/httpclient"
-	"core/server/auth"
-	"core/server/session"
+	"core/server/authmanager"
+	"core/server/sessionstore"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"

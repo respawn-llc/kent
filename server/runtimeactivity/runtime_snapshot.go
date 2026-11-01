@@ -3,7 +3,7 @@ package runtimeactivity
 import (
 	"fmt"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 )
 

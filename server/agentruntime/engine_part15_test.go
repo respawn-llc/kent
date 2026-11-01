@@ -1,0 +1,816 @@
+package runtime
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"core/internal/testharness/postprocessfixture"
+	"core/prompts"
+	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/tools"
+	shelltool "core/server/tools/shell"
+	"core/server/tools/shell/postprocess"
+	"core/shared/clientui"
+	"core/shared/config"
+	"core/shared/textutil"
+	"core/shared/toolspec"
+)
+
+func TestAutoCompactionRemoteReplacesHistoryAndCarriesCompactionItem(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+
+	client := &fakeCompactionClient{
+		responses: []llm.Response{
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working")},
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
+				},
+				Usage: llm.Usage{InputTokens: textutil.Value(190000), OutputTokens: textutil.Value(2000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 190000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
+				Usage:     llm.Usage{InputTokens: textutil.Value(2000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 2000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+		compactionResponses: []llm.CompactionResponse{
+			{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
+					Type:             llm.ResponseItemTypeCompaction,
+					ID:               textutil.Value("cmp_1"),
+					EncryptedContent: textutil.Value("enc_1"),
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(12000), OutputTokens: textutil.Value(1000), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 12000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+	}
+
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:               "gpt-6-sol",
+		ContextWindowTokens: 200_000,
+	})
+
+	msg, err := eng.SubmitUserMessage(context.Background(), "run tools")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if messageContent(msg) != "done" {
+		t.Fatalf("assistant content = %q, want done", messageContent(msg))
+	}
+	if len(client.compactionCalls) != 1 {
+		t.Fatalf("expected one remote compaction call, got %d", len(client.compactionCalls))
+	}
+	if len(client.calls) < 2 {
+		t.Fatalf("expected second model call after compaction, got %d calls", len(client.calls))
+	}
+
+	foundCompactionItem := false
+	for _, item := range client.calls[1].Items {
+		if item.Type == llm.ResponseItemTypeCompaction && item.EncryptedContent != nil && *item.EncryptedContent == "enc_1" {
+			foundCompactionItem = true
+			break
+		}
+	}
+	if !foundCompactionItem {
+		t.Fatalf("expected compaction item in post-compaction request, got %+v", client.calls[1].Items)
+	}
+
+	events, err := collectTestEventRecords(store)
+	if err != nil {
+		t.Fatalf("read events: %v", err)
+	}
+	sawHistoryReplace := false
+	for _, evt := range events {
+		if evt.Kind == "history_replaced" {
+			sawHistoryReplace = true
+			break
+		}
+	}
+	if !sawHistoryReplace {
+		t.Fatalf("expected history_replaced event, got %+v", events)
+	}
+}
+
+func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomically(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	globalConfigDir := t.TempDir()
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
+			Type:             llm.ResponseItemTypeCompaction,
+			ID:               textutil.Value("cmp_1"),
+			EncryptedContent: textutil.Value("enc_1"),
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+	}}}
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	if err != nil {
+		t.Fatalf("new shell manager: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := manager.Close(); closeErr != nil {
+			t.Fatalf("close shell manager: %v", closeErr)
+		}
+	})
+	startShell := func(ownerSessionID, displayCommand string) shelltool.ExecResult {
+		t.Helper()
+		result, startErr := manager.Start(context.Background(), shelltool.ExecRequest{
+			Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+			Command:        []string{"/bin/sh", "-c", "read line"},
+			DisplayCommand: displayCommand,
+			OwnerSessionID: ownerSessionID,
+			Workdir:        store.Meta().WorkspaceRoot,
+			YieldTime:      time.Millisecond,
+			KeepStdinOpen:  true,
+		})
+		if startErr != nil {
+			t.Fatalf("start shell %q: %v", displayCommand, startErr)
+		}
+		if !result.Running {
+			t.Fatalf("shell %q did not remain running: %+v", displayCommand, result)
+		}
+		return result
+	}
+	ownedShell := startShell(store.Meta().SessionID, "owned running shell")
+	foreignShell := startShell("foreign-session", "foreign running shell")
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:                  "gpt-6-sol",
+		GlobalConfigDir:        globalConfigDir,
+		BackgroundShellManager: manager,
+	})
+	if _, err := eng.SetGoal(t.Context(), "preserve atomic goal context", session.GoalActorUser); err != nil {
+		t.Fatalf("SetGoal: %v", err)
+	}
+	if err := eng.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatalf("persist active goal notice: %v", err)
+	}
+	mustSetWorktreeReminderState(t, store, testWorktreeReminderState(
+		session.WorktreeReminderModeEnter,
+		"feature/goal",
+		t.TempDir(),
+		t.TempDir(),
+		t.TempDir(),
+	))
+	stepID := runtimeTestStepID("step-1")
+	restoreStep := setTestActiveStep(eng, stepID)
+	defer restoreStep()
+	if err := eng.steer(stepID, steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+
+	if _, _, err := eng.compactNow(context.Background(), stepID, compactionModeManual, compactionInstructionsInput{}, true); err != nil {
+		t.Fatalf("compactNow: %v", err)
+	}
+	if _, err := eng.buildActiveTurnDispatchRequest(t.Context(), stepID, nil, true); err != nil {
+		t.Fatalf("prepare dispatch: %v", err)
+	}
+	replacementItems := compactionReplacementItems(t, eng)
+	environmentIndex, goalIndex, worktreeIndex, carryoverIndex, reminderIndex := -1, -1, -1, -1, -1
+	goalCount := 0
+	for idx, item := range replacementItems {
+		if item.Type == llm.ResponseItemTypeMessage &&
+			item.Role != nil &&
+			*item.Role == llm.RoleDeveloper &&
+			item.MessageType == nil &&
+			item.Content != nil &&
+			strings.Contains(*item.Content, ownedShell.SessionID) {
+			reminderIndex = idx
+			if item.CompactContent == nil || *item.CompactContent != clientui.RunningShellsCompactLabel {
+				t.Fatalf("running-shell reminder lost its compact presentation: %+v", item)
+			}
+			if !strings.Contains(*item.Content, ownedShell.SessionID) ||
+				!strings.Contains(*item.Content, "owned running shell") {
+				t.Fatalf("running-shell reminder omitted owned shell data: %+v", item)
+			}
+			if strings.Contains(*item.Content, foreignShell.SessionID) ||
+				strings.Contains(*item.Content, "foreign running shell") {
+				t.Fatalf("running-shell reminder included foreign shell data: %+v", item)
+			}
+		}
+		if item.MessageType == nil {
+			continue
+		}
+		switch *item.MessageType {
+		case llm.MessageTypeEnvironment:
+			environmentIndex = idx
+		case llm.MessageTypeActiveGoalContinuation:
+			goalIndex = idx
+			goalCount++
+			if item.Content == nil || *item.Content != prompts.RenderActiveGoalContinuationPrompt("preserve atomic goal context") {
+				t.Fatalf("active-goal continuation content = %v", item.Content)
+			}
+		case llm.MessageTypeWorktreeMode:
+			worktreeIndex = idx
+		case llm.MessageTypeCompactionPreservedUserMessage:
+			carryoverIndex = idx
+			if item.Content == nil || !strings.Contains(*item.Content, "seed") {
+				t.Fatalf("compaction-preserved user message lost the last visible user message: %+v", item)
+			}
+		}
+	}
+	if environmentIndex < 0 || goalIndex < 0 || worktreeIndex < 0 || carryoverIndex < 0 || reminderIndex < 0 || goalCount != 1 {
+		t.Fatalf("replacement payload must embed base meta, one active-goal continuation, worktree context, running-shell reminder, environment, and compaction-preserved user message: %+v", replacementItems)
+	}
+	if !(worktreeIndex < goalIndex && goalIndex < reminderIndex && reminderIndex < environmentIndex && environmentIndex < carryoverIndex) || carryoverIndex != len(replacementItems)-1 {
+		t.Fatalf("replacement payload order must be stable meta, environment, then carryover: %+v", replacementItems)
+	}
+
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	reopened := mustNewTestEngine(t, reopenedStore, &fakeClient{}, tools.NewRegistry(), Config{
+		Model:                  "gpt-6-sol",
+		GlobalConfigDir:        globalConfigDir,
+		BackgroundShellManager: manager,
+	})
+	reopenedReminder := false
+	for _, item := range reopened.transcriptRuntimeState().SnapshotItems() {
+		if item.Type != llm.ResponseItemTypeMessage || item.Content == nil ||
+			item.Role == nil || *item.Role != llm.RoleDeveloper || item.MessageType != nil {
+			continue
+		}
+		if strings.Contains(*item.Content, foreignShell.SessionID) {
+			t.Fatalf("reopened replacement leaked foreign shell identity: %+v", item)
+		}
+		if item.Role != nil &&
+			*item.Role == llm.RoleDeveloper &&
+			item.MessageType == nil &&
+			strings.Contains(*item.Content, ownedShell.SessionID) {
+			reopenedReminder = true
+		}
+	}
+	if !reopenedReminder {
+		t.Fatalf("reopened replacement omitted running shell reminder: %+v", reopened.transcriptRuntimeState().SnapshotItems())
+	}
+}
+
+func TestCompactionDispatchCapturesShellsStartedAndFinishedDuringIdleInterval(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	globalConfigDir := t.TempDir()
+	agentsPath := filepath.Join(globalConfigDir, agentsFileName)
+	writeTestFile(t, agentsPath, t.Name()+"/before-compaction")
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	if err != nil {
+		t.Fatalf("new shell manager: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := manager.Close(); closeErr != nil {
+			t.Fatalf("close shell manager: %v", closeErr)
+		}
+	})
+
+	finishing, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-c", "read line"},
+		DisplayCommand: "finishing shell",
+		OwnerSessionID: store.Meta().SessionID,
+		Workdir:        store.Meta().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+		KeepStdinOpen:  true,
+	})
+	if err != nil {
+		t.Fatalf("start finishing shell: %v", err)
+	}
+	if !finishing.Running {
+		t.Fatalf("finishing shell did not remain running: %+v", finishing)
+	}
+	remaining, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-c", "read line"},
+		DisplayCommand: "remaining shell",
+		OwnerSessionID: store.Meta().SessionID,
+		Workdir:        store.Meta().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+		KeepStdinOpen:  true,
+	})
+	if err != nil {
+		t.Fatalf("start remaining shell: %v", err)
+	}
+	if !remaining.Running {
+		t.Fatalf("remaining shell did not remain running: %+v", remaining)
+	}
+
+	client := &heldRuntimeCompactionClient{
+		fakeCompactionClient: &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
+				Type:             llm.ResponseItemTypeCompaction,
+				ID:               textutil.Value("cmp_running_shells"),
+				EncryptedContent: textutil.Value("enc_running_shells"),
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+		}}},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	var releaseOnce sync.Once
+	releaseCompaction := func() {
+		releaseOnce.Do(func() {
+			close(client.release)
+		})
+	}
+	t.Cleanup(releaseCompaction)
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model:                  "gpt-6-sol",
+		BackgroundShellManager: manager,
+		GlobalConfigDir:        globalConfigDir,
+	})
+	if err := steerTestActiveStep(eng, "running-shell-input", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventNone,
+		true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact this")}},
+	)); err != nil {
+		t.Fatalf("persist compaction input: %v", err)
+	}
+
+	compactionDone := make(chan error, 1)
+	stepID := runtimeTestStepID("running-shell-compaction")
+	restoreStep := setTestActiveStep(eng, stepID)
+	go func() {
+		_, _, compactErr := eng.compactNow(context.Background(), stepID, compactionModeManual, compactionInstructionsInput{}, false)
+		compactionDone <- compactErr
+	}()
+	select {
+	case <-client.started:
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		restoreStep()
+		t.Fatal("timed out waiting for compaction request")
+	}
+
+	finished, err := manager.WriteStdin(context.Background(), shelltool.WriteRequest{
+		SessionID:      finishing.SessionID,
+		Input:          "done\n",
+		YieldTime:      time.Second,
+		MaxOutputChars: 16_000,
+	})
+	if err != nil {
+		restoreStep()
+		t.Fatalf("finish shell during compaction: %v", err)
+	}
+	if finished.Running {
+		restoreStep()
+		t.Fatalf("finishing shell remained running: %+v", finished)
+	}
+	releaseCompaction()
+	select {
+	case err := <-compactionDone:
+		restoreStep()
+		if err != nil {
+			t.Fatalf("compaction: %v", err)
+		}
+	case <-time.After(runtimeTestSynchronizationTimeout):
+		restoreStep()
+		t.Fatal("timed out waiting for compaction completion")
+	}
+
+	if err := eng.ensureMetaContextForRequest(t.Context(), runtimeTestStepID("inspect")); err != nil {
+		t.Fatalf("ensure meta while dormant: %v", err)
+	}
+	if _, err := PrepareInspectionRequest(t.Context(), eng, false); err == nil {
+		t.Fatal("offline inspection prepared a pending generation")
+	}
+	latestInstructions := t.Name() + "/after-inspection"
+	writeTestFile(t, agentsPath, latestInstructions)
+	if snapshot, err := manager.Snapshot(remaining.SessionID); err != nil || !snapshot.Running {
+		t.Fatalf("remaining shell must still be running after compaction: snapshot=%+v error=%v", snapshot, err)
+	}
+	if err := manager.Kill(remaining.SessionID); err != nil {
+		t.Fatalf("finish shell during idle interval: %v", err)
+	}
+	terminated, err := manager.WriteStdin(t.Context(), shelltool.WriteRequest{
+		SessionID: remaining.SessionID,
+		YieldTime: runtimeTestSynchronizationTimeout,
+	})
+	if err != nil || terminated.Running {
+		t.Fatalf("wait for shell completion during idle interval: result=%+v error=%v", terminated, err)
+	}
+	startedLater, err := manager.Start(t.Context(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-c", "read line"},
+		DisplayCommand: "shell started while dormant",
+		OwnerSessionID: store.Meta().SessionID,
+		Workdir:        store.Meta().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+		KeepStdinOpen:  true,
+	})
+	if err != nil || !startedLater.Running {
+		t.Fatalf("start shell while dormant: result=%+v error=%v", startedLater, err)
+	}
+	client.responses = []llm.Response{finalOutputItemResponse("done")}
+	if _, err := eng.SubmitUserMessage(t.Context(), "continue"); err != nil {
+		t.Fatalf("dispatch next turn: %v", err)
+	}
+	if len(client.calls) != 1 || len(client.compactionCalls) != 1 || eng.CompactionCount() != 1 {
+		t.Fatalf("requests/compactions/count = %d/%d/%d, want one each", len(client.calls), len(client.compactionCalls), eng.CompactionCount())
+	}
+	var reminder string
+	reminderIndex, environmentIndex := -1, -1
+	latestInstructionsSeen := false
+	preservedUsers, continuations := 0, 0
+	for index, item := range client.calls[0].Items {
+		if item.Type != llm.ResponseItemTypeMessage {
+			continue
+		}
+		if item.Role != nil && *item.Role == llm.RoleDeveloper && item.MessageType == nil &&
+			item.Content != nil && strings.Contains(*item.Content, startedLater.SessionID) {
+			reminder = *item.Content
+			reminderIndex = index
+		}
+		if item.MessageType != nil && *item.MessageType == llm.MessageTypeEnvironment {
+			environmentIndex = index
+		}
+		if item.MessageType != nil && *item.MessageType == llm.MessageTypeAgentsMD &&
+			item.SourcePath != nil && *item.SourcePath == agentsPath &&
+			item.Content != nil && strings.HasSuffix(*item.Content, latestInstructions) {
+			latestInstructionsSeen = true
+		}
+		if item.MessageType != nil && *item.MessageType == llm.MessageTypeCompactionPreservedUserMessage {
+			preservedUsers++
+		}
+		if item.Role != nil && *item.Role == llm.RoleUser &&
+			item.Content != nil && *item.Content == "continue" {
+			continuations++
+		}
+	}
+	if !latestInstructionsSeen || preservedUsers != 1 || continuations != 1 {
+		t.Fatalf("fresh instructions/preserved users/continuations = %t/%d/%d, want true/one/one", latestInstructionsSeen, preservedUsers, continuations)
+	}
+	if reminderIndex < 0 {
+		t.Fatalf("replacement omitted running shell reminder: %+v", eng.transcriptRuntimeState().SnapshotItems())
+	}
+	if !strings.Contains(reminder, startedLater.SessionID) ||
+		strings.Contains(reminder, remaining.SessionID) || strings.Contains(reminder, finishing.SessionID) {
+		t.Fatalf("running shell reminder membership = %q, want only the shell started while dormant", reminder)
+	}
+	if environmentIndex < 0 || reminderIndex != environmentIndex-1 {
+		t.Fatalf("running shell reminder must immediately precede Environment: items=%+v", eng.transcriptRuntimeState().SnapshotItems())
+	}
+	if err := manager.Kill(startedLater.SessionID); err != nil {
+		t.Fatalf("complete shell after dispatch: %v", err)
+	}
+	client.responses = []llm.Response{finalOutputItemResponse("done again")}
+	if _, err := eng.SubmitUserMessage(t.Context(), "another turn"); err != nil {
+		t.Fatalf("dispatch later turn: %v", err)
+	}
+	if len(client.calls) != 2 || len(client.compactionCalls) != 1 || eng.CompactionCount() != 1 {
+		t.Fatal("later turn repeated compaction")
+	}
+	reminders := 0
+	for _, item := range client.calls[1].Items {
+		if item.CompactContent != nil && *item.CompactContent == clientui.RunningShellsCompactLabel {
+			reminders++
+			if item.Content == nil || *item.Content != reminder {
+				t.Fatal("later request changed the already-dispatched shell reminder")
+			}
+		}
+	}
+	if reminders != 1 {
+		t.Fatalf("later request has %d running-shell reminders, want one", reminders)
+	}
+}
+
+func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	if err != nil {
+		t.Fatalf("new shell manager: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := manager.Close(); closeErr != nil {
+			t.Fatalf("close shell manager: %v", closeErr)
+		}
+	})
+	foreign, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-c", "sleep 30"},
+		DisplayCommand: "foreign running shell",
+		OwnerSessionID: "foreign-session",
+		Workdir:        store.Meta().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start foreign shell: %v", err)
+	}
+	if !foreign.Running {
+		t.Fatalf("foreign shell did not remain running: %+v", foreign)
+	}
+
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
+			Type:             llm.ResponseItemTypeCompaction,
+			ID:               textutil.Value("cmp_no_owned_shells"),
+			EncryptedContent: textutil.Value("enc_no_owned_shells"),
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+	}}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model:                  "gpt-6-sol",
+		BackgroundShellManager: manager,
+	})
+	if err := steerTestActiveStep(eng, "no-owned-shells-input", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventNone,
+		true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact this")}},
+	)); err != nil {
+		t.Fatalf("persist compaction input: %v", err)
+	}
+	if _, _, err := compactNowInActiveTestRun(t, eng, compactionModeManual, compactionInstructionsInput{}); err != nil {
+		t.Fatalf("compaction: %v", err)
+	}
+
+	items := buildActiveTurnRequestForTest(t, eng, nil, true).Items
+	compactedIndex, environmentIndex := -1, -1
+	for index, item := range items {
+		if item.Type == llm.ResponseItemTypeCompaction ||
+			(item.Type == llm.ResponseItemTypeMessage && item.MessageType != nil &&
+				*item.MessageType == llm.MessageTypeCompactionSummary) {
+			compactedIndex = index
+		}
+		if item.Type == llm.ResponseItemTypeMessage && item.MessageType != nil &&
+			*item.MessageType == llm.MessageTypeEnvironment {
+			environmentIndex = index
+		}
+	}
+	if compactedIndex < 0 || environmentIndex <= compactedIndex {
+		t.Fatalf("replacement missing compacted output and Environment: %+v", items)
+	}
+	for _, item := range items[compactedIndex+1 : environmentIndex] {
+		if item.Type == llm.ResponseItemTypeMessage &&
+			item.Role != nil &&
+			*item.Role == llm.RoleDeveloper &&
+			item.MessageType == nil {
+			t.Fatalf("replacement emitted a running-shell reminder without owned shells: %+v", items)
+		}
+		if item.Content != nil && strings.Contains(*item.Content, foreign.SessionID) {
+			t.Fatalf("replacement leaked foreign shell identity: %+v", items)
+		}
+	}
+}
+
+func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+	manager, err := shelltool.NewManager(t.TempDir(), shelltool.WithMinimumExecToBgTime(time.Millisecond))
+	if err != nil {
+		t.Fatalf("new shell manager: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := manager.Close(); closeErr != nil {
+			t.Fatalf("close shell manager: %v", closeErr)
+		}
+	})
+	longUnicodeArgument := strings.Repeat("界", 150)
+	displayCommand := "kent run \\\n  --workspace /tmp/project \\\n  --message " + longUnicodeArgument
+	shell, err := manager.Start(context.Background(), shelltool.ExecRequest{
+		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:        []string{"/bin/sh", "-c", "sleep 30"},
+		DisplayCommand: displayCommand,
+		OwnerSessionID: store.Meta().SessionID,
+		Workdir:        store.Meta().WorkspaceRoot,
+		YieldTime:      time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("start shell: %v", err)
+	}
+	if !shell.Running {
+		t.Fatalf("shell did not remain running: %+v", shell)
+	}
+
+	client := &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
+			Type:             llm.ResponseItemTypeCompaction,
+			ID:               textutil.Value("cmp_shell_preview"),
+			EncryptedContent: textutil.Value("enc_shell_preview"),
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+	}}}
+	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model:                  "gpt-6-sol",
+		BackgroundShellManager: manager,
+	})
+	if err := steerTestActiveStep(eng, "shell-preview-input", steerMessagesWithPersistenceIntent(
+		steeringPriorityNormal,
+		steeringMessageEventNone,
+		true,
+		[]llm.Message{{Role: llm.RoleUser, Content: textutil.Value("compact this")}},
+	)); err != nil {
+		t.Fatalf("persist compaction input: %v", err)
+	}
+	if _, _, err := compactNowInActiveTestRun(t, eng, compactionModeManual, compactionInstructionsInput{}); err != nil {
+		t.Fatalf("compaction: %v", err)
+	}
+	buildActiveTurnRequestForTest(t, eng, nil, true)
+
+	normalizedCommand := strings.Join(strings.Fields(displayCommand), " ")
+	wantPreview := string([]rune(normalizedCommand)[:compactionRunningShellCommandPreviewLimit-1]) + "…"
+	prefix := shell.SessionID + ": `"
+	var preview string
+	for _, item := range eng.transcriptRuntimeState().SnapshotItems() {
+		if item.Type != llm.ResponseItemTypeMessage ||
+			item.Role == nil ||
+			*item.Role != llm.RoleDeveloper ||
+			item.MessageType != nil ||
+			item.Content == nil {
+			continue
+		}
+		for _, line := range strings.Split(*item.Content, "\n") {
+			if !strings.HasPrefix(line, prefix) {
+				continue
+			}
+			if !strings.HasSuffix(line, "`") {
+				t.Fatalf("running shell entry is not a single-line code preview: %q", line)
+			}
+			preview = strings.TrimSuffix(strings.TrimPrefix(line, prefix), "`")
+		}
+	}
+	if preview == "" {
+		t.Fatalf("replacement omitted running shell command preview: %+v", eng.transcriptRuntimeState().SnapshotItems())
+	}
+	if preview != wantPreview {
+		t.Fatalf("running shell command preview = %q, want normalized first %d Unicode code points %q", preview, compactionRunningShellCommandPreviewLimit, wantPreview)
+	}
+	if !strings.Contains(preview, "--workspace /tmp/project") || !strings.Contains(preview, "--message") {
+		t.Fatalf("running shell command preview omitted continuation-line arguments: %q", preview)
+	}
+	if !strings.HasSuffix(preview, "…") {
+		t.Fatalf("running shell command preview lacks a truncation marker: %q", preview)
+	}
+	if len([]rune(preview)) != compactionRunningShellCommandPreviewLimit {
+		t.Fatalf("running shell command preview length = %d, want %d Unicode code points", len([]rune(preview)), compactionRunningShellCommandPreviewLimit)
+	}
+}
+
+type failOnHistoryReplacementAgentResetObservation struct {
+	failed bool
+}
+
+func (o *failOnHistoryReplacementAgentResetObservation) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+	if !o.failed && snapshot.Meta.LastSequence >= 2 {
+		o.failed = true
+		return errors.New("persist observer failed after history replacement append")
+	}
+	return nil
+}
+
+type committedCompactionFixture struct {
+	store  *session.Store
+	engine *Engine
+	client *fakeCompactionClient
+	events []Event
+}
+
+func newCommittedCompactionFixture(t *testing.T, observer session.PersistenceObserver) *committedCompactionFixture {
+	t.Helper()
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(observer))
+	if err := store.MarkModelDispatchLocked(session.LockedContract{
+		Model:             "gpt-6-sol",
+		SystemPrompt:      "stale system prompt",
+		HasSystemPrompt:   true,
+		ReviewerPrompt:    "stale reviewer prompt",
+		HasReviewerPrompt: true,
+	}); err != nil {
+		t.Fatalf("lock prompt snapshots: %v", err)
+	}
+	client := &fakeCompactionClient{
+		caps: llm.ProviderCapabilities{
+			ProviderID:               "openai",
+			SupportsResponsesAPI:     true,
+			SupportsResponsesCompact: true,
+			IsOpenAIFirstParty:       true,
+		},
+		compactionResponses: []llm.CompactionResponse{{
+			OutputItems: []llm.ResponseItem{llm.ResponseItem{
+				Type:             llm.ResponseItemTypeCompaction,
+				ID:               textutil.Value("cmp_1"),
+				EncryptedContent: textutil.Value("enc_1"),
+			}},
+			Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+		}},
+	}
+	fixture := &committedCompactionFixture{store: store, client: client}
+	fixture.engine = mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
+		Model:   "gpt-6-sol",
+		OnEvent: func(event Event) { fixture.events = append(fixture.events, event) },
+	})
+	if err := fixture.engine.steer(runtimeTestStepID("step-1"), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
+		t.Fatalf("append seed message: %v", err)
+	}
+	fixture.engine.compactionRuntimeState().SetSoonReminderIssued(true)
+	if err := store.SetCompactionSoonReminderIssued(true); err != nil {
+		t.Fatalf("persist compaction reminder: %v", err)
+	}
+	return fixture
+}
+
+func activeGoalCompactionTestClient() *fakeCompactionClient {
+	return &fakeCompactionClient{compactionResponses: []llm.CompactionResponse{{
+		OutputItems: []llm.ResponseItem{llm.ResponseItem{
+			Type:             llm.ResponseItemTypeCompaction,
+			ID:               textutil.Value("cmp_goal"),
+			EncryptedContent: textutil.Value("enc_goal"),
+		}},
+		Usage: llm.Usage{InputTokens: textutil.Value(1000), OutputTokens: textutil.Value(100), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 1000, MeasurementPoint: llm.ContextMeasurementInput}},
+	}}}
+}
+
+func activeGoalContinuationMessages(items []llm.ResponseItem) []llm.Message {
+	messages := llm.MessagesFromItems(items)
+	out := make([]llm.Message, 0, 1)
+	for _, message := range messages {
+		if message.Role == llm.RoleDeveloper && message.MessageType != nil && *message.MessageType == llm.MessageTypeActiveGoalContinuation {
+			out = append(out, message)
+		}
+	}
+	return out
+}
+
+func assertSingleActiveGoalContinuation(t *testing.T, items []llm.ResponseItem, objective string) {
+	messages := activeGoalContinuationMessages(items)
+	if len(messages) != 1 {
+		t.Fatalf("active-goal continuation count = %d, want 1; messages=%+v", len(messages), messages)
+	}
+	if messageContent(messages[0]) != prompts.RenderActiveGoalContinuationPrompt(objective) {
+		t.Fatalf("active-goal continuation content = %q", messageContent(messages[0]))
+	}
+}
+
+func workflowModeMessagesFromItems(items []llm.ResponseItem) []llm.Message {
+	messages := llm.MessagesFromItems(items)
+	out := make([]llm.Message, 0, 1)
+	for _, message := range messages {
+		if message.Role == llm.RoleDeveloper && message.MessageType != nil && *message.MessageType == llm.MessageTypeWorkflowMode {
+			out = append(out, message)
+		}
+	}
+	return out
+}
+
+func TestAutoCompactionRetries400ByCollapsingShellOutput(t *testing.T) {
+	t.Parallel()
+	store := mustCreateTestSession(t)
+
+	client := &fakeCompactionClient{
+		responses: []llm.Response{
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working")},
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)},
+				},
+				Usage: llm.Usage{InputTokens: textutil.Value(390000), OutputTokens: textutil.Value(1000), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 390000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+			{
+				Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
+				Usage:     llm.Usage{InputTokens: textutil.Value(2000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 2000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+		compactionErrors: []error{
+			&llm.ProviderAPIError{ProviderID: "openai", StatusCode: textutil.Value(400), Code: llm.UnifiedErrorCodeContextLengthOverflow, ProviderCode: "context_length_exceeded", Message: "prompt exceeded"},
+			nil,
+		},
+		compactionResponses: []llm.CompactionResponse{
+			{
+				OutputItems: []llm.ResponseItem{llm.ResponseItem{
+					Type:             llm.ResponseItemTypeCompaction,
+					ID:               textutil.Value("cmp_1"),
+					EncryptedContent: textutil.Value("enc_1"),
+				}},
+				Usage: llm.Usage{InputTokens: textutil.Value(8000), OutputTokens: textutil.Value(500), WindowTokens: 400000, ContextUsage: &llm.ContextUsage{Tokens: 8000, MeasurementPoint: llm.ContextMeasurementInput}},
+			},
+		},
+	}
+
+	largeOutput := json.RawMessage(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)
+	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand, out: largeOutput}}), Config{Model: "gpt-6-luna"})
+
+	msg, err := eng.SubmitUserMessage(context.Background(), "run tools")
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if messageContent(msg) != "done" {
+		t.Fatalf("assistant content = %q, want done", messageContent(msg))
+	}
+	if len(client.compactionCalls) != 2 {
+		t.Fatalf("expected two compact calls (retry after 400), got %d", len(client.compactionCalls))
+	}
+	if len(client.compactionCalls[1].Items) != len(client.compactionCalls[0].Items) {
+		t.Fatalf("expected repair to preserve item count, first=%d second=%d", len(client.compactionCalls[0].Items), len(client.compactionCalls[1].Items))
+	}
+	foundCollapsed := false
+	for _, item := range client.compactionCalls[1].Items {
+		if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID != nil && *item.CallID == "call_1" {
+			foundCollapsed = isCollapsedCompactionOverflowShellOutput(item.Output)
+		}
+	}
+	if !foundCollapsed {
+		t.Fatalf("expected repaired retry to collapse shell output, got %+v", client.compactionCalls[1].Items)
+	}
+}

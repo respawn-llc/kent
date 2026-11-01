@@ -88,10 +88,9 @@ type onboardingFlowState struct {
 }
 
 type onboardingResult struct {
-	Completed            bool
-	CreatedDefaultConfig bool
-	SettingsPath         string
-	EffectiveTheme       string
+	Completed      bool
+	SettingsPath   string
+	EffectiveTheme string
 }
 
 func reviewerEnabled(state *onboardingFlowState) bool {
@@ -104,7 +103,7 @@ func modelFactFor(state *onboardingFlowState, model string) *capabilitypb.ModelF
 
 func modelSupportsLargeContextWindow(state *onboardingFlowState, model string) bool {
 	fact := modelFactFor(state, model)
-	return fact.ContextWindowTokens != nil && *fact.ContextWindowTokens > 0 && fact.LargeWindow != nil && fact.LargeWindow.Tokens > 0
+	return fact.ContextWindowTokens != nil && fact.LargeWindow != nil
 }
 
 func modelSupportsThinking(state *onboardingFlowState, model string) bool {

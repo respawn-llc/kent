@@ -163,8 +163,6 @@ function approvalTargetLabel(
   snapshot: ApprovalSnapshot,
   fallback: ReturnType<typeof useTranslation>["t"],
 ): string {
-  const labels = snapshot.targets
-    .map((target) => target.displayName.trim())
-    .filter((label) => label.length > 0);
+  const labels = snapshot.targets.map((target) => target.displayName.trim());
   return labels.join(", ") || fallback("task.targetUnavailable");
 }

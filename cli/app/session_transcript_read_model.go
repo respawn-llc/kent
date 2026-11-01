@@ -84,11 +84,6 @@ func (m *ongoingTranscriptReadModel) removeSection(kind ongoing.FrameSectionKind
 
 func (m *ongoingTranscriptReadModel) addPendingTool(tool *transcriptpb.ToolStart) {
 	toolCallID := strings.TrimSpace(string(tool.ToolCallId))
-	if toolCallID == "" {
-		panicOngoingTranscriptReadModelDeveloperError("pending_tool_start", "missing tool call id", map[string]any{
-			"tool_name": tool.ToolName,
-		})
-	}
 	if index, exists := m.pendingToolIndex[toolCallID]; exists {
 		m.pendingTools[index].tool = tool
 		m.refreshPendingToolSection(80, 0, "")
@@ -124,17 +119,19 @@ func (m *ongoingTranscriptReadModel) refreshPendingToolSection(width int, spinne
 		width = 80
 	}
 	lines := make([]transcriptrender.Line, 0, len(m.pendingTools))
+	indexes := make([]*int64, 0, len(m.pendingTools))
 	for _, tool := range m.pendingTools {
 		lines = append(lines, transcriptrender.RenderPendingTool(tool.tool, width, themeName, padSpinnerIndicator(pendingToolSpinnerFrame(spinnerFrame))))
+		indexes = append(indexes, tool.tool.OutputIndex)
 	}
 	m.setStyledSection(ongoing.FrameSectionPendingTools, lines)
+	section := m.sections[ongoing.FrameSectionPendingTools]
+	section.OutputIndexes = indexes
+	m.sections[ongoing.FrameSectionPendingTools] = section
 }
 
 func (m *ongoingTranscriptReadModel) applyPendingPrompt(prompt *transcriptpb.Prompt) {
-	if prompt == nil {
-		return
-	}
-	id := parseOngoingToolCallID(transcriptPromptToolCallID(prompt))
+	id := ongoingToolCallID(strings.TrimSpace(transcriptPromptToolCallID(prompt)))
 	if prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 		m.pendingPrompts.remove(id)
 		m.refreshPendingPromptSection(80)
@@ -181,14 +178,6 @@ func (items keyedOngoingLiveItems[K, T]) values() []T {
 		}
 	}
 	return out
-}
-
-func parseOngoingToolCallID(raw string) ongoingToolCallID {
-	id := strings.TrimSpace(string(raw))
-	if id == "" {
-		panicOngoingTranscriptReadModelDeveloperError("pending_tool_call_id", "missing id", nil)
-	}
-	return ongoingToolCallID(id)
 }
 
 func panicOngoingTranscriptReadModelDeveloperError(operation, reason string, facts map[string]any) {

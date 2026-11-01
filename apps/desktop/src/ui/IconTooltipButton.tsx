@@ -1,7 +1,7 @@
 import type { MouseEventHandler, ReactNode } from "react";
 
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
+import { ControlTooltip } from "./ControlTooltip";
 import { Spinner } from "./Spinner";
 
 export type IconTooltipButtonProps = Readonly<{
@@ -34,25 +34,18 @@ export function IconTooltipButton({
   className,
 }: IconTooltipButtonProps) {
   return (
-    <TooltipProvider delayDuration={0}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex">
-            <Button
-              className={className}
-              aria-label={label}
-              aria-busy={loading}
-              disabled={disabled}
-              onClick={onClick}
-              size={size}
-              variant={variant}
-            >
-              {loading ? <Spinner size="sm" /> : children}
-            </Button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{tooltip}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <ControlTooltip label={tooltip}>
+      <Button
+        className={className}
+        aria-label={label}
+        aria-busy={loading}
+        disabled={disabled}
+        onClick={onClick}
+        size={size}
+        variant={variant}
+      >
+        {loading ? <Spinner size="sm" /> : children}
+      </Button>
+    </ControlTooltip>
   );
 }

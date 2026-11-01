@@ -44,4 +44,9 @@ message SessionSelector {
 
 message SessionSelfTargetDetails {
   SessionTargetContext session_target = 2 [(buf.validate.field).required = true];
+  option (buf.validate.message).cel = {
+    id: "kent.shared.self_target_resolved"
+    message: "self-target rejection requires a resolved Session identity"
+    expression: "has(this.session_target.canonical_session_id) || has(this.session_target.projected)"
+  };
 }

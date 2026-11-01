@@ -13,6 +13,7 @@ import (
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -222,7 +223,7 @@ func TestAskCtrlCInterruptsRuntimeWithoutSubmittingPromptCancellation(t *testing
 	runtimeClient := &runtimeControlFakeClient{}
 	model := newProjectedTestUIModel(runtimeClient)
 	model.promptAnswers = newTranscriptPromptAnswerer(context.Background(), control)
-	model.sessionID = ongoingTestSessionID().String()
+	model.setKnownSessionTarget(ongoingTestSessionID().String())
 	model.setRuntimeActivityBusyForTest(true)
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 		testQuestionPrompt("ask-interrupt-order", "Proceed?", "Yes", "No"),
@@ -267,6 +268,60 @@ func TestAskDeliveryRejectionKeepsQuestionActivity(t *testing.T) {
 	}
 	if len(control.batchRequests) != 0 {
 		t.Fatalf("setup failure recorded %d batch requests, want zero", len(control.batchRequests))
+	}
+}
+
+func TestAskUnavailableDeliveryKeepsPromptGroupAndDraft(t *testing.T) {
+	disableTransientStatusClearForTest(t)
+	for _, test := range []struct {
+		name     string
+		question string
+		surface  uiSurface
+	}{
+		{name: "inline", question: "Choose", surface: uiSurfaceOngoingTranscript},
+		{name: "dedicated", question: strings.Repeat("Question paragraph.\n\n", 20), surface: uiSurfaceAsk},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := sizedTestUIModel(newProjectedStaticUIModel(), 80, 10)
+			model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
+				testQuestionPrompt("unavailable-delivery", test.question, "Continue"),
+			)})
+			model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
+				testQuestionPrompt("queued-after-unavailable", "Next", "Continue"),
+			)})
+			model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+			model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("retry draft")})
+			current := model.ask.current
+			surface := model.surface()
+			if surface != test.surface {
+				t.Fatalf("prompt surface = %v, want %v", surface, test.surface)
+			}
+			model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+			if model.ask.current != current || len(model.ask.queue) != 1 || testAskInput(model) != "retry draft" || model.surface() != surface {
+				t.Fatal("unavailable delivery advanced the prompt group or discarded the draft/surface")
+			}
+			if model.activity != uiActivityQuestion || model.inputMode() != uiInputModeAsk || testPromptAnswerDeliveryActive(model) {
+				t.Fatal("unavailable delivery did not leave the active prompt actionable")
+			}
+			if model.transientStatusKind != uiStatusNoticeError || model.transientStatus == "" {
+				t.Fatal("unavailable delivery did not surface an error")
+			}
+		})
+	}
+}
+
+func TestAskInvalidIdentityKeepsPromptPending(t *testing.T) {
+	disableTransientStatusClearForTest(t)
+	model, control := newProjectedPromptTestUIModel(t)
+	prompt := testQuestionPrompt("invalid-identity", "Choose", "Continue")
+	prompt.GetQuestion().SessionId = ""
+	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if testActiveAsk(model) == nil || model.inputMode() != uiInputModeAsk || model.activity != uiActivityQuestion {
+		t.Fatal("invalid identity dismissed the prompt")
+	}
+	if model.transientStatusKind != uiStatusNoticeError || model.transientStatus == "" || len(control.batchRequests) != 0 {
+		t.Fatal("invalid identity did not report setup failure without sending an answer")
 	}
 }
 
@@ -357,7 +412,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	model.promptAnswers = newTranscriptPromptAnswerer(ctx, control)
 	prompt := testQuestionPrompt("ask-old-session", "Proceed?", "Yes", "No")
-	model.sessionID = transcriptPromptSessionID(prompt)
+	model.setKnownSessionTarget(transcriptPromptSessionID(prompt))
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
 
 	next, delivery := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -382,7 +437,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 
 func TestAskSessionReplacementRunsQueuedProjectionBeforeReplacementPrompt(t *testing.T) {
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
-	model.sessionID = runtimeids.NewSessionID().String()
+	model.setKnownSessionTarget(runtimeids.NewSessionID().String())
 	next, firstProjection := model.Update(askEventMsg{event: testQuestionAskEvent(
 		"ask-old-current",
 		"Old current?",

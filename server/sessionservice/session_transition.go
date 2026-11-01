@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
@@ -56,10 +56,7 @@ func initialSessionInput(meta session.Meta, transitionInput string) string {
 func resolveSessionTransition(_ context.Context, req sessionTransitionResolveRequest) (*sessionlaunchpb.SessionDirective, error) {
 	switch req.Transition.Action {
 	case sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_NEW_SESSION:
-		prompt, err := sessionInitialPromptMetadata(req.Transition.InitialPrompt, req.Transition.InitialPromptHistoryRecorded)
-		if err != nil {
-			return &sessionlaunchpb.SessionDirective{}, err
-		}
+		prompt := sessionInitialPromptMetadata(req.Transition.InitialPrompt, req.Transition.InitialPromptHistoryRecorded)
 		origin := serverapi.IndependentSessionCreateOrigin()
 		if req.Transition.PreviousSessionID != nil {
 			origin = serverapi.PreviousSessionCreateOrigin(*req.Transition.PreviousSessionID)
@@ -109,10 +106,7 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
 	}
 	forkID := runtimeids.SessionIDFromProto(forkedStore.Meta().SessionID)
-	prompt, err := sessionInitialPromptMetadata(req.Transition.InitialPrompt, req.Transition.InitialPromptHistoryRecorded)
-	if err != nil {
-		return &sessionlaunchpb.SessionDirective{}, errors.Join(err, forkedStore.RemoveDurable())
-	}
+	prompt := sessionInitialPromptMetadata(req.Transition.InitialPrompt, req.Transition.InitialPromptHistoryRecorded)
 	return protoapi.SessionLaunchDirectiveToProto(
 		serverapi.OpenExistingSessionLaunchIntent(forkID),
 		sessionLaunchPreparation(prompt, req.Transition.InitialInput, sessionlaunchpb.SessionAuthPreparation_SESSION_AUTH_PREPARATION_KEEP_CURRENT_AUTH),
@@ -127,13 +121,10 @@ func sessionLaunchPreparation(prompt *sessionlaunchpb.SessionInitialPromptMetada
 	return &sessionlaunchpb.SessionLaunchPreparation{InitialPrompt: prompt, InputPolicy: policy, Auth: auth}
 }
 
-func sessionInitialPromptMetadata(text string, historyRecorded bool) (*sessionlaunchpb.SessionInitialPromptMetadata, error) {
+func sessionInitialPromptMetadata(text string, historyRecorded bool) *sessionlaunchpb.SessionInitialPromptMetadata {
 	if strings.TrimSpace(text) == "" {
-		if historyRecorded {
-			return nil, errors.New("initial prompt history cannot be recorded without an initial prompt")
-		}
-		return nil, nil
+		return nil
 	}
 	prompt := &sessionlaunchpb.SessionInitialPromptMetadata{Text: text, HistoryRecorded: historyRecorded}
-	return prompt, nil
+	return prompt
 }

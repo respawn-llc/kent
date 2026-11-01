@@ -1,5 +1,12 @@
 import { AnimatePresence } from "motion/react";
-import { useLayoutEffect, useRef, type CSSProperties, type RefObject, type ReactNode } from "react";
+import {
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  type CSSProperties,
+  type RefObject,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useAppServices } from "@/app-facade";
 
@@ -44,10 +51,18 @@ export function ChatComposer({
   const { t } = useTranslation();
   const { nativeBridge } = useAppServices();
   const clipboard = useChatClipboard();
-  const { composer, activity, stoppable, promptPicker, onEditorKeyDown } = useComposerSurface();
+  const { composer, activity, stoppable, promptPicker, speech, onEditorKeyDown } = useComposerSurface();
   const root = useRef<HTMLDivElement>(null);
   const localEditor = useRef<HTMLTextAreaElement>(null);
   const editor = editorRef ?? localEditor;
+  useImperativeHandle(
+    speech.editorRef,
+    () => {
+      if (editor.current === null) throw new Error("Composer editor is not mounted.");
+      return editor.current;
+    },
+    [editor],
+  );
   const pickerOpen = composer.pickerOpen;
   const outgoingPending = composer.outgoing.filter((input) => input.placement === "pending");
   const hasPending = composer.pending.items.length + outgoingPending.length > 0;
@@ -235,6 +250,7 @@ function ComposerControls({
   settingsChip?: ReactNode;
   controls?: ReactNode;
 }>) {
+  const { speech } = useComposerSurface();
   return (
     <div className="chat-composer-controls">
       <div className="chat-composer-settings">
@@ -244,6 +260,7 @@ function ComposerControls({
       <div className="chat-composer-actions">
         {composer.target?.kind === "session" && <SessionChatContext compact={composer.compact} />}
         <ComposerStopButton />
+        {speech.control}
         <ComposerSendButton />
       </div>
     </div>

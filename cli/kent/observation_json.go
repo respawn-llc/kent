@@ -277,9 +277,6 @@ func projectTaskObservationJSON(targetTaskID string, response *taskpb.ObserveSuc
 			if interrupted {
 				detail = observed.GetInterrupted()
 			}
-			if detail.Failure == nil {
-				return observationJSONEnvelope{}, 1, errors.New("failure outcome has no failure payload")
-			}
 			outcomes = append(outcomes, projectFailure(interrupted, detail.Failure.Reason, detail.Failure.Diagnostic, detail.SessionId, detail.ScriptPath, detail.NodeKey))
 			if !interrupted {
 				status, exitCode = "error", 1

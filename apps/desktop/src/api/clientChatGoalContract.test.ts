@@ -1,17 +1,59 @@
 import { describe, expect, it } from "bun:test";
-import { create, decode } from "@app/server-api-contract";
+import { create, decode, validate } from "@app/server-api-contract";
 import {
   GoalMutationResultKind,
   GoalService,
   GoalSetErrorSchema,
   GoalSetResultSchema,
   GoalStatus,
+  GoalMutationRequestSchema,
+  GoalSetRequestSchema,
+  GoalExecutionPolicy,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
 import { ChatOperationError } from "./chatErrors";
 
 const sessionID = "123e4567-e89b-42d3-a456-426614174000";
+
+describe("Goal request Step identity", () => {
+  it("accepts only canonical UUID-v4 Step IDs", () => {
+    const canonical = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    for (const stepId of [
+      canonical,
+      ` ${canonical} `,
+      "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+      "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+      "not-a-uuid",
+      "aaaaaaaa-aaaa-1aaa-8aaa-aaaaaaaaaaaa",
+    ]) {
+      const mutation = create(GoalMutationRequestSchema, {
+        sessionId: { value: { case: "sessionId", value: sessionID } },
+        actor: "agent",
+        stepId,
+      });
+      const set = create(GoalSetRequestSchema, {
+        target: {
+          target: {
+            case: "session",
+            value: { sessionId: { value: { case: "sessionId", value: sessionID } } },
+          },
+        },
+        objective: "goal",
+        actor: "agent",
+        stepId,
+        executionPolicy: GoalExecutionPolicy.PRESERVE_RUNTIME_STATE,
+      });
+      if (stepId === canonical) {
+        expect(() => validate(GoalMutationRequestSchema, mutation)).not.toThrow();
+        expect(() => validate(GoalSetRequestSchema, set)).not.toThrow();
+      } else {
+        expect(() => validate(GoalMutationRequestSchema, mutation)).toThrow();
+        expect(() => validate(GoalSetRequestSchema, set)).toThrow();
+      }
+    }
+  });
+});
 
 describe("Desktop Chat Goal Set contract", () => {
   it.each([

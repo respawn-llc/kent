@@ -1,7 +1,6 @@
 package clientui
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,16 +24,6 @@ type ApprovalOption struct {
 type FileAccessTarget struct {
 	RequestedPath string `json:"requested_path"`
 	ResolvedPath  string `json:"resolved_path"`
-}
-
-func (t FileAccessTarget) Validate() error {
-	if strings.TrimSpace(t.RequestedPath) == "" {
-		return errors.New("requested path is required")
-	}
-	if strings.TrimSpace(t.ResolvedPath) == "" {
-		return errors.New("resolved path is required")
-	}
-	return nil
 }
 
 func FormatFileAccessApprovalMarkdown(targets []FileAccessTarget) string {

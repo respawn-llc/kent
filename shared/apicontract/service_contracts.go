@@ -2,6 +2,7 @@ package apicontract
 
 import (
 	"context"
+	"io"
 
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
@@ -9,7 +10,6 @@ import (
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -20,6 +20,7 @@ import (
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	speechpb "core/shared/protoapi/gen/kent/api/speech"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -59,12 +60,16 @@ type CapabilityFactsService interface {
 	GetFacts(ctx context.Context, req *capabilitypb.GetFactsRequest) (*capabilitypb.Facts, error)
 }
 
+type SpeechService interface {
+	GetAvailability(context.Context, *emptypb.Empty) (*speechpb.Availability, error)
+	Transcribe(context.Context, string, io.ReadCloser) *speechpb.UploadResult
+}
+
 type ChatContextService interface {
 	GetChatContext(ctx context.Context, req *chatcontextpb.GetRequest) (*chatcontextpb.GetSuccess, error)
 }
 
 type ChatMutationService interface {
-	SubmitUserShellCommand(ctx context.Context, req *chatshellpb.ShellCommandRequest) error
 	Steer(ctx context.Context, req *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error)
 	Queue(ctx context.Context, req *chatpb.QueueRequest) (*chatpb.InputMutationSuccess, error)
 	Compact(ctx context.Context, req *chatpb.CompactRequest) (*chatpb.CompactionMutationSuccess, error)
@@ -140,7 +145,6 @@ type RuntimeControlService interface {
 	AppendCommittedEntry(ctx context.Context, req *transcriptpb.AppendCommittedEntryRequest) error
 	SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error)
 	CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error
-	Interrupt(ctx context.Context, req *runtimepb.InterruptRequest) (*runtimepb.ReadModelUpdate, error)
 	RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error
 	ShowGoal(ctx context.Context, req *runtimepb.GoalShowRequest) (*runtimepb.GoalShowSuccess, error)
 	PauseGoal(ctx context.Context, req *runtimepb.GoalMutationRequest) (*runtimepb.GoalMutationSuccess, error)

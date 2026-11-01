@@ -56,12 +56,6 @@ func (s *executionPromptStore) subscribePromptFollowUp(
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
 	}
-	if stepID.IsZero() {
-		return nil, errors.New("step id is required")
-	}
-	if err := toolCallID.Validate(); err != nil {
-		return nil, err
-	}
 	key, err := s.promptFollowUpKey(stepID, toolCallID)
 	if err != nil {
 		return nil, err

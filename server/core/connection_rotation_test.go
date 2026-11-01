@@ -6,10 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/protoapi"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -57,7 +58,7 @@ model = "operator-model"
 	create := func(client apicontract.SessionLaunchService, role *string) {
 		result, err := client.PlanSession(t.Context(), &sessionlaunchpb.SessionPlanRequest{
 			Mode:   sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
-			Intent: intent, Overrides: &sessionlaunchpb.RunPromptOverrides{AgentRole: role},
+			Intent: intent, Overrides: &invocationpb.RunPromptOverrides{AgentRole: role},
 		})
 		if err != nil {
 			t.Error(err)

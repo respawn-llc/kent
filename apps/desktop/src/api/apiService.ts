@@ -1,4 +1,5 @@
 import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import type { SpeechAvailable } from "./speech";
 import type * as Stream from "effect/Stream";
 import type { ProjectObservation } from "./projectEvents";
 import type {
@@ -100,6 +101,7 @@ export type ApiSubscription = Readonly<{
 }>;
 
 export interface ApiService {
+  speechAvailability(): Promise<SpeechAvailable | null>;
   getSubscriptionConnections(): Promise<readonly SubscriptionConnection[]>;
   getSubscriptionBinding(sessionID: string): Promise<SubscriptionBinding | null>;
   getSubscriptionUsage(connectionID: string): Promise<SubscriptionUsage | null>;

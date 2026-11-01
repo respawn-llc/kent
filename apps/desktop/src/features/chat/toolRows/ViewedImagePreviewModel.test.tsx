@@ -38,6 +38,7 @@ const imageItem: TranscriptToolSlotItem = {
     Locator: { event_sequence: 1, row_ordinal: 0 },
     User: null,
     Assistant: null,
+    ToolCall: null,
     ReasoningTrace: null,
     Notice: null,
     ReviewerFeedback: null,

@@ -26,6 +26,15 @@ export function thinkingShowcaseServices(writeText: (value: string) => Promise<v
   return {
     api: new ApiClient(transport, unavailable),
     initialSettings: browserSettingsFixture,
+    speech: {
+      microphone: "browser",
+      begin: unavailable,
+      retry: unavailable,
+      discard: unavailable,
+      reveal: unavailable,
+      saveCopy: unavailable,
+      limitSound: unavailable,
+    },
     endpoint: "fixture-only",
     homePath: "/fixture-only",
     logger: createAppLogger(async (level, message, context = {}) => {

@@ -1,6 +1,9 @@
+export { RecordingControl, type RecordingControlProps } from "./RecordingControl";
+export { fieldActions } from "./fieldActions";
+export { ControlTooltip } from "./ControlTooltip";
 export { SharedTextMotion } from "./SharedTextMotion";
+export { projectMarkdownText } from "./taskBodyMarkdownText";
 export { Badge } from "./Badge";
-export { PromptOptionRow } from "./PromptOptionRow";
 export { PromptAccessTargets } from "./PromptAccessTargets";
 export { ScrollRegion } from "./ScrollRegion";
 export { GrowingTextArea } from "./GrowingTextArea";
@@ -65,11 +68,7 @@ export type { IslandTabAction, IslandTabItem, IslandTabsProps } from "./IslandTa
 export { islandSurfaceClassName } from "./islandSurfaceStyles";
 export type { IslandLevel } from "./islandSurfaceStyles";
 export { chromeContentPaddingClassName, nativeChromeContentPaddingClassName } from "./chromePadding";
-export { MarkdownLinkProvider, StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
 export { CollapsibleMarkdownViewport } from "./CollapsibleMarkdownViewport";
-export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";
-export { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
-export type { SyntaxHighlightedCodeProps } from "./SyntaxHighlightedCode";
 export { compactExternalUrlLabel, safeExternalUrl } from "./externalLinks";
 export { readEffectiveTheme, type AppTheme } from "./theme";
 export { cx } from "./classes";
@@ -83,15 +82,6 @@ export {
   useReducedMotion,
   useSystemReducedMotion,
 } from "./motion";
-export {
-  CollapsibleMarkdownField,
-  MarkdownField,
-  type CollapsibleMarkdownFieldProps,
-  type MarkdownFieldHeightClamp,
-  type MarkdownFieldProps,
-  type MarkdownFieldSubmitIntent,
-  type MarkdownFieldTaskListInteraction,
-} from "./MarkdownField";
 export {
   consumeTextFieldSubmitShortcut,
   isTextFieldSubmitShortcut,

@@ -47,10 +47,10 @@ const worktreeOperationKey = (
   sessionID: string,
   kind: "create-target-resolution" | "selector-resolution" | "delete-preview",
   value: string,
-  requireTrimmed = false,
-) => ["worktree", worktreeFact(sessionID), kind, worktreeFact(value, requireTrimmed)] as const;
+) => ["worktree", worktreeFact(sessionID), kind, value] as const;
 
 export const queryKeys = {
+  speechAvailability: ["speech", "availability"],
   subscriptionCatalog: () => ["subscription", "catalog"] as const,
   subscriptionBinding: (sessionID: string) => ["subscription", "binding", sessionID] as const,
   subscriptionUsage: (connectionID: string) => ["subscription", "usage", connectionID] as const,
@@ -196,7 +196,7 @@ export const queryKeys = {
   worktreeList: (sessionID: string, owner: WorktreeListReadOwner = "sidebar") =>
     ["worktree", worktreeFact(sessionID), "list", owner] as const,
   worktreeCreateTargetResolution: (sessionID: string, target: string) =>
-    worktreeOperationKey(sessionID, "create-target-resolution", target, true),
+    worktreeOperationKey(sessionID, "create-target-resolution", worktreeFact(target, true)),
   worktreeSelectorResolution: (sessionID: string, selector: string) =>
     worktreeOperationKey(sessionID, "selector-resolution", selector),
   worktreeDeletePreview: (sessionID: string, selector: string) =>

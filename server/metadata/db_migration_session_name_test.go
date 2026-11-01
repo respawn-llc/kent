@@ -1,14 +1,12 @@
 package metadata
 
 import (
-	"path/filepath"
 	"testing"
 )
 
-func TestSessionNameMigrationPreservesSessionFactsAcrossReopen(t *testing.T) {
+func TestSessionNameMigrationPreservesSessionFactsAcrossRepeatedMigrations(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, path, 94)
+	db, err := openDatabaseAtVersionForTest(t, 94)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,23 +26,21 @@ INSERT INTO sessions (
     'original prompt', '{"conversation_established":true}', 1234, 1000, 2000)`,
 			fixture.id, "sessions/"+fixture.id, fixture.name)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
 	for range 2 {
-		store, err := OpenAtPath(root, path)
-		if err != nil {
-			t.Fatal(err)
-		}
+		store := migrateMetadataTestStore(t, root, db)
 		for _, id := range []string{"unnamed-session", "named-session"} {
-			var name *string
+			record, err := store.ResolvePersistedSession(t.Context(), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			name := record.Meta.Name
 			var project, artifact, draft, protected, preview, metadata string
 			var sequence, created, updated int64
 			if err := store.DB().QueryRowContext(t.Context(), `
-SELECT name, project_id, artifact_relpath, input_draft, protected_input_draft,
+SELECT project_id, artifact_relpath, input_draft, protected_input_draft,
     first_prompt_preview, metadata_json, last_sequence, created_at_unix_ms, updated_at_unix_ms
 FROM sessions WHERE id = ?`, id).Scan(
-				&name, &project, &artifact, &draft, &protected, &preview, &metadata, &sequence, &created, &updated,
+				&project, &artifact, &draft, &protected, &preview, &metadata, &sequence, &created, &updated,
 			); err != nil {
 				t.Fatal(err)
 			}
@@ -60,9 +56,6 @@ FROM sessions WHERE id = ?`, id).Scan(
 				sequence != 1234 || created != 1000 || updated != 2000 {
 				t.Fatalf("migration changed unrelated Session facts for %s", id)
 			}
-		}
-		if err := store.Close(); err != nil {
-			t.Fatal(err)
 		}
 	}
 }

@@ -4,10 +4,90 @@ import (
 	"testing"
 
 	"core/cli/app/internal/worktreeui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestNewSessionWorktreeDeletionExcludesDistinctGitMainWorktree(t *testing.T) {
+	entry := &worktreepb.ListEntry{
+		Topology: &worktreepb.TopologyEntry{Topology: &worktreepb.TopologyEntry_External{External: &worktreepb.ExternalFacts{
+			Git: &worktreepb.GitFacts{CanonicalRoot: "/repo/main", IsMainWorktree: true, PathAvailable: true},
+		}}},
+		Projection: &worktreepb.ListProjection{Selector: "/repo/main"},
+	}
+	client := &worktreeCommandTestClient{
+		workspaceResp: &worktreepb.WorkspaceListSuccess{WorkspaceId: "workspace", Worktrees: []*worktreepb.ListEntry{entry}},
+	}
+	model := newWorktreeTestModel(t, client)
+	model.engine = nil
+	model.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{ProjectId: "project", WorkspaceId: "workspace"}}
+	_, cmd := model.inputController().handleWorktreeCommand("")
+	model = applyWorktreeCmdMessages(t, model, cmd)
+	model.worktrees.selection = 1
+	if worktreeDeleteActionsAvailableForSelection(model) {
+		t.Fatal("Git main worktree offered deletion")
+	}
+	_, cmd = model.inputController().startSelectedWorktreeDelete(false)
+	applyWorktreeCmdMessages(t, model, cmd)
+	if len(client.previewRequests) != 0 || len(client.deleteRequests) != 0 {
+		t.Fatal("Git main worktree keyboard action requested deletion")
+	}
+}
+
+func TestNewSessionWorktreeBrowseSelectLeaveAndDeleteStayUncreated(t *testing.T) {
+	entry := testRegisteredWorktreeListEntry("wt-feature", "feature", "/wt/feature", "feature", false, false, true, true)
+	entry.Projection.Switch = nil
+	entry.Projection.DeletePreview = nil
+	client := &worktreeCommandTestClient{
+		workspaceResp: &worktreepb.WorkspaceListSuccess{WorkspaceId: "workspace", Worktrees: []*worktreepb.ListEntry{entry}},
+		previewResp:   &worktreepb.DeletePreviewSuccess{Worktree: entry.Topology, DeletionSelector: "wt-feature"},
+		deleteResp: &worktreepb.DeleteSuccess{Cleanup: &worktreepb.BranchCleanupOutcome{
+			Kind: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_REQUESTED,
+		}},
+	}
+	model := newWorktreeTestModel(t, client)
+	model.engine = nil
+	model.presentationTarget = &uiNewSessionTarget{creation: &chatpb.NewChatTarget{ProjectId: "project", WorkspaceId: "workspace"}}
+	_, cmd := model.inputController().handleWorktreeCommand("")
+	model = applyWorktreeCmdMessages(t, model, cmd)
+	if len(model.worktrees.entries) != 1 || len(client.listRequests) != 0 || len(client.workspaceRequests) != 1 {
+		t.Fatal("New Session picker did not browse workspace scope")
+	}
+	model.worktrees.selection = 1
+	_, cmd = model.inputController().handleWorktreeOverlayKey(tea.KeyMsg{Type: tea.KeyEnter})
+	applyWorktreeCmdMessages(t, model, cmd)
+	if model.newChatTarget().GetWorktreeSelector() != "wt-feature" || len(client.enterRequests) != 0 {
+		t.Fatal("selection did not remain a future creation input")
+	}
+	_, cmd = model.inputController().handleWorktreeCommand("leave")
+	applyWorktreeCmdMessages(t, model, cmd)
+	if model.newChatTarget().WorktreeSelector != nil || len(client.leaveRequests) != 0 {
+		t.Fatal("leaving a future target mutated a Session")
+	}
+	_, cmd = model.inputController().handleWorktreeCommand("delete wt-feature")
+	model = applyWorktreeCmdMessages(t, model, cmd)
+	if len(client.previewRequests) != 1 || client.previewRequests[0].Scope.GetWorkspace() == nil {
+		t.Fatal("workspace deletion did not obtain an ordinary preview")
+	}
+	cmd = model.worktreeDeleteCmd(model.worktrees.deleteConfirm.target, false)
+	applyWorktreeCmdMessages(t, model, cmd)
+	if len(client.deleteRequests) != 1 || client.deleteRequests[0].Scope.GetWorkspace() == nil || model.newSessionTarget() == nil {
+		t.Fatal("workspace deletion required a Session")
+	}
+	if entry.Projection.Switch != nil || entry.Projection.DeletePreview != nil {
+		t.Fatal("workspace projection was changed into a Session projection")
+	}
+	beforeAdoption := len(client.workspaceRequests)
+	model.setKnownSessionTarget(detailTestSessionID)
+	applyWorktreeCmdMessages(t, model, model.requestWorktreeListCmd())
+	if len(client.workspaceRequests) != beforeAdoption+1 ||
+		client.workspaceRequests[0].ProjectId != client.workspaceRequests[beforeAdoption].ProjectId ||
+		client.workspaceRequests[0].WorkspaceId != client.workspaceRequests[beforeAdoption].WorkspaceId {
+		t.Fatal("identity adoption without observation changed the workspace management scope")
+	}
+}
 
 type worktreeListFixture struct {
 	t     *testing.T
@@ -95,7 +175,7 @@ func TestWorktreeListControllerEnterCreateRowOpensCreateDialogThroughUpdate(t *t
 }
 
 func TestWorktreeListControllerEnterWorktreeSubmitsSwitch(t *testing.T) {
-	client := &worktreeCommandTestClient{listResp: testMainWorktreeListResponse()}
+	client := &worktreeCommandTestClient{workspaceResp: workspaceListFixture(testMainWorktreeListResponse())}
 	fixture := newWorktreeListFixture(t, client)
 	fixture.model.worktrees.selection = 1
 	cmd := fixture.press(tea.KeyMsg{Type: tea.KeyEnter})
@@ -137,10 +217,7 @@ func TestWorktreeListControllerDeleteKeysSetIntent(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected refresh command for delete intent")
 	}
-	wantIdentity, err := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[0])
-	if err != nil {
-		t.Fatalf("SelectionIdentityForItem: %v", err)
-	}
+	wantIdentity := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[0])
 	target := fixture.model.worktrees.intent.DeleteTarget
 	if !fixture.model.worktrees.intent.OpenDelete ||
 		target.kind != uiWorktreeDeleteIntentTargetIdentity ||
@@ -224,13 +301,15 @@ func TestWorktreeListControllerMainWorkspaceDeleteKeysShowNotice(t *testing.T) {
 }
 
 func TestWorktreeListDeleteIntentSurvivesSelectorChangeDuringRefresh(t *testing.T) {
-	fixture := newWorktreeListFixture(t, nil)
+	entry := testRefreshedWorktreeListResponse().Worktrees[1]
+	fixture := newWorktreeListFixture(t, &worktreeCommandTestClient{previewResp: &worktreepb.DeletePreviewSuccess{Worktree: entry.Topology, DeletionSelector: entry.Projection.Selector}})
 	fixture.model.worktrees.selection = 1
 	fixture.press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	fixture.update(worktreeListDoneMsg{
-		token: fixture.model.worktreeListGeneration,
-		resp:  testRefreshedWorktreeListResponse(),
+	cmd := fixture.update(worktreeListDoneMsg{
+		token:     fixture.model.worktreeListGeneration,
+		workspace: &worktreepb.WorkspaceListSuccess{Worktrees: testRefreshedWorktreeListResponse().Worktrees},
 	})
+	fixture.model = applyWorktreeCmdMessages(t, fixture.model, cmd)
 	if fixture.model.worktrees.phase != uiWorktreeOverlayPhaseDeleteConfirm {
 		t.Fatalf("phase = %q, want delete confirmation", fixture.model.worktrees.phase)
 	}
@@ -238,8 +317,8 @@ func TestWorktreeListDeleteIntentSurvivesSelectorChangeDuringRefresh(t *testing.
 	if worktreeui.WorktreeID(target) != "wt-feature" {
 		t.Fatalf("delete target worktree id = %q, want wt-feature", worktreeui.WorktreeID(target))
 	}
-	if target.Entry.Projection.Selector != "feature-renamed" {
-		t.Fatalf("delete target selector = %q, want feature-renamed", target.Entry.Projection.Selector)
+	if target.DeletePreview.DeletionSelector != "feature-renamed" {
+		t.Fatalf("delete target selector = %q, want feature-renamed", target.DeletePreview.DeletionSelector)
 	}
 }
 
@@ -248,19 +327,20 @@ func TestWorktreeSlashDeleteResolvesSelectorsWithServer(t *testing.T) {
 		t.Run(selector, func(t *testing.T) {
 			listResponse := testLinkedWorktreeListResponse()
 			client := &worktreeCommandTestClient{
-				listResp:     listResponse,
-				selectorResp: testSelectorPreview(listResponse.Worktrees[1]),
+				workspaceResp: workspaceListFixture(listResponse),
+				previewResp:   testDeletePreview(listResponse.Worktrees[1]),
 			}
 			model := newWorktreeTestModel(t, client)
+			model.statusConfig.ExecutionTarget = listResponse.Target
 
 			next, cmd := model.inputController().handleWorktreeCommand("delete " + selector)
 			updated := applyWorktreeCmdMessages(t, next.(*uiModel), cmd)
 
-			if len(client.selectorRequests) != 1 {
-				t.Fatalf("selector requests = %+v, want one authoritative resolution", client.selectorRequests)
+			if len(client.previewRequests) != 1 {
+				t.Fatalf("preview requests = %+v, want one authoritative resolution", client.previewRequests)
 			}
-			if got := client.selectorRequests[0]; got.SessionId.GetSessionId() != "session-1" || got.Selector != selector {
-				t.Fatalf("selector request = %+v, want session-scoped selector %q", got, selector)
+			if got := client.previewRequests[0]; got.Scope.GetWorkspace() == nil || got.Selector != selector {
+				t.Fatalf("preview request = %+v, want workspace-scoped selector %q", got, selector)
 			}
 			if updated.worktrees.phase != uiWorktreeOverlayPhaseDeleteConfirm {
 				t.Fatalf("phase = %q, want delete confirmation", updated.worktrees.phase)
@@ -277,8 +357,8 @@ func TestWorktreeSlashDeleteRejectsResolvedMainWorkspace(t *testing.T) {
 		t.Run(selector, func(t *testing.T) {
 			listResponse := testMainWorktreeListResponse()
 			client := &worktreeCommandTestClient{
-				listResp:     listResponse,
-				selectorResp: testSelectorPreview(listResponse.Worktrees[0]),
+				workspaceResp: workspaceListFixture(listResponse),
+				previewResp:   testDeletePreview(listResponse.Worktrees[0]),
 			}
 			model := newWorktreeTestModel(t, client)
 
@@ -299,20 +379,21 @@ func TestWorktreeSlashDeleteKeepsResolvedTopologyAndListedCurrentFact(t *testing
 	listResponse := testLinkedWorktreeListResponse()
 	resolvedEntry := testResolvedFeatureWorktreeEntry()
 	client := &worktreeCommandTestClient{
-		listResp:     listResponse,
-		selectorResp: testSelectorPreview(resolvedEntry),
+		workspaceResp: workspaceListFixture(listResponse),
+		previewResp:   testDeletePreview(resolvedEntry),
 	}
 	model := newWorktreeTestModel(t, client)
+	model.statusConfig.ExecutionTarget = listResponse.Target
 
 	next, cmd := model.inputController().handleWorktreeCommand("delete wt-feature")
 	updated := applyWorktreeCmdMessages(t, next.(*uiModel), cmd)
 
 	target := updated.worktrees.deleteConfirm.target
 	requireResolvedFeatureTopology(t, target)
-	if !target.IsCurrent || !target.Entry.Projection.IsCurrent {
+	if !target.IsCurrent {
 		t.Fatalf("delete target = %+v, want current fact preserved from list", target)
 	}
-	if got := updated.worktrees.entries[1]; got.CanonicalRoot != target.CanonicalRoot || got.Entry.Projection.Selector != target.Entry.Projection.Selector {
+	if got := updated.worktrees.entries[1]; got.CanonicalRoot != target.CanonicalRoot {
 		t.Fatalf("listed target = %+v, want reconciliation with resolved target", got)
 	}
 }
@@ -320,7 +401,7 @@ func TestWorktreeSlashDeleteKeepsResolvedTopologyAndListedCurrentFact(t *testing
 func TestAbandonedWorktreeDeleteResolutionCannotReopenConfirmation(t *testing.T) {
 	listResponse := testLinkedWorktreeListResponse()
 	client := &worktreeCommandTestClient{
-		selectorResp: testSelectorPreview(listResponse.Worktrees[1]),
+		previewResp: testDeletePreview(listResponse.Worktrees[1]),
 	}
 	fixture := newWorktreeListFixture(t, client)
 	resolveCmd := fixture.beginSelectorDelete("wt-feature")
@@ -340,7 +421,7 @@ func TestAbandonedWorktreeDeleteResolutionCannotReopenConfirmation(t *testing.T)
 func TestNewListDeleteIntentSupersedesPendingSelectorResolution(t *testing.T) {
 	listResponse := testLinkedWorktreeListResponse()
 	client := &worktreeCommandTestClient{
-		selectorResp: testSelectorPreview(listResponse.Worktrees[1]),
+		previewResp: testDeletePreview(listResponse.Worktrees[1]),
 	}
 	fixture := newWorktreeListFixture(t, client)
 	resolveCmd := fixture.beginSelectorDelete("wt-feature")
@@ -352,10 +433,7 @@ func TestNewListDeleteIntentSupersedesPendingSelectorResolution(t *testing.T) {
 	if fixture.model.worktrees.phase != uiWorktreeOverlayPhaseList {
 		t.Fatalf("phase = %q, want newer list delete intent to retain ownership", fixture.model.worktrees.phase)
 	}
-	wantIdentity, err := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[1])
-	if err != nil {
-		t.Fatalf("SelectionIdentityForItem: %v", err)
-	}
+	wantIdentity := worktreeui.SelectionIdentityForItem(fixture.model.worktrees.entries[1])
 	if fixture.model.worktrees.intent.DeleteTarget.identity != wantIdentity {
 		t.Fatalf("delete intent = %+v, want selected current worktree", fixture.model.worktrees.intent)
 	}
@@ -365,8 +443,8 @@ func TestListRefreshCannotOverwriteResolvedDeleteTopology(t *testing.T) {
 	listResponse := testLinkedWorktreeListResponse()
 	resolvedEntry := testResolvedFeatureWorktreeEntry()
 	client := &worktreeCommandTestClient{
-		listResp:     listResponse,
-		selectorResp: testSelectorPreview(resolvedEntry),
+		workspaceResp: workspaceListFixture(listResponse),
+		previewResp:   testDeletePreview(resolvedEntry),
 	}
 	fixture := newWorktreeListFixture(t, client)
 	resolveCmd := fixture.beginSelectorDelete("wt-feature")
@@ -399,8 +477,8 @@ func TestUnorderedListWithoutResolvedIdentityCannotDismissDeleteConfirmation(t *
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &worktreeCommandTestClient{
-				listResp:     tc.response,
-				selectorResp: testSelectorPreview(resolvedEntry),
+				workspaceResp: workspaceListFixture(tc.response),
+				previewResp:   testDeletePreview(resolvedEntry),
 			}
 			fixture := newWorktreeListFixture(t, client)
 			resolveCmd := fixture.beginSelectorDelete("wt-feature")
@@ -421,7 +499,7 @@ func TestUnorderedListWithoutResolvedIdentityCannotDismissDeleteConfirmation(t *
 func TestClosedWorktreeDeleteResolutionCannotOpenReplacementOverlay(t *testing.T) {
 	listResponse := testLinkedWorktreeListResponse()
 	client := &worktreeCommandTestClient{
-		selectorResp: testSelectorPreview(listResponse.Worktrees[1]),
+		previewResp: testDeletePreview(listResponse.Worktrees[1]),
 	}
 	model := newWorktreeTestModel(t, client)
 	model.openWorktreeOverlay(uiWorktreeOpenIntent{})
@@ -438,7 +516,7 @@ func TestClosedWorktreeDeleteResolutionCannotOpenReplacementOverlay(t *testing.T
 
 func TestClosedWorktreeListResultCannotHydrateReplacementOverlay(t *testing.T) {
 	client := &worktreeCommandTestClient{
-		listResp: &worktreepb.ListSuccess{
+		workspaceResp: &worktreepb.WorkspaceListSuccess{
 			Worktrees: []*worktreepb.ListEntry{
 				testRegisteredWorktreeListEntry("wt-stale", "stale", "/wt/stale", "stale", false, false, true, true),
 			},
@@ -470,7 +548,8 @@ func TestWorktreeListRefreshPreservesSelectionAndDeleteTargetByKentID(t *testing
 		uiWorktreeDeleteTargetAuthorityListed,
 	)
 
-	err := fixture.model.applyWorktreeListResponse(testRefreshedWorktreeListResponse())
+	fixture.model.recordWorktreeSelection()
+	err := fixture.model.applyWorktreeEntries(testRefreshedWorktreeListResponse().Worktrees)
 	if err != nil {
 		t.Fatalf("applyWorktreeListResponse: %v", err)
 	}
@@ -487,10 +566,14 @@ func TestWorktreeListRefreshPreservesSelectionAndDeleteTargetByKentID(t *testing
 	}
 }
 
-func testSelectorPreview(entry *worktreepb.ListEntry) *worktreepb.SelectorResolveSuccess {
-	return &worktreepb.SelectorResolveSuccess{
-		Worktree: entry,
+func testDeletePreview(entry *worktreepb.ListEntry) *worktreepb.DeletePreviewSuccess {
+	return &worktreepb.DeletePreviewSuccess{
+		Worktree: entry.Topology, DeletionSelector: entry.Projection.Selector,
 	}
+}
+
+func workspaceListFixture(response *worktreepb.ListSuccess) *worktreepb.WorkspaceListSuccess {
+	return &worktreepb.WorkspaceListSuccess{WorkspaceId: response.GetTarget().GetWorkspaceId(), Worktrees: response.Worktrees}
 }
 
 func testResolvedFeatureWorktreeEntry() *worktreepb.ListEntry {
@@ -511,7 +594,7 @@ func requireResolvedFeatureTopology(t *testing.T, target worktreeui.Item) {
 	if target.CanonicalRoot != "/wt/feature-renamed" ||
 		worktreeui.DisplayName(target) != "renamed" ||
 		worktreeui.BranchName(target) != "feature/renamed" ||
-		target.Entry.Projection.Selector != "feature/renamed" {
+		target.DeletePreview.DeletionSelector != "feature/renamed" {
 		t.Fatalf("delete target = %+v, want authoritative resolved topology", target)
 	}
 }

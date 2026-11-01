@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"

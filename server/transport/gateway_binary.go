@@ -102,6 +102,9 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerBootstrapGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
+	if err := registerSpeechGatewayBinaryBindings(bindings); err != nil {
+		return nil, err
+	}
 	if err := registerProjectReadGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
@@ -790,6 +793,9 @@ func encodeBinaryResult(operation protoapi.Operation, correlation *string, resul
 	}
 	payload, err := protoapi.Encode(result)
 	if err != nil {
+		return nil, err
+	}
+	if err := protoapi.ValidateResultErrorDetail(result); err != nil {
 		return nil, err
 	}
 	presentPayload := make([]byte, len(payload))

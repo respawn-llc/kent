@@ -1,18 +1,37 @@
-import { useState } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskMovePreviewChoice, TaskMovePreviewResponse } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, Dialog, RadioGroup, RadioGroupItem, TextArea } from "@/ui";
+import { Button, ControlTooltip, Dialog, RadioGroup, RadioGroupItem, TextArea } from "@/ui";
+import { SpeechDestinationProvider, useSpeechDestinationBusy, useSpeechField } from "@/shared/speech-input";
 
 type ManualMoveValues = Readonly<Record<string, Readonly<Record<string, string>>>>;
+const MoveDraftContext = createContext<
+  | ((
+      node: string,
+      output: string,
+    ) => {
+      read(): string | null;
+      write(text: string): void;
+    })
+  | null
+>(null);
 
 export type ManualMoveDialogSubmit = Readonly<{
   transitionKey?: string | undefined;
   values?: ManualMoveValues | undefined;
 }>;
 
-export function ManualMoveDialog({
+export function ManualMoveDialog(props: Parameters<typeof ManualMoveDestination>[0]) {
+  return (
+    <SpeechDestinationProvider>
+      <ManualMoveDestination {...props} />
+    </SpeechDestinationProvider>
+  );
+}
+
+function ManualMoveDestination({
   preview,
   onCancel,
   onSubmit,
@@ -22,6 +41,7 @@ export function ManualMoveDialog({
   onSubmit(input: ManualMoveDialogSubmit): void;
 }>) {
   const { t } = useTranslation();
+  const speechBusy = useSpeechDestinationBusy();
   const choices = manualMoveChoices(preview);
   const [selectedTransitionKey, setSelectedTransitionKey] = useState<string | null>(
     choices.length === 1 ? (choices[0]?.transitionKey ?? null) : null,
@@ -30,7 +50,24 @@ export function ManualMoveDialog({
   const selectedChoice = manualMoveSelectedChoice(choices, selectedTransitionKey);
   const requiredValues = manualMoveRequiredValues(selectedChoice);
   const [values, setValues] = useState<ManualMoveValues>(() => initialValues(requiredValues));
-  const canSubmit = manualMoveCanSubmit(requiredValues, values);
+  const owner = useRef({ values, selectedTransitionKey });
+  useLayoutEffect(() => {
+    owner.current = { values, selectedTransitionKey };
+  });
+  const captureDraft = (node: string, output: string) => {
+    const transition = owner.current.selectedTransitionKey;
+    return {
+      read: () =>
+        owner.current.selectedTransitionKey === transition
+          ? (owner.current.values[node]?.[output] ?? "")
+          : null,
+      write: (text: string) => {
+        if (owner.current.selectedTransitionKey === transition)
+          setValues((current) => setValue(current, node, output, text));
+      },
+    };
+  };
+  const canSubmit = !speechBusy && manualMoveCanSubmit(requiredValues, values);
 
   const title = t("board.manualMoveTitle");
   const canAdvance = manualMoveCanAdvance(preview, selectedChoice);
@@ -41,33 +78,37 @@ export function ManualMoveDialog({
   return (
     <Dialog closeLabel={t("app.close")} onClose={onCancel} open={preview !== null} title={title}>
       {preview === null ? null : (
-        <ManualMoveDialogContent
-          canAdvance={canAdvance}
-          canSubmit={canSubmit}
-          choices={choices}
-          onCancel={onCancel}
-          onSelect={(value) => {
-            setSelectedTransitionKey(value);
-            const choice = choices.find((item) => item.transitionKey === value);
-            setValues(initialValues(choice?.requiredValues ?? []));
-          }}
-          onSubmit={submit}
-          onValueChange={(nodeKey, outputName, value) => {
-            setValues((current) => setValue(current, nodeKey, outputName, value));
-          }}
-          phase={phase}
-          requiredValues={requiredValues}
-          selectedChoice={selectedChoice}
-          selectedTransitionKey={selectedTransitionKey}
-          setPhase={setPhase}
-          values={values}
-        />
+        <MoveDraftContext.Provider value={captureDraft}>
+          <ManualMoveDialogContent
+            canAdvance={canAdvance}
+            canSubmit={canSubmit}
+            speechBusy={speechBusy}
+            choices={choices}
+            onCancel={onCancel}
+            onSelect={(value) => {
+              setSelectedTransitionKey(value);
+              const choice = choices.find((item) => item.transitionKey === value);
+              setValues(initialValues(choice?.requiredValues ?? []));
+            }}
+            onSubmit={submit}
+            onValueChange={(nodeKey, outputName, value) => {
+              setValues((current) => setValue(current, nodeKey, outputName, value));
+            }}
+            phase={phase}
+            requiredValues={requiredValues}
+            selectedChoice={selectedChoice}
+            selectedTransitionKey={selectedTransitionKey}
+            setPhase={setPhase}
+            values={values}
+          />
+        </MoveDraftContext.Provider>
       )}
     </Dialog>
   );
 }
 
 function ManualMoveDialogContent({
+  speechBusy,
   canAdvance,
   canSubmit,
   choices,
@@ -82,6 +123,7 @@ function ManualMoveDialogContent({
   setPhase,
   values,
 }: Readonly<{
+  speechBusy: boolean;
   canAdvance: boolean;
   canSubmit: boolean;
   choices: readonly TaskMovePreviewChoice[];
@@ -149,9 +191,11 @@ function ManualMoveDialogContent({
             {t("app.continue")}
           </Button>
         ) : (
-          <Button disabled={!canSubmit} type="submit" variant="primary">
-            {t("board.manualMoveConfirm")}
-          </Button>
+          <ControlTooltip label={speechBusy ? t("speech.busy") : t("board.manualMoveConfirm")}>
+            <Button disabled={!canSubmit} type="submit" variant="primary">
+              {t("board.manualMoveConfirm")}
+            </Button>
+          </ControlTooltip>
         )}
       </div>
     </form>
@@ -282,21 +326,59 @@ function ManualMoveDetailsPhase({
       ) : (
         <div className="grid gap-[var(--space-4)]">
           {requiredValues.map((value) => (
-            <TextArea
+            <ManualMoveField
+              nodeKey={value.nodeKey}
               key={`${value.nodeKey}:${value.outputName}`}
               label={value.outputName}
               hint={value.description ?? undefined}
-              onChange={(event) => {
-                onValueChange(value.nodeKey, value.outputName, event.target.value);
+              onChange={(text) => {
+                onValueChange(value.nodeKey, value.outputName, text);
               }}
-              required
-              rows={2}
               value={values[value.nodeKey]?.[value.outputName] ?? value.resolvedValue ?? ""}
             />
           ))}
         </div>
       )}
     </>
+  );
+}
+
+function ManualMoveField({
+  nodeKey,
+  label,
+  hint,
+  value,
+  onChange,
+}: Readonly<{
+  nodeKey: string;
+  label: string;
+  hint: string | undefined;
+  value: string;
+  onChange(text: string): void;
+}>) {
+  const capture = useContext(MoveDraftContext);
+  if (capture === null) throw new Error("Manual move draft owner is required.");
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const { control } = useSpeechField({
+    identity: JSON.stringify([nodeKey, label]),
+    value,
+    onChange,
+    editorRef,
+    captureDraft: () => ({ ...capture(nodeKey, label), editor: () => editorRef.current }),
+  });
+  return (
+    <TextArea
+      label={label}
+      hint={hint}
+      value={value}
+      ref={editorRef}
+      floatingAction={control}
+      onChange={(event) => {
+        onChange(event.target.value);
+      }}
+      required
+      rows={2}
+    />
   );
 }
 

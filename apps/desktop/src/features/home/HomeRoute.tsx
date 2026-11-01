@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { flushSync } from "react-dom";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -56,17 +57,25 @@ function HomeRouteContent({ destination, settingsPage, settingsSidebar }: HomeRo
   const projectItems = useAtomValue(model.projectItems);
   const attentionItems = useAtomValue(model.attentionItems);
   const [draft, setDraft] = useState<ProjectDraft | null>(null);
+  const [creationOpen, setCreationOpen] = useState(false);
   const closeCreation = () => {
     setDraft(null);
+    setCreationOpen(false);
   };
   const projectCreationDialog =
-    draft === null ? null : (
+    !creationOpen || draft === null ? null : (
       <ProjectCreateDialog
-        creationError={creation.error}
         draft={draft}
-        isCreating={creation.isPending}
-        onClose={closeCreation}
-        onSubmitDraft={(draft) => {
+        onResult={(result) => {
+          if (result.kind === "cancel") {
+            closeCreation();
+            return;
+          }
+          const { draft } = result;
+          flushSync(() => {
+            setDraft(draft);
+            setCreationOpen(false);
+          });
           creationActions.submit({
             draft,
             complete: async (projectID) => {
@@ -78,8 +87,6 @@ function HomeRouteContent({ destination, settingsPage, settingsSidebar }: HomeRo
         }}
       />
     );
-
-  useAtomMount(model.creationObservation);
 
   const selectedCategory =
     destination.kind === "settings" ? "settings" : selectedProjectID === null ? category : "projects";
@@ -95,10 +102,19 @@ function HomeRouteContent({ destination, settingsPage, settingsSidebar }: HomeRo
       <div className="grid h-full min-h-0 grid-cols-[350px_minmax(0,1fr)]" data-testid="home-pane-grid">
         <HomeSidebar
           settingsSidebar={settingsSidebar}
+          projectCreationPending={creation.isPending}
           onChooseWorkspace={() => {
+            if (creation.isPending) return;
+            if (draft !== null) {
+              setCreationOpen(true);
+              return;
+            }
             creationActions.chooseWorkspace({
               openProject: navigation.openProject,
-              openDraft: setDraft,
+              openDraft: (draft) => {
+                setDraft(draft);
+                setCreationOpen(true);
+              },
             });
           }}
           onCreateWorkflow={() => {

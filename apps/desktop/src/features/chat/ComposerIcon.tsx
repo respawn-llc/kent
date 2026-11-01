@@ -1,5 +1,6 @@
 import {
-  ArrowUp,
+  Send,
+  ClockArrowRight,
   AlertTriangle,
   Folder,
   GitBranch,
@@ -15,7 +16,8 @@ import { cx, Spinner } from "@/ui";
 import "./composerIcon.css";
 
 const icons = {
-  send: ArrowUp,
+  send: Send,
+  queue: ClockArrowRight,
   warning: AlertTriangle,
   workspace: Folder,
   worktree: GitBranch,

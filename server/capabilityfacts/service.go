@@ -98,9 +98,8 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 			CurrentEffective: providerFact(currentProvider, providerRoleCurrentEffective),
 			Explicit:         explicitProviders,
 		},
-		Imports:         importFacts(imports),
-		Defaults:        defaults,
-		Recommendations: &capabilitypb.RecommendationFacts{},
+		Imports:  importFacts(imports),
+		Defaults: defaults,
 	}, nil
 }
 
@@ -203,6 +202,7 @@ func providerFact(caps llm.ProviderCapabilities, role string) *capabilitypb.Prov
 		Role:                          role,
 		SupportsResponsesApi:          caps.SupportsResponsesAPI,
 		SupportsFastMode:              caps.SupportsFastMode,
+		SupportsSpeechToText:          caps.SupportsSpeechToText,
 		SupportsNativeCompaction:      caps.SupportsResponsesCompact,
 		SupportsPromptCacheKey:        caps.SupportsPromptCacheKey,
 		SupportsNativeWebSearch:       caps.SupportsNativeWebSearch,

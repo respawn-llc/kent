@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/textutil"

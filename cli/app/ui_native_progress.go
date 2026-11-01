@@ -85,7 +85,7 @@ func (m *uiModel) nativeProgressEligible() bool {
 	if m == nil {
 		return false
 	}
-	return m.isCompacting() ||
+	return m.pendingNewChatActions > 0 || m.isCompacting() ||
 		m.runtimeActivityProjection.GetReviewer() == runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INVOKING ||
 		(m.pendingDetailTranscript != nil && m.pendingDetailTranscript.detailMode) ||
 		m.worktrees.create.submitting ||

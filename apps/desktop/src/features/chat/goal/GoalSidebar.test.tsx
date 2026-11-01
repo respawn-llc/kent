@@ -1,15 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 
-import type { ChatGoalObservationHandler, ChatSessionTarget } from "@/api";
+import type { ChatSessionTarget } from "@/api";
+import {
+  goalSource,
+  type GoalObservationHandler as ChatGoalObservationHandler,
+} from "@/test-support/chat-runtime";
 import { ChatOperationError, RpcError } from "@/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { TestSidebar } from "@/test-support/sidebar-rendering";
+import { ChatPromptPresenceProvider } from "@/app-facade";
 import * as ui from "@/ui";
 import type { NewChatGoalHostDelivery } from "./goalBinding";
 import { createGoalFixtureOwner, GoalFixturePage } from "./goalBindingFixtures";
 import { GoalSidebarPage, type GoalSidebarApi } from "./GoalSidebar";
+import { useGoalSidebarLauncher } from "./useGoalSidebarLauncher";
 
 type GoalFact = Parameters<ChatGoalObservationHandler["onEvent"]>[0]["fact"];
 type GoalObservation = Parameters<ChatGoalObservationHandler["onEvent"]>[0];
@@ -35,11 +42,143 @@ afterEach(() => {
 });
 
 describe("Goal sidebar", () => {
+  it("keeps a pinned exact Session when the main Chat changes", async () => {
+    const observedTargets: ChatSessionTarget[] = [];
+    const handlers: ChatGoalObservationHandler[] = [];
+    const pauseGoal = vi.fn(async () => ({
+      kind: "authoritative_goal" as const,
+      fact: { goal: goalValue("pinned objective", "paused"), availability: "available" as const },
+    }));
+    const api = createGoalSidebarApi({
+      goal: null,
+      pauseGoal,
+      subscribeGoal: (selected, handler) => {
+        observedTargets.push(selected);
+        handlers.push(handler);
+        queueMicrotask(() => {
+          handler.onEvent(hydration({ objective: "pinned objective" }));
+        });
+        return { close: vi.fn() };
+      },
+    });
+    const services = createTestServices([]);
+    function ChatHarness() {
+      const [selected, setSelected] = useState<ChatSessionTarget>(target);
+      const open = useGoalSidebarLauncher({ kind: "session", api, target: selected });
+      return (
+        <>
+          <div data-testid="main-chat">{selected.sessionID}</div>
+          <button onClick={open}>Open Goal destination</button>
+          <button
+            onClick={() => {
+              setSelected({ ...target, sessionID: "different-session" });
+            }}
+          >
+            Switch main Chat
+          </button>
+        </>
+      );
+    }
+    render(
+      <TestAppProviders skipAnimations services={services}>
+        <ChatPromptPresenceProvider>
+          <TestSidebar>
+            <ChatHarness />
+          </TestSidebar>
+        </ChatPromptPresenceProvider>
+      </TestAppProviders>,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "Open Goal destination" }));
+    await screen.findByText("pinned objective");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Switch main Chat" }));
+    expect(screen.getByTestId("main-chat")).toHaveTextContent("different-session");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Pause" }));
+    expect(pauseGoal).toHaveBeenCalledWith(target);
+    expect(observedTargets).toEqual([target]);
+    act(() => {
+      handlers[0]?.onEvent({
+        ...hydration({ objective: "pinned update", status: "paused" }),
+        sequence: 2,
+        kind: "update",
+      });
+    });
+    expect(await screen.findByText("pinned update")).toBeInTheDocument();
+  });
+
+  it("admits only one same-turn mutation", async () => {
+    const pending = deferred<Awaited<ReturnType<GoalSidebarApi["pauseGoal"]>>>();
+    const pauseGoal = vi.fn(async () => pending.promise);
+    const api = createGoalSidebarApi({ goal: goalValue("saved", "active"), pauseGoal });
+    render(
+      <TestAppProviders skipAnimations services={createTestServices([])}>
+        <GoalSidebarPage input={{ kind: "session", api, target }} />
+      </TestAppProviders>,
+    );
+    const pause = await screen.findByRole("button", { name: "Pause" });
+    act(() => {
+      pause.click();
+      pause.click();
+    });
+    await waitFor(() => {
+      expect(pauseGoal).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {
+      pending.resolve({
+        kind: "authoritative_goal",
+        fact: { goal: goalValue("saved", "paused"), availability: "available" },
+      });
+      await pending.promise;
+    });
+  });
+
+  it("reports a closed exact destination failure without touching its reopened mutation", async () => {
+    const first = deferred<Awaited<ReturnType<GoalSidebarApi["pauseGoal"]>>>();
+    const second = deferred<Awaited<ReturnType<GoalSidebarApi["pauseGoal"]>>>();
+    const pauseGoal = vi
+      .fn()
+      .mockImplementationOnce(async () => first.promise)
+      .mockImplementationOnce(async () => second.promise);
+    const api = createGoalSidebarApi({ goal: goalValue("saved", "active"), pauseGoal });
+    const services = createTestServices([]);
+    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+    const page = (
+      <TestAppProviders skipAnimations services={services}>
+        <GoalSidebarPage input={{ kind: "session", api, target }} />
+      </TestAppProviders>
+    );
+    const view = render(page);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Pause" }));
+    view.rerender(
+      <TestAppProviders skipAnimations services={services}>
+        {null}
+      </TestAppProviders>,
+    );
+    view.rerender(page);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Pause" }));
+    expect(pauseGoal).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      first.reject(new Error("Rejected earlier operation"));
+      await first.promise.catch(() => undefined);
+    });
+    await waitFor(() => {
+      expect(notice).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByRole("button", { name: "Resume" })).toBeDisabled();
+    await act(async () => {
+      second.resolve({
+        kind: "authoritative_goal",
+        fact: { goal: goalValue("saved", "paused"), availability: "available" },
+      });
+      await second.promise;
+    });
+    expect(await screen.findByRole("button", { name: "Pause" })).toBeEnabled();
+  });
+
   it("owns a fresh subscription for every StrictMode opening", async () => {
     const services = createTestServices([]);
     const handlers: ChatGoalObservationHandler[] = [];
     const closes: ReturnType<typeof vi.fn>[] = [];
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+    const subscribeGoal: GoalRegister = (_target, handler) => {
       handlers.push(handler);
       const close = vi.fn();
       closes.push(close);
@@ -69,7 +208,9 @@ describe("Goal sidebar", () => {
     });
     expect(await screen.findByText("current opening")).toBeInTheDocument();
     view.unmount();
-    expect(closes.slice(0, firstOpeningCount).every((close) => close.mock.calls.length === 1)).toBe(true);
+    await waitFor(() => {
+      expect(closes.slice(0, firstOpeningCount).every((close) => close.mock.calls.length === 1)).toBe(true);
+    });
 
     const { unmount: unmountReopened } = render(
       <TestAppProviders skipAnimations services={services}>
@@ -90,14 +231,16 @@ describe("Goal sidebar", () => {
     expect(await screen.findByText("reopened opening")).toBeInTheDocument();
     expect(screen.queryByText("discarded opening")).not.toBeInTheDocument();
     unmountReopened();
-    expect(closes.every((close) => close.mock.calls.length === 1)).toBe(true);
+    await waitFor(() => {
+      expect(closes.every((close) => close.mock.calls.length === 1)).toBe(true);
+    });
   });
 
   it("stops after an observed subscription failure and retries only explicitly", async () => {
     const services = createTestServices([]);
     const handlers: ChatGoalObservationHandler[] = [];
     const closes: ReturnType<typeof vi.fn>[] = [];
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+    const subscribeGoal: GoalRegister = (_target, handler) => {
       handlers.push(handler);
       const close = vi.fn();
       closes.push(close);
@@ -148,7 +291,7 @@ describe("Goal sidebar", () => {
     const services = createTestServices([]);
     const handlers: ChatGoalObservationHandler[] = [];
     const pauseResult = deferred<Awaited<ReturnType<GoalSidebarApi["pauseGoal"]>>>();
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+    const subscribeGoal: GoalRegister = (_target, handler) => {
       handlers.push(handler);
       queueMicrotask(() => {
         handler.onEvent(hydration({ objective: "saved objective", status: "active" }));
@@ -188,60 +331,142 @@ describe("Goal sidebar", () => {
     expect(await screen.findByRole("button", { name: "Resume" })).toBeInTheDocument();
   });
 
-  it("preserves a draft edited after Save begins when Save succeeds", async () => {
-    const services = createTestServices([]);
-    const saveResult = deferred<GoalSetResult>();
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
-      queueMicrotask(() => {
-        handler.onEvent(hydration({ objective: "saved objective", status: "active" }));
+  it.each([false, true])(
+    "preserves later drafts on Save success after leaving the editor: %s",
+    async (leaveEditor) => {
+      const services = createTestServices([]);
+      const saveResult = deferred<GoalSetResult>();
+      const subscribeGoal: GoalRegister = (_target, handler) => {
+        queueMicrotask(() => {
+          handler.onEvent(hydration({ objective: "saved objective", status: "active" }));
+        });
+        return { close: vi.fn() };
+      };
+      const api = createGoalSidebarApi({
+        goal: goalValue("saved objective", "active"),
+        setGoal: vi.fn(async () => saveResult.promise),
+        subscribeGoal,
       });
-      return { close: vi.fn() };
-    };
+      render(
+        <TestAppProviders skipAnimations services={services}>
+          <GoalSidebarPage input={{ kind: "session", api, target }} />
+          <button>Outside the Goal editor</button>
+        </TestAppProviders>,
+      );
+
+      const user = userEvent.setup();
+      const editor = await enterGoalEditor(user);
+      await user.clear(editor);
+      await user.type(editor, "submitted objective");
+      await user.click(screen.getByTestId("goal-save"));
+
+      const laterEditor = await enterGoalEditor(user);
+      const postSubmitDraft = "new unsaved objective";
+      await user.clear(laterEditor);
+      await user.type(laterEditor, postSubmitDraft);
+      if (leaveEditor) await user.click(screen.getByRole("button", { name: "Outside the Goal editor" }));
+      await act(async () => {
+        saveResult.resolve({
+          sessionID,
+          outcome: {
+            kind: "mutation",
+            mutation: {
+              kind: "authoritative_goal",
+              fact: { goal: goalValue("submitted objective", "active"), availability: "available" },
+            },
+            diagnostic: null,
+          },
+        });
+        await saveResult.promise;
+      });
+
+      if (leaveEditor) {
+        expect(await screen.findByText(postSubmitDraft)).toBeInTheDocument();
+        expect(screen.getByRole("textbox", { name: "Goal" })).toHaveAttribute("aria-readonly");
+      } else {
+        expect(await screen.findByDisplayValue(postSubmitDraft)).toHaveFocus();
+      }
+      expect(screen.getByTestId("goal-save")).toBeInTheDocument();
+    },
+  );
+
+  it.each(["success", "failure"] as const)(
+    "preserves later draft and preview after Pause %s",
+    async (outcome) => {
+      const pending = deferred<Awaited<ReturnType<GoalSidebarApi["pauseGoal"]>>>();
+      const api = createGoalSidebarApi({
+        goal: goalValue("saved objective", "active"),
+        pauseGoal: vi.fn(async () => pending.promise),
+      });
+      render(
+        <TestAppProviders skipAnimations services={createTestServices([])}>
+          <GoalSidebarPage input={{ kind: "session", api, target }} />
+          <button>Outside the Goal editor</button>
+        </TestAppProviders>,
+      );
+      const user = userEvent.setup();
+      const editor = await enterGoalEditor(user);
+      await user.clear(editor);
+      await user.type(editor, "unsaved before Pause");
+      await user.click(screen.getByRole("button", { name: "Pause" }));
+      const laterEditor = await enterGoalEditor(user);
+      const latestDraft = "later lifecycle draft";
+      await user.clear(laterEditor);
+      await user.type(laterEditor, latestDraft);
+      await user.click(screen.getByRole("button", { name: "Outside the Goal editor" }));
+      await act(async () => {
+        if (outcome === "success") {
+          pending.resolve({
+            kind: "authoritative_goal",
+            fact: { goal: goalValue("saved objective", "paused"), availability: "available" },
+          });
+        } else {
+          pending.reject(new Error("Pause failed."));
+        }
+        await pending.promise.catch(() => undefined);
+      });
+      expect(await screen.findByText(latestDraft)).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Goal" })).toHaveAttribute("aria-readonly");
+      expect(await screen.findByRole("button", { name: "Pause" })).toBeEnabled();
+    },
+  );
+
+  it("reopens and focuses the latest draft after a failed Save even after leaving the editor", async () => {
+    const saveResult = deferred<GoalSetResult>();
     const api = createGoalSidebarApi({
       goal: goalValue("saved objective", "active"),
       setGoal: vi.fn(async () => saveResult.promise),
-      subscribeGoal,
     });
     render(
-      <TestAppProviders skipAnimations services={services}>
+      <TestAppProviders skipAnimations services={createTestServices([])}>
         <GoalSidebarPage input={{ kind: "session", api, target }} />
+        <button>Outside the Goal editor</button>
       </TestAppProviders>,
     );
-
     const user = userEvent.setup();
     const editor = await enterGoalEditor(user);
     await user.clear(editor);
     await user.type(editor, "submitted objective");
     await user.click(screen.getByTestId("goal-save"));
-
     const laterEditor = await enterGoalEditor(user);
-    const postSubmitDraft = "new unsaved objective";
+    const latestDraft = "later unsaved objective";
     await user.clear(laterEditor);
-    await user.type(laterEditor, postSubmitDraft);
+    await user.type(laterEditor, latestDraft);
+    await user.click(screen.getByRole("button", { name: "Outside the Goal editor" }));
+    expect(screen.getByRole("textbox", { name: "Goal" })).toHaveAttribute("aria-readonly");
     await act(async () => {
-      saveResult.resolve({
-        sessionID,
-        outcome: {
-          kind: "mutation",
-          mutation: {
-            kind: "authoritative_goal",
-            fact: { goal: goalValue("submitted objective", "active"), availability: "available" },
-          },
-          diagnostic: null,
-        },
-      });
-      await saveResult.promise;
+      saveResult.reject(new Error("Save failed."));
+      await saveResult.promise.catch(() => undefined);
     });
-
-    expect(await screen.findByDisplayValue(postSubmitDraft)).toHaveFocus();
-    expect(screen.getByTestId("goal-save")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue(latestDraft)).toHaveFocus();
+    expect(screen.getByTestId("goal-save")).toBeEnabled();
   });
 
   it("restores a failed Save draft against the latest subscribed Goal", async () => {
     const services = createTestServices([]);
     const handlers: ChatGoalObservationHandler[] = [];
     const saveResult = deferred<Awaited<ReturnType<GoalSidebarApi["setGoal"]>>>();
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+    const subscribeGoal: GoalRegister = (_target, handler) => {
       handlers.push(handler);
       queueMicrotask(() => {
         handler.onEvent(hydration({ objective: "saved objective", status: "active" }));
@@ -354,7 +579,7 @@ describe("Goal sidebar", () => {
     const hostDelivery = vi.fn<(delivery: NewChatGoalHostDelivery) => void>(() => {
       order.push("host");
     });
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = () => ({ close: vi.fn() });
+    const subscribeGoal: GoalRegister = () => ({ close: vi.fn() });
     const api = createGoalSidebarApi({
       goal: null,
       subscribeGoal,
@@ -388,7 +613,7 @@ describe("Goal sidebar", () => {
     const pending = deferred<GoalSetResult>();
     const hostDelivery = vi.fn<(delivery: NewChatGoalHostDelivery) => void>();
     const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
-    const subscribeGoal: GoalSidebarApi["subscribeGoal"] = (_target, handler) => {
+    const subscribeGoal: GoalRegister = (_target, handler) => {
       queueMicrotask(() => {
         handler.onEvent(hydration({ objective: "hydrated replacement" }));
       });
@@ -517,6 +742,8 @@ function hydration({
   };
 }
 
+type GoalRegister = (target: ChatSessionTarget, handler: ChatGoalObservationHandler) => { close(): void };
+
 function createGoalSidebarApi({
   goal,
   pauseGoal = vi.fn(async () => {
@@ -530,7 +757,7 @@ function createGoalSidebarApi({
   goal: GoalFact["goal"];
   pauseGoal?: GoalSidebarApi["pauseGoal"];
   setGoal?: GoalSidebarApi["setGoal"];
-  subscribeGoal?: GoalSidebarApi["subscribeGoal"];
+  subscribeGoal?: GoalRegister;
 }>): GoalSidebarApi {
   return {
     clearGoal: vi.fn(async () => {
@@ -541,17 +768,20 @@ function createGoalSidebarApi({
       throw new Error("Unexpected Goal mutation.");
     }),
     setGoal,
-    subscribeGoal:
-      subscribeGoal ??
-      ((_target, handler) => {
-        queueMicrotask(() => {
-          handler.onEvent({
-            sequence: 1,
-            kind: "hydration",
-            fact: { goal, availability: "available" },
-          });
-        });
-        return { close: vi.fn() };
-      }),
+    subscribeGoal: (selected) =>
+      goalSource((handler) =>
+        subscribeGoal !== undefined
+          ? subscribeGoal(selected, handler)
+          : (() => {
+              queueMicrotask(() => {
+                handler.onEvent({
+                  sequence: 1,
+                  kind: "hydration",
+                  fact: { goal, availability: "available" },
+                });
+              });
+              return { close: vi.fn() };
+            })(),
+      ),
   };
 }

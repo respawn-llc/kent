@@ -13,9 +13,6 @@ func TestRunPromptOverridesAgentRoleContract(t *testing.T) {
 	if !got.Overrides.HasAny() {
 		t.Fatal("AgentRole should count as an override")
 	}
-	if !got.Overrides.HasAgentRoleOverride() {
-		t.Fatal("AgentRole should count as a role override")
-	}
 }
 
 func TestRunPromptOverridesRolePresenceAndAuth(t *testing.T) {
@@ -23,23 +20,19 @@ func TestRunPromptOverridesRolePresenceAndAuth(t *testing.T) {
 		name         string
 		overrides    RunPromptOverrides
 		wantAny      bool
-		wantRole     bool
 		wantAuth     bool
 		wantDefault  bool
 		wantRoleName string
 	}{
-		{name: "empty", overrides: RunPromptOverrides{}, wantAny: false, wantRole: false},
-		{name: "config only", overrides: RunPromptOverrides{Model: "gpt-6-sol"}, wantAny: true, wantRole: false},
-		{name: "default", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("default")}, wantAny: true, wantRole: true, wantAuth: false, wantDefault: true},
-		{name: "named", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr(" Worker ")}, wantAny: true, wantRole: true, wantAuth: true, wantRoleName: "worker"},
+		{name: "empty", overrides: RunPromptOverrides{}, wantAny: false},
+		{name: "config only", overrides: RunPromptOverrides{Model: "gpt-6-sol"}, wantAny: true},
+		{name: "default", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr("default")}, wantAny: true, wantAuth: false, wantDefault: true},
+		{name: "named", overrides: RunPromptOverrides{AgentRole: runPromptStringPtr(" Worker ")}, wantAny: true, wantAuth: true, wantRoleName: "worker"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.overrides.HasAny(); got != tt.wantAny {
 				t.Fatalf("HasAny = %t, want %t", got, tt.wantAny)
-			}
-			if got := tt.overrides.HasAgentRoleOverride(); got != tt.wantRole {
-				t.Fatalf("HasAgentRoleOverride = %t, want %t", got, tt.wantRole)
 			}
 			role, err := tt.overrides.AgentRoleOverride()
 			if err != nil {

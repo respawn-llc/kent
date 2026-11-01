@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { useAtomValue } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 import { Plus, Save } from "lucide-react";
@@ -78,9 +79,7 @@ export function ProjectEditRoute({
       catalogBoundary={projectCatalogBoundary(catalog, actions, t)}
       catalogPending={catalog.isPending}
       headerAccessory={
-        navigator === undefined ? null : (
-          <ProjectDeleteButton model={model} projectID={projectId} openHome={openHome} />
-        )
+        navigator === undefined ? null : <ProjectDeleteButton model={model} openHome={openHome} />
       }
       hasNextPage={catalog.hasNextPage}
       hasPreviousPage={catalog.hasPreviousPage}
@@ -236,16 +235,11 @@ function ProjectEditContent({
       {unlinkTarget !== null && (
         <WorkspaceUnlinkDialog
           disabled={mutating}
-          onClose={() => {
-            setUnlinkTarget(null);
-          }}
-          onConfirm={(target) => {
-            unlink({
-              workspaceID: target.workspaceID,
-              close: () => {
-                setUnlinkTarget(null);
-              },
+          onResult={(result) => {
+            flushSync(() => {
+              setUnlinkTarget(null);
             });
+            if (result === "confirm") unlink({ workspaceID: unlinkTarget.workspaceID });
           }}
           target={unlinkTarget}
         />

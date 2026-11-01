@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 )
@@ -18,6 +19,13 @@ type streamingModelClient interface {
 type idleWatchdogClient struct {
 	streamingModelClient
 	idle time.Duration
+}
+
+func (c *idleWatchdogClient) Close() error {
+	if closer, ok := c.streamingModelClient.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 func newIdleWatchdogClient(inner streamingModelClient, idle time.Duration) *idleWatchdogClient {

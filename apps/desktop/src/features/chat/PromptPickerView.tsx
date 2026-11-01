@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PendingPrompt } from "@/api";
@@ -6,12 +6,11 @@ import {
   GrowingTextArea,
   IconTooltipButton,
   PromptAccessTargets,
-  PromptOptionRow,
   RadioGroup,
   ScrollRegion,
   Spinner,
-  StaticMarkdown,
 } from "@/ui";
+import { StaticMarkdown, PromptOptionRow } from "@/ui/markdown";
 import { usePathFormatter } from "@/app-facade";
 import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
 import { pickerOptions } from "./promptPickerPresentation";
@@ -23,15 +22,18 @@ export function PromptPickerView({
   state,
   isPending,
   dispatch,
+  editorRef,
 }: Readonly<{
   prompts: readonly PendingPrompt[];
   state: PickerState;
   isPending: boolean;
   dispatch(action: PickerAction, focusField: () => void): void;
+  editorRef?: RefObject<HTMLTextAreaElement | null>;
 }>) {
   const { t } = useTranslation();
   const answerArea = useRef<HTMLDivElement | null>(null);
-  const field = useRef<HTMLTextAreaElement | null>(null);
+  const localField = useRef<HTMLTextAreaElement | null>(null);
+  const field = editorRef ?? localField;
   useLayoutEffect(() => {
     answerArea.current?.focus();
   }, []);

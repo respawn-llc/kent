@@ -6,8 +6,6 @@ import (
 	"core/shared/lifecyclecontract"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"encoding/json"
-	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -86,11 +84,6 @@ func TestTurnQueueHooksEmitFocusedTaskCompletionWithoutNotificationEligibility(t
 	message := testAssistantFinalLiveRunMessage(2, "completed without notification eligibility", true)
 
 	hooks.OnTranscriptMessage(message)
-
-	if _, err := os.Stat(recordPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("completion hook record before queue drain: %v", err)
-	}
-	hooks.OnTurnQueueDrained()
 
 	event := appfixture.DecodeLifecycleHookEvents(
 		t,

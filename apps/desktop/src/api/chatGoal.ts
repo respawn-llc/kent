@@ -13,7 +13,8 @@ import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import type { ChatApi, ChatSessionTarget, InitialChatSettings } from "./chatTypes";
+import type { ChatApi, ChatGoalStreamObservation, ChatSessionTarget, InitialChatSettings } from "./chatTypes";
+import { subscriptionStream } from "./subscriptionStream";
 import type { ChatGoalFacts } from "./chatTranscriptTypes";
 import type { RpcTransport } from "./transport";
 
@@ -292,31 +293,39 @@ export function createChatGoalApi(
     resumeGoal: async (target) => mutate(target, R.GoalService.method.resume),
     completeGoal: async (target) => mutate(target, R.GoalService.method.complete),
     clearGoal: async (target) => mutate(target, R.GoalService.method.clear),
-    subscribeGoal(target, handler) {
+    subscribeGoal(target, reportOverflow) {
       const sessionID = target.sessionID;
       const method = R.GoalService.method.observe;
-      return transport.subscribeDescriptor({
-        method,
-        request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
-        attachment: { sessionID },
-        establishmentTimeoutMs: 30_000,
-        eventDescriptor: R.GoalObservationSchema,
-        completionDescriptor: StreamCompletionSchema,
-        onStart: (result) => {
-          requireUnarySuccess(method, result);
-        },
-        handler: {
-          ...(handler.onOpen === undefined ? {} : { onOpen: handler.onOpen }),
-          onEvent: (value) => {
-            handler.onEvent(observation(value));
-          },
-          onComplete(value) {
-            handler.onComplete(value.code ?? null, value.message ?? null);
-            return streamCompletionFailure(value);
-          },
-          onError: handler.onError,
-        },
-      });
+      return subscriptionStream<ChatGoalStreamObservation>(
+        (emit) =>
+          transport.subscribeDescriptor({
+            method,
+            request: create(method.input, { sessionId: { value: { case: "sessionId", value: sessionID } } }),
+            attachment: { sessionID },
+            establishmentTimeoutMs: 30_000,
+            eventDescriptor: R.GoalObservationSchema,
+            completionDescriptor: StreamCompletionSchema,
+            onStart: (result) => {
+              requireUnarySuccess(method, result);
+            },
+            handler: {
+              onOpen: () => {
+                emit({ kind: "open" });
+              },
+              onEvent: (value) => {
+                emit({ kind: "event", event: observation(value) });
+              },
+              onComplete(value) {
+                emit({ kind: "complete", code: value.code ?? null, message: value.message ?? null });
+                return streamCompletionFailure(value);
+              },
+              onError: (error) => {
+                emit({ kind: "error", error });
+              },
+            },
+          }),
+        reportOverflow,
+      );
     },
   };
 }

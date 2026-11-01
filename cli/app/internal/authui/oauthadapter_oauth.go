@@ -1,5 +1,5 @@
 package authui
 
-import serverauth "core/server/auth"
+import serverauth "core/server/authmanager"
 
 type OAuthBrowserCallback = serverauth.BrowserCallback

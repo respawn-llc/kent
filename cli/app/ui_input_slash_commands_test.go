@@ -37,21 +37,8 @@ func TestUnknownPromptCommandFailsClosedThroughEnterPath(t *testing.T) {
 		t.Fatal("unknown prompt command did not produce local feedback")
 	}
 	updated := next.(*uiModel)
-	if updated.activeSubmit.token != 0 || len(updated.queued) != 0 {
-		t.Fatalf("unknown prompt command entered submission path: active=%+v queued=%+v", updated.activeSubmit, updated.queued)
-	}
-}
-
-func TestQueuedUnknownPromptCommandFailsClosedBeforeOrdinarySubmission(t *testing.T) {
-	model := newProjectedStaticUIModel()
-	model.queued = queuedInputsForTest("/prompt:doesnotexist")
-
-	_, cmd := model.inputController().flushQueuedInputs(queueDrainAuto)
-	if cmd == nil {
-		t.Fatal("queued unknown prompt command did not produce local feedback")
-	}
-	if model.activeSubmit.token != 0 {
-		t.Fatalf("queued unknown prompt command entered submission path: %+v", model.activeSubmit)
+	if len(updated.injectedQueue) != 0 {
+		t.Fatalf("unknown prompt command entered submission path: %+v", updated.injectedQueue)
 	}
 }
 
@@ -60,9 +47,9 @@ func TestFreshBuiltinPromptTransitionBlocksWhenDisconnected(t *testing.T) {
 	model.setRuntimeDisconnected(true)
 	invocation := runtimeinput.NewBuiltinPromptCommand(runtimeinput.BuiltinPromptCommandReview, "")
 
-	next, cmd := model.inputController().applyCommandResultWithPreSubmitQueuePosition(
+	next, cmd := model.inputController().applyCommandResult(
 		commands.Result{PromptCommand: &invocation, FreshConversation: true},
-		preSubmitQueueBack,
+		"/review",
 	)
 	if cmd == nil {
 		t.Fatal("disconnected fresh prompt transition did not produce a blocking command")

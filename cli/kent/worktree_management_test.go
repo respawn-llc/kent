@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/bootstrap"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/transport"
 	"core/shared/client"
 	"core/shared/config"
@@ -53,7 +53,8 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authSupport, err := bootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	metadataStore := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	authSupport, err := bootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,9 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
-	app, err := core.New(cfg, authSupport, background)
+	app, err := core.NewWithContextOptions(t.Context(), cfg, authSupport, background, core.Options{
+		MetadataStore: metadataStore,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +87,7 @@ func newWorktreeCommandFixture(t *testing.T) worktreeCommandFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetProjectDefaultWorkspace(context.Background(), b.ProjectID, b.WorkspaceID); err != nil {
+	if _, err := store.SetProjectDefaultWorkspaceAndGetSummary(context.Background(), b.ProjectID, b.WorkspaceID); err != nil {
 		t.Fatal(err)
 	}
 	s, err := session.Create(filepath.Join(cfg.PersistenceRoot, "projects", a.ProjectID, "sessions"),

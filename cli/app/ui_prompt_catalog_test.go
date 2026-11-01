@@ -8,6 +8,7 @@ import (
 	"core/cli/app/commands"
 	"core/cli/app/internal/runtimeattach"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
+	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 )
 
@@ -91,16 +92,15 @@ func TestMissingPromptCommandSubmissionRefreshesCatalog(t *testing.T) {
 		WithUIPromptCommandCatalogEntries([]commands.PromptCommandCatalogEntry{{Name: command, Preview: "old"}}),
 	)
 	model.commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(model.promptCatalogEntries)
-	model.activeSubmit = activeSubmitState{token: 1}
+	model.enqueueInput("/prompt:old", runtimeinput.Command(command, ""), runtimeinput.PendingWorkLaneSteer)
 
 	commandError := &serverapi.PromptCommandError{
 		Kind:    serverapi.PromptCommandErrorKindCommandNotFound,
 		Command: &command,
 	}
-	next, cmd := model.inputController().handleSubmitDone(submitDoneMsg{
-		token:         1,
-		submittedText: "/prompt:old",
-		err:           commandError,
+	next, cmd := model.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{
+		pending: model.injectedQueue[0],
+		err:     commandError,
 	})
 	updated := next.(*uiModel)
 	for _, msg := range collectCmdMessages(t, cmd) {

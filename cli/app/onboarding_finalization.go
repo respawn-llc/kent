@@ -79,14 +79,11 @@ func (f *onboardingFinalization) run(attempt *onboardingFinalizationAttempt, req
 	response, err := f.finalizer.Finalize(ctx, request)
 	outcome := onboardingFinalizeDoneMsg{submitted: true}
 	switch {
-	case err == nil && !response.Completed:
-		outcome.err = errors.New("onboarding finalization did not report completion")
 	case err == nil:
 		outcome.result = onboardingResult{
-			Completed:            true,
-			CreatedDefaultConfig: writeDefaults,
-			SettingsPath:         response.SettingsPath,
-			EffectiveTheme:       theme.Resolve(selectedTheme),
+			Completed:      true,
+			SettingsPath:   response.SettingsPath,
+			EffectiveTheme: theme.Resolve(selectedTheme),
 		}
 	case errors.Is(err, context.DeadlineExceeded):
 		outcome.err = fmt.Errorf("onboarding finalization outcome is indeterminate after %s: %w", timeout, err)

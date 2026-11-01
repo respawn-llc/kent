@@ -7,12 +7,16 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
+mod main_window;
 mod native_glass;
 mod settings;
+mod speech;
+#[cfg(target_os = "linux")]
+mod speech_linux;
 
 const DEFAULT_PERSISTENCE_ROOT: &str = "~/.kent";
 const GUI_LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
@@ -40,7 +44,7 @@ struct AttentionNotificationRequest {
     backend_id: u32,
     id: String,
     title: String,
-    body: String,
+    body: Option<String>,
     target: serde_json::Value,
 }
 
@@ -227,8 +231,11 @@ fn send_attention_notification(
     };
     let backend_id = notification.backend_id;
     let token = state.next_token.fetch_add(1, Ordering::Relaxed);
-    let native_notification =
-        attention_native_notification(backend_id, &notification.title, &notification.body);
+    let native_notification = attention_native_notification(
+        backend_id,
+        &notification.title,
+        notification.body.as_deref(),
+    );
     show_attention_notification(
         app,
         state.active.clone(),
@@ -314,10 +321,13 @@ async fn request_attention_native_notification_permission(
 fn attention_native_notification(
     backend_id: u32,
     title: &str,
-    body: &str,
+    body: Option<&str>,
 ) -> notify_rust::Notification {
     let mut notification = notify_rust::Notification::new();
-    notification.appname("Kent").summary(title).body(body);
+    notification.appname("Kent").summary(title);
+    if let Some(body) = body {
+        notification.body(body);
+    }
     configure_attention_notification_identity(&mut notification, backend_id);
     configure_attention_notification_actions(&mut notification);
     configure_attention_notification_sound(&mut notification);
@@ -368,7 +378,7 @@ fn show_attention_notification(
             let was_active =
                 remove_attention_notification_record_without_closing(&active, backend_id, token);
             if action != "__closed" && was_active {
-                let _ = app.emit_to("main", "app://attention-notification-activated", activation);
+                main_window::activate(&app, activation);
             }
         });
     });
@@ -411,8 +421,7 @@ fn show_attention_notification(
                         | notify_rust::NotificationResponse::Reply(_)
                 );
                 if activated && was_active {
-                    let _ =
-                        app.emit_to("main", "app://attention-notification-activated", activation);
+                    main_window::activate(&app, activation);
                 }
             })
             .await;
@@ -446,7 +455,7 @@ fn show_attention_notification(
             let was_active =
                 remove_attention_notification_record_without_closing(&active, backend_id, token);
             if action != "__closed" && was_active {
-                let _ = app.emit_to("main", "app://attention-notification-activated", activation);
+                main_window::activate(&app, activation);
             }
         });
     });
@@ -636,7 +645,10 @@ pub fn run() {
         }
         context
     };
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let builder = builder.plugin(speech_linux::init());
+    builder
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -645,6 +657,21 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AttentionNotificationState::default())
+        .manage(speech::SpeechState::default())
+        .manage(main_window::State::default())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                speech::close_window(window);
+                if window.label() == "main" {
+                    main_window::closed(window.app_handle());
+                }
+            }
+        })
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                speech::close_window(&webview.window());
+            }
+        })
         .setup(|app| {
             let owner =
                 settings::SettingsOwner::new(app.path().app_data_dir()?.join("settings.json"));
@@ -671,7 +698,22 @@ pub fn run() {
             settings::change_desktop_setting,
             settings::desktop_launch_appearance,
             settings::connect_desktop_server,
+            main_window::open_main_window,
+            main_window::main_window_ready,
             clipboard::paste_clipboard,
+            #[cfg(target_os = "macos")]
+            speech::macos::speech_start_microphone,
+            #[cfg(target_os = "macos")]
+            speech::macos::speech_stop_microphone,
+            speech::speech_create,
+            speech::speech_append,
+            speech::speech_finalize,
+            speech::speech_finish,
+            speech::speech_cancel,
+            speech::speech_upload_original,
+            speech::speech_discard,
+            speech::speech_save_copy,
+            speech::speech_limit_sound,
             resolve_native_context,
             resolve_native_platform,
             self_update_supported,
@@ -689,8 +731,20 @@ pub fn run() {
             apply_native_window_glass,
             set_native_window_glass_tint,
         ])
-        .run(context)
-        .expect("error while running the desktop application");
+        .build(context)
+        .expect("error while building the desktop application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = main_window::open_main_window(app, None).await {
+                        eprintln!("Reopen main window failed: {error}");
+                    }
+                });
+            }
+            let _ = (app, event);
+        });
 }
 
 // clean_path performs the lexical normalization Go's filepath.Clean applies:

@@ -1,7 +1,7 @@
 package status
 
 import (
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/textutil"
 	"os"
 	"strings"

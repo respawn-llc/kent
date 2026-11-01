@@ -91,13 +91,12 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	var capturedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedHeaders = r.Header.Clone()
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		capturedBody = body
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			if err := json.Unmarshal(raw, &capturedBody); err != nil {
+				t.Error(err)
+			}
+			return []string{completedResponseSSEJSON}
+		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -130,8 +129,8 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	if _, exists := capturedBody["service_tier"]; exists {
 		t.Fatalf("standard service_tier = %#v, want omitted", capturedBody["service_tier"])
 	}
-	if capturedBody["stream"] != true {
-		t.Fatalf("standard stream = %#v, want true", capturedBody["stream"])
+	if _, exists := capturedBody["stream"]; exists {
+		t.Fatal("WebSocket create must omit the HTTP stream option")
 	}
 	assertCanonicalGenerationMetadata(t, capturedBody)
 	request.FastMode = true
@@ -144,8 +143,8 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	if got := capturedHeaders.Get("session_id"); got != "" {
 		t.Fatalf("legacy session_id = %q, want absent", got)
 	}
-	if got := capturedHeaders.Get("x-codex-routing-hint"); got != "model=gpt-5.6-sol;tier=priority" {
-		t.Fatalf("routing hint = %q, want priority tier", got)
+	if got := capturedHeaders.Get("x-codex-routing-hint"); got != "model=gpt-5.6-sol" {
+		t.Fatalf("opening routing hint changed: %q", got)
 	}
 	if authorization, account, originator, userAgent := capturedHeaders.Get("Authorization"),
 		capturedHeaders.Get("ChatGPT-Account-Id"), capturedHeaders.Get("originator"), capturedHeaders.Get("User-Agent"); authorization != "Bearer token" || account != "acc-1" ||
@@ -156,8 +155,8 @@ func TestOAuthGenerateSendsCanonicalCodexIdentityAuthAndRoutingTiers(t *testing.
 	if got := capturedBody["service_tier"]; got != "priority" {
 		t.Fatalf("service_tier = %#v, want priority", got)
 	}
-	if capturedBody["stream"] != true {
-		t.Fatalf("priority stream = %#v, want true", capturedBody["stream"])
+	if _, exists := capturedBody["stream"]; exists {
+		t.Fatal("WebSocket create must omit the HTTP stream option")
 	}
 	assertCanonicalGenerationMetadata(t, capturedBody)
 }

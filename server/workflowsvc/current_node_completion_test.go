@@ -11,8 +11,8 @@ import (
 
 	"core/internal/testharness/scriptedllm"
 	"core/server/runtimewire"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowexecution"

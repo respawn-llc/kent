@@ -161,9 +161,6 @@ func rollbackCandidatesFromRows(rows []*transcriptpb.CommittedRow) []rollbackCan
 			continue
 		}
 		targetID := *user.RollbackTargetId
-		if strings.TrimSpace(targetID) == "" {
-			panic("rollback candidate has an empty rollback target id")
-		}
 		candidates = append(candidates, rollbackCandidate{
 			RollbackTargetID: targetID,
 			Text:             user.Text,

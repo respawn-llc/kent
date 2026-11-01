@@ -10,7 +10,6 @@ import (
 	"core/shared/clientui"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 
 	"google.golang.org/protobuf/proto"
@@ -26,15 +25,10 @@ var uiRuntimeReadTimeout = 300 * time.Millisecond
 
 type sessionRuntimeClient struct {
 	reads                   apicontract.SessionViewService
-	controls                apicontract.RuntimeControlService
-	chatMutations           apicontract.ChatMutationService
-	goalSet                 goalSetClient
-	chatSettings            apicontract.ChatSettingsService
 	sessionID               string
 	connectionStateObserver func(error)
 
 	mu               sync.RWMutex
-	preparation      *sessionlaunchpb.SessionRuntimePreparationOptions
 	mainView         *runtimepb.MainView
 	hasMainView      bool
 	metadataRevision uint64
@@ -43,20 +37,14 @@ type sessionRuntimeClient struct {
 func newUIRuntimeClientWithReads(
 	sessionID string,
 	reads apicontract.SessionViewService,
-	controls apicontract.RuntimeControlService,
-	goalSet goalSetClient,
-	chatSettings apicontract.ChatSettingsService,
 ) clientui.RuntimeClient {
-	if reads == nil || controls == nil {
+	if reads == nil {
 		return nil
 	}
 	return &sessionRuntimeClient{
-		sessionID:    sessionID,
-		reads:        reads,
-		controls:     controls,
-		goalSet:      goalSet,
-		chatSettings: chatSettings,
-		mainView:     &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: sessionID}, Status: &runtimepb.Status{}},
+		sessionID: sessionID,
+		reads:     reads,
+		mainView:  &runtimepb.MainView{Session: &runtimepb.SessionView{SessionId: sessionID}, Status: &runtimepb.Status{}},
 	}
 }
 

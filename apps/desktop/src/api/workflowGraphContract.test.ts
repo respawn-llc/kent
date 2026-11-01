@@ -5,6 +5,7 @@ import {
   GraphSaveRequestSchema,
   GraphSavePreviewRequestSchema,
   GraphSaveSuccessSchema,
+  DeleteSuccessSchema,
   ExecutionTargetMode,
   NodeKind,
 } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
@@ -27,6 +28,25 @@ describe("Workflow draft group-key resolution", () => {
         expect(() => validate(GraphDraftSchema, graph)).not.toThrow();
       } else {
         expect(() => validate(GraphDraftSchema, graph)).toThrow();
+      }
+    }
+  });
+});
+
+describe("Workflow Delete outcome blockers", () => {
+  it("requires blockers exactly when not deleted", () => {
+    for (const deleted of [false, true]) {
+      for (const blocked of [false, true]) {
+        const response = create(DeleteSuccessSchema, {
+          deleted,
+          impact: { workflowId: "11111111-1111-4111-8111-111111111111" },
+          blockers: blocked ? [{ code: "busy", message: "Busy", count: 1n }] : [],
+        });
+        if (deleted !== blocked) {
+          expect(() => validate(DeleteSuccessSchema, response)).not.toThrow();
+        } else {
+          expect(() => validate(DeleteSuccessSchema, response)).toThrow();
+        }
       }
     }
   });

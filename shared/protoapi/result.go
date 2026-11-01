@@ -5,6 +5,8 @@ import (
 
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protopath"
+	"google.golang.org/protobuf/reflect/protorange"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -190,17 +192,37 @@ func classifyFailure(failure protoreflect.Message, convention errorConvention) C
 
 func ValidateResultErrorDetail(message proto.Message) error {
 	reflected := message.ProtoReflect()
-	convention, err := inspectResult(reflected.Descriptor())
-	if err != nil {
+	if _, err := inspectResult(reflected.Descriptor()); err != nil {
 		return err
 	}
-	if reflected.WhichOneof(convention.outcome) != convention.failure {
+	return protorange.Range(reflected, func(values protopath.Values) error {
+		nested, ok := values.Index(-1).Value.Interface().(protoreflect.Message)
+		if !ok {
+			return nil
+		}
+		fields := nested.Descriptor().Fields()
+		for index := 0; index < fields.Len(); index++ {
+			options, err := resultFieldOptions(fields.Get(index))
+			if err != nil {
+				return err
+			}
+			if options == nil || options.Role != sharedpb.ResultFieldRole_RESULT_FIELD_ROLE_ERROR_CODE {
+				continue
+			}
+			convention, err := inspectError(nested.Descriptor())
+			if err != nil {
+				return err
+			}
+			return validateErrorDetail(nested, convention)
+		}
 		return nil
-	}
-	failure := reflected.Get(convention.failure).Message()
-	code := failure.Get(convention.error.code).String()
-	selectedDetail := failure.WhichOneof(convention.error.detail)
-	requiredDetail, known := convention.error.detailByCode[code]
+	})
+}
+
+func validateErrorDetail(failure protoreflect.Message, convention errorConvention) error {
+	code := failure.Get(convention.code).String()
+	selectedDetail := failure.WhichOneof(convention.detail)
+	requiredDetail, known := convention.detailByCode[code]
 	if !known {
 		return nil
 	}

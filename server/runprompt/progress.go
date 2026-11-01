@@ -4,8 +4,8 @@ import (
 	"strings"
 	"sync"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
 	"core/shared/serverapi"
 

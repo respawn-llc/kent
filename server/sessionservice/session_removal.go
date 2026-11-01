@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"
@@ -137,9 +137,6 @@ func (s *SessionLifecycleService) ArchiveSession(
 	ctx context.Context,
 	request *sessionlaunchpb.SessionArchiveRequest,
 ) (*sessionlaunchpb.SessionArchiveSuccess, error) {
-	if request == nil {
-		return nil, errors.New("Session archive request is required")
-	}
 	id, err := s.removalTarget(ctx, request.SessionId, request.CallerSessionId)
 	if err != nil {
 		return nil, err
@@ -161,9 +158,6 @@ func (s *SessionLifecycleService) DeleteSession(
 	ctx context.Context,
 	request *sessionlaunchpb.SessionDeleteRequest,
 ) (*sessionlaunchpb.SessionDeleteSuccess, error) {
-	if request == nil {
-		return nil, errors.New("Session delete request is required")
-	}
 	id, err := s.removalTarget(ctx, request.SessionId, request.CallerSessionId)
 	if err != nil {
 		return nil, err

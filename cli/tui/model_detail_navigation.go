@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"maps"
-	"strings"
 )
 
 import tea "github.com/charmbracelet/bubbletea"
@@ -209,9 +208,6 @@ func (m *Model) clearSelectedDetailIndex() {
 }
 
 func (m *Model) selectDetailRollbackTarget(rollbackTargetID string, center bool) {
-	if strings.TrimSpace(rollbackTargetID) == "" {
-		panic("detail rollback selection requires a rollback target id")
-	}
 	selected := 0
 	found := false
 	for index, entry := range m.detailProjection.entries {

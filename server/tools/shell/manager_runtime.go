@@ -366,9 +366,6 @@ func (m *Manager) emitCompletionEvent(entry *processEntry, event Event) {
 
 func (m *Manager) RetryTerminalEvents(ownerSessionID string) {
 	ownerSessionID = strings.TrimSpace(ownerSessionID)
-	if ownerSessionID == "" {
-		return
-	}
 	entries := m.processEntries()
 	for _, entry := range entries {
 		entry.mu.Lock()

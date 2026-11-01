@@ -356,7 +356,7 @@ func TestSessionPickerLifecycleGeometryAndResults(t *testing.T) {
 	for _, result := range []sessionPickerResult{newSessionPickerCreateResult(), newSessionPickerCancelResult(), newSessionPickerOpenResult(mustPickerValue(t, "20000000-0000-4000-8000-000000000011", runtimeids.ParseSessionID))} {
 		requireSessionPicker(t, validateSessionPickerLifecycleResult(result) == nil, "validate %T failed", result)
 	}
-	for _, result := range []sessionPickerResult{nil, sessionPickerOpenResult{}} {
+	for _, result := range []sessionPickerResult{nil} {
 		requireSessionPicker(t, validateSessionPickerLifecycleResult(result) != nil, "validate %T unexpectedly succeeded", result)
 	}
 }

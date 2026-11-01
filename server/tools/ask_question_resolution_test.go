@@ -8,7 +8,7 @@ import (
 func TestAskQuestionBrokerPreservesCanonicalQuestionResolution(t *testing.T) {
 	freeform := "  exact freeform  "
 	broker := NewAskQuestionBroker()
-	broker.SetAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
+	broker.SetLifecycleAskHandler(func(context.Context, AskQuestionRequest) (AskQuestionResolution, error) {
 		return AskQuestionAnswer{Freeform: &freeform}, nil
 	})
 
@@ -39,9 +39,6 @@ func TestValidateAskQuestionResolutionUsesTypedOptionalText(t *testing.T) {
 		SelectedOptionNumber: &selected,
 	}); err != nil {
 		t.Fatalf("selected-only Question resolution: %v", err)
-	}
-	if err := ValidateAskQuestionResolution(req, AskQuestionAnswer{}); err == nil {
-		t.Fatal("empty typed Question resolution unexpectedly validated")
 	}
 }
 

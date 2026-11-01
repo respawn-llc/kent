@@ -5,20 +5,17 @@ import {
   type NativePlatform,
   type SettingsSnapshot,
 } from "@app/native-bridge";
-import { z } from "zod";
 
 import { StartupConfigurationError } from "@/api";
 import { ApiClient, createRpcTransport, protocolVersion, type RpcTransport } from "@/api/composition";
 import { projectEventDiagnostics, type AppServices, type AppStorageNamespace } from "@/app-facade";
 import { createGuiLogger } from "../logging";
+import { createSpeechTransfer } from "./speechTransfer";
 
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
-const browserRpcEndpointSearchParam = "appRpcEndpoint";
-const browserRpcEndpointEnvVar = "VITE_APP_RPC_ENDPOINT";
 const platformAttribute = "data-platform";
 const themeAttribute = "data-theme";
 let productionContextMenuGuardInstalled = false;
-const stringValueSchema = z.string();
 
 export type SettingsStartupFailure = Readonly<{
   kind: "settings";
@@ -58,6 +55,7 @@ export async function createDefaultAppServices(): Promise<AppServices | Settings
     return {
       api: new ApiClient(new BootstrapErrorTransport(context), projectEventDiagnostics(logger)),
       initialSettings,
+      speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
       endpoint: defaultServerEndpoint,
       homePath: "",
       logger,
@@ -73,6 +71,7 @@ export async function createDefaultAppServices(): Promise<AppServices | Settings
     return {
       api: new ApiClient(new BootstrapErrorTransport(browserEndpoint), projectEventDiagnostics(logger)),
       initialSettings,
+      speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
       endpoint: defaultServerEndpoint,
       homePath: context.homePath,
       logger,
@@ -93,6 +92,7 @@ export async function createDefaultAppServices(): Promise<AppServices | Settings
   return {
     api,
     initialSettings,
+    speech: createSpeechTransfer(nativeBridge, endpoint),
     endpoint,
     homePath: context.homePath,
     logger,
@@ -113,29 +113,6 @@ export function applyNativePlatform(platform: NativePlatform): void {
   document.documentElement.setAttribute(platformAttribute, platform);
 }
 
-export function readBrowserRpcEndpoint(): string | null | StartupConfigurationError {
-  const raw = firstNonEmptyString(
-    readBrowserRpcEndpointSearchParam(),
-    import.meta.env[browserRpcEndpointEnvVar],
-  );
-  if (raw === null) {
-    return defaultServerEndpoint;
-  }
-  const endpoint = parseBrowserRpcEndpoint(raw);
-  if (endpoint instanceof Error) {
-    return endpoint;
-  }
-  return endpoint;
-}
-
-export function parseBrowserRpcEndpoint(raw: string): string | StartupConfigurationError {
-  try {
-    return parseBrowserServerAddress(raw);
-  } catch (error) {
-    return new StartupConfigurationError(errorMessage(error));
-  }
-}
-
 export function applyConfiguredTheme(theme: string): void {
   if (typeof document === "undefined") {
     return;
@@ -147,21 +124,14 @@ export function applyConfiguredTheme(theme: string): void {
   document.documentElement.removeAttribute(themeAttribute);
 }
 
-function readBrowserRpcEndpointSearchParam(): string | null {
-  if (typeof window === "undefined") {
-    return null;
+function readBrowserRpcEndpoint(): string | StartupConfigurationError {
+  const address =
+    new URLSearchParams(window.location.search).get("appRpcEndpoint") ?? __KENT_BROWSER_RPC_ENDPOINT__;
+  try {
+    return parseBrowserServerAddress(address);
+  } catch (error) {
+    return new StartupConfigurationError(errorMessage(error));
   }
-  return new URLSearchParams(window.location.search).get(browserRpcEndpointSearchParam);
-}
-
-function firstNonEmptyString(...values: readonly unknown[]): string | null {
-  for (const value of values) {
-    const parsed = stringValueSchema.safeParse(value);
-    if (parsed.success && parsed.data.trim().length > 0) {
-      return parsed.data;
-    }
-  }
-  return null;
 }
 
 export function installProductionContextMenuGuard(isProduction: boolean): void {
@@ -207,9 +177,6 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  const parsed = stringValueSchema.safeParse(error);
-  if (parsed.success) {
-    return parsed.data;
-  }
+  if (typeof error === "string") return error;
   return "Unknown native context error.";
 }

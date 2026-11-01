@@ -228,6 +228,7 @@ func TestOpenAIBlankFinalStreamingPresence(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
 		`{"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":" \n\t"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":" \n\t"}]}}`,
 		`{"type":"response.completed","response":{"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":" \n\t"}]}]}}`,
 		`[DONE]`,
 	)

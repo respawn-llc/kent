@@ -38,13 +38,6 @@ func (p *DefinitionProjection) GetDefinition(ctx context.Context, workflowID run
 	return snapshot.api, snapshot.nodeKinds, nil
 }
 
-func (p *DefinitionProjection) CurrentNodesByTask(ctx context.Context, taskIDs []workflow.TaskID) (map[workflow.TaskID][]workflow.CurrentNode, error) {
-	if p == nil || p.store == nil {
-		return nil, errors.New("definition projection is required")
-	}
-	return p.store.ListCurrentNodesByTask(ctx, taskIDs)
-}
-
 func workflowNodesByID(def *pb.WorkflowDefinition) map[string]*pb.WorkflowNode {
 	nodes := make(map[string]*pb.WorkflowNode, len(def.Nodes))
 	for _, node := range def.Nodes {

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"core/server/session"
-	"core/shared/transcript"
+	"core/server/sessionstore"
+	"core/shared/transcriptmodel"
 )
 
 func TestQuestionHistoryProjectionHandlesMalformedCompletionPresentation(t *testing.T) {
