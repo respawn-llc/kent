@@ -33,6 +33,7 @@ type ProviderClientOptions struct {
 	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
 	ModelVerbosity               string
+	CyberAccess                  bool
 	ProviderIdentifier           *string
 	Store                        bool
 	ContextWindowTokens          int
@@ -400,6 +401,7 @@ func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, erro
 		transport.Client = NewProviderHTTPClient(transport.serviceBaseURL(), transport.Client.Timeout)
 	}
 	transport.ModelVerbosity = strings.ToLower(strings.TrimSpace(opts.ModelVerbosity))
+	transport.CyberAccess = opts.CyberAccess
 	if opts.ProviderIdentifier != nil {
 		transport.ProviderIdentifier = *opts.ProviderIdentifier
 	}
@@ -423,6 +425,9 @@ func NewProviderClient(opts ProviderClientOptions) (Client, error) {
 		return nil, fmt.Errorf("%w: resolved provider registration is required", ErrUnsupportedProvider)
 	}
 	provider := opts.Registration.Provider
+	if opts.CyberAccess && (provider != ProviderOpenAI || !opts.Registration.Variant.Capabilities.IsOpenAIFirstParty) {
+		return nil, fmt.Errorf("%w: cybersecurity access requires a first-party OpenAI connection", ErrUnsupportedProvider)
+	}
 	if opts.ContextWindowTokens <= 0 {
 		if model, known := LookupModelCapabilityContract(opts.Model); known {
 			if meta := model.ContextMetadata(opts.Registration.Variant.ProviderID); meta != nil {

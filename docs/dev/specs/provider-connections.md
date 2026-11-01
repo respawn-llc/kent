@@ -1,5 +1,6 @@
 ## Ownership And Selection
 
+- An Agent may opt into cybersecurity access through its model capabilities. Kent must request that access only through supported OpenAI connections; provider entitlement remains required, and unsupported connections must reject the selection rather than silently omit it.
 - Kent must own Provider Connection definitions in global server configuration. Workspace configuration must not define connections.
 - A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents or roles must own Agent model, thinking, model-specific capabilities, and context/compaction policy. Speech-model configuration follows [Speech Input](speech-input.md).
 - The resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.

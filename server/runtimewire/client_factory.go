@@ -92,6 +92,7 @@ func NewRuntimeClient(ctx context.Context, factory RuntimeClientFactory, request
 		ConnectionID:       &connection.ID,
 		HTTPClient:         llm.NewProviderHTTPClient(endpoint, time.Duration(active.Timeouts.ModelRequestSeconds)*time.Second),
 		ModelVerbosity:     string(active.ModelVerbosity),
+		CyberAccess:        active.ModelCapabilities.CyberAccess,
 		ProviderIdentifier: &active.ProviderIdentifier, Store: active.Store,
 		ContextWindowTokens: active.ModelContextWindow, ProviderCapabilitiesOverride: &capabilities,
 		RequestCapabilities: &request.RequestCapabilities,

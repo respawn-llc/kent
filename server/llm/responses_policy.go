@@ -70,6 +70,9 @@ func (openAIResponsesPolicy) requestHeaders(identifier string, request Responses
 }
 
 func (openAIResponsesPolicy) configurePayload(b responsesRequestPayloadBuilder, request ResponsesRequest, mode OpenAIAuthMode, out *responses.ResponseNewParams) error {
+	if b.cyberAccess {
+		out.AccessPrograms = responses.ResponseNewParamsAccessPrograms{Cyber: "daybreak_blue"}
+	}
 	out.Store = openai.Bool(b.store)
 	if len(out.Tools) > 0 {
 		out.ParallelToolCalls = openai.Bool(true)

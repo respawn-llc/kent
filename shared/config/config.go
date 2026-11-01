@@ -224,6 +224,7 @@ type Settings struct {
 }
 
 type ModelCapabilitiesOverride struct {
+	CyberAccess             bool
 	SupportsReasoningEffort bool
 	SupportsVisionInputs    bool
 }
