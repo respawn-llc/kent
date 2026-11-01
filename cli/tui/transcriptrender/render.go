@@ -94,7 +94,7 @@ func renderCommittedRow(
 			),
 		}
 	case *transcriptpb.CommittedRow_ToolCall:
-		return Row{Group: GroupTool, Lines: pendingToolLines(row.GetToolCall(), width, syntax)}
+		return Row{Group: GroupTool, Lines: pendingToolLines(row.GetToolCall(), width, syntax, nil)}
 	case *transcriptpb.CommittedRow_ReasoningTrace:
 		if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
 			return Row{Group: GroupReasoningTrace}
@@ -657,7 +657,7 @@ func roleSymbol(role StyleRole) string {
 }
 
 func roleSymbolText(role StyleRole, meta toolMeta) string {
-	if role == StyleRoleToolPatch {
+	if role == StyleRoleToolPatch && meta.SymbolText == nil {
 		return "⇄"
 	}
 	if meta.IsError && role != StyleRoleToolShell {

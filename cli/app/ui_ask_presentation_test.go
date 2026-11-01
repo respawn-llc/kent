@@ -31,6 +31,10 @@ func TestAskCompletePromptFitIncludesFinalAllocation(t *testing.T) {
 	model.ongoingTranscript.liveReadModel.addPendingTool(&transcriptpb.ToolStart{
 		ToolCallId: "competing-two", ToolName: "shell",
 	})
+	if !model.askFitsInline(nil) {
+		t.Fatal("tool suffix shrinking did not preserve the complete prompt")
+	}
+	model.ongoingTranscript.liveReadModel.applyPendingPrompt(testQuestionPrompt("fit", "Question", "Continue"))
 	if model.askFitsInline(nil) {
 		t.Fatal("fit ignored rows removed by final competing-section allocation")
 	}
@@ -518,6 +522,9 @@ func TestAskIncomingAssistantOverflowPromotesBeforePainting(t *testing.T) {
 	}
 	model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent("assistant-fit", "Question", "Continue")})
 	model.ask.activeProjection.rows = []string{"one", "two", "three"}
+	model.ongoingTranscript.liveReadModel.addPendingTool(&transcriptpb.ToolStart{
+		ToolCallId: "competing", ToolName: "shell",
+	})
 	if !model.askFitsInline(nil) {
 		t.Fatal("prompt did not initially fit")
 	}
@@ -572,6 +579,9 @@ func TestAskDeferredReturnMeasuresQueuedAssistantBeforeRestoringOwnership(t *tes
 			model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyShiftTab})
 			model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent("deferred-fit", "Question", "Continue")})
 			model.ask.activeProjection.rows = []string{"one", "two", "three"}
+			model.ongoingTranscript.liveReadModel.addPendingTool(&transcriptpb.ToolStart{
+				ToolCallId: "competing", ToolName: "shell",
+			})
 			for index, chunk := range test.chunks {
 				model = updateUIModel(t, model, ongoingTranscriptEvent{
 					Kind: ongoingTranscriptEventMessage,

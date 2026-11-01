@@ -1,6 +1,6 @@
 ## Shared overlay conventions
 
-- Overlays are bounded Alternate Screen surfaces. Closing one restores the transcript surface underneath.
+- Overlays are bounded Alternate Screen surfaces. Closing one restores the transcript surface underneath. Ongoing completion pickers and keyboard help are normal-buffer live-area overlays governed by [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#live-area-overlays).
 - `Esc` and `q` close a read-only overlay. Inside a nested dialog `Esc` steps back one level (dialog → parent overlay) without closing the whole flow.
 - `Ctrl+C` inside any overlay routes to the single global runtime Ctrl+C handling (interrupt while busy / exit while idle), closing the overlay surface first — overlays never swallow or reinterpret it.
 - List/scroll keys are uniform: `Up`/`Down` move (plus `j`/`k` on list surfaces), `PgUp`/`PgDn` page, `Home`/`End` jump.

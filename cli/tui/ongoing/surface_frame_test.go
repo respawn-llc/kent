@@ -27,7 +27,7 @@ func TestLiveBandTransactionsKeepIntermediateErasesOffscreen(t *testing.T) {
 			return err
 		}},
 		{name: "scratch reset", apply: func(surface *ongoing.Surface, frame ongoing.FrameInput) error {
-			_, err := surface.ResetForScratchHydration(ongoing.RehydrateReasonWidthChange, frame)
+			_, err := surface.ResetForScratchHydration(ongoing.RehydrateReasonSequenceGap, frame)
 			return err
 		}},
 	}

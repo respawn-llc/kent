@@ -184,29 +184,20 @@ func TestRejectedPostReconnectTranscriptMessageRetainsDisconnectStatus(t *testin
 
 func TestPendingScratchResetFailureExitsWithoutResettingOrReopeningTranscript(t *testing.T) {
 	nativeSurface := ongoing.NewSurface(&failingTerminalCursorWriter{failAfter: 0})
-	controllerSurface := &ongoingSurfaceSpy{}
-	controller := newNoopOngoingTranscriptController(controllerSurface, ongoingTestFrameProvider)
+	controller := newNoopOngoingTranscriptController(nativeSurface, ongoingTestFrameProvider)
 	reopenCount := 0
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUIOngoingSurface(nativeSurface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopenCount++ })), 40, 10)
-	reason := ongoing.RehydrateReasonWidthChange
-	m.pendingOngoingScratchReset = &reason
-
-	cmd := m.applyPendingOngoingScratchReset()
+		WithUIOngoingTranscriptReopen(func(ongoing.RehydrateReason) { reopenCount++ })), 40, 10)
+	reason := ongoing.RehydrateReasonResize
+	cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reason})
 
 	if cmd == nil {
 		t.Fatal("failed scratch reset did not request fatal exit")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatal("failed scratch reset did not return Bubble Tea quit")
-	}
-	if m.pendingOngoingScratchReset != nil {
-		t.Fatal("failed scratch reset retained a retry target")
-	}
-	if len(controllerSurface.calls) != 0 {
-		t.Fatalf("failed scratch reset continued transcript controller: %+v", controllerSurface.calls)
 	}
 	if reopenCount != 0 {
 		t.Fatalf("failed scratch reset reopened transcript %d times", reopenCount)

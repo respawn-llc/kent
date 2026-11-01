@@ -189,17 +189,6 @@ func (m *uiModel) pathReferencePicker() uiPickerPresentation {
 		return uiPickerPresentation{}
 	}
 	selection := clampSlashPickerIndex(m.pathReference.selection, 0, len(m.pathReference.matches)-1)
-	start := 0
-	if len(m.pathReference.matches) > slashCommandPickerLines {
-		start = selection - (slashCommandPickerLines / 2)
-		maxStart := len(m.pathReference.matches) - slashCommandPickerLines
-		if start < 0 {
-			start = 0
-		}
-		if start > maxStart {
-			start = maxStart
-		}
-	}
 	rows := make([]uiPickerRow, 0, len(m.pathReference.matches))
 	for _, match := range m.pathReference.matches {
 		rows = append(rows, uiPickerRow{primary: match.Path, selectable: true})
@@ -213,7 +202,7 @@ func (m *uiModel) pathReferencePicker() uiPickerPresentation {
 		visible:   true,
 		rows:      rows,
 		selection: selection,
-		start:     start,
+		start:     pickerViewportStart(selection, len(m.pathReference.matches), slashCommandPickerLines),
 		lineCount: lineCount,
 	}
 }

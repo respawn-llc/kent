@@ -31,7 +31,7 @@
 - A failed commit surfaces as an error.
 - A connection or transcript-stream continuity loss discards transient live content and starts Scratch Rehydration from authoritative committed history.
 - Transcript failures never become fake empty or idle state.
-- A sequence gap, connection loss, or buffered-event overflow starts Scratch Rehydration. Terminal resize repaints only the Mutable Band and leaves Immutable Area reflow to the terminal.
+- A sequence gap, connection loss, or buffered-event overflow starts Scratch Rehydration. On terminals with seamless repaint, resize must repaint only the Mutable Band and leave Immutable Area reflow to the terminal. On other terminals, resize must use the separated Scratch Rehydration exception defined in [Ongoing Scrollback Buffer](ongoing-scrollback-buffer.md#scratch-rehydration).
 - Scratch rehydration never restarts the TUI process, clears immutable scrollback, compares against emitted lines, or suppresses duplicate-looking output.
 - Live streaming, ordinary committed emission, startup hydration, and Scratch Rehydration emit every user turn, assistant commentary turn, and assistant final turn from its complete source Markdown. These paths never substitute condensed text, a compact label, a line-limited preview, or an ellipsis for that source.
 - Assistant finalization matches the committed entry to its Streaming Message identity and compares only with the active stream source. If committed text extends the streamed source, Ongoing Mode emits only the missing suffix. Any other mismatch without a real connection gap is a developer error.
