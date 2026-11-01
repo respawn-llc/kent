@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useDragSource, useDropTarget } from "@app/ui-kit";
 
 import { formatRelativeTime } from "@/app-facade";
@@ -40,6 +40,8 @@ import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
 import { BoardTaskCardActions } from "./BoardTaskCardActions";
 import { useOwnedSidebarRoots } from "@/app-facade";
 
+export type BoardColumnDisclosureAction = "collapse" | "expand";
+
 export type KanbanColumnProps = Readonly<{
   cards: readonly KanbanCardVM[];
   column: KanbanColumnVM;
@@ -60,7 +62,7 @@ export type KanbanColumnProps = Readonly<{
   onCardClick: (taskID: string) => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
-  onExpandColumn?: () => void;
+  onColumnDisclosure: (action: BoardColumnDisclosureAction) => void;
   onInterruptTask: (taskID: string) => void;
   onLoadMoreCards: () => void;
   onLoadPreviousCards?: (() => void) | undefined;
@@ -122,7 +124,7 @@ export function KanbanColumn({
   onCardClick,
   onCardDragStart,
   onDeleteTask,
-  onExpandColumn,
+  onColumnDisclosure,
   onInterruptTask,
   onLoadMoreCards,
   onLoadPreviousCards,
@@ -183,7 +185,11 @@ export function KanbanColumn({
       role="listitem"
     >
       {isCollapsed ? (
-        <CollapsedColumnHeader column={column} onExpand={onExpandColumn} />
+        <CollapsedColumnHeader
+          column={column}
+          isFirstActive={isFirstActive}
+          onColumnDisclosure={onColumnDisclosure}
+        />
       ) : (
         <>
           <div className="pointer-events-none absolute top-0 right-0 left-0 z-10" ref={chromeRef}>
@@ -194,14 +200,24 @@ export function KanbanColumn({
                   <p className="m-0 font-mono text-sm text-[var(--color-muted)]">{column.assigneeRole}</p>
                 ) : null}
               </div>
-              <Badge
-                title={t("board.taskCount", { count: column.taskCount })}
-                tone={isFirstActive ? "info" : "neutral"}
-              >
-                <span data-testid={`kanban-column-task-count-${column.id}`}>
-                  {t("board.taskCount", { count: column.taskCount })}
-                </span>
-              </Badge>
+              <div className="pointer-events-none flex shrink-0 items-center gap-[var(--space-1)]">
+                <Badge
+                  title={t("board.taskCount", { count: column.taskCount })}
+                  tone={isFirstActive ? "info" : "neutral"}
+                >
+                  <span data-testid={`kanban-column-task-count-${column.id}`}>
+                    {t("board.taskCount", { count: column.taskCount })}
+                  </span>
+                </Badge>
+                <button
+                  aria-label={t("app.collapse")}
+                  className={columnToggleButtonClassName}
+                  onClick={() => { onColumnDisclosure("collapse"); }}
+                  type="button"
+                >
+                  <Minimize2 aria-hidden="true" size={16} strokeWidth={1.7} />
+                </button>
+              </div>
             </header>
             {replacementBoundary === undefined ? null : (
               <div className="pointer-events-auto px-[var(--space-3)] pb-[var(--space-2)]">
@@ -259,25 +275,33 @@ export function KanbanColumn({
 }
 
 const emptyPendingTaskIDs: ReadonlySet<string> = new Set();
+const columnToggleButtonClassName =
+  "pointer-events-auto grid size-[28px] shrink-0 place-items-center rounded-full text-[var(--color-on-island)] opacity-60 outline-none transition-[background-color,box-shadow,opacity] duration-150 hover:bg-[var(--color-island-2)] hover:opacity-85 focus-visible:opacity-100 focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]";
 
 function CollapsedColumnHeader({
   column,
-  onExpand,
+  isFirstActive,
+  onColumnDisclosure,
 }: Readonly<{
   column: KanbanColumnVM;
-  onExpand: (() => void) | undefined;
+  isFirstActive: boolean;
+  onColumnDisclosure: (action: BoardColumnDisclosureAction) => void;
 }>) {
   const { t } = useTranslation();
+  const taskCountLabel = t("board.taskCount", { count: column.taskCount });
   return (
-    <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)] justify-items-center gap-[var(--space-2)]">
+    <div className="grid h-full min-h-0 w-full grid-rows-[auto_auto_minmax(0,1fr)] justify-items-center gap-[var(--space-2)]">
       <button
         aria-label={t("board.expandColumn", { name: column.name })}
-        className="grid size-[28px] place-items-center rounded-full text-[var(--color-on-island)] opacity-60 outline-none transition-[background-color,box-shadow,opacity] duration-150 hover:bg-[var(--color-island-2)] hover:opacity-85 focus-visible:opacity-100 focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]"
-        onClick={onExpand}
+        className={columnToggleButtonClassName}
+        onClick={() => { onColumnDisclosure("expand"); }}
         type="button"
       >
         <Maximize2 aria-hidden="true" size={16} strokeWidth={1.7} />
       </button>
+      <Badge size="compact" title={taskCountLabel} tone={isFirstActive ? "info" : "neutral"}>
+        {column.taskCount}
+      </Badge>
       <div className="relative min-h-0 w-full overflow-hidden">
         <div className="board-column-collapsed-label flex items-center justify-start text-left">
           <h2 className="m-0 max-w-[180px] truncate text-[1rem] leading-none">{column.name}</h2>

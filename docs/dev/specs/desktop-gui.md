@@ -174,6 +174,13 @@
 
 - A board is scoped to one Project and one Workflow, and shows Tasks from all attached workspaces. Workspace supplies context without restricting the board scope.
 - Workflow selection orders the Project default first, then Workflows by last use, then display name. Backlog is fixed left, Workflow Nodes follow their defined order, and Done is fixed right. Join Nodes are not columns. Groups follow their Workflow grouping.
+- Every board column must offer an expand/collapse button, including Backlog, the first Active column, and columns containing Tasks.
+- An expanded column must place its collapse icon to the right of its Task-count chip and use the same collapse icon for every column.
+- A collapsed column must show its Task count.
+- By default, Backlog, the first Active column, and columns containing Tasks must be expanded. Other empty columns must be collapsed.
+- Manual column choices must last only while the user stays on the current Project/Workflow board and reset after leaving and returning.
+- Task arrivals, departures, Questions, and Approvals must not clear a manual collapse choice.
+- A Task drop may temporarily expand a manually collapsed column for the move and its confirmation, but must restore the user's choice afterward.
 - An unnamed Node Group must have a blank board header. Its columns must keep the existing vertical offset below that header.
 - A Task card shows Task Short ID, title, server-native status text, and workspace context only when the Project has multiple workspaces and the Task source differs from the default workspace. It must not show Execution Target facts.
 - A Task card with one or more direct Blocker Tasks shows a dependency-progress chip before its Labels.

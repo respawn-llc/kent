@@ -11,7 +11,7 @@ import {
 import { boardCardInstanceKey } from "./BoardCardInstance";
 import type { KanbanCardVM } from "./BoardColumnViewModel";
 import { toKanbanColumnVM } from "./BoardColumnViewModel";
-import { KanbanColumn } from "./BoardColumns";
+import { KanbanColumn, type BoardColumnDisclosureAction } from "./BoardColumns";
 import type { ActiveBoardCardDrag } from "./BoardDragState";
 import type { BoardColumnDropState } from "./BoardDragTypes";
 import { useColumnVisibility } from "./useColumnVisibility";
@@ -29,7 +29,7 @@ export type BoardColumnMotionBoundaryProps = Readonly<{
   onCardClick: (taskID: string) => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
-  onExpandColumn: (columnID: string) => void;
+  onColumnDisclosure: (columnID: string, action: BoardColumnDisclosureAction) => void;
   onInterruptTask: (taskID: string) => void;
   onReportColumnSnapshot: (columnID: string, snapshot: BoardColumnQuerySnapshot) => void;
   onRegisterColumn: (columnID: string, element: HTMLElement | null) => void;
@@ -76,7 +76,7 @@ export function BoardColumnMotionBoundary({
   onCardClick,
   onCardDragStart,
   onDeleteTask,
-  onExpandColumn,
+  onColumnDisclosure,
   onInterruptTask,
   onReportColumnSnapshot,
   onRegisterColumn,
@@ -184,8 +184,8 @@ export function BoardColumnMotionBoundary({
         onCardClick={stableOnCardClick}
         onCardDragStart={stableOnCardDragStart}
         onDeleteTask={stableOnDeleteTask}
-        onExpandColumn={() => {
-          onExpandColumn(column.id);
+        onColumnDisclosure={(action) => {
+          onColumnDisclosure(column.id, action);
         }}
         onInterruptTask={stableOnInterruptTask}
         onLoadMoreCards={activeDataView.onLoadMore}
