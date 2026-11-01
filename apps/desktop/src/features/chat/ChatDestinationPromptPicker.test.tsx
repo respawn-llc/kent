@@ -132,6 +132,60 @@ it("keeps keyboard navigation in the picker when prompt navigation removes the f
   expect(view.answer).not.toHaveBeenCalled();
 });
 
+it.each(["Ctrl+D decline", "external resolution"] as const)(
+  "keeps keyboard interaction in the picker after %s removes the focused prompt",
+  async (resolution) => {
+    const view = sessionWithPrompts();
+    onTestFinished(() => {
+      view.unmount();
+    });
+    const toolCallIDs = ["first", "second", "third"];
+    const batch = { toolCallIDs, unmaterializedCount: 0 };
+    const prompts = toolCallIDs.map((id) => question(id, { batch }));
+    const firstPrompt = prompts[0];
+    if (firstPrompt === undefined) throw new Error("Question batch must contain a prompt.");
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+    });
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+      });
+    });
+
+    const user = userEvent.setup({ delay: null });
+    await user.type(
+      await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
+      "keep this note",
+    );
+    await user.click(screen.getByRole("radio", { name: "one" }));
+    expect(view.answer).not.toHaveBeenCalled();
+
+    if (resolution === "Ctrl+D decline") {
+      await user.keyboard("{Control>}d{/Control}");
+    } else {
+      await act(async () => {
+        view.handlers[0]?.onEvent({
+          sequence: 2,
+          kind: "prompt",
+          payload: { state: "resolved", toolCallID: firstPrompt.toolCallID },
+        });
+      });
+    }
+    expect(
+      await screen.findByText(appI18n.t("chat.picker.position", { current: 2, count: 3 })),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("radio", { name: "one" })).toBeChecked();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText(appI18n.t("chat.picker.position", { current: 3, count: 3 }))).toBeInTheDocument();
+    expect(view.answer).not.toHaveBeenCalled();
+  },
+);
+
 it("starts a single-prompt recommendation unselected and treats clicks as selection only", async () => {
   const view = sessionWithPrompts();
   onTestFinished(() => {
