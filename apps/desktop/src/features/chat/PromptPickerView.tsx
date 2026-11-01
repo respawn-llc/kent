@@ -60,7 +60,12 @@ export function PromptPickerView({
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {
-    if (action.kind === "activate" || action.kind === "pointer-confirm" || action.kind === "confirm") {
+    if (
+      action.kind === "activate" ||
+      action.kind === "pointer-confirm" ||
+      action.kind === "confirm" ||
+      action.kind === "navigate"
+    ) {
       const activeElement = document.activeElement;
       if (activeElement instanceof HTMLElement && answerArea.current?.contains(activeElement))
         removedOptionFocus.current = activeElement;

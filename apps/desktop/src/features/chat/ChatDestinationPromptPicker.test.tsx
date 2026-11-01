@@ -92,6 +92,46 @@ it("requires native double-click to answer a multi-prompt choice with commentary
   expect(view.answer).not.toHaveBeenCalled();
 });
 
+it("keeps keyboard navigation in the picker when prompt navigation removes the focused option", async () => {
+  const view = sessionWithPrompts();
+  onTestFinished(() => {
+    view.unmount();
+  });
+  const toolCallIDs = ["first", "second", "third"];
+  const batch = { toolCallIDs, unmaterializedCount: 0 };
+  const prompts = toolCallIDs.map((id) => question(id, { batch }));
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    });
+  });
+
+  const user = userEvent.setup({ delay: null });
+  await user.type(
+    await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
+    "keep this note",
+  );
+  const option = screen.getByRole("radio", { name: "one" });
+  await user.click(option);
+  expect(screen.getByRole("radio", { name: "one" })).toBeChecked();
+  expect(view.answer).not.toHaveBeenCalled();
+
+  await user.keyboard("{ArrowRight}");
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 2, count: 3 }))).toBeInTheDocument();
+  await user.keyboard("{ArrowRight}");
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 3, count: 3 }))).toBeInTheDocument();
+  const nextButton = screen.getByRole("button", { name: appI18n.t("chat.picker.next") });
+  await user.click(nextButton);
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 3 }))).toBeInTheDocument();
+  expect(nextButton).toHaveFocus();
+  expect(view.answer).not.toHaveBeenCalled();
+});
+
 it("starts a single-prompt recommendation unselected and treats clicks as selection only", async () => {
   const view = sessionWithPrompts();
   onTestFinished(() => {
