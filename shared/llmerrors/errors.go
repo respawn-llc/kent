@@ -171,6 +171,10 @@ func IsNonRetriableModelError(err error) bool {
 		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion || providerErr.Code == UnifiedErrorCodeUsageExhausted {
 			return true
 		}
+		// Connection expiry is transport lifecycle, not an invalid request.
+		if providerErr.ProviderCode == "websocket_connection_limit_reached" {
+			return false
+		}
 		for _, status := range []int{400, 401, 403, 404} {
 			if HasHTTPStatus(providerErr, status) {
 				return true

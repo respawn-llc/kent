@@ -29,6 +29,7 @@
 - Compaction must keep the socket open and send the complete replacement context on the next generation request.
 - Explicit Stop during provider generation must close that socket so generation cannot continue unobserved. A later invocation must start with the complete prepared context on a fresh socket.
 - Model-request retries, authentication handling, and allowance switching must follow their owning contracts. Kent must add no SDK recovery, automatic command replay, or WebSocket-to-HTTP fallback.
+- When the provider expires a Responses WebSocket, Kent must retry the model request on a new connection with the unchanged prepared context. Normal retry limits and cancellation apply; recovery must not rerun tools.
 - A socket must allow messages up to 256 MiB and bound queued incoming data to 64 MiB and 1,600 events. Exceeding a bound must use existing model-error/retry behavior without dropping or truncating events.
 
 ## Connection Sets
