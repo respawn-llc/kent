@@ -103,11 +103,11 @@ function SendButton({
       {pending ? (
         <ComposerIcon kind="loading" className="text-[var(--color-on-primary)]" />
       ) : (
-        <span className="relative grid size-5 place-items-center">
+        <span className="grid place-items-center">
           {(["send", "queue"] as const).map((kind) => (
             <span
               key={kind}
-              className="absolute grid place-items-center transition-opacity duration-[var(--motion-fast)]"
+              className="col-start-1 row-start-1 grid place-items-center transition-opacity duration-[var(--motion-fast)]"
               style={{ opacity: intent === kind ? 1 : 0 }}
             >
               <ComposerIcon kind={kind} className="text-[var(--color-on-primary)]" />
