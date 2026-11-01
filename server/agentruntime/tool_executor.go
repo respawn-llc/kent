@@ -301,6 +301,9 @@ func (e *Engine) executePreparedToolCall(
 		ctx,
 		toolCall,
 	)
+	if toolID != toolspec.ToolAskQuestion {
+		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) &&
 			ctx.Err() != nil &&

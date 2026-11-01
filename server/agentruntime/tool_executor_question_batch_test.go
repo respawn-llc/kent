@@ -154,6 +154,61 @@ func (questionBatchTestHandler) QuestionsEnabled() bool {
 	return true
 }
 
+func TestOrdinaryCompletionRecordsActivityBeforeSiblingQuestionAnswer(t *testing.T) {
+	broker := tools.NewAskQuestionBroker()
+	pending := make(chan struct{})
+	release := make(chan struct{})
+	broker.SetLifecycleAskHandler(func(ctx context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+		close(pending)
+		select {
+		case <-release:
+			return tools.AskQuestionAnswer{Freeform: textutil.Value("answer")}, nil
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		}
+	})
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t,
+		tools.HandlerRegistration{ID: toolspec.ToolAskQuestion, Handler: tools.NewAskQuestionTool(broker, func() bool { return true })},
+		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}},
+	), Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion, toolspec.ToolExecCommand}})
+	stepID := runtimeTestStepID("activity before human answer")
+	restore := setTestActiveStep(engine, stepID)
+	defer restore()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.executeToolCalls(ctx, stepID, []llm.ToolCall{
+			{ID: "ask", Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Proceed?"}`)},
+			{ID: "work", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"true"}`)},
+		})
+		done <- err
+	}()
+	<-pending
+	deadline := time.After(3 * time.Second)
+	for store.ContextFacts().LastModelToolActivityAt == nil {
+		select {
+		case <-deadline:
+			t.Fatal("ordinary work activity waited for Question answer")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	completedAt := *store.ContextFacts().LastModelToolActivityAt
+	select {
+	case err := <-done:
+		t.Fatalf("batch finished before answer: %v", err)
+	default:
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(completedAt) {
+		t.Fatalf("Question answer refreshed activity: %v, want %v", got, completedAt)
+	}
+}
+
 func TestPrepareExecutorToolCallsAssignsQuestionBatchOutsideWorkflow(t *testing.T) {
 	engine := &Engine{
 		registry: newTestToolRegistry(t, tools.HandlerRegistration{
