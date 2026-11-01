@@ -68,7 +68,7 @@ func (s *Store) commitLegacyEventLogConversion(log *currentEventLog) error {
 			ObservedLastSequence:    sequence,
 			LastSequence:            current.lastSequence,
 			ConversationEstablished: current.conversationEstablished,
-			UpdatedAt:               s.options.now(),
+			UpdatedAt:               storeTimestamp(s.options),
 			UsageState:              usageState,
 		},
 		version: s.metadataVersion + 1,
