@@ -286,6 +286,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Sessions, Location, And Transcript Bounds
 
+Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-reminder.md).
+
 - Sessions can stop and resume. The persistence root is configurable and defaults to `~/.kent`. Their durable location model is Project, Workspace, then Worktree.
 - A user-driven Edit or Fork must create a new interactive main Session with a new Session ID and no Task ownership, Workflow execution, inherited Agent-role continuation, or parent-agent ancestry. It must never continue the source Workflow.
 - A user fork must resolve fresh interactive settings, including model, provider, prompt, and completion settings captured in the source snapshot. It must inherit the source execution location, Worktree reminder, previous-Session provenance, complete Goal, and current desired Thinking selection unchanged. Goal and Thinking inheritance do not confer Workflow ownership.
