@@ -65,7 +65,7 @@ func (c uiAskController) focusReadingRow(document askDocument) {
 	for option, rows := range document.options {
 		if presentation.row >= rows.start && presentation.row < rows.end {
 			presentation.focus = askFocusAnswer
-			m.ask.cursor = option
+			m.ask.selectedOption = &option
 			c.chooseFocusedApproval()
 			return
 		}
@@ -74,10 +74,10 @@ func (c uiAskController) focusReadingRow(document askDocument) {
 
 func (c uiAskController) chooseFocusedApproval() {
 	m := c.model
-	if m.ask.freeformMode == askFreeformModeApprovalCommentary {
+	if m.ask.freeformMode == askFreeformModeApprovalCommentary && m.ask.chosenApproval != nil {
 		return
 	}
-	if decision, ok := selectedApprovalDecision(m.ask.current.prompt, m.ask.cursor); ok {
+	if decision, ok := selectedApprovalDecision(m.ask.current.prompt, m.ask.selectedOption); ok {
 		m.ask.chosenApproval = &decision
 	}
 }

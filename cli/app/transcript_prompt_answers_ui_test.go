@@ -127,8 +127,8 @@ func TestAskDeadlineKeepsEditedRetryDraftActionableUntilCanonicalResolution(t *t
 	if got := testAskInput(model); got != "original edited" {
 		t.Fatalf("retry draft = %q, want edited draft while delivery is outstanding", got)
 	}
-	if got := testAskCursor(model); got != 0 {
-		t.Fatalf("selection = %d, want original selection retained", got)
+	if got := testAskSelection(model); got != nil {
+		t.Fatalf("unexpected selection while retaining freeform draft: %d", *got)
 	}
 
 	close(control.firstRelease)
@@ -190,6 +190,7 @@ func TestAskRepeatedEnterWhileDeliveryActiveDoesNotSubmitAgain(t *testing.T) {
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 		testQuestionPrompt("ask-duplicate", "Proceed?", "Yes", "No"),
 	)})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 
 	next, delivery := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = next.(*uiModel)
@@ -316,6 +317,7 @@ func TestAskInvalidIdentityKeepsPromptPending(t *testing.T) {
 	prompt := testQuestionPrompt("invalid-identity", "Choose", "Continue")
 	prompt.GetQuestion().SessionId = ""
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	if testActiveAsk(model) == nil || model.inputMode() != uiInputModeAsk || model.activity != uiActivityQuestion {
 		t.Fatal("invalid identity dismissed the prompt")
@@ -334,6 +336,7 @@ func TestAskSameKeyRefreshPreservesActiveDeliveryDraftAndSelection(t *testing.T)
 	model.promptAnswers = newTranscriptPromptAnswerer(ctx, control)
 	prompt := testQuestionPrompt("ask-refresh", "Original question", "One", "Two")
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("retry draft")})
 	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
@@ -354,11 +357,12 @@ func TestAskSameKeyRefreshPreservesActiveDeliveryDraftAndSelection(t *testing.T)
 	if model.ask.activeDelivery != active {
 		t.Fatal("same-key refresh replaced active delivery ownership")
 	}
-	if testAskInput(model) != "retry draft" || testAskCursor(model) != 1 || testAskFreeform(model) {
+	selection := testAskSelection(model)
+	if testAskInput(model) != "retry draft" || selection == nil || *selection != 1 || testAskFreeform(model) {
 		t.Fatalf(
-			"same-key refresh changed draft/selection: draft=%q cursor=%d freeform=%t",
+			"same-key refresh changed draft/selection: draft=%q selection=%v freeform=%t",
 			testAskInput(model),
-			testAskCursor(model),
+			selection,
 			testAskFreeform(model),
 		)
 	}
@@ -414,6 +418,7 @@ func TestAskSessionReplacementCancelsDeliveryAndClearsOldPrompt(t *testing.T) {
 	prompt := testQuestionPrompt("ask-old-session", "Proceed?", "Yes", "No")
 	model.setKnownSessionTarget(transcriptPromptSessionID(prompt))
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(prompt)})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 
 	next, delivery := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = next.(*uiModel)
@@ -495,6 +500,7 @@ func TestAskResolutionBeforeDeliveryCommandRunsDoesNotCallPromptControl(t *testi
 	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 		testQuestionPrompt("ask-resolved-before-command", "Proceed?", "Yes", "No"),
 	)})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 
 	next, delivery := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = next.(*uiModel)
@@ -537,7 +543,11 @@ func TestApprovalCommentaryRetriesAreDeliberateAndKeepToolCallIdentity(t *testin
 			model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
 				testApprovalPrompt("stable-tool-call", "Allow access?", clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionDeny),
 			)})
+			selectionSteps := 1
 			if decision == clientui.ApprovalDecisionDeny {
+				selectionSteps = 2
+			}
+			for step := 0; step < selectionSteps; step++ {
 				model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 			}
 			model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})

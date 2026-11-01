@@ -33,10 +33,22 @@ export function PromptPickerView({
   const { t } = useTranslation();
   const answerArea = useRef<HTMLDivElement | null>(null);
   const localField = useRef<HTMLTextAreaElement | null>(null);
+  const removedOptionFocus = useRef<HTMLElement | null>(null);
+  const previousCurrent = useRef(state.current);
   const field = editorRef ?? localField;
   useLayoutEffect(() => {
     answerArea.current?.focus();
   }, []);
+  useLayoutEffect(() => {
+    if (previousCurrent.current !== state.current) {
+      const focusWasLost =
+        document.activeElement === document.body || document.activeElement === document.documentElement;
+      if (removedOptionFocus.current !== null && !removedOptionFocus.current.isConnected && focusWasLost)
+        answerArea.current?.focus();
+    }
+    previousCurrent.current = state.current;
+    removedOptionFocus.current = null;
+  }, [state]);
   const batch = pickerBatch(prompts);
   const index = batch.findIndex((prompt) => prompt.toolCallID === state.current);
   const prompt = batch[index];
@@ -48,8 +60,18 @@ export function PromptPickerView({
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {
-    dispatch(action, () => field.current?.focus());
+    if (action.kind === "activate" || action.kind === "pointer-confirm" || action.kind === "confirm") {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && answerArea.current?.contains(activeElement))
+        removedOptionFocus.current = activeElement;
+    }
+    const originatedAction =
+      action.kind === "select" || action.kind === "activate" || action.kind === "pointer-confirm"
+        ? { ...action, originToolCallID: prompt.toolCallID }
+        : action;
+    dispatch(originatedAction, () => field.current?.focus());
   };
+  const pointerConfirmationProtected = state.batchToolCallIDs.length === 1 || draft.commentary.length > 0;
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     promptPickerKeyboard(event, { answerArea, field, options, selected, disabled, act });
   };
@@ -96,6 +118,7 @@ export function PromptPickerView({
           )}
           <div ref={answerArea} tabIndex={0} className="min-w-0 outline-none">
             <RadioGroup
+              key={prompt.toolCallID}
               className="gap-[var(--space-1)]"
               disabled={disabled}
               value={selected?.value ?? null}
@@ -119,6 +142,19 @@ export function PromptPickerView({
                   onActivate={() => {
                     act({ kind: "activate", selection: option.selection });
                   }}
+                  {...(pointerConfirmationProtected &&
+                  option.selection.kind !== "neither" &&
+                  option.selection.kind !== "freeform"
+                    ? {
+                        onDoubleActivate: () => {
+                          act({
+                            kind: "pointer-confirm",
+                            selection: option.selection,
+                            originToolCallID: prompt.toolCallID,
+                          });
+                        },
+                      }
+                    : {})}
                 />
               ))}
             </RadioGroup>

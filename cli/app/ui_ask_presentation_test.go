@@ -146,7 +146,15 @@ func TestAskDedicatedNavigationFollowsRenderedRows(t *testing.T) {
 				option = &selected
 			}
 		}
-		if model.askHasAnswerFocus() != (option != nil) || (option != nil && model.ask.cursor != *option) {
+		var selectedOption *int
+		for _, line := range model.askController().renderPriorityPromptLines() {
+			if line.Kind == askPromptLineKindOption && line.Selected {
+				selectedOption = line.Option
+			}
+		}
+		if model.askHasAnswerFocus() != (option != nil) ||
+			(option == nil && selectedOption != nil) ||
+			(option != nil && (selectedOption == nil || *selectedOption != *option)) {
 			t.Fatalf("row %d did not select only the option under the reading cursor", row)
 		}
 		frame := model.layout().composeAskFrame(80, 10, uiThemeStyles(model.theme))
@@ -400,7 +408,8 @@ func TestAskDedicatedApprovalReadingKeepsChosenCommentary(t *testing.T) {
 	for step := 0; step <= len(model.layout().askDocument(80).lines) && !model.askHasAnswerFocus(); step++ {
 		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	}
-	if model.ask.freeform || model.ask.cursor != 0 || model.ask.editor.Text() != "deny draft" {
+	if model.ask.freeform || model.ask.selectedOption == nil || *model.ask.selectedOption != 0 ||
+		model.ask.editor.Text() != "deny draft" {
 		t.Fatal("reading did not return to option one with the commentary draft intact")
 	}
 	if model.ask.chosenApproval == nil || *model.ask.chosenApproval != clientui.ApprovalDecisionDeny {
@@ -448,6 +457,40 @@ func TestAskDedicatedApprovalReadingKeepsChosenCommentary(t *testing.T) {
 	decision := protoapi.ApprovalDecisionFromProto(answer.Decision)
 	if decision != clientui.ApprovalDecisionDeny || approvalCommentary(answer) != "deny draft" {
 		t.Fatalf("commentary answer lost chosen decision or draft: %+v", answer)
+	}
+}
+
+func TestAskDedicatedApprovalReadingDoesNotAttachCommentaryToAnotherDecision(t *testing.T) {
+	model, control := newProjectedPromptTestUIModel(t)
+	model = sizedTestUIModel(model, 80, 10)
+	model = updateUIModel(t, model, askEventMsg{event: model.transcriptPromptEvent(
+		testApprovalPrompt("approval-reading-mismatch", "Approve?", clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionDeny),
+	)})
+	model.ask.activeProjection.rows = make([]string, 12)
+	model = updateUIModel(t, model, tea.WindowSizeMsg{Width: 80, Height: 10})
+	for step := 0; step <= len(model.layout().askDocument(80).lines) && !model.askHasAnswerFocus(); step++ {
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("deny draft")})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyPgUp})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	for step := 0; step <= len(model.layout().askDocument(80).lines) && !model.askHasAnswerFocus(); step++ {
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if model.ask.selectedOption == nil || *model.ask.selectedOption != 0 ||
+		model.ask.chosenApproval == nil || *model.ask.chosenApproval != clientui.ApprovalDecisionDeny {
+		t.Fatal("reading navigation changed the selected decision or rebound Deny commentary")
+	}
+
+	next, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = runPromptDeliveryCommand(t, next.(*uiModel), command)
+	answer := requireApprovalAnswerEntry(t, requirePromptAnswerBatchRequest(t, control)).GetApprovalAnswer()
+	if protoapi.ApprovalDecisionFromProto(answer.Decision) != clientui.ApprovalDecisionAllowOnce ||
+		answer.Commentary != nil {
+		t.Fatalf("reading selected Allow with another decision's commentary: %+v", answer)
 	}
 }
 
@@ -505,7 +548,7 @@ func TestAskDedicatedRefreshKeepsFocusedOptionVisible(t *testing.T) {
 	model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent(
 		"focused-refresh", strings.Repeat("Expanded paragraph.\n\n", 40), "First", "Second",
 	)})
-	if model.ask.cursor != 1 || !model.askHasVisibleAnswerFocus() {
+	if model.ask.selectedOption == nil || *model.ask.selectedOption != 1 || !model.askHasVisibleAnswerFocus() {
 		t.Fatal("refresh lost the focused option or left it outside the document window")
 	}
 }

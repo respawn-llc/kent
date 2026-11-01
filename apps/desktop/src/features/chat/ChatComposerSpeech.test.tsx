@@ -394,3 +394,35 @@ it.each(["enter", "command", "button"] as const)(
     expect(queue).not.toHaveBeenCalled();
   },
 );
+
+it("requires transcription to finish before a Question double-click confirms its answer", async () => {
+  const { transcript, answer, readTranscript } = await setupSpeech("ordinary draft", question());
+  const user = userEvent.setup({ delay: null });
+  const option = screen.getByRole("radio", { name: "one" });
+  await user.click(option);
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("speech.record") }));
+  await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+  await user.dblClick(option);
+  expect(answer).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("speech.stop") }));
+  await waitFor(() => {
+    expect(readTranscript).toHaveBeenCalled();
+  });
+  await user.dblClick(screen.getByRole("radio", { name: "one" }));
+  expect(answer).not.toHaveBeenCalled();
+
+  await act(async () => {
+    transcript.resolve({ kind: "transcript", text: "dictated commentary" });
+  });
+  await waitFor(() => {
+    expect(screen.getByRole("textbox")).toHaveValue("dictated commentary");
+  });
+  await user.dblClick(screen.getByRole("radio", { name: "one" }));
+  await waitFor(() => {
+    expect(answer).toHaveBeenCalledTimes(1);
+  });
+  expect(answer.mock.calls[0]?.[0].entries).toMatchObject([
+    { selectedOptionNumber: 1, freeform: "dictated commentary" },
+  ]);
+});
