@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useAtomValue, useAtomSet } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Save } from "lucide-react";
 import {
   useAppServices,
   useDesktopSettings,
@@ -9,7 +10,7 @@ import {
   useStatusController,
   SettingsCommandError,
 } from "@/app-facade";
-import { Button, DisabledInteractionGuard, TextInput } from "@/ui";
+import { Button, ControlTooltip, TextInput } from "@/ui";
 import { createConnectionViewModel } from "./ConnectionViewModel";
 
 export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean }>) {
@@ -37,25 +38,48 @@ export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean
         action.submit(draft ?? snapshot.saved.serverAddress);
       }}
     >
-      <TextInput
-        label={t("settings.serverAddress")}
-        labelHelp={t(mode === "mainStartup" ? "settings.help.connect" : "settings.help.connection")}
-        className="font-mono"
-        value={draft ?? snapshot.saved.serverAddress}
-        error={
-          action.error instanceof SettingsCommandError && action.error.failure.kind === "address"
-            ? t("settings.invalidAddress")
-            : undefined
-        }
-        onChange={(event) => {
-          setDraft(event.target.value);
-        }}
-      />
-      <DisabledInteractionGuard className="justify-self-start" disabled={action.isPending}>
-        <Button type="submit" disabled={action.isPending} loading={action.isPending}>
-          {t(mode === "mainStartup" ? "settings.connect" : "settings.saveConnection")}
+      <div className="min-w-0 flex-1">
+        <TextInput
+          label={t("settings.serverAddress")}
+          labelHelp={t(mode === "mainStartup" ? "settings.help.connect" : "settings.help.connection")}
+          className="font-mono"
+          value={draft ?? snapshot.saved.serverAddress}
+          error={
+            action.error instanceof SettingsCommandError && action.error.failure.kind === "address"
+              ? t("settings.invalidAddress")
+              : undefined
+          }
+          onChange={(event) => {
+            setDraft(event.target.value);
+          }}
+          trailingControl={
+            mode === "mainStartup" ? undefined : (
+              <ControlTooltip label={t("settings.saveConnection")}>
+                <Button
+                  type="submit"
+                  size="icon"
+                  variant="primary"
+                  aria-label={t("settings.saveConnection")}
+                  disabled={action.isPending}
+                  loading={action.isPending}
+                >
+                  <Save size={16} strokeWidth={1.75} />
+                </Button>
+              </ControlTooltip>
+            )
+          }
+        />
+      </div>
+      {mode === "mainStartup" && (
+        <Button
+          className="justify-self-start"
+          type="submit"
+          disabled={action.isPending}
+          loading={action.isPending}
+        >
+          {t("settings.connect")}
         </Button>
-      </DisabledInteractionGuard>
+      )}
     </form>
   );
 }

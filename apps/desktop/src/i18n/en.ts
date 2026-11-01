@@ -22,28 +22,18 @@ export const englishResources = {
       appearance: "Appearance",
       general: "General",
       help: {
-        connection:
-          "Save the full ws:// or wss:// address, then restart Kent to connect. The current server stays connected until restart.",
-        connect:
-          "Save the full ws:// or wss:// address and try connecting once. An unreachable address is still saved.",
-        serverConfig:
-          "This path comes from the connected server. Open uses the exact local file when it exists, even when the server is remote.",
+        connection: "Save, then restart Kent to connect to this server.",
+        connect: "Saves this address and tries connecting once.",
         notifications:
-          "Native sends supported attention alerts to the OS; In-app keeps them in Kent. Automatic chooses by window focus. Action and error feedback stays in-app.",
-        projectOpening:
-          "Last used remembers each Project’s tab separately for each server. New Projects open Tasks. Explicit links still open their requested destination.",
-        theme:
-          "System follows your operating system’s appearance. Theme changes apply immediately in every window.",
-        lowPower:
-          "Turns off animations, window transparency, and all blur after restart. Your Transparency and Reduced motion choices are kept.",
-        transparency:
-          "Allows the background behind the window to show through. Changes require restart. Turning this off keeps in-window blur.",
-        reducedMotion:
-          "Suppresses animation immediately. Your operating system’s reduced-motion preference is always respected.",
+          "Choose Native for OS alerts, In-app for Kent alerts, or Automatic to use OS alerts when Kent is unfocused.",
+        projectOpening: "Last used restores each Project’s previous tab. Unseen Projects open Tasks.",
+        lowPower: "Restart to disable all blur, window transparency, and animations.",
+        transparency: "Restart to apply. Turning this off keeps in-window blur.",
+        reducedMotion: "Your system’s reduced-motion setting still applies when this is off.",
       },
       overridden: "Low-power mode overrides this",
-      serverConfig: "Server configuration",
-      open: "Open",
+      openConfig: "Open server configuration",
+      configUnavailable: "This configuration file is not available on this device.",
       theme: "Theme",
       system: "System",
       light: "Light",

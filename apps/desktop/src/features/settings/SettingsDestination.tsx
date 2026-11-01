@@ -3,10 +3,8 @@ import { useScrollSpy } from "@mantine/hooks";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Info } from "lucide-react";
 import {
   useAppServices,
-  usePathFormatter,
   useQueryAction,
   useStatusController,
   type DesktopSettings,
@@ -19,7 +17,6 @@ import {
   DisabledInteractionGuard,
   ErrorState,
   LoadingState,
-  HelpHint,
   PreferenceRow,
   SegmentedControl,
   Spinner,
@@ -136,24 +133,26 @@ function SettingsPage({
       data-settings-scroll={scrollID}
       className="h-full min-h-0 overflow-auto p-[var(--space-5)]"
     >
-      <div className="mx-auto grid max-w-3xl gap-[var(--space-5)]">
+      <div className="grid max-w-2xl gap-[var(--space-5)]">
         <h1 className="m-0 flex items-center gap-[var(--space-2)] text-xl font-bold">
           {t("settings.title")}
           {change.isPending && <Spinner size="sm" />}
         </h1>
-        <section className="grid gap-[var(--space-3)]">
+        <section className="grid gap-[var(--space-2)]">
           <h2 className="m-0 text-base font-bold" id={`${scrollID}-${sections[0].id}`} data-settings-heading>
             {t(sections[0].title)}
           </h2>
-          <ConnectionForm />
-          <ConfigNotice
-            path={config.data.path}
-            available={config.data.available}
-            opening={open.isPending}
-            onOpen={() => {
-              open.submit(undefined);
-            }}
-          />
+          <div className="grid gap-[var(--space-1)] pb-[var(--space-2)]">
+            <ConnectionForm />
+            <ConfigNotice
+              path={config.data.path}
+              available={config.data.available}
+              opening={open.isPending}
+              onOpen={() => {
+                open.submit(undefined);
+              }}
+            />
+          </div>
           <PreferenceRow
             label={t("settings.notifications")}
             help={t("settings.help.notifications")}
@@ -191,11 +190,11 @@ function SettingsPage({
             />
           </PreferenceRow>
         </section>
-        <section className="grid gap-[var(--space-3)]">
+        <section className="grid gap-[var(--space-2)]">
           <h2 className="m-0 text-base font-bold" id={`${scrollID}-${sections[1].id}`} data-settings-heading>
             {t(sections[1].title)}
           </h2>
-          <PreferenceRow label={t("settings.theme")} help={t("settings.help.theme")} disabled={busy}>
+          <PreferenceRow label={t("settings.theme")} disabled={busy}>
             <SegmentedControl<DesktopSettings["theme"]>
               ariaLabel={t("settings.theme")}
               value={saved.theme}
@@ -266,20 +265,23 @@ function ConfigNotice({
   onOpen(): void;
 }>) {
   const { t } = useTranslation();
-  const formatPath = usePathFormatter();
   if (path === null) return null;
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]">
-      <HelpHint icon={Info} label={t("settings.help.serverConfig")} />
-      <span>{t("settings.serverConfig")}</span>
-      <span className="min-w-0 break-all font-mono">{formatPath(path)}</span>
-      {available && (
-        <DisabledInteractionGuard disabled={opening}>
-          <Button variant="secondary" disabled={opening} onClick={onOpen} loading={opening}>
-            {t("settings.open")}
-          </Button>
-        </DisabledInteractionGuard>
-      )}
+    <div className="justify-self-start">
+      <DisabledInteractionGuard
+        disabled={!available || opening}
+        reason={!available ? t("settings.configUnavailable") : undefined}
+      >
+        <Button
+          className="px-0 text-sm underline underline-offset-4"
+          variant="ghost"
+          disabled={!available || opening}
+          onClick={onOpen}
+          loading={opening}
+        >
+          {t("settings.openConfig")}
+        </Button>
+      </DisabledInteractionGuard>
     </div>
   );
 }
