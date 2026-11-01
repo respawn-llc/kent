@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+
 	"core/server/llm"
 	"core/server/sessionstore"
 )
@@ -53,9 +55,20 @@ func prepareRetainedContext(items []llm.ResponseItem, destination llm.ProviderCa
 	}
 	kept := 0
 	for _, item := range items {
-		if item.Type == llm.ResponseItemTypeReasoning && item.EncryptedContent != nil &&
-			(!destination.SupportsReasoningEncrypted || knownMismatch(item)) {
-			continue
+		if item.Type == llm.ResponseItemTypeReasoning && item.EncryptedContent != nil {
+			if knownMismatch(item) {
+				continue
+			}
+			if !destination.SupportsReasoningEncrypted {
+				if len(item.VerbatimReasoning) == 0 {
+					continue
+				}
+				prepared, err := llm.PrepareReasoningWithoutEncryptedContent(item)
+				if err != nil {
+					return nil, 0, fmt.Errorf("prepare plaintext reasoning for destination: %w", err)
+				}
+				item = prepared
+			}
 		}
 		items[kept] = item
 		kept++
