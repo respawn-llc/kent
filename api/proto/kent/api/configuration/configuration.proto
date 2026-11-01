@@ -285,6 +285,7 @@ message Settings {
   int32 context_compaction_threshold_tokens = 22 [(buf.validate.field).int32.gt = 0];
   optional int32 pre_submit_compaction_lead_tokens = 23 [(buf.validate.field).int32.gt = 0];
   int32 minimum_exec_to_bg_seconds = 24 [(buf.validate.field).int32.gt = 0];
+  int64 idle_resume_reminder_seconds = 42 [(buf.validate.field).int64.gte = 0];
   CompactionMode compaction_mode = 25 [(buf.validate.field).enum = {
     defined_only: true
     not_in: [0]
