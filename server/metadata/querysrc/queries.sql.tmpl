@@ -2012,6 +2012,15 @@ UPDATE sessions
 SET manual_compact_eligible = sqlc.arg(manual_compact_eligible)
 WHERE id = sqlc.arg(session_id);
 
+-- name: UpdateSessionModelToolActivity :one
+UPDATE sessions
+SET last_model_tool_activity_at_unix_ms = MAX(
+    COALESCE(last_model_tool_activity_at_unix_ms, CAST(sqlc.arg(completed_at_unix_ms) AS INTEGER)),
+    CAST(sqlc.arg(completed_at_unix_ms) AS INTEGER)
+)
+WHERE id = sqlc.arg(session_id)
+RETURNING last_model_tool_activity_at_unix_ms;
+
 -- name: ReconcileSessionEventLog :execrows
 UPDATE sessions
 SET
@@ -2241,6 +2250,7 @@ SELECT
     s.metadata_json,
     s.completed_compaction_count,
     s.manual_compact_eligible,
+    s.last_model_tool_activity_at_unix_ms,
     COALESCE(w.canonical_root_path, json_extract(s.metadata_json, '$.workspace_root'), '') AS workspace_root
 FROM sessions s
 LEFT JOIN workspaces w ON w.id = s.workspace_id

@@ -2154,6 +2154,7 @@ SELECT
     s.metadata_json,
     s.completed_compaction_count,
     s.manual_compact_eligible,
+    s.last_model_tool_activity_at_unix_ms,
     COALESCE(w.canonical_root_path, json_extract(s.metadata_json, '$.workspace_root'), '') AS workspace_root
 FROM sessions s
 LEFT JOIN workspaces w ON w.id = s.workspace_id
@@ -2162,27 +2163,28 @@ LIMIT 1
 `
 
 type GetSessionRecordByIDRow struct {
-	ID                       string
-	ShortID                  sql.NullInt64
-	ArtifactRelpath          string
-	Name                     sql.NullString
-	FirstPromptPreview       string
-	InputDraft               string
-	ProtectedInputDraft      sql.NullString
-	PreviousSessionID        sql.NullString
-	ParentAgentSessionID     sql.NullString
-	Category                 sql.NullString
-	CreatedAtUnixMs          int64
-	UpdatedAtUnixMs          int64
-	LastSequence             int64
-	ModelRequestCount        int64
-	ContinuationJson         string
-	LockedJson               string
-	UsageStateJson           string
-	MetadataJson             string
-	CompletedCompactionCount sql.NullInt64
-	ManualCompactEligible    sql.NullInt64
-	WorkspaceRoot            string
+	ID                            string
+	ShortID                       sql.NullInt64
+	ArtifactRelpath               string
+	Name                          sql.NullString
+	FirstPromptPreview            string
+	InputDraft                    string
+	ProtectedInputDraft           sql.NullString
+	PreviousSessionID             sql.NullString
+	ParentAgentSessionID          sql.NullString
+	Category                      sql.NullString
+	CreatedAtUnixMs               int64
+	UpdatedAtUnixMs               int64
+	LastSequence                  int64
+	ModelRequestCount             int64
+	ContinuationJson              string
+	LockedJson                    string
+	UsageStateJson                string
+	MetadataJson                  string
+	CompletedCompactionCount      sql.NullInt64
+	ManualCompactEligible         sql.NullInt64
+	LastModelToolActivityAtUnixMs sql.NullInt64
+	WorkspaceRoot                 string
 }
 
 func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (GetSessionRecordByIDRow, error) {
@@ -2209,6 +2211,7 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 		&i.MetadataJson,
 		&i.CompletedCompactionCount,
 		&i.ManualCompactEligible,
+		&i.LastModelToolActivityAtUnixMs,
 		&i.WorkspaceRoot,
 	), getSessionRecordByID, 1)
 
@@ -8973,6 +8976,29 @@ func (q *Queries) UpdateSessionManualCompactEligibility(ctx context.Context, arg
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateSessionModelToolActivity = `-- name: UpdateSessionModelToolActivity :one
+UPDATE sessions
+SET last_model_tool_activity_at_unix_ms = MAX(
+    COALESCE(last_model_tool_activity_at_unix_ms, CAST(?1 AS INTEGER)),
+    CAST(?1 AS INTEGER)
+)
+WHERE id = ?2
+RETURNING last_model_tool_activity_at_unix_ms
+`
+
+type UpdateSessionModelToolActivityParams struct {
+	CompletedAtUnixMs int64
+	SessionID         string
+}
+
+func (q *Queries) UpdateSessionModelToolActivity(ctx context.Context, arg UpdateSessionModelToolActivityParams) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, updateSessionModelToolActivity, arg.CompletedAtUnixMs, arg.SessionID)
+	var last_model_tool_activity_at_unix_ms sql.NullInt64
+	err := recordQueryError(ctx, row.Scan(&last_model_tool_activity_at_unix_ms), updateSessionModelToolActivity, 2)
+
+	return last_model_tool_activity_at_unix_ms, err
 }
 
 const updateTaskActiveFanoutBranchArrival = `-- name: UpdateTaskActiveFanoutBranchArrival :execrows

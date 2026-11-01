@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -17,6 +18,10 @@ type failingContextFactWriter struct {
 	failuresRemaining int
 	countWrites       int
 	eligibilityWrites int
+}
+
+func (w *failingContextFactWriter) WriteModelToolActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+	return w.delegate.WriteModelToolActivity(ctx, sessionID, completedAt)
 }
 
 func (w *failingContextFactWriter) WriteSessionContextFacts(
