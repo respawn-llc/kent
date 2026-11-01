@@ -62,6 +62,7 @@ type HTTPTransport struct {
 	ConnectionID                 *config.ConnectionID
 	Store                        bool
 	ModelVerbosity               string
+	CyberAccess                  bool
 	ContextWindowTokens          int
 	ProviderIdentifier           string
 	ProviderCapabilitiesOverride *ProviderCapabilities

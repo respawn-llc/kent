@@ -33,6 +33,7 @@ type ProviderClientOptions struct {
 	Auth                         DispatchAuthProvider
 	HTTPClient                   *http.Client
 	ModelVerbosity               string
+	CyberAccess                  bool
 	ProviderIdentifier           *string
 	Store                        bool
 	ContextWindowTokens          int
@@ -220,10 +221,13 @@ func providerContracts() []ProviderContract {
 				// https://developers.openai.com/api/docs/models/gpt-6-sol
 				// https://developers.openai.com/api/docs/models/gpt-5.6-terra
 				// https://developers.openai.com/api/docs/models/gpt-5.6-luna
-				gpt6ModelContract("gpt-6-astra", time.April, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{10_000, 1_000, 50_000}),
-				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 100, 10_000}),
-				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 200, 10_000}),
-				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{100, 10, 500}),
+				gpt6ModelContract("gpt-6-astra", time.April, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{10_000, 1_000, 50_000}, 272_000),
+				gpt6ModelContract("gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 100, 10_000}, 272_000),
+				// API metadata: https://developers.openai.com/api/docs/models/gpt-6.1-terra
+				// Codex context: codex-rs/models-manager/models.json in openai/codex.
+				gpt6ModelContract("gpt-6.1-terra", time.June, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{1_000, 50, 5_000}, 500_000),
+				gpt6ModelContract("gpt-6-sol", time.April, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 200, 10_000}, 272_000),
+				gpt6ModelContract("gpt-6-luna", time.May, []string{"none", "low", "medium", "high", "xhigh", "max"}, TokenPricing{100, 10, 500}, 272_000),
 				{Model: "gpt-5.6-sol", TokenPricing: &TokenPricing{4_000, 400, 20_000}, ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 				{Model: "gpt-5.6-terra", TokenPricing: &TokenPricing{2_000, 200, 12_000}, ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
 				{Model: "gpt-5.6-luna", TokenPricing: &TokenPricing{200, 20, 1_200}, ContextWindowTokens: 372_000, LargeContextWindowTokens: textutil.Value(372_000), KnowledgeCutoff: &ModelKnowledgeCutoff{Month: time.February, Year: 2026}, SupportsReasoningEffort: true, SupportedReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, SupportsReasoningSummary: true, SupportsVerbosity: true, SupportedVerbosityLevels: []string{"low", "medium", "high"}, SupportsVisionInputs: true},
@@ -274,14 +278,14 @@ func grokModelContract(model string, cutoff time.Month, proxyContext *ModelMetad
 	}
 }
 
-func gpt6ModelContract(model string, cutoff time.Month, efforts []string, pricing TokenPricing) ModelCapabilityContract {
+func gpt6ModelContract(model string, cutoff time.Month, efforts []string, pricing TokenPricing, codexContextWindow int) ModelCapabilityContract {
 	return ModelCapabilityContract{
 		Model:                         model,
 		DefaultReasoningEffort:        textutil.Value("medium"),
 		TokenPricing:                  &pricing,
 		ContextWindowTokens:           272_000,
 		LargeContextWindowTokens:      textutil.Value(1_050_000),
-		VariantContexts:               map[string]*ModelMetadata{"chatgpt-codex": {ContextWindowTokens: 272_000, LargeContextWindowTokens: textutil.Value(872_000)}},
+		VariantContexts:               map[string]*ModelMetadata{"chatgpt-codex": {ContextWindowTokens: codexContextWindow, LargeContextWindowTokens: textutil.Value(872_000)}},
 		KnowledgeCutoff:               &ModelKnowledgeCutoff{Month: cutoff, Year: 2026},
 		SupportsReasoningEffort:       true,
 		SupportsNativeThinkingUpdates: true,
@@ -397,6 +401,7 @@ func newResponsesHTTPTransport(opts ProviderClientOptions) (*HTTPTransport, erro
 		transport.Client = NewProviderHTTPClient(transport.serviceBaseURL(), transport.Client.Timeout)
 	}
 	transport.ModelVerbosity = strings.ToLower(strings.TrimSpace(opts.ModelVerbosity))
+	transport.CyberAccess = opts.CyberAccess
 	if opts.ProviderIdentifier != nil {
 		transport.ProviderIdentifier = *opts.ProviderIdentifier
 	}
@@ -420,6 +425,9 @@ func NewProviderClient(opts ProviderClientOptions) (Client, error) {
 		return nil, fmt.Errorf("%w: resolved provider registration is required", ErrUnsupportedProvider)
 	}
 	provider := opts.Registration.Provider
+	if opts.CyberAccess && (provider != ProviderOpenAI || !opts.Registration.Variant.Capabilities.IsOpenAIFirstParty) {
+		return nil, fmt.Errorf("%w: cybersecurity access requires a first-party OpenAI connection", ErrUnsupportedProvider)
+	}
 	if opts.ContextWindowTokens <= 0 {
 		if model, known := LookupModelCapabilityContract(opts.Model); known {
 			if meta := model.ContextMetadata(opts.Registration.Variant.ProviderID); meta != nil {

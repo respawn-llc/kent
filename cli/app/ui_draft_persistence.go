@@ -61,7 +61,7 @@ func (m *uiModel) saveEditedDraft() tea.Cmd {
 func (m *uiModel) finishDraftSave(msg draftSaveDoneMsg) tea.Cmd {
 	msg.owner.saving = false
 	if msg.err == nil {
-		return m.renderNativeOngoingSurface()
+		return nil
 	}
 	m.logf("draft.save.error err=%q", msg.err.Error())
 	return m.batchWithNativeOngoingRepaint(m.sendTransientStatusWithNoticeID(

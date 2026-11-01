@@ -138,7 +138,8 @@ func renderCommittedRow(
 			notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING {
 			options.forceFull = true
 		}
-		if row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
+		if row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH ||
+			row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK {
 			options.forceFull = true
 		}
 		if isReviewerNotice(row.GetNotice()) {
@@ -754,6 +755,9 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		return role, reasoningOmissionText
 	}
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK {
+		if !isError {
+			role = StyleRoleWarning
+		}
 		return role, fmt.Sprintf("Switched connection from %s to %s because usage was exhausted", row.ConnectionFallback.PreviousId, row.ConnectionFallback.CurrentId)
 	}
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE {

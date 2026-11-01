@@ -259,6 +259,10 @@ func newSettingsRegistry() settingsRegistry {
 			normalizeModelVerbosity,
 			settingDocOptions{}),
 		newPromptFileSetting(),
+		newBoolSetting("model_capabilities.cyber_access", false,
+			func(state *settingsState, value bool) { state.Settings.ModelCapabilities.CyberAccess = value },
+			func(state settingsState) bool { return state.Settings.ModelCapabilities.CyberAccess },
+			"", settingDocOptions{commented: true}),
 		newBoolSetting("model_capabilities.supports_reasoning_effort", false,
 			func(state *settingsState, value bool) {
 				state.Settings.ModelCapabilities.SupportsReasoningEffort = value
@@ -521,6 +525,10 @@ func newSettingsRegistry() settingsRegistry {
 			},
 			"KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT",
 			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.model_capabilities.cyber_access", false,
+			func(state *settingsState, value bool) { state.Settings.Reviewer.ModelCapabilities.CyberAccess = value },
+			func(state settingsState) bool { return state.Settings.Reviewer.ModelCapabilities.CyberAccess },
+			"", settingDocOptions{commented: true}),
 		newBoolSetting("reviewer.model_capabilities.supports_vision_inputs", false,
 			func(state *settingsState, value bool) {
 				state.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs = value

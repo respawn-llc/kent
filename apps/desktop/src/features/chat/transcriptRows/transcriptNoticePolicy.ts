@@ -29,6 +29,7 @@ export type TranscriptNoticePolicy =
       kind: "compact";
       summary: string;
       icon: LucideIcon;
+      tone: "neutral" | "warning";
     }>
   | Readonly<{
       kind: "disclosure";
@@ -81,10 +82,15 @@ export function projectNotice(
   const notice = row.Notice;
   if (notice === null || shouldOmitNotice(row, notice)) return null;
   if (notice.Reason === "thinking_update") {
-    return { kind: "compact", summary: prose.compact, icon: Settings };
+    return { kind: "compact", summary: prose.compact, icon: Settings, tone: "neutral" };
   }
   if (notice.Reason === "reasoning_omission" || notice.Reason === "connection_fallback") {
-    return { kind: "compact", summary: prose.expanded, icon: noticeIcon(notice) };
+    return {
+      kind: "compact",
+      summary: prose.expanded,
+      icon: noticeIcon(notice),
+      tone: notice.Reason === "connection_fallback" ? "warning" : "neutral",
+    };
   }
 
   const body = isMarkdownNotice(notice)
@@ -258,9 +264,10 @@ function noticeReasonIcon(notice: TranscriptNotice): LucideIcon | undefined {
     case "tool_output_repair":
       return Wrench;
     case "provider_model_mismatch":
-    case "connection_fallback":
     case "connections_unavailable":
       return Server;
+    case "connection_fallback":
+      return TriangleAlert;
     case "legacy_untyped_notice":
     case "runtime_diagnostic":
     case "thinking_update":

@@ -710,14 +710,7 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}
 	if strings.EqualFold(actionType, "search") {
 		input["query"] = searchQuery
-	} else if query != "" || searchQuery != "" {
-		input["query"] = query
-	} else if query == "" {
-		if actionType != "" {
-			query = actionType
-		} else {
-			query = "web search"
-		}
+	} else if query != "" {
 		input["query"] = query
 	}
 	inputRaw, err := json.Marshal(input)

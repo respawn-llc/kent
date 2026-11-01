@@ -891,6 +891,7 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 			return err
 		}
 		outcome, resolveErr := e.resolveCompletedResponseStreamRaw(stepID, completedResponseAbortInstruction())
+		outcome.committedAssistantEventPublished = true
 		commit.result.resolution = outcome
 		return resolveErr
 	}

@@ -12,6 +12,8 @@ import (
 	"core/server/attentionnotify"
 	"core/server/llm"
 	askquestion "core/server/tools"
+	"core/server/workflow"
+	"core/server/workflowruntime"
 	"core/shared/clientui"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -23,22 +25,43 @@ import (
 )
 
 func TestCompletedAssistantTurnPublishesAttentionWithoutTranscriptSubscriber(t *testing.T) {
+	node, err := workflow.NewCurrentNodeReference("notification-task", "notification-node", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name   string
 		status runtime.RunStatus
 		kind   runtime.LiveRunResultKind
 		work   bool
 		want   bool
+		config runtime.Config
 	}{
-		{"completed", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, true, true},
-		{"few tools", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, false, false},
-		{"interrupted", runtime.RunStatusInterrupted, runtime.LiveRunResultAssistantFinalAnswer, true, false},
-		{"no final", runtime.RunStatusCompleted, runtime.LiveRunResultNoFinalAnswer, true, false},
+		{"completed", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, true, true, runtime.Config{}},
+		{"few tools", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, false, false, runtime.Config{}},
+		{"interrupted", runtime.RunStatusInterrupted, runtime.LiveRunResultAssistantFinalAnswer, true, false, runtime.Config{}},
+		{"no final", runtime.RunStatusCompleted, runtime.LiveRunResultNoFinalAnswer, true, false, runtime.Config{}},
+		{"headless", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, true, false, runtime.Config{HeadlessMode: true}},
+		{"workflow", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, true, false, runtime.Config{
+			CurrentNodeExecution: &workflowruntime.CurrentNodeExecutionConfig{
+				ScopeID:      runtimeids.NewExecutionScopeID(),
+				Instructions: workflowruntime.TaskInstructions{CurrentNode: node, WorkflowID: runtimeids.NewWorkflowID()},
+			},
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			broker := attentionnotify.NewBroker()
 			registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-			engine := newRegistryTestRuntime(t, nil)
+			cfg := test.config
+			cfg.Model = "gpt-6-sol"
+			engine := newRegistryRuntime(t, registryRuntimeFakeClient{}, askquestion.NewRegistry(), cfg, nil)
+			if cfg.CurrentNodeExecution != nil {
+				binding, err := engine.BindCurrentNodeExecution(cfg.CurrentNodeExecution)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = binding.Close() })
+			}
 			registerReady(t, registry, engine.SessionID(), engine)
 			t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
 			sub, err := registry.SubscribeAttentionNotifications(t.Context(), &emptypb.Empty{})

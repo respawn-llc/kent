@@ -71,3 +71,13 @@ func TestConsumptionResolvesModelPricing(t *testing.T) {
 		t.Fatalf("score = %d, want verified %d, error = %v", score, want, err)
 	}
 }
+
+func TestTerra61Consumption(t *testing.T) {
+	score, err := llm.EstimateConsumption("gpt-6.1-terra", llm.Usage{
+		InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(6), OutputTokens: textutil.Value(2),
+	})
+	// Four uncached input tokens, six cached input tokens, and two output tokens.
+	if err != nil || score != 14_300 {
+		t.Fatalf("score = %d, want 14300 nanodollars, error = %v", score, err)
+	}
+}
