@@ -305,8 +305,8 @@ func ptyCheckpointTranscriptEvent(msg tea.Msg) (ongoingTranscriptEvent, bool) {
 	return dispatched.event, true
 }
 
-func dispatchPTYCheckpointTranscriptEvent(event ongoingTranscriptEvent) uiDispatchedEventMsg {
-	return uiDispatchedEventMsg{event: event}
+func dispatchPTYCheckpointTranscriptEvent(model *ptyCheckpointModel, event ongoingTranscriptEvent) uiDispatchedEventMsg {
+	return uiDispatchedEventMsg{source: model.inner.(*uiModel).eventDispatcher, event: event}
 }
 
 type ptyOngoingTargetFinalDrainCandidate struct {

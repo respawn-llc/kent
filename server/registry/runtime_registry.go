@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
 	"core/server/metadata"
-	"core/server/runtime"
 	"core/server/runtimeactivity"
 	"core/server/runtimeview"
 	"core/server/sessionruntime"
@@ -460,6 +460,9 @@ func (r *RuntimeRegistry) publishRuntimeEvent(entry *authorityRuntimeEntry, evt 
 			return contractErr
 		}
 		entry.sessionFeed.Publish(messages)
+	}
+	if evt.Kind == runtime.EventLiveRunFinished {
+		return r.publishTurnEndAttention(entry, evt.LiveRunResult)
 	}
 	if runtimeEventShouldPublishSessionStatus(evt) {
 		return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {

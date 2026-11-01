@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"

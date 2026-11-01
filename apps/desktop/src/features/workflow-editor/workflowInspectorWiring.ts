@@ -488,9 +488,7 @@ export function workflowAssigneeOptions(
   const roleNames = new Set<string>();
   roleNames.add("default");
   for (const role of roles) {
-    if (role.name.trim().length > 0) {
-      roleNames.add(role.name);
-    }
+    roleNames.add(role.name);
   }
   const workflowRoleNames = definition.nodes
     .filter((node) => node.kind === "agent")

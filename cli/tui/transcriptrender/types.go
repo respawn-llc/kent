@@ -44,7 +44,7 @@ func GroupForRow(row *transcriptpb.CommittedRow) Group {
 		return GroupUser
 	case *transcriptpb.CommittedRow_Assistant:
 		return GroupAssistant
-	case *transcriptpb.CommittedRow_Tool:
+	case *transcriptpb.CommittedRow_Tool, *transcriptpb.CommittedRow_ToolCall:
 		return GroupTool
 	case *transcriptpb.CommittedRow_ReasoningTrace:
 		return GroupReasoningTrace

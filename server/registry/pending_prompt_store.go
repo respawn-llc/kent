@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -15,23 +14,6 @@ import (
 	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
-
-func (s *pendingPromptStore) Visit(ctx context.Context, emit func(string, PendingPromptSnapshot) error) error {
-	var err error
-	s.sessions.Range(func(key, _ any) bool {
-		sessionID := key.(string)
-		for _, prompt := range s.List(sessionID) {
-			if err = ctx.Err(); err != nil {
-				return false
-			}
-			if err = emit(sessionID, prompt); err != nil {
-				return false
-			}
-		}
-		return true
-	})
-	return err
-}
 
 type PendingPromptSnapshot struct {
 	Request   askquestion.AskQuestionRequest

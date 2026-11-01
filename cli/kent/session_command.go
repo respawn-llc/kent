@@ -240,7 +240,7 @@ func sessionRemovalSelfTargetFailure(sessionID string, details *sharedpb.Session
 
 func sessionArchiveFailure(sessionID string, err error) *sessionRemovalError {
 	var wire *client.SessionArchiveFailureError
-	if !errors.As(err, &wire) || wire == nil || wire.Failure == nil {
+	if !errors.As(err, &wire) {
 		return sessionRemovalFailure(sessionID, "request_failed", err.Error())
 	}
 	failure := wire.Failure
@@ -257,28 +257,24 @@ func sessionArchiveFailure(sessionID string, err error) *sessionRemovalError {
 	}
 	switch failure.Code {
 	case "invalid_output_path":
-		if details := failure.GetInvalidOutputPath(); details != nil {
-			return sessionRemovalFailure(
-				sessionID,
-				"invalid_output_path",
-				invalidArchiveOutputPathMessage(details),
-			)
-		}
+		return sessionRemovalFailure(
+			sessionID,
+			"invalid_output_path",
+			invalidArchiveOutputPathMessage(failure.GetInvalidOutputPath()),
+		)
 	case "output_exists":
-		if details := failure.GetOutputExists(); details != nil {
-			return sessionRemovalFailure(
-				sessionID,
-				"output_exists",
-				fmt.Sprintf("Archive output already exists at %s.", details.Path),
-			)
-		}
+		return sessionRemovalFailure(
+			sessionID,
+			"output_exists",
+			fmt.Sprintf("Archive output already exists at %s.", failure.GetOutputExists().Path),
+		)
 	}
 	return sessionRemovalFailure(sessionID, "request_failed", err.Error())
 }
 
 func sessionDeleteFailure(sessionID string, err error) *sessionRemovalError {
 	var wire *client.SessionDeleteFailureError
-	if !errors.As(err, &wire) || wire == nil || wire.Failure == nil {
+	if !errors.As(err, &wire) {
 		return sessionRemovalFailure(sessionID, "request_failed", err.Error())
 	}
 	failure := wire.Failure
@@ -304,24 +300,20 @@ func expectedSessionRemovalFailure(
 ) *sessionRemovalError {
 	switch code {
 	case "session_not_found":
-		if notFound != nil {
-			failure := sessionRemovalFailure(
-				sessionID,
-				"session_not_found",
-				fmt.Sprintf("Session %s was not found; it might have been deleted.", sessionID),
-			)
-			failure.SessionID = notFound.SessionId
-			return failure
-		}
+		failure := sessionRemovalFailure(
+			sessionID,
+			"session_not_found",
+			fmt.Sprintf("Session %s was not found; it might have been deleted.", sessionID),
+		)
+		failure.SessionID = notFound.SessionId
+		return failure
 	case "session_in_use":
-		if inUse != nil {
-			identity := protoapi.SessionIdentityFromProto(inUse.SessionId, inUse.ShortId)
-			return sessionRemovalFailure(
-				inUse.SessionId,
-				"session_in_use",
-				fmt.Sprintf("Session %s is in use and cannot be removed.", identity.String()),
-			)
-		}
+		identity := protoapi.SessionIdentityFromProto(inUse.SessionId, inUse.ShortId)
+		return sessionRemovalFailure(
+			inUse.SessionId,
+			"session_in_use",
+			fmt.Sprintf("Session %s is in use and cannot be removed.", identity.String()),
+		)
 	}
 	return nil
 }

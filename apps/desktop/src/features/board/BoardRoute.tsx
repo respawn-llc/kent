@@ -1,12 +1,12 @@
 import { DragDropSurface } from "@app/ui-kit";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { hasSelectedWorkflow, type BoardColumn, type SelectedWorkflowBoard } from "@/api";
 import { errorMessage } from "@/api";
 import { SidebarRootOwner } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useNativeDialogFallback } from "@/app-facade";
 import { reportNonCancelledError, useStatusController } from "@/app-facade";
 import { useWindowChromeTitle } from "@/app-facade";
 import {
@@ -18,12 +18,11 @@ import {
 } from "@/shared/execution-target";
 import { ProjectLabelsProvider, useProjectLabelFilter } from "@/shared/labels";
 import { BoardTaskDeleteDialog } from "./BoardTaskDeleteDialog";
-import { useBoardTaskDeletions } from "./BoardTaskDeletion";
+import { useBoardDeleteConfirmation, useBoardTaskDeletions } from "./BoardTaskDeletion";
 import { WorkflowValidationIssues } from "@/shared/workflow-validation";
-import { ErrorState, FloatingNoticeIsland, LoadingState } from "@/ui";
+import { ErrorState, FloatingNoticeIsland, LoadingState, Spinner } from "@/ui";
 import { BoardHorizontalScrollbar } from "./BoardHorizontalScrollbar";
 import { BoardRailMotionController } from "./BoardRailMotionController";
-import { taskDeleteWindowOptions, type TaskDeleteTarget } from "./taskDeleteConfirmationModel";
 import type { BoardColumnDropState } from "./BoardDragTypes";
 import { classifyBoardColumnDropState, useBoardDragLifecycle } from "./BoardDragState";
 import { BoardBackgroundRefreshNotice } from "./BoardBackgroundRefreshNotice";
@@ -209,7 +208,7 @@ function BoardContent({
     Readonly<{ ids: ReadonlySet<string>; scope: string }>
   >(() => ({ ids: new Set(), scope: "" }));
   const { push } = useStatusController();
-  const { api, nativeBridge, logger } = useAppServices();
+  const { api, logger } = useAppServices();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
   const actions = useBoardTaskActions(board.projectID);
   const deletions = useBoardTaskDeletions();
@@ -271,26 +270,11 @@ function BoardContent({
     },
     [reportActionError, t],
   );
-  const taskDeleteDialog = useNativeDialogFallback<TaskDeleteTarget>({
-    errorNoticeID: "task-delete-window-error",
-    errorTitle: t("board.deleteTaskWindowError"),
-    nativeAvailable: nativeBridge.capabilities.dialogWindows,
-    openNative: async (target) => {
-      await nativeBridge.dialogs.openWindow(taskDeleteWindowOptions(target, t("board.deleteTaskTitle")));
-    },
-    renderFallback: (target, close) => (
-      <BoardTaskDeleteDialog
-        key={target.taskID}
-        taskID={target.taskID}
-        deletions={deletions}
-        projectID={board.projectID}
-        workflowID={board.selectedWorkflow.id}
-        selectedTaskID={selectedTaskId}
-        onClose={close}
-        onError={reportDeleteError}
-        onNavigationError={reportNavigationError}
-      />
-    ),
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const deletion = useBoardDeleteConfirmation({
+    deletions,
+    projectID: board.projectID,
+    onError: reportDeleteError,
   });
 
   const activeColumns = useMemo(
@@ -359,7 +343,7 @@ function BoardContent({
   }
 
   function deleteTask(taskID: string): void {
-    void taskDeleteDialog.open({ taskID });
+    setDeleteTarget(taskID);
   }
 
   function reportInterruptError(error: unknown): void {
@@ -494,7 +478,24 @@ function BoardContent({
         continuation={initiatingAction}
         onResult={handleTaskInitiatingDialogResult}
       />
-      {taskDeleteDialog.fallback}
+      {deleteTarget === null ? null : (
+        <BoardTaskDeleteDialog
+          key={deleteTarget}
+          taskID={deleteTarget}
+          deletions={deletions}
+          onResult={(result) => {
+            flushSync(() => {
+              setDeleteTarget(null);
+            });
+            if (result === "confirm") deletion.confirm(deleteTarget);
+          }}
+        />
+      )}
+      {deletions.pending ? (
+        <div className="absolute right-[var(--space-4)] bottom-[var(--space-4)]">
+          <Spinner size="sm" />
+        </div>
+      ) : null}
       {boardRefreshError === null ? null : (
         <BoardBackgroundRefreshNotice error={boardRefreshError} onRetry={onBoardRefreshRetry} />
       )}

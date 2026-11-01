@@ -233,11 +233,7 @@ func SelectWorkspaceForStartup(ctx context.Context, req WorkspaceSelectionReques
 	if req.PickWorkspace == nil {
 		return nil, errors.New("workspace picker is required")
 	}
-	projectID := strings.TrimSpace(req.ProjectID)
-	if projectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	return req.PickWorkspace(ctx, req.Server.ProjectViewClient(), projectID, req.Server.PresentationTheme())
+	return req.PickWorkspace(ctx, req.Server.ProjectViewClient(), req.ProjectID, req.Server.PresentationTheme())
 }
 
 func FormatStartupError(workspaceRoot string, projectID string, err error) error {

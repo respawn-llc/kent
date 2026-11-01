@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"core/server/workflow"
 	"core/server/workflowscript"
 
 	"github.com/yuin/goldmark"
@@ -93,7 +94,7 @@ func analyzeWorkflowScriptExamples(source []byte) []workflowScriptContractFindin
 			findings = append(findings, workflowScriptContractFinding{kind: findingInvalidWorkflowScriptIdentity})
 			return ast.WalkContinue, nil
 		}
-		if err := identity.Validate(); err != nil {
+		if _, err := workflow.NewCurrentNodeReference(identity.TaskID, identity.NodeID, identity.TransitionBranchKey); err != nil {
 			findings = append(findings, workflowScriptContractFinding{kind: findingIncompleteWorkflowScriptIdentity})
 		}
 		return ast.WalkContinue, nil

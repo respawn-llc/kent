@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"

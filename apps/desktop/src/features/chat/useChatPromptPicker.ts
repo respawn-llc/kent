@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorMessage, type ChatSettingsTarget } from "@/api";
@@ -44,5 +44,15 @@ export function useChatPromptPicker(
       prompts: get(model.prompts),
     }));
   }, [owner, client, api, logger, target, interactionRestricted]);
-  return useAtomValue(presentation);
+  const commentary = useMemo(
+    () =>
+      Atom.fnSync<Readonly<{ toolCallID: string; text: string }>>()((input, get) => {
+        const current = get(presentation);
+        if (current !== null) get.set(current.dispatch, { action: { kind: "commentary", ...input } });
+      }),
+    [presentation],
+  );
+  const editCommentary = useAtomSet(commentary);
+  const picker = useAtomValue(presentation);
+  return picker === null ? null : { ...picker, editCommentary };
 }

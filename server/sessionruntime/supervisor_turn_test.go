@@ -8,8 +8,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/runtimewire"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"

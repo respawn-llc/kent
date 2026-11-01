@@ -2,8 +2,23 @@ package ongoing
 
 import (
 	"fmt"
+	"io"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
+
+func (s *Surface) writeTerminalFrame(frame string) error {
+	payload := ansi.SetModeSynchronizedOutput + frame + ansi.ResetModeSynchronizedOutput
+	n, err := io.WriteString(s.writer, payload)
+	if err != nil {
+		return err
+	}
+	if n != len(payload) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
 
 func resetScrollRegionAndOriginMode() string {
 	return "\x1b[r\x1b[?6l"
@@ -21,7 +36,11 @@ func writeMutableBandErase(builder *strings.Builder, terminalHeight, bandHeight 
 	if bandHeight <= 0 {
 		return
 	}
-	writeMutableRowsErase(builder, terminalHeight-bandHeight+1, terminalHeight)
+	fmt.Fprintf(builder, "\x1b[%d;1H", terminalHeight-bandHeight+1)
+	builder.WriteString(semanticOutputSequence())
+	// ED clears row metadata below the cursor as well as cells. Per-row EL
+	// leaves OUTPUT_START markers that block native prompt resize detection.
+	builder.WriteString("\x1b[J")
 }
 
 func writeMutableRowsErase(builder *strings.Builder, startRow, endRow int) {
@@ -83,8 +102,6 @@ func writeRetainedMutableBand(
 	retainedStartRow := terminalHeight - retainedHeight + 1
 	fmt.Fprintf(builder, "\x1b[%d;1H", retainedStartRow)
 	if redrawableSemanticPrompt {
-		// At the left margin OSC 133 A marks the complete retained region without
-		// advancing. Supporting terminals clear the region before resize reflow.
 		builder.WriteString(redrawableSemanticPromptSequence())
 	}
 	startRow := terminalHeight - len(lines) + 1
@@ -119,6 +136,7 @@ func writeImmutableRowsAboveMutableBand(
 	fmt.Fprintf(builder, "\x1b[1;%dr\x1b[%d;1H", bottom, appendRow)
 	for _, row := range rows {
 		builder.WriteString("\r\n")
+		builder.WriteString(semanticOutputSequence())
 		builder.WriteString(row)
 	}
 	builder.WriteString(resetScrollRegionAndOriginMode())

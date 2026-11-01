@@ -494,6 +494,12 @@ func (s *ResponsesStub) writeResponseAssistantDelta(writer http.ResponseWriter, 
 }
 
 func (s *ResponsesStub) writeResponseCompleted(writer http.ResponseWriter, model string, output []any, usage llm.Usage) bool {
+	for index, item := range output {
+		if !s.writeResponseEvent(writer, map[string]any{"type": "response.output_item.done", "output_index": index, "item": item}) {
+			return false
+		}
+	}
+
 	counts := map[string]any{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}
 	if usage.InputTokens != nil && usage.OutputTokens != nil {
 		counts["total_tokens"] = *usage.InputTokens + *usage.OutputTokens
@@ -552,6 +558,13 @@ func WriteCompletedResponseStream(writer http.ResponseWriter, assistantText stri
 		panic(fmt.Sprintf("marshal completed Responses fixture: %v", err))
 	}
 	writer.Header().Set("Content-Type", "text/event-stream")
+	for index, item := range output {
+		finalized, err := json.Marshal(map[string]any{"type": "response.output_item.done", "output_index": index, "item": item})
+		if err != nil {
+			panic(err)
+		}
+		mustWriteFixtureResponse(writer, "data: "+string(finalized)+"\n\n")
+	}
 	mustWriteFixtureResponse(writer, "data: "+string(payload)+"\n\ndata: [DONE]\n\n")
 	if flusher, ok := writer.(http.Flusher); ok {
 		flusher.Flush()

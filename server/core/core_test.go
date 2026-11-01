@@ -11,10 +11,10 @@ import (
 	"slices"
 	"testing"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	brand "core/shared/config"
 	"core/shared/protoapi"
@@ -325,7 +325,7 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 		t.Fatal("expected first core to seed at least one generated skill")
 	}
 
-	authSupportB, err := serverbootstrap.BuildAuthSupport(t.Context(), resolved.Config.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupportB, err := serverbootstrap.BuildAuthSupport(t.Context(), resolved.Config.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("BuildAuthSupport B: %v", err)
 	}
@@ -335,7 +335,9 @@ func TestNewRejectsSecondCoreForSamePersistenceRoot(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = backgroundB.Close() })
 
-	_, err = New(resolved.Config, authSupportB, backgroundB)
+	_, err = NewWithContextOptions(t.Context(), resolved.Config, authSupportB, backgroundB, Options{
+		MetadataStore: testsetup.OpenStore(t, resolved.Config.PersistenceRoot),
+	})
 	if !errors.Is(err, ErrPersistenceRootBusy) {
 		t.Fatalf("New second error = %v, want ErrPersistenceRootBusy", err)
 	}
@@ -763,11 +765,12 @@ func newCoreTestAppWithLoadOptions(t *testing.T, cfg brand.App, state auth.State
 
 func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, options Options) *Core {
 	t.Helper()
-	if options.MetadataStore == nil {
-		options.MetadataStore = testsetup.OpenStore(t, cfg.PersistenceRoot)
+	store := options.MetadataStore
+	if store == nil {
+		store = testsetup.OpenStore(t, cfg.PersistenceRoot)
 	}
 	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
-	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(state), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewMemoryStore(state), nil)
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}
@@ -776,7 +779,10 @@ func newCoreTestAppWithOptions(t *testing.T, cfg brand.App, state auth.State, op
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
-	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, background, options)
+	appCore, err := NewWithContextOptions(t.Context(), cfg, authSupport, background, Options{
+		MetadataStore: store, RuntimeClientFactory: options.RuntimeClientFactory,
+		RootLease: options.RootLease, WorkspaceConfigLoadOptions: options.WorkspaceConfigLoadOptions,
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

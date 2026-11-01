@@ -66,7 +66,7 @@ func (r *runProgressRenderer) PublishRunPromptProgress(progress *runpromptpb.Pro
 }
 
 func (r *runProgressRenderer) writeFailure(summary string, failure *runpromptpb.ProgressFailure) {
-	if failure == nil || failure.Error == nil {
+	if failure.Error == nil {
 		_, _ = fmt.Fprintln(r.stderr, summary)
 		return
 	}

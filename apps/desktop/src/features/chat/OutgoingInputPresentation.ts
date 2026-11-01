@@ -163,6 +163,13 @@ function settleRecords(records: Map<string, Record>, facts: State["facts"], draf
 }
 
 function reduce(state: State, event: Event) {
+  if (
+    event.kind === "observe" &&
+    state.records.size === 0 &&
+    state.facts.pendingItems === event.facts.pendingItems &&
+    state.facts.pendingFetching === event.facts.pendingFetching
+  )
+    return { state, draft: [], admitted: false };
   const records = new Map(state.records);
   const facts =
     event.kind === "observe"

@@ -19,10 +19,20 @@ func TestWriteCompletedResponseStreamWritesExpectedEvent(t *testing.T) {
 	}
 
 	lines := strings.Split(recorder.Body.String(), "\n")
-	if len(lines) < 3 {
+	if len(lines) < 5 {
 		t.Fatalf("unexpected SSE payload: %q", recorder.Body.String())
 	}
-	first := strings.TrimPrefix(lines[0], "data: ")
+	var finalized struct {
+		Type string          `json:"type"`
+		Item json.RawMessage `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(lines[0], "data: ")), &finalized); err != nil {
+		t.Fatal(err)
+	}
+	if finalized.Type != "response.output_item.done" || len(finalized.Item) == 0 {
+		t.Fatalf("missing finalized output: %+v", finalized)
+	}
+	first := strings.TrimPrefix(lines[2], "data: ")
 	var payload struct {
 		Type     string `json:"type"`
 		Response struct {
@@ -57,7 +67,7 @@ func TestWriteCompletedResponseStreamWritesExpectedEvent(t *testing.T) {
 	if payload.Response.Output[0].Content[0].Text != "hello" {
 		t.Fatalf("assistant text = %q, want hello", payload.Response.Output[0].Content[0].Text)
 	}
-	if lines[2] != "data: [DONE]" {
-		t.Fatalf("done marker = %q, want data: [DONE]", lines[2])
+	if lines[4] != "data: [DONE]" {
+		t.Fatalf("done marker = %q, want data: [DONE]", lines[4])
 	}
 }

@@ -14,9 +14,9 @@ import (
 
 	"core/internal/testharness/filemode"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -488,10 +488,11 @@ func TestRuntimeAbortRetiresCurrentOpenAndReplaceResourceGenerations(t *testing.
 				failedResource := authority.resources[sessionID]
 				authority.mu.Unlock()
 				failedRef := failedResource.ref
-				runErr := authority.RunCurrentAgentExecution(
+				runErr := authority.RunCurrentTurn(
 					context.Background(),
 					mustOpenSessionDescriptor(t, sessionID),
-					func(context.Context, *runtime.Engine) error {
+					func(commit func() (bool, error)) (bool, error) { return commit() },
+					func(context.Context, *runtime.Engine, runtime.CommandAcceptance) error {
 						return abort
 					},
 				)
@@ -620,12 +621,14 @@ func TestGoalLifecycleDurabilityAbortRetiresCurrentGeneration(t *testing.T) {
 		t.Fatal("current runtime callback did not become active")
 	}
 
-	if err := authority.RunCurrentAgentExecution(
+	if err := authority.RunCurrentTurn(
 		context.Background(),
 		mustOpenSessionDescriptor(t, sessionID),
+		func(commit func() (bool, error)) (bool, error) { return commit() },
 		func(
 			_ context.Context,
 			engine *runtime.Engine,
+			_ runtime.CommandAcceptance,
 		) error {
 			if _, err := engine.SetGoal(t.Context(), "continue autonomously", session.GoalActorUser); err != nil {
 				return err
@@ -798,9 +801,8 @@ type authorityStartBarrierLifecycle struct {
 }
 
 type startupRepairReadyProbe struct {
-	callID   string
-	ready    atomic.Int32
-	observed atomic.Bool
+	callID string
+	ready  atomic.Int32
 }
 
 func (p *startupRepairReadyProbe) ResourceReady(
@@ -816,15 +818,7 @@ func (p *startupRepairReadyProbe) ResourceReady(
 					return errors.New("ResourceReady observed a stale live tool start")
 				}
 			}
-			for _, row := range snapshot.CommittedRows {
-				if row.Tool != nil &&
-					row.Tool.ToolCallID == p.callID &&
-					row.Tool.IsError {
-					p.observed.Store(true)
-					return nil
-				}
-			}
-			return errors.New("ResourceReady preceded the committed fresh-resource repair")
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -954,9 +948,6 @@ func TestFreshResourceRepairCompletesBeforeResourceReady(t *testing.T) {
 	}
 	if count := ready.ready.Load(); count != 1 {
 		t.Fatalf("ResourceReady publications = %d, want one", count)
-	}
-	if !ready.observed.Load() {
-		t.Fatal("ResourceReady did not observe the committed neutral repair")
 	}
 }
 

@@ -121,9 +121,6 @@ func (a *Authority) WithWorkflowInterruptSelection(
 	if strings.TrimSpace(string(taskID)) == "" {
 		return errors.New("workflow task id is required")
 	}
-	if sessionID != nil && sessionID.IsZero() {
-		return errors.New("session id is required")
-	}
 	if operation == nil {
 		return errors.New("workflow interrupt selection operation is required")
 	}

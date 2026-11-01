@@ -137,11 +137,6 @@ message PatchFileChange {
   int32 added = 2 [(buf.validate.field).int32.gte = 0];
   optional int32 removed = 3 [(buf.validate.field).int32.gte = 0];
   repeated PatchFileOperation operations = 4 [(buf.validate.field).repeated.min_items = 1];
-  option (buf.validate.message).cel = {
-    id: "kent.transcript.patch_removed_presence"
-    message: "removed count must be absent exactly when a deletion is pending"
-    expression: "has(this.removed) == !this.operations.exists(op, has(op.delete) && !has(op.delete.disposition))"
-  };
 }
 
 message PatchChanges {

@@ -13,7 +13,6 @@ import {
 import type { AttentionItem } from "@/api";
 import { createHomeAttentionPages, createHomeProjectPages } from "./useHomeData";
 import { createProjectCreationModel } from "./ProjectCreationModel";
-import { createHomeCreationObservation } from "./HomeCreationObservation";
 
 export function createHomeViewModel(
   input: Readonly<{
@@ -27,7 +26,6 @@ export function createHomeViewModel(
   const projects = createHomeProjectPages(input.services.api, input.client);
   const attention = createHomeAttentionPages(input.services.api, input.client, false);
   const creation = createProjectCreationModel(input);
-  const creationObservation = createHomeCreationObservation(input);
   const projectItems = Atom.make(
     (get) => get(projects.request).data?.pages.flatMap((page) => page.projects) ?? [],
   );
@@ -98,7 +96,6 @@ export function createHomeViewModel(
     projects,
     attention,
     creation,
-    creationObservation,
     projectItems,
     attentionItems,
     category: Atom.make((get) => get(category)),

@@ -68,7 +68,7 @@ describe("WorkflowDeleteButton completion", () => {
     });
     vi.spyOn(queryClient, "invalidateQueries").mockImplementation(async () => invalidation);
     const onDeleted = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <QueryClientProvider client={queryClient}>
         <RegistryProvider>
@@ -99,7 +99,7 @@ describe("WorkflowDeleteButton completion", () => {
   it("retries a failed preview without deleting before confirmation", async () => {
     fixture.previewWorkflowDelete.mockRejectedValueOnce(new Error("preview unavailable"));
     const queryClient = new QueryClient();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(
       <QueryClientProvider client={queryClient}>
         <RegistryProvider>
@@ -128,7 +128,7 @@ describe("WorkflowDeleteButton completion", () => {
   it("releases a failed preview notification when its destination closes", async () => {
     fixture.previewWorkflowDelete.mockRejectedValueOnce(new Error("preview unavailable"));
     const queryClient = new QueryClient();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(
       <QueryClientProvider client={queryClient}>
         <RegistryProvider>
@@ -165,7 +165,7 @@ describe("WorkflowDeleteButton completion", () => {
     fixture.matchRoute.mockReturnValue(true);
     const invalidated = vi.spyOn(queryClient, "invalidateQueries");
     const onDeleted = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = render(
       <QueryClientProvider client={queryClient}>
         <RegistryProvider>

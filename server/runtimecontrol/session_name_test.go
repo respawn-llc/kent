@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/metadata"
-	"core/server/runtime"
-	"core/server/session"
+	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -19,11 +19,7 @@ import (
 
 func TestSetSessionNamePersistsWithoutStartingDormantRuntime(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
-	metadataStore, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, root)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace)
 	if err != nil {
 		t.Fatal(err)

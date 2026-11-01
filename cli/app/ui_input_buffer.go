@@ -54,6 +54,7 @@ func (m *uiModel) clearAskInput() {
 
 func (m *uiModel) insertAskInputRunes(chars []rune) {
 	insertEditorRunes(&m.ask.editor, chars)
+	m.focusDedicatedAskEditor()
 }
 
 func insertEditorRunes(editor *tuiinput.Editor, chars []rune) bool {

@@ -187,7 +187,7 @@ func taskWorkflowRecoveryForFailure(failure taskWorkflowRecoveryFailure, command
 	listProjectWorkflows := taskWorkflowListProjectCommand(commandContext.projectRef)
 	switch failure.kind {
 	case taskWorkflowRecoveryNoLinkedWorkflows:
-		if failure.workflowID != nil || selectedWorkflowID != nil {
+		if selectedWorkflowID != nil {
 			return taskWorkflowRecovery{}, errors.New("no-linked-workflows recovery cannot select a workflow")
 		}
 		recovery.Commands = append(
@@ -195,7 +195,7 @@ func taskWorkflowRecoveryForFailure(failure taskWorkflowRecoveryFailure, command
 			commandContext.retryCommand(nil),
 		)
 	case taskWorkflowRecoveryWorkflowNotLinked:
-		if selectedWorkflowID == nil || failure.workflowID == nil {
+		if selectedWorkflowID == nil {
 			return taskWorkflowRecovery{}, errors.New("workflow-not-linked recovery requires a selected workflow")
 		}
 		if *failure.workflowID != *selectedWorkflowID {
@@ -207,7 +207,7 @@ func taskWorkflowRecoveryForFailure(failure taskWorkflowRecoveryFailure, command
 			{Kind: taskWorkflowRecoveryCommandLinkSelectedWorkflow, Args: []string{config.Command, "workflow", "link", commandContext.projectRef, failure.workflowID.String()}},
 		}
 	case taskWorkflowRecoveryWorkflowRequiredColumns:
-		if commandContext.list == nil || failure.workflowID != nil || selectedWorkflowID != nil {
+		if commandContext.list == nil || selectedWorkflowID != nil {
 			return taskWorkflowRecovery{}, errors.New("workflow-required-for-columns recovery requires project-wide task list context")
 		}
 		recovery.Commands = []taskWorkflowRecoveryCommand{
@@ -215,7 +215,7 @@ func taskWorkflowRecoveryForFailure(failure taskWorkflowRecoveryFailure, command
 			commandContext.retryCommandForWorkflowPlaceholder(),
 		}
 	case taskWorkflowRecoveryAmbiguousWithoutDefault:
-		if commandContext.create == nil || failure.workflowID != nil || selectedWorkflowID != nil {
+		if commandContext.create == nil || selectedWorkflowID != nil {
 			return taskWorkflowRecovery{}, errors.New("ambiguous recovery requires task create context without a selected workflow")
 		}
 		recovery.Commands = []taskWorkflowRecoveryCommand{

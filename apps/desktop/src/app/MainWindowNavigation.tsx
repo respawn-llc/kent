@@ -25,7 +25,9 @@ export function MainWindowNavigation() {
   });
   const handle = useStableCallback(async (destination: NativeMainNavigation) => {
     await nativeBridge.window.focusMain();
-    if (destination.kind === "sessionChat") {
+    if (destination.kind === "home") {
+      await navigation.openHome();
+    } else if (destination.kind === "sessionChat") {
       await navigation.openSessionChat(destination);
     } else {
       await navigation.openTask(destination.taskID);

@@ -6,6 +6,7 @@ import (
 
 	tuiinput "core/cli/tui/input"
 	"core/cli/tui/ongoing"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
@@ -14,23 +15,29 @@ import (
 )
 
 type promptHistoryLoadedMsg struct {
+	scope   context.Context
 	prompts []string
 	err     error
 }
 
 func (m *uiModel) loadPromptHistoryCmd() tea.Cmd {
 	client := m.statusConfig.SessionViews
-	sessionID := m.sessionID
+	sessionID := m.currentRuntimeSessionID()
 	if client == nil || sessionID == "" {
 		return nil
 	}
 	m.promptHistoryLoading = true
+	scope := m.observationScope
+	ctx := scope
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return func() tea.Msg {
-		result, err := client.GetPromptHistory(context.Background(), &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
+		result, err := client.GetPromptHistory(ctx, &sessionpb.PromptHistoryRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}}})
 		if err != nil {
-			return promptHistoryLoadedMsg{err: err}
+			return promptHistoryLoadedMsg{scope: scope, err: err}
 		}
-		return promptHistoryLoadedMsg{prompts: result.Prompts}
+		return promptHistoryLoadedMsg{scope: scope, prompts: result.Prompts}
 	}
 }
 
@@ -283,12 +290,14 @@ func (m *uiModel) recordPromptHistory(text string) tea.Cmd {
 		return nil
 	}
 	text = preservePromptHistoryText(text)
-	client := m.runtimeClient()
-	if client == nil {
+	if _, known := m.presentationTarget.(uiKnownSessionTarget); !known {
 		return nil
 	}
+	controls, sessionID := m.sessionControls, m.currentRuntimeSessionID()
 	return func() tea.Msg {
-		if err := client.RecordPromptHistory(text); err != nil {
+		if err := runtimeControlCallNoResult(func(ctx context.Context) error {
+			return controls.RecordPromptHistory(ctx, &promptpb.RecordHistoryRequest{SessionId: sessionID, Text: text})
+		}); err != nil {
 			return promptHistoryPersistErrMsg{err: err}
 		}
 		return nil

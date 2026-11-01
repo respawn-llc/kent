@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 
@@ -58,9 +58,6 @@ func (s *Store) PlanSessionWorkspaceRetarget(ctx context.Context, req SessionWor
 		return SessionWorkspaceRetargetPlan{}, errors.New("metadata store is required")
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
-	if sessionID == "" {
-		return SessionWorkspaceRetargetPlan{}, errors.New("session id is required")
-	}
 	targetRoot, err := canonicalFilesystemPath(req.WorkspaceRoot)
 	if err != nil {
 		return SessionWorkspaceRetargetPlan{}, err

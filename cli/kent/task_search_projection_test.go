@@ -123,7 +123,7 @@ func TestTaskSearchPlainRendererWritesCompleteHierarchyWithoutBlankMetadataRows(
 }
 
 func TestTaskSearchPlainFragmentUsesOnlyStructuredLiteralEllipsesAndFoldsWhitespace(t *testing.T) {
-	literal, err := taskSearchPlainFragment(taskSearchPlainLine{
+	literal := taskSearchPlainFragment(taskSearchPlainLine{
 		Kind: taskSearchPlainLineKindHit,
 		Literal: &taskpb.SearchLiteralHit{
 			Before:         "  before\t",
@@ -133,19 +133,13 @@ func TestTaskSearchPlainFragmentUsesOnlyStructuredLiteralEllipsesAndFoldsWhitesp
 			RightTruncated: true,
 		},
 	})
-	if err != nil {
-		t.Fatalf("taskSearchPlainFragment literal: %v", err)
-	}
 	if literal != taskSearchPlainLiteralOmissionMarker+" before needle after "+taskSearchPlainLiteralOmissionMarker {
 		t.Fatalf("literal fragment = %q", literal)
 	}
-	raw, err := taskSearchPlainFragment(taskSearchPlainLine{
+	raw := taskSearchPlainFragment(taskSearchPlainLine{
 		Kind: taskSearchPlainLineKindHit,
 		FTS5: &taskpb.SearchFts5Hit{Snippet: "  raw\tfragment  "},
 	})
-	if err != nil {
-		t.Fatalf("taskSearchPlainFragment FTS5: %v", err)
-	}
 	if raw != "raw fragment" {
 		t.Fatalf("raw fragment = %q", raw)
 	}
@@ -186,30 +180,5 @@ func TestTaskSearchPlainRendererPrintsEmptyResponseWithoutMetadataRows(t *testin
 	}
 	if output.String() != taskSearchPlainNoMatchesLine+"\n" {
 		t.Fatalf("empty plain output = %q", output.String())
-	}
-}
-
-func TestTaskSearchPlainRendererRejectsInvalidHitPayloads(t *testing.T) {
-	t.Parallel()
-	literal := &taskpb.SearchLiteralHit{Match: "literal"}
-	fts5 := &taskpb.SearchFts5Hit{Snippet: "raw"}
-	for _, test := range []struct {
-		name string
-		line taskSearchPlainLine
-	}{
-		{name: "missing", line: taskSearchPlainLine{Kind: taskSearchPlainLineKindHit}},
-		{name: "mixed", line: taskSearchPlainLine{Kind: taskSearchPlainLineKindHit, Literal: literal, FTS5: fts5}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			projection := taskSearchPlainProjection{Groups: []taskSearchPlainGroup{{
-				ShortID: "KNT-1",
-				Title:   "Task",
-				Lines:   []taskSearchPlainLine{test.line},
-			}}}
-			if err := writeTaskSearchPlainProjection(&bytes.Buffer{}, projection); err == nil {
-				t.Fatal("writeTaskSearchPlainProjection accepted an invalid hit payload")
-			}
-		})
 	}
 }

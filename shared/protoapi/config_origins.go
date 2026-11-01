@@ -1,17 +1,17 @@
 package protoapi
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"fmt"
 
 	"core/shared/config"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func configOriginToProto(origin config.Origin) (*sessionlaunchpb.ConfigOrigin, error) {
-	message := &sessionlaunchpb.ConfigOrigin{Property: &sessionlaunchpb.ConfigPropertyAddress{
+func configOriginToProto(origin config.Origin) (*configurationpb.ConfigOrigin, error) {
+	message := &configurationpb.ConfigOrigin{Property: &configurationpb.ConfigPropertyAddress{
 		Key: origin.Property.Key, Role: origin.Property.Role,
 	}}
 	if origin.RetainedSessionID != nil {
@@ -20,7 +20,7 @@ func configOriginToProto(origin config.Origin) (*sessionlaunchpb.ConfigOrigin, e
 	}
 	switch origin.Kind {
 	case config.SourceDefault:
-		message.Source = &sessionlaunchpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}}
+		message.Source = &configurationpb.ConfigOrigin_DefaultValue{DefaultValue: &emptypb.Empty{}}
 	case config.SourceFileKind:
 		if origin.File == nil {
 			return nil, fmt.Errorf("configuration file origin requires its file")
@@ -29,47 +29,47 @@ func configOriginToProto(origin config.Origin) (*sessionlaunchpb.ConfigOrigin, e
 		if err != nil {
 			return nil, err
 		}
-		message.Source = &sessionlaunchpb.ConfigOrigin_File{File: &sessionlaunchpb.ConfigFileSource{Layer: layer, Path: origin.File.Path}}
+		message.Source = &configurationpb.ConfigOrigin_File{File: &configurationpb.ConfigFileSource{Layer: layer, Path: origin.File.Path}}
 	case config.SourceEnv:
 		if origin.Option == nil {
 			return nil, fmt.Errorf("configuration environment origin requires its variable")
 		}
-		message.Source = &sessionlaunchpb.ConfigOrigin_Environment{Environment: *origin.Option}
+		message.Source = &configurationpb.ConfigOrigin_Environment{Environment: *origin.Option}
 	case config.SourceCLI:
 		if origin.Option == nil {
 			return nil, fmt.Errorf("configuration CLI origin requires its option")
 		}
-		message.Source = &sessionlaunchpb.ConfigOrigin_CliOption{CliOption: *origin.Option}
+		message.Source = &configurationpb.ConfigOrigin_CliOption{CliOption: *origin.Option}
 	case config.SourceInput:
-		message.Source = &sessionlaunchpb.ConfigOrigin_Input{Input: &emptypb.Empty{}}
+		message.Source = &configurationpb.ConfigOrigin_Input{Input: &emptypb.Empty{}}
 	case config.SourceSession:
-		message.Source = &sessionlaunchpb.ConfigOrigin_Session{Session: &emptypb.Empty{}}
+		message.Source = &configurationpb.ConfigOrigin_Session{Session: &emptypb.Empty{}}
 	default:
 		return nil, fmt.Errorf("unknown configuration origin kind %q", origin.Kind)
 	}
 	return message, nil
 }
 
-func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin, error) {
+func configOriginFromProto(message *configurationpb.ConfigOrigin) (config.Origin, error) {
 	origin := config.Origin{Property: config.PropertyAddress{Key: message.Property.Key, Role: message.Property.Role}}
 	if message.RetainedSessionId != nil {
 		id := runtimeids.SessionIDFromProto(*message.RetainedSessionId)
 		origin.RetainedSessionID = &id
 	}
 	switch source := message.Source.(type) {
-	case *sessionlaunchpb.ConfigOrigin_DefaultValue:
+	case *configurationpb.ConfigOrigin_DefaultValue:
 		origin.Kind = config.SourceDefault
-	case *sessionlaunchpb.ConfigOrigin_File:
+	case *configurationpb.ConfigOrigin_File:
 		layer := configFileLayerFromProto(source.File.Layer)
 		origin.Kind = config.SourceFileKind
 		origin.File = &config.SourceFile{Layer: layer, Path: source.File.Path}
-	case *sessionlaunchpb.ConfigOrigin_Environment:
+	case *configurationpb.ConfigOrigin_Environment:
 		origin.Kind, origin.Option = config.SourceEnv, &source.Environment
-	case *sessionlaunchpb.ConfigOrigin_CliOption:
+	case *configurationpb.ConfigOrigin_CliOption:
 		origin.Kind, origin.Option = config.SourceCLI, &source.CliOption
-	case *sessionlaunchpb.ConfigOrigin_Input:
+	case *configurationpb.ConfigOrigin_Input:
 		origin.Kind = config.SourceInput
-	case *sessionlaunchpb.ConfigOrigin_Session:
+	case *configurationpb.ConfigOrigin_Session:
 		origin.Kind = config.SourceSession
 	default:
 		return config.Origin{}, fmt.Errorf("unknown configuration origin %T", message.Source)
@@ -77,18 +77,15 @@ func configOriginFromProto(message *sessionlaunchpb.ConfigOrigin) (config.Origin
 	return origin, nil
 }
 
-func ToolSelectionToProto(selection *config.ToolSelection) (*sessionlaunchpb.ToolSelection, error) {
+func ToolSelectionToProto(selection *config.ToolSelection) (*configurationpb.ToolSelection, error) {
 	if selection == nil {
 		return nil, nil
-	}
-	if err := selection.Validate(); err != nil {
-		return nil, err
 	}
 	origin, err := configOriginToProto(selection.Origin)
 	if err != nil {
 		return nil, err
 	}
-	message := &sessionlaunchpb.ToolSelection{Origin: origin}
+	message := &configurationpb.ToolSelection{Origin: origin}
 	for _, id := range selection.Tools {
 		tool, err := SessionToolIDToProto(id)
 		if err != nil {
@@ -99,7 +96,7 @@ func ToolSelectionToProto(selection *config.ToolSelection) (*sessionlaunchpb.Too
 	return message, nil
 }
 
-func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.ToolSelection, error) {
+func ToolSelectionFromProto(message *configurationpb.ToolSelection) (*config.ToolSelection, error) {
 	if message == nil {
 		return nil, nil
 	}
@@ -115,33 +112,33 @@ func ToolSelectionFromProto(message *sessionlaunchpb.ToolSelection) (*config.Too
 	return selection, nil
 }
 
-var configFileLayerValues = map[sessionlaunchpb.ConfigFileLayer]config.FileLayer{
-	sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL:    config.FileGlobal,
-	sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE: config.FileWorkspace,
-	sessionlaunchpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE:   config.FilePrivate,
+var configFileLayerValues = map[configurationpb.ConfigFileLayer]config.FileLayer{
+	configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_GLOBAL:    config.FileGlobal,
+	configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_WORKSPACE: config.FileWorkspace,
+	configurationpb.ConfigFileLayer_CONFIG_FILE_LAYER_PRIVATE:   config.FilePrivate,
 }
 
-func configFileLayerToProto(layer config.FileLayer) (sessionlaunchpb.ConfigFileLayer, error) {
+func configFileLayerToProto(layer config.FileLayer) (configurationpb.ConfigFileLayer, error) {
 	return enumToProto(configFileLayerValues, layer, "configuration file layer")
 }
 
-func configFileLayerFromProto(layer sessionlaunchpb.ConfigFileLayer) config.FileLayer {
+func configFileLayerFromProto(layer configurationpb.ConfigFileLayer) config.FileLayer {
 	return configFileLayerValues[layer]
 }
 
-func sourceFactsToProto(sources map[string]config.Origin) ([]*sessionlaunchpb.SourceFact, error) {
-	result := make([]*sessionlaunchpb.SourceFact, 0, len(sources))
+func sourceFactsToProto(sources map[string]config.Origin) ([]*configurationpb.SourceFact, error) {
+	result := make([]*configurationpb.SourceFact, 0, len(sources))
 	for _, key := range sortedStringKeys(sources) {
 		origin, err := configOriginToProto(sources[key])
 		if err != nil {
 			return nil, fmt.Errorf("configuration source %q: %w", key, err)
 		}
-		result = append(result, &sessionlaunchpb.SourceFact{Key: key, Origin: origin})
+		result = append(result, &configurationpb.SourceFact{Key: key, Origin: origin})
 	}
 	return result, nil
 }
 
-func sourceFactsFromProto(facts []*sessionlaunchpb.SourceFact) (map[string]config.Origin, error) {
+func sourceFactsFromProto(facts []*configurationpb.SourceFact) (map[string]config.Origin, error) {
 	result := make(map[string]config.Origin, len(facts))
 	for _, fact := range facts {
 		origin, err := configOriginFromProto(fact.Origin)

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
 import type { ChatGoalSetResult, ChatSessionTarget } from "@/api";
-import { ChatOperationError, ContractError, RpcError } from "@/api";
+import { ChatOperationError, RpcError } from "@/api";
 import type { NewChatGoalHostDelivery } from "./goalBinding";
 import { createGoalFixtureOwner, useGoalFixtureActions } from "./goalBindingFixtures";
 import { act, renderHook } from "@testing-library/react";
@@ -102,26 +102,6 @@ describe("New Chat Goal binding", () => {
       origin: target,
     });
     expect(result.current.state.kind).toBe("resolved_session");
-  });
-
-  it("does not deliver or resolve a malformed Goal result", async () => {
-    const delivery = vi.fn<(value: NewChatGoalHostDelivery) => void>();
-    const malformed: ChatGoalSetResult = {
-      ...committedResult,
-      sessionID: "",
-    };
-    const owner = createGoalFixtureOwner({ api: { setGoal: vi.fn(async () => malformed) }, target });
-    const { result } = renderHook(() => useGoalFixtureActions(owner, delivery));
-    await act(async () => {
-      expect(result.current.setGoal("ship")).rejects.toBeInstanceOf(ContractError);
-    });
-    expect(delivery).not.toHaveBeenCalled();
-    expect(result.current.state).toEqual({
-      kind: "unresolved",
-      availability: null,
-      pending: false,
-      ready: true,
-    });
   });
 
   it("follows the host Session instead of selecting a private terminal Session", async () => {

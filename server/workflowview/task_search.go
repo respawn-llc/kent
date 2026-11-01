@@ -122,10 +122,7 @@ func (s *TaskSearch) queryPage(ctx context.Context, queries *sqlitegen.Queries, 
 	if err != nil {
 		return nil, fmt.Errorf("encode task search project ids: %w", err)
 	}
-	statuses, err := taskSearchStatusKinds(req)
-	if err != nil {
-		return nil, err
-	}
+	statuses := taskSearchStatusKinds(req)
 	statusKindsJSON, err := taskSearchOptionalJSON(statuses)
 	if err != nil {
 		return nil, fmt.Errorf("encode task search status kinds: %w", err)
@@ -144,10 +141,7 @@ func (s *TaskSearch) queryPage(ctx context.Context, queries *sqlitegen.Queries, 
 		candidateExpression = matcher.CandidateExpression()
 		caseMode = int64(mode)
 	}
-	mode, err := protoapi.TaskSearchMode.Decode(req.Mode)
-	if err != nil {
-		return nil, err
-	}
+	mode := protoapi.TaskSearchMode.FromProto(req.Mode)
 	return queries.ListTaskSearchPageDescriptors(ctx, sqlitegen.ListTaskSearchPageDescriptorsParams{
 		Mode:                mode,
 		CandidateExpression: candidateExpression,
@@ -354,14 +348,11 @@ func taskSearchProjectIDs(req *taskpb.SearchRequest) []string {
 	return append([]string{}, req.ProjectIds...)
 }
 
-func taskSearchStatusKinds(req *taskpb.SearchRequest) ([]string, error) {
+func taskSearchStatusKinds(req *taskpb.SearchRequest) []string {
 	statuses := make([]string, 0, len(req.StatusKinds))
 	for _, status := range req.StatusKinds {
-		name, err := protoapi.TaskStatusKind.Decode(status)
-		if err != nil {
-			return nil, err
-		}
+		name := protoapi.TaskStatusKind.FromProto(status)
 		statuses = append(statuses, name)
 	}
-	return statuses, nil
+	return statuses
 }

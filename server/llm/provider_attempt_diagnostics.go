@@ -31,6 +31,8 @@ type providerAttemptDiagnostic struct {
 	usage            *Usage
 	totalTokens      *int64
 	reasoningTokens  *int64
+	incremental      *bool
+	transmittedItems *int
 	localCompaction  bool
 	compactionOutput *compactionOutputDiagnostic
 }
@@ -114,6 +116,7 @@ func (a *providerAttemptDiagnostic) finish(ctx context.Context, response *http.R
 	var code *UnifiedErrorCode
 	var providerError *ProviderAPIError
 	if errors.As(err, &providerError) {
+		status = providerError.StatusCode
 		code = &providerError.Code
 		if requestID == nil {
 			requestID = providerError.ProviderRequestID
@@ -141,6 +144,8 @@ func (a *providerAttemptDiagnostic) finish(ctx context.Context, response *http.R
 		"output_tokens", diagnosticOptional(usage.OutputTokens),
 		"total_tokens", diagnosticOptional(a.totalTokens),
 		"reasoning_tokens", diagnosticOptional(a.reasoningTokens),
+		"incremental", diagnosticOptional(a.incremental),
+		"transmitted_items", diagnosticOptional(a.transmittedItems),
 	)
 }
 

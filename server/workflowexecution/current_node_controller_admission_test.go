@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/server/workflowruntime"
 )
@@ -340,7 +340,15 @@ func TestCurrentNodeControllerSteersUnclassifiedAutomaticAgentBeforeStartingIt(t
 	reference := queue.tasks[0].reference(t, 0)
 	store := &currentNodeControllerStore{Store: queue.tasks[0].store, queueFixture: queue}
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{})
-	runner := &countingCurrentNodeRunner{}
+	shellPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("sh executable unavailable: %v", err)
+	}
+	runner := &admissionCompletionRunner{
+		authority: authority,
+		command:   sessionruntime.ScriptCommand{Path: shellPath, Args: []string{"-c", "exit 0"}},
+		completed: make(chan admissionCompletion, 1),
+	}
 	steerer := &recordingCurrentNodeAssignmentSteerer{}
 	store.assignment = steerer
 	controller, err := NewCurrentNodeController(
@@ -369,9 +377,18 @@ func TestCurrentNodeControllerSteersUnclassifiedAutomaticAgentBeforeStartingIt(t
 		NodeKind:    workflow.NodeKindAgent,
 	}})
 
-	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), 10*time.Millisecond, func() bool {
-		return runner.starts() == 1
-	}, "automatic Agent did not reach runner")
+	// Preparation is observed before the short-lived Script is published.
+	// Wait for its natural completion before cleanup can attempt to stop it.
+	completion := <-runner.completed
+	if completion.err != nil {
+		t.Fatalf("publish automatic Agent fixture: %v", completion.err)
+	}
+	if _, err := completion.handle.Wait(context.Background()); err != nil {
+		t.Fatalf("wait for automatic Agent fixture: %v", err)
+	}
+	if starts := runner.starts(); starts != 1 {
+		t.Fatalf("automatic Agent starts = %d, want 1", starts)
+	}
 	if got := steerer.references(); len(got) != 1 || !got[0].Equal(reference) {
 		t.Fatalf("steered assignments = %+v, want %v", got, reference)
 	}
@@ -379,6 +396,31 @@ func TestCurrentNodeControllerSteersUnclassifiedAutomaticAgentBeforeStartingIt(t
 		deliveries[0] != workflowruntime.TaskPromptDeliveryResume {
 		t.Fatalf("automatic target prompt deliveries = %+v, want Resume after assignment", deliveries)
 	}
+}
+
+type admissionCompletionRunner struct {
+	countingCurrentNodeRunner
+	authority *sessionruntime.Authority
+	command   sessionruntime.ScriptCommand
+	completed chan admissionCompletion
+}
+
+type admissionCompletion struct {
+	handle sessionruntime.ExecutionHandle
+	err    error
+}
+
+func (r *admissionCompletionRunner) PublishCurrentNode(
+	_ context.Context,
+	_ workflow.CurrentNodeReference,
+	_ workflowruntime.TaskPromptDelivery,
+	_ CurrentNodeAssignmentSteer,
+	start workflowExecutionStart,
+	_ workflowruntime.Controller,
+) error {
+	handle, err := startTestWorkflowScript(r.authority, start, sessionruntime.ScriptExecutionRequest{Command: r.command})
+	r.completed <- admissionCompletion{handle: handle, err: err}
+	return err
 }
 
 func TestCurrentNodeControllerBoundsExplicitAdmissionSetupWithoutBlockingSiblings(t *testing.T) {

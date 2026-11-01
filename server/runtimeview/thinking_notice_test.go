@@ -3,12 +3,12 @@ package runtimeview
 import (
 	"testing"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -22,7 +22,7 @@ func TestThinkingNoticeLiveHydrationAndPageParity(t *testing.T) {
 	}
 	snapshot := runtime.ChatSnapshot{Entries: []runtime.ChatEntry{entry}}
 	facts := runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot)
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{CommittedRows: facts}, nil)
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, facts)
 	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", textutil.Value("name"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
 	if err != nil {
 		t.Fatal(err)

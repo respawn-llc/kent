@@ -15,13 +15,7 @@ import (
 func TestThinkingStatusUpdatesStayOutOfTranscriptAndKeepDetailTraceRenderable(t *testing.T) {
 	var output bytes.Buffer
 	surface := ongoing.NewSurface(&output)
-	runtimeClient := newUIRuntimeClientWithReads(
-		ongoingTestSessionID().String(),
-		&countingSessionViewClient{},
-		newUnavailableRuntimeControlService(),
-		nil,
-		nil,
-	).(*sessionRuntimeClient)
+	runtimeClient := newUIRuntimeClientWithReads(ongoingTestSessionID().String(), &countingSessionViewClient{}).(*sessionRuntimeClient)
 	model := sizedTestUIModel(
 		newProjectedTestUIModel(runtimeClient, WithUIOngoingSurface(surface)),
 		80,

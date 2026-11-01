@@ -83,9 +83,6 @@ func (b *Broker) SubscribeDesktop() (*Subscription, error) {
 }
 
 func (b *Broker) SubscribeSession(sessionID string) (*Subscription, error) {
-	if sessionID == "" {
-		return nil, fmt.Errorf("attention notification session subscription: %w", serverapi.ErrSessionIDRequired)
-	}
 	return b.subscribe(deliveryFilter{sessionID: sessionID})
 }
 
@@ -135,6 +132,11 @@ func (b *Broker) PublishResolved(scope RoutingScope, id clientui.AttentionNotifi
 func (b *Broker) PublishSessionNamingFailure(failure *attentionpb.SessionNamingFailure) error {
 	event := clientui.AttentionNotificationEvent{Type: clientui.AttentionNotificationEventSessionNamingFailure, SessionNamingFailure: failure}
 	return b.publish(RoutingScope{Kind: RoutingSessionPrompt, ProjectID: failure.ProjectId, SessionID: failure.SessionId}, event)
+}
+
+func (b *Broker) PublishSessionTurnEnd(completion *attentionpb.SessionTurnEnd) error {
+	event := clientui.AttentionNotificationEvent{Type: clientui.AttentionNotificationEventSessionTurnEnd, SessionTurnEnd: completion}
+	return b.publish(RoutingScope{Kind: RoutingSessionPrompt, ProjectID: completion.ProjectId, SessionID: completion.SessionId}, event)
 }
 
 func (b *Broker) publish(scope RoutingScope, event clientui.AttentionNotificationEvent) error {

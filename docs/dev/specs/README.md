@@ -4,6 +4,7 @@ Before writing, rewriting, reviewing, or validating a spec, follow the [spec-wri
 
 Area specs:
 
+- `speech-input.md`: Desktop speech capture, provider selection, final insertion, and recording recovery.
 - `core-runtime-tools.md`: product scope, sessions, authentication, configuration, tools, runtime control, and compaction.
 - `provider-connections.md`: named provider access, connection selection, credentials, Session binding, terminal login, and configuration cutover.
 - `nano-inference.md`: small-model inference configuration, invocation, concurrency, and feature switches.

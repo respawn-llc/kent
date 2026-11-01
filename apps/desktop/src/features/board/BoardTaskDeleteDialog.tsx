@@ -1,13 +1,25 @@
 import { TaskDeleteConfirmationDialog } from "@/shared/task-delete";
-import { useBoardDeleteConfirmation } from "./BoardTaskDeletion";
+import { useBoardTaskDeletion, type useBoardTaskDeletions } from "./BoardTaskDeletion";
 
-export function BoardTaskDeleteDialog(input: Parameters<typeof useBoardDeleteConfirmation>[0]) {
-  const deletion = useBoardDeleteConfirmation(input);
+export function BoardTaskDeleteDialog({
+  taskID,
+  deletions,
+  onResult,
+}: Readonly<{
+  taskID: string;
+  deletions: ReturnType<typeof useBoardTaskDeletions>;
+  onResult(result: "cancel" | "confirm"): void;
+}>) {
+  const deletion = useBoardTaskDeletion(deletions, taskID);
   return (
     <TaskDeleteConfirmationDialog
       disabled={deletion.isPending}
-      onClose={input.onClose}
-      onConfirm={deletion.confirm}
+      onClose={() => {
+        onResult("cancel");
+      }}
+      onConfirm={() => {
+        onResult("confirm");
+      }}
     />
   );
 }

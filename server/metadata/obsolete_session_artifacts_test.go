@@ -6,11 +6,20 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func TestOpeningDatabaseIgnoresObsoleteSessionJournal(t *testing.T) {
-	store, cfg, binding := newFileBackedMetadataTestStore(t)
+	cfg := loadMetadataTestConfig(t, t.TempDir(), filepath.Join(t.TempDir(), "persistence"))
+	store, err := Open(cfg.PersistenceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	binding, err := store.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	chat := createMetadataTestSession(t, store, cfg, binding)
 	log, err := chat.MaterializeEventLog()
 	if err != nil {

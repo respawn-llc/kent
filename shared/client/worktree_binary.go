@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"core/shared/apicontract"
 	"core/shared/protoapi"
@@ -47,9 +46,6 @@ func (c *Remote) ListWorktrees(ctx context.Context, request *worktreepb.ListRequ
 	if err != nil {
 		return nil, err
 	}
-	if err := validateWorktreeListFallbacks(success.Worktrees); err != nil {
-		return nil, invalidResponseError("worktree list", err)
-	}
 	return success, nil
 }
 
@@ -66,9 +62,6 @@ func (c *Remote) ListWorkspaceWorktrees(ctx context.Context, request *worktreepb
 			request.WorkspaceId,
 		))
 	}
-	if err := validateWorktreeListFallbacks(success.Worktrees); err != nil {
-		return nil, invalidResponseError("workspace worktree list", err)
-	}
 	return success, nil
 }
 
@@ -77,9 +70,6 @@ func (c *Remote) ResolveWorktreeSelector(ctx context.Context, request *worktreep
 		worktreeError[*worktreepb.SelectorResolveError])
 	if err != nil {
 		return nil, err
-	}
-	if err := validateWorktreeListFallback(success.Worktree); err != nil {
-		return nil, invalidResponseError("worktree selector", err)
 	}
 	return success, nil
 }
@@ -104,9 +94,6 @@ func (c *Remote) CreateWorktree(ctx context.Context, request *worktreepb.CreateR
 	hasSessionContext := workspace == nil || workspace.SessionContext != nil
 	if (success.Target != nil) != hasSessionContext {
 		return nil, invalidResponseError("worktree create", errors.New("Session location presence does not match management scope"))
-	}
-	if err := validateWorktreeListFallback(success.Worktree); err != nil {
-		return nil, invalidResponseError("worktree create", err)
 	}
 	return success, nil
 }
@@ -228,25 +215,4 @@ func worktreeError[Failure worktreeFailure](failure Failure) error {
 		}
 	}
 	return generatedOperationFailure(failure.GetCode())
-}
-
-func validateWorktreeListFallbacks(entries []*worktreepb.ListEntry) error {
-	for _, entry := range entries {
-		if err := validateWorktreeListFallback(entry); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateWorktreeListFallback(entry *worktreepb.ListEntry) error {
-	external := entry.Topology.GetExternal()
-	if external == nil || external.Git == nil || external.Git.BranchName != nil {
-		return nil
-	}
-	expected := filepath.Base(external.Git.CanonicalRoot)
-	if entry.Projection.FallbackIdentity == nil || *entry.Projection.FallbackIdentity != expected {
-		return errors.New("external worktree fallback identity does not match its filesystem basename")
-	}
-	return nil
 }

@@ -5,16 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"core/server/metadata"
+	"core/internal/testharness/testsetup"
 	"core/shared/config"
 )
 
 func TestConnectionConsumptionAccumulates(t *testing.T) {
-	store, err := metadata.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, t.TempDir())
 	ctx := context.Background()
 	now := time.Now()
 	for _, score := range []int64{12, 30} {
@@ -29,11 +25,7 @@ func TestConnectionConsumptionAccumulates(t *testing.T) {
 }
 
 func TestConnectionConsumptionExpiresWithoutWrites(t *testing.T) {
-	store, err := metadata.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testsetup.OpenStore(t, t.TempDir())
 	ctx := context.Background()
 	now := time.Date(2026, 10, 15, 18, 35, 0, 0, time.FixedZone("offset", 2*60*60))
 	cutoff := now.UTC().Add(-7 * 24 * time.Hour).Truncate(time.Hour)
@@ -66,10 +58,8 @@ func TestConnectionConsumptionExpiresWithoutWrites(t *testing.T) {
 
 func TestConnectionConsumptionReloads(t *testing.T) {
 	root := t.TempDir()
-	store, err := metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	open := testsetup.StoreOpener(t, root)
+	store := open()
 	ctx := context.Background()
 	now := time.Now()
 	totals, err := store.ConnectionConsumption(ctx, []config.ConnectionID{"a"}, now)
@@ -82,11 +72,7 @@ func TestConnectionConsumptionReloads(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	store, err = metadata.Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store = open()
 	totals, err = store.ConnectionConsumption(ctx, []config.ConnectionID{"a"}, now)
 	if err != nil || totals["a"] != 42 {
 		t.Fatalf("reloaded totals = %v, error = %v", totals, err)

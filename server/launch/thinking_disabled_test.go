@@ -3,7 +3,7 @@ package launch
 import (
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 )
 

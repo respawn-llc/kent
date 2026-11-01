@@ -28,7 +28,7 @@ import { thinkingShowcaseServices } from "./thinkingShowcaseServices";
 const slots: TranscriptRenderSlots<ReactElement | null> = {
   user: (item) => <p>{item.value.Text}</p>,
   assistant: (item) => <p>{item.value.Text}</p>,
-  tool: (item) => <p>{item.value.ToolName}</p>,
+  tool: (item) => <p>{item.kind === "tool_call" ? item.value.Call.ToolName : item.value.ToolName}</p>,
   reasoning: (item) => <TranscriptReasoningSlot item={item} />,
   notice: () => null,
   thinkingStatus: (presentation) => <TranscriptThinkingStatus presentation={presentation} />,

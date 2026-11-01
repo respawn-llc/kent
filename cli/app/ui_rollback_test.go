@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 	"core/cli/tui"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"

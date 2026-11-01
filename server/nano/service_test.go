@@ -18,7 +18,7 @@ import (
 
 	"core/internal/testharness/httpclient"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/launch"
 	"core/server/llm"
@@ -27,10 +27,12 @@ import (
 	"core/shared/jsoncontract"
 	"core/shared/textutil"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 )
 
-const completedResponse = `{"id":"resp_nano","object":"response","status":"completed","model":"local-model","output":[{"id":"msg_nano","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Fix invoice totals","annotations":[]}]}],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`
+const completedResponse = `{"id":"resp_nano","object":"response","status":"completed","model":"local-model","output":[],"usage":{"input_tokens":10,"output_tokens":4,"total_tokens":14,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`
+const finalizedResponseItem = `{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_nano","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Fix invoice totals","annotations":[]}]}}`
 
 func nanoTestConfig(t *testing.T, endpoint string) (config.Settings, *authservice.ConnectionResolver) {
 	t.Helper()
@@ -59,13 +61,25 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 	var received []metadata
 	var identities, states []string
 	var observations sync.Mutex
+	released := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer socket.CloseNow()
+		_, raw, err := socket.Read(t.Context())
+		if err != nil {
+			t.Error(err)
+			return
+		}
 		observations.Lock()
 		defer observations.Unlock()
 		var body struct {
 			ClientMetadata map[string]string `json:"client_metadata"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.Unmarshal(raw, &body); err != nil {
 			t.Error(err)
 		}
 		var facts metadata
@@ -74,17 +88,25 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 		}
 		received = append(received, facts)
 		identities = append(identities, r.Header.Get("session-id"))
-		states = append(states, r.Header.Get("x-codex-turn-state"))
+		states = append(states, body.ClientMetadata["x-codex-turn-state"])
 		if len(received) == 1 {
+			if err := socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.metadata","headers":{"x-codex-turn-state":"opaque,state=value"}}`)); err != nil {
+				t.Error(err)
+			}
 			endParent()
-			w.Header().Set("x-codex-turn-state", "opaque,state=value")
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprint(w, `{"error":{"message":"retry","type":"server_error"}}`)
+			if err := socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"error","status":503,"error":{"message":"retry","type":"server_error"}}`)); err != nil {
+				t.Error(err)
+			}
 			return
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
+		if err := socket.Write(t.Context(), websocket.MessageText, []byte(finalizedResponseItem)); err != nil {
+			t.Error(err)
+		}
+		if err := socket.Write(t.Context(), websocket.MessageText, []byte(fmt.Sprintf(`{"type":"response.completed","response":%s}`, completedResponse))); err != nil {
+			t.Error(err)
+		}
+		_, _, _ = socket.Read(t.Context())
+		close(released)
 	}))
 	defer server.Close()
 	root := t.TempDir()
@@ -139,6 +161,11 @@ func TestNanoChatGPTDispatchIdentityAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("Nano returned without releasing its completed provider socket")
+	}
 	observations.Lock()
 	defer observations.Unlock()
 	if parent.Err() == nil || len(received) != 2 || received[0] != received[1] || identities[0] != identities[1] || states[0] != "" || states[1] != "opaque,state=value" {
@@ -172,6 +199,7 @@ func TestNanoToolsAndStructuredResultForwarding(t *testing.T) {
 			t.Errorf("request features = %+v", body)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc1","type":"function_call","call_id":"call1","name":"choose","arguments":"{}","status":"completed"}}`+"\n\n")
 		fmt.Fprint(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"local-model\",\"output\":[{\"id\":\"fc1\",\"type\":\"function_call\",\"call_id\":\"call1\",\"name\":\"choose\",\"arguments\":\"{}\",\"status\":\"completed\"}]}}\n\n")
 	}))
 	defer server.Close()
@@ -279,6 +307,7 @@ func TestNanoUnsupportedVisionRejected(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", finalizedResponseItem)
 		fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
 	}))
 	defer server.Close()
@@ -311,6 +340,7 @@ func TestNanoAdmissionCapacityAndWaitingDeadline(t *testing.T) {
 		select {
 		case <-release:
 			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprintf(w, "data: %s\n\n", finalizedResponseItem)
 			fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
 		case <-r.Context().Done():
 		}
@@ -394,6 +424,7 @@ func TestNanoAnonymousOneStep(t *testing.T) {
 			t.Error("anonymous connection sent credentials")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", finalizedResponseItem)
 		fmt.Fprintf(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":%s}\n\n", completedResponse)
 	}))
 	defer server.Close()

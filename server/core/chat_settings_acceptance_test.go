@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
 	"core/server/runtimewire"
@@ -96,7 +96,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), resolved.Config.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), nil, nil)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), resolved.Config.PersistenceRoot, auth.NewMemoryStore(auth.EmptyState()), func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("BuildAuthSupport: %v", err)
 	}

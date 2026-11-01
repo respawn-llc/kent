@@ -4,43 +4,20 @@ import (
 	"context"
 	"errors"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	chatshellpb "core/shared/protoapi/gen/kent/api/chat_shell"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func registerChatGatewayBinaryBindings(bindings map[string]gatewayBinaryBinding) error {
 	service := chatpb.File_kent_api_chat_chat_proto.Services().ByName("ChatService")
-	if err := registerGatewayBinaryUnary(bindings, chatshellpb.File_kent_api_chat_shell_chat_shell_proto.Services().ByName("ShellService"), "SubmitUserShellCommand",
-		gatewayBinaryCoreActiveOrdinary,
-		func() *chatshellpb.ShellCommandRequest { return &chatshellpb.ShellCommandRequest{} },
-		chatTargetScope[*chatshellpb.ShellCommandRequest],
-		func(g *Gateway, ctx context.Context, _ *connectionState, request *chatshellpb.ShellCommandRequest) (*emptypb.Empty, error) {
-			if err := g.deps.ChatMutationClient().SubmitUserShellCommand(ctx, request); err != nil {
-				return nil, err
-			}
-			return &emptypb.Empty{}, nil
-		},
-		func(_ *Gateway, _ *connectionState, _ *chatshellpb.ShellCommandRequest, err error) proto.Message {
-			detail := binaryChatDomainFailure(err)
-			if _, internal := detail.(*sharedpb.InternalFailureDetails); internal {
-				return binaryRuntimeControlFailure(err)
-			}
-			return detail
-		},
-	); err != nil {
-		return err
-	}
 	if err := registerChatUnary(
 		bindings,
 		service,
@@ -125,9 +102,6 @@ func binaryChatDomainFailure(err error) proto.Message {
 		errors.Is(err, errActiveProjectRequired):
 		return &chatsettingspb.WorkspaceNotRegisteredDetails{}
 	case errors.As(err, &agentPreparationErr):
-		if validationErr := agentPreparationErr.Validate(); validationErr != nil {
-			return binaryInternalFailure(errors.Join(err, validationErr))
-		}
 		category, conversionErr := binaryChatAgentPreparationCategory(agentPreparationErr.Category)
 		if conversionErr != nil {
 			return binaryInternalFailure(errors.Join(err, conversionErr))

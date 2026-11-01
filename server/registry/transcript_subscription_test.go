@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	"core/shared/protoapi"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
@@ -100,8 +99,11 @@ func TestTranscriptSubscriptionBrokerSequencesEachSubscriberFromHydration(t *tes
 	if secondHydration.Sequence != 1 || secondHydration.Event.GetHydration() == nil {
 		t.Fatalf("second hydration = %+v, want fresh seq=1 hydration", secondHydration)
 	}
-	if event, err := nextTranscriptMessageTimeout(second, 20*time.Millisecond); err == nil {
-		t.Fatalf("second subscriber replayed old live event: %+v", event)
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if event, err := second.Next(t.Context()); !errors.Is(err, io.EOF) {
+		t.Fatalf("second subscriber replayed old live event: event=%+v err=%v", event, err)
 	}
 }
 
@@ -330,14 +332,14 @@ func TestTranscriptSubscriptionContractValidatesLiveLocatorProgression(t *testin
 			}
 			if !test.wantFailure {
 				for range test.live {
-					if _, err := nextTranscriptMessageTimeout(sub, time.Second); err != nil {
+					if _, err := sub.Next(t.Context()); err != nil {
 						t.Fatalf("valid live locator was rejected: %v", err)
 					}
 				}
 				return
 			}
 			for range test.live[:len(test.live)-1] {
-				if _, err := nextTranscriptMessageTimeout(sub, time.Second); err != nil {
+				if _, err := sub.Next(t.Context()); err != nil {
 					t.Fatalf("valid prefix before invalid locator was rejected: %v", err)
 				}
 			}
@@ -379,17 +381,9 @@ func withTranscriptContractViolationPanic(enabled bool) func() {
 
 func nextTranscriptMessage(t *testing.T, sub serverapi.TranscriptSubscription) *transcriptpb.Message {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	message, err := sub.Next(ctx)
+	message, err := sub.Next(t.Context())
 	if err != nil {
 		t.Fatalf("transcript subscription next: %v", err)
 	}
 	return message
-}
-
-func nextTranscriptMessageTimeout(sub serverapi.TranscriptSubscription, timeout time.Duration) (*transcriptpb.Message, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return sub.Next(ctx)
 }

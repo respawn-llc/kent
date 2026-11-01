@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/scriptedllm"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/shared/config"
 	"core/shared/toolspec"

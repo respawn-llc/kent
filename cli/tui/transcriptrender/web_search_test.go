@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func TestWebSearchDisplayTextPreservesQueryQuotes(t *testing.T) {

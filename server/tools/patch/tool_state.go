@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"core/server/tools"
-	patchformat "core/shared/transcript/patchformat"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 type applyState struct {

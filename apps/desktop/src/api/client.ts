@@ -1,4 +1,5 @@
 import type { AttentionNotificationLifecycle } from "./attentionNotifications";
+import { speechAvailability } from "./speech";
 import type * as Stream from "effect/Stream";
 import { attentionNotifications } from "./attentionNotificationSubscription";
 import { create } from "@app/server-api-contract";
@@ -116,6 +117,7 @@ export class ApiClient implements ApiService {
   }
 
   readonly chat: ChatApi;
+  speechAvailability = async () => speechAvailability(this.#transport);
   getSubscriptionConnections = async () => subscriptionUsage.getSubscriptionConnections(this.#transport);
   getSubscriptionBinding = async (sessionID: string) =>
     subscriptionUsage.getSubscriptionBinding(this.#transport, sessionID);

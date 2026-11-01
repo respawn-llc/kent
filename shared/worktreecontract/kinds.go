@@ -3,7 +3,6 @@ package worktreecontract
 type DirtyStateKind string
 type SetupFailureKind string
 type SetupRequirement string
-type TransitionKind string
 
 const (
 	DirtyStateClean                     DirtyStateKind   = "clean"
@@ -18,7 +17,6 @@ const (
 	SetupFailureCanceled                SetupFailureKind = "canceled"
 	SetupFailureControllerShutdown      SetupFailureKind = "controller_shutdown"
 	SetupFailureOperational             SetupFailureKind = "operational"
-	TransitionDelete                    TransitionKind   = "delete"
 )
 
 func IsRetryReadySetupFailure(kind SetupFailureKind) bool {

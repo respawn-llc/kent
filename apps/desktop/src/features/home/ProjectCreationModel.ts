@@ -14,7 +14,6 @@ type SelectionContext = Readonly<{
 }>;
 type Submission = Readonly<{
   draft: ProjectDraft;
-  notifyCreated?: (projectID: string) => Promise<void>;
   complete: (projectID: string, outcome: "attached" | "created") => Promise<void>;
   selectionRequired: () => void;
 }>;
@@ -51,7 +50,6 @@ export function createProjectCreationModel({
       services.api.createProject(draft.name.trim(), draft.key.trim().toUpperCase(), draft.workspaceRoot),
     onSuccess: async (binding, input) => {
       await client.invalidateQueries({ queryKey: queryKeys.projects });
-      await input.notifyCreated?.(binding.projectID);
       await input.complete(binding.projectID, "created");
     },
     onError: (error) => {
@@ -83,23 +81,7 @@ export function createProjectCreationModel({
         if (plan.kind === "local_unbound") {
           const name = basename(plan.canonicalRoot);
           const draft = { name, key: projectKeyFromName(name), workspaceRoot: plan.canonicalRoot };
-          if (!services.nativeBridge.capabilities.projectCreationWindow) {
-            input.openDraft(draft);
-            return;
-          }
-          yield* Effect.tryPromise(async () => services.nativeBridge.projectCreation.openWindow(draft)).pipe(
-            Effect.catch((error) =>
-              Effect.sync(() => {
-                push({
-                  id: "project-create-window-error",
-                  tone: "danger",
-                  title: t("home.projectCreateWindowError"),
-                  body: errorMessage(error.cause),
-                });
-                input.openDraft(draft);
-              }),
-            ),
-          );
+          input.openDraft(draft);
         } else selectionRequired();
       }).pipe(
         Effect.catch((error) =>
@@ -127,8 +109,6 @@ export function createProjectCreationModel({
         );
         const binding = plan.binding;
         if (binding !== null) {
-          const notify = input.notifyCreated;
-          if (notify !== undefined) yield* Effect.tryPromise(async () => notify(binding.projectID));
           yield* Effect.tryPromise(async () => input.complete(binding.projectID, "attached"));
           return;
         }

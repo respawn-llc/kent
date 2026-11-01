@@ -3,11 +3,32 @@ import { create, decode, encode } from "@app/server-api-contract";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 import {
   PatchChangedLineKind,
+  PatchFileChangeSchema,
   ToolPresentationKind,
 } from "@app/server-api-contract/gen/kent/api/transcript/tool_presentation_pb";
 import { committedRow } from "./chatTranscriptRows";
 
 const stepId = "123e4567-e89b-42d3-a456-426614174000";
+
+it("preserves server removed-count presence independently of pending deletion", () => {
+  for (const pending of [false, true]) {
+    for (const removed of [undefined, 3]) {
+      const file = create(PatchFileChangeSchema, {
+        path: { absolute: "/workspace/a", relative: "a" },
+        added: 7,
+        ...(removed === undefined ? {} : { removed }),
+        operations: [
+          pending
+            ? { operation: { case: "delete", value: { id: { hunkOrdinal: 0 } } } }
+            : { operation: { case: "update", value: {} } },
+        ],
+      });
+      const received = decode(PatchFileChangeSchema, encode(PatchFileChangeSchema, file));
+      expect(received.added).toBe(7);
+      expect(received.removed).toBe(removed);
+    }
+  }
+});
 
 it("preserves the typed Workspaces notice through the generated contract and Chat adaptation", () => {
   const detail = "Workspace context";

@@ -1,0 +1,146 @@
+package runtime
+
+import (
+	"fmt"
+
+	"core/server/chatcontext"
+	compaction "core/shared/config"
+	contextpb "core/shared/protoapi/gen/kent/api/chat_context"
+)
+
+// compactionReminderTokensPerToolCall estimates post-reminder runway separately
+// from the whole-context heuristic in config.EstimatedTokensPerToolCall.
+//
+// Under the 1,400-token estimate, the lower quartile of actual / promised calls
+// was 0.587: 1,400 / 0.587 is about 2,385, rounded to 2,400. This is a conservative
+// planning estimate, not a mean prediction. Historical remaining-token budgets
+// were unavailable; rounded promises served as a proxy for those budgets.
+//
+// Provider-overflow repairs have no distinct persisted trigger marker. Excluding
+// 12 intervals with nonspecific error feedback gave a lower quartile of 0.593;
+// neither cohort is known to be overflow-free. Variable tool/result sizes mean
+// the estimate cannot guarantee a number of calls.
+const compactionReminderTokensPerToolCall = 2_400
+
+type compactionPlanningSnapshot struct {
+	autoCompactionEnabled         bool
+	preSubmitCompactionLeadTokens *int
+	policy                        chatcontext.Policy
+	maxOutputTokens               int
+	lockedMaxOutputTokens         int
+	// currentUsedTokens is the live consumed-context estimate (currentTokenUsage), the same source
+	// the auto-compaction gates check. It is what the handoff-runway estimate must measure so the
+	// estimate and the gates never disagree.
+	currentUsedTokens int
+}
+
+type compactionEngineKind string
+
+const (
+	compactionEngineNone   compactionEngineKind = "none"
+	compactionEngineLocal  compactionEngineKind = "local"
+	compactionEngineRemote compactionEngineKind = "remote"
+)
+
+type compactionEnginePlan struct {
+	engineKind compactionEngineKind
+}
+
+type compactionPlanner struct{}
+
+func newCompactionPlanner() *compactionPlanner {
+	return &compactionPlanner{}
+}
+func (p *compactionPlanner) mode(policy chatcontext.Policy) string {
+	switch policy.CompactionMode {
+	case contextpb.CompactionMode_COMPACTION_MODE_DISABLED:
+		return "none"
+	case contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE:
+		return "native"
+	default:
+		return "local"
+	}
+}
+
+func (p *compactionPlanner) autoCompactionAvailable(snapshot compactionPlanningSnapshot) bool {
+	return snapshot.autoCompactionEnabled && snapshot.policy.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_DISABLED
+}
+
+func (p *compactionPlanner) enginePlan(snapshot compactionPlanningSnapshot) compactionEnginePlan {
+	switch snapshot.policy.CompactionMode {
+	case contextpb.CompactionMode_COMPACTION_MODE_DISABLED:
+		return compactionEnginePlan{engineKind: compactionEngineNone}
+	case contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE:
+		return compactionEnginePlan{engineKind: compactionEngineRemote}
+	default:
+		return compactionEnginePlan{engineKind: compactionEngineLocal}
+	}
+}
+
+func (p *compactionPlanner) contextWindowTokens(snapshot compactionPlanningSnapshot) int {
+	return int(snapshot.policy.ContextWindowTokens)
+}
+
+func (p *compactionPlanner) eagerCompactionEligible(snapshot compactionPlanningSnapshot) bool {
+	window := p.contextWindowTokens(snapshot)
+	if window <= 0 || snapshot.currentUsedTokens < 0 {
+		return false
+	}
+	return snapshot.currentUsedTokens >= compaction.SpeculativeCompactionTriggerTokens(window, snapshot.preSubmitCompactionLeadTokens)
+}
+func (p *compactionPlanner) autoCompactTokenLimit(snapshot compactionPlanningSnapshot) int {
+	return int(snapshot.policy.AutomaticThresholdTokens)
+}
+
+func (p *compactionPlanner) soonReminderLimit(snapshot compactionPlanningSnapshot) int {
+	limit := p.autoCompactTokenLimit(snapshot)
+	if limit <= 0 {
+		return 0
+	}
+	reminderLimit := (limit * compactionSoonReminderPercent) / 100
+	if reminderLimit < 1 {
+		return 1
+	}
+	return reminderLimit
+}
+
+// estimatedToolCallsUntilForcedHandoff estimates how many more assistant tool
+// calls fit before the forced compaction threshold, so the soon-reminder can
+// tell the model roughly how much runway it has left to trigger a handoff
+// voluntarily.
+//
+// It measures currentUsedTokens (currentTokenUsage), the same source the
+// auto-compaction gates check, so "the forced gate let us through" and "the
+// estimate is below the forced limit" are the same measurement. The forced gate
+// (usageAtOrAboveLimit) compares input + reservedOutput against the limit, so
+// the reserved output budget is subtracted here too; otherwise the runway would
+// promise tool calls whose tokens are already reserved for the model response.
+func (p *compactionPlanner) estimatedToolCallsUntilForcedHandoff(snapshot compactionPlanningSnapshot) int {
+	forcedLimit := p.autoCompactTokenLimit(snapshot)
+	reservedOutput := p.reservedOutputTokens(snapshot)
+	remaining := forcedLimit - reservedOutput - snapshot.currentUsedTokens
+	if remaining <= 0 {
+		// The soon-reminder is gated behind the same usage-vs-forced-limit check that triggers forced
+		// compaction, which already accounts for reservedOutput, so by the time this estimate is computed
+		// consumed tokens plus the reservation are always strictly below the forced limit. Reaching here
+		// means forced compaction failed to precede the reminder: an unreachable-state invariant
+		// violation, not a value to clamp away.
+		panic(fmt.Sprintf(
+			"compaction soon reminder estimate computed with consumed tokens %d plus reserved output %d at or above forced compaction limit %d; forced compaction must precede the reminder",
+			snapshot.currentUsedTokens, reservedOutput, forcedLimit,
+		))
+	}
+	// Floor rather than round: a partial call budget does not justify promising
+	// another call. Positive runway below one call budget therefore estimates zero.
+	return remaining / compactionReminderTokensPerToolCall
+}
+
+func (p *compactionPlanner) reservedOutputTokens(snapshot compactionPlanningSnapshot) int {
+	if snapshot.lockedMaxOutputTokens > 0 {
+		return snapshot.lockedMaxOutputTokens
+	}
+	if snapshot.maxOutputTokens > 0 {
+		return snapshot.maxOutputTokens
+	}
+	return 0
+}

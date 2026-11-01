@@ -46,9 +46,9 @@ gen:
     @bash scripts/quiet-on-success.sh just _lint-protobuf _generate
     @bash scripts/quiet-on-success.sh just _gen-metadata
 
-# Run active tests, or select server, desktop, docs, tui, or explicit frozen rust.
+# Run active tests, or select server, desktop, integration, docs, tui, or explicit frozen rust.
 test *args:
-    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh {{ args }}
+    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh "$@"
 
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:

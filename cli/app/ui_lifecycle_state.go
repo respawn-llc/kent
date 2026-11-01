@@ -21,7 +21,7 @@ const (
 )
 
 func (m *uiModel) isBusy() bool {
-	return m != nil && (m.runtimeLifecycle.Run.IsRunning() || m.hasLocalDispatchPending())
+	return m != nil && m.runtimeLifecycle.Run.IsRunning()
 }
 
 func (m *uiModel) runtimeActivityBusy() bool {
@@ -77,8 +77,7 @@ func runtimeRunModeFromActivityKind(kind runtimepb.ActivityActiveKind) clientui.
 
 func (m *uiModel) isCompacting() bool {
 	if m == nil ||
-		m.runtimeActivityProjection.GetState() != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING ||
-		m.runtimeActivityProjection.ActiveStep == nil {
+		m.runtimeActivityProjection.GetState() != runtimepb.ActivityState_RUNTIME_ACTIVITY_RUNNING {
 		return false
 	}
 	switch m.runtimeActivityProjection.ActiveStep.ActiveKind {
@@ -105,12 +104,8 @@ func (m *uiModel) hasPendingInterrupt() bool {
 	return m != nil && m.interruptLifecycle == uiInterruptPending
 }
 
-func (m *uiModel) hasLocalDispatchPending() bool {
-	return m != nil && m.activeSubmit.token != 0
-}
-
 func (m *uiModel) blocksRuntimeInput() bool {
-	return m != nil && (m.finalAnswerOperation != nil || m.isBusy() || m.runtimeActivityBlocksInput() || m.hasLocalDispatchPending())
+	return m != nil && (m.finalAnswerOperation != nil || m.isBusy() || m.runtimeActivityBlocksInput())
 }
 
 func (m *uiModel) setPendingInterrupt(pending bool) {

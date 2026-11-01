@@ -1,6 +1,6 @@
 package runtimecontrol
 
-import "core/server/session"
+import "core/server/sessionstore"
 
 func mustSessionEventKind(record session.EventRecord) session.EventKind {
 	kind, err := record.Kind()

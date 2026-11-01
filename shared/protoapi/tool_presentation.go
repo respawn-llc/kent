@@ -1,19 +1,18 @@
 package protoapi
 
 import (
-	"fmt"
 	"slices"
 
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
-	"core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	"core/shared/transcriptmodel/patchformat"
 )
 
 // ToolPresentationFromProto restores native rendering facts using the tool
 // identity on the enclosing row or start. Display normalization is server-owned.
-func ToolPresentationFromProto(toolName string, presentation *transcriptpb.ToolPresentation) (*transcript.ToolCallMeta, error) {
+func ToolPresentationFromProto(toolName string, presentation *transcriptpb.ToolPresentation) *transcript.ToolCallMeta {
 	if presentation == nil {
-		return nil, nil
+		return nil
 	}
 	out := &transcript.ToolCallMeta{
 		ToolName:               toolName,
@@ -52,23 +51,15 @@ func ToolPresentationFromProto(toolName string, presentation *transcriptpb.ToolP
 		out.ShellExitCode = &code
 	}
 	if presentation.RenderHint != nil {
-		hint, err := toolRenderHintFromProto(presentation.RenderHint)
-		if err != nil {
-			return nil, err
-		}
-		out.RenderHint = hint
+		out.RenderHint = toolRenderHintFromProto(presentation.RenderHint)
 	}
 	if presentation.PatchPresentation != nil {
-		patch, err := patchPresentationFromProto(presentation.PatchPresentation)
-		if err != nil {
-			return nil, fmt.Errorf("tool patch presentation: %w", err)
-		}
-		out.PatchPresentation = patch
+		out.PatchPresentation = patchPresentationFromProto(presentation.PatchPresentation)
 	}
-	return out, nil
+	return out
 }
 
-func toolRenderHintFromProto(hint *transcriptpb.ToolRenderHint) (*transcript.ToolRenderHint, error) {
+func toolRenderHintFromProto(hint *transcriptpb.ToolRenderHint) *transcript.ToolRenderHint {
 	out := &transcript.ToolRenderHint{
 		Path:       hint.GetPath(),
 		ResultOnly: hint.ResultOnly,
@@ -93,38 +84,34 @@ func toolRenderHintFromProto(hint *transcriptpb.ToolRenderHint) (*transcript.Too
 			out.ShellDialect = transcript.ToolShellDialectWindowsCommand
 		}
 	}
-	return out, nil
+	return out
 }
 
-func patchPresentationFromProto(presentation *transcriptpb.PatchPresentation) (*patchformat.Presentation, error) {
+func patchPresentationFromProto(presentation *transcriptpb.PatchPresentation) *patchformat.Presentation {
 	if value, ok := presentation.Presentation.(*transcriptpb.PatchPresentation_InvalidInput); ok {
 		return &patchformat.Presentation{
 			Variant:      patchformat.PresentationVariantInvalidInput,
 			InvalidInput: &patchformat.InvalidInput{InputDetail: value.InvalidInput.InputDetail},
-		}, nil
+		}
 	}
 	value := presentation.Presentation.(*transcriptpb.PatchPresentation_Changes)
 	changes := &patchformat.Changes{
 		Files: make([]patchformat.FileChange, 0, len(value.Changes.Files)),
 	}
 	for _, file := range value.Changes.Files {
-		projected, err := patchFileChangeFromProto(file)
-		if err != nil {
-			return nil, fmt.Errorf("patch file: %w", err)
-		}
-		changes.Files = append(changes.Files, projected)
+		changes.Files = append(changes.Files, patchFileChangeFromProto(file))
 	}
 	return &patchformat.Presentation{
 		Variant: patchformat.PresentationVariantChanges,
 		Changes: changes,
-	}, nil
+	}
 }
 
 func patchPathFromProto(path *transcriptpb.PatchPath) patchformat.Path {
 	return patchformat.Path{Absolute: path.Absolute, Relative: path.Relative}
 }
 
-func patchFileChangeFromProto(file *transcriptpb.PatchFileChange) (patchformat.FileChange, error) {
+func patchFileChangeFromProto(file *transcriptpb.PatchFileChange) patchformat.FileChange {
 	out := patchformat.FileChange{
 		Path:       patchPathFromProto(file.Path),
 		Added:      int(file.Added),
@@ -138,10 +125,7 @@ func patchFileChangeFromProto(file *transcriptpb.PatchFileChange) (patchformat.F
 		projected := patchFileOperationFromProto(operation)
 		out.Operations = append(out.Operations, projected)
 	}
-	if !out.CountsValid() {
-		return patchformat.FileChange{}, fmt.Errorf("patch calculated counts disagree with operations")
-	}
-	return out, nil
+	return out
 }
 
 func patchFileOperationFromProto(operation *transcriptpb.PatchFileOperation) patchformat.FileOperation {

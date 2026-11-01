@@ -6,7 +6,7 @@ default mode="": (server mode) (desktop mode) (docs mode)
 server mode="":
     just _lint server {{mode}}
     just test server
-    just build go
+    just test integration
 
 desktop mode="":
     if [ "{{mode}}" = "--dry-run" ]; then just _gen-typescript; fi

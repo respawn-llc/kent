@@ -6,7 +6,14 @@ import type { ProjectSummary } from "@/api";
 import { errorMessage } from "@/api";
 import { useAppNavigation, useOwnedSidebarRoots } from "@/app-facade";
 import { WorkflowRow, useWorkflowPages } from "@/shared/workflow-library";
-import { cx, directionalBoundary, EmptyState, InfiniteListBoundary, VirtualizedInfiniteList } from "@/ui";
+import {
+  cx,
+  directionalBoundary,
+  EmptyState,
+  InfiniteListBoundary,
+  Spinner,
+  VirtualizedInfiniteList,
+} from "@/ui";
 import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectRow } from "./ProjectRow";
 import type { useProjectPages } from "./useHomeData";
@@ -19,6 +26,7 @@ export function HomeSidebar({
   onCreateWorkflow,
   onProjectSelect,
   projectItems,
+  projectCreationPending,
   projectsQuery,
   selectedCategory,
   selectedProjectID,
@@ -28,6 +36,7 @@ export function HomeSidebar({
   onCreateWorkflow: () => void;
   onProjectSelect: (projectID: string) => void;
   projectItems: readonly ProjectSummary[];
+  projectCreationPending: boolean;
   projectsQuery: ReturnType<typeof useProjectPages>;
   selectedCategory: HomeSidebarCategory;
   selectedProjectID: string | null;
@@ -66,6 +75,7 @@ export function HomeSidebar({
       <div className="relative z-20 grid shrink-0 gap-[var(--space-2)] pt-[var(--space-3)]">
         <CategoryRow
           actionLabel={t("home.newProject")}
+          actionPending={projectCreationPending}
           icon={<Folder size={18} strokeWidth={1.5} />}
           label={t("home.projectsPane")}
           onAction={onChooseWorkspace}
@@ -152,6 +162,7 @@ export function HomeSidebar({
 
 function CategoryRow({
   actionLabel,
+  actionPending = false,
   icon,
   label,
   onAction,
@@ -159,12 +170,14 @@ function CategoryRow({
   selected,
 }: Readonly<{
   actionLabel: string;
+  actionPending?: boolean;
   icon: ReactNode;
   label: string;
   onAction: () => void;
   onSelect: () => void;
   selected: boolean;
 }>) {
+  const { t } = useTranslation();
   return (
     <div
       className={cx(
@@ -186,9 +199,11 @@ function CategoryRow({
         aria-label={actionLabel}
         className="absolute right-[calc(var(--space-3)/2)] top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center justify-items-end rounded-full text-[var(--color-on-island)] disabled:opacity-55"
         onClick={onAction}
+        disabled={actionPending}
+        title={actionPending ? t("states.loading") : undefined}
         type="button"
       >
-        <Plus aria-hidden="true" size={14} strokeWidth={1.5} />
+        {actionPending ? <Spinner size="sm" /> : <Plus aria-hidden="true" size={14} strokeWidth={1.5} />}
       </button>
     </div>
   );

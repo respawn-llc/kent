@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/httpcompression"
 	"core/server/llm"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/authstatus"
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"

@@ -48,8 +48,9 @@ cover.out
 # Go workspace/module local files
 go.work.sum
 
-# Lazy Protobuf generation cache and disposable generated sources.
-/.generated/protobuf/
+# Disposable test artifacts and generated sources.
+/.generated/test-binaries/
+/.generated/test-measurements
 /shared/protoapi/gen/
 /apps/desktop/packages/server-api-contract/src/gen/
 

@@ -11,7 +11,7 @@ import (
 	"core/server/llm/openaiwire"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"

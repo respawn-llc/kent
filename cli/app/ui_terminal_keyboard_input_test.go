@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"core/shared/clientui"
+	"core/shared/runtimeinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -94,11 +95,14 @@ func TestProgramXtermShiftEnterInsertsNewline(t *testing.T) {
 }
 
 func TestProgramXtermCtrlEnterSubmitsDraft(t *testing.T) {
-	model := newProjectedStaticUIModel()
+	model := newProjectedTestUIModel(&runtimeControlFakeClient{})
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[27;5;13~\x03", 1)
-	if !result.isBusy() {
+	if len(result.injectedQueue) != 1 || testMainInput(result) != "" {
 		t.Fatal("xterm Ctrl+Enter did not submit the composer")
+	}
+	if result.injectedQueue[0].Request.Intent != runtimeinput.PendingWorkLaneQueue {
+		t.Fatal("xterm Ctrl+Enter did not select Queue")
 	}
 }
 
@@ -282,7 +286,7 @@ func TestProgramKeypadEnterSubmitsLikeEnter(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[57414u\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("keypad Enter did not start submission")
 	}
 }
@@ -291,7 +295,7 @@ func TestProgramKittyPlainEnterSubmitsLikeEnter(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[13;1u\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("Kitty plain Enter did not start submission")
 	}
 }
@@ -300,7 +304,7 @@ func TestProgramKittyPlainTabQueuesLikeTab(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	testSetMainInput(model, "draft")
 	result := runTerminalInputProgramAfterKeys(t, model, "\x1b[9;1u\x03", 1)
-	if !result.isBusy() {
+	if !result.hasPendingInputAdmission() {
 		t.Fatal("Kitty plain Tab did not start submission")
 	}
 }

@@ -2,7 +2,7 @@ package llm
 
 import (
 	"context"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -710,7 +710,7 @@ func TestGenerateSendsConfiguredProviderIdentityHeaders(t *testing.T) {
 	requestHeaders := make(chan http.Header, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestHeaders <- r.Header.Clone()
-		writeCompletedResponseSSE(w)
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
 	}))
 	defer server.Close()
 
@@ -740,8 +740,8 @@ func TestNewOpenAIProviderContractErrorPreservesMissingResponseStatus(t *testing
 	if !errors.Is(err, cause) {
 		t.Fatalf("provider contract error does not preserve cause: %v", err)
 	}
-	var missingStatus *providerContractErrorWithoutStatus
-	if !errors.As(err, &missingStatus) {
+	var missingStatus *ProviderAPIError
+	if !errors.As(err, &missingStatus) || missingStatus.StatusCode != nil {
 		t.Fatalf("error = %T, want typed missing-status provider contract error", err)
 	}
 }
@@ -774,7 +774,7 @@ func TestGenerate_ExplicitBaseURLAllowsAnonymousRequests(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_anon_1\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18}}}\n\ndata: [DONE]\n\n")
+		_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_anon_1\",\"object\":\"response\",\"output\":[{\"type\":\"message\",\"id\":\"msg_anon_1\",\"role\":\"assistant\",\"status\":\"completed\",\"phase\":\"final_answer\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from anonymous compatible server\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7,\"total_tokens\":18}}}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
 	transport := newTestHTTPTransport(t, anonymousAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value("https://example.openrouter.ai/v1")}))

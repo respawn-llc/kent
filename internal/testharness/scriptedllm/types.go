@@ -9,7 +9,7 @@ import (
 	"core/shared/llmerrors"
 )
 
-var ErrScriptExhausted = llmerrors.NewProviderContractError("scripted", 0, errors.New("scripted llm: no steps remaining"))
+var ErrScriptExhausted = llmerrors.NewProviderContractError("scripted", nil, errors.New("scripted llm: no steps remaining"))
 var ErrUnexpectedToolResult = errors.New("scripted llm: unexpected tool result")
 var ErrConcurrentCall = errors.New("scripted llm: undeclared concurrent call")
 
@@ -26,6 +26,7 @@ type Step struct {
 	Err                 error
 	Cancel              bool
 	StreamDeltas        []llm.AssistantDelta
+	SourceCompletions   []llm.AssistantSource
 	StreamDeltaDelay    *time.Duration
 	ReasoningDeltas     []llm.ReasoningSummaryDelta
 	ExpectedToolResults []ExpectedToolResult

@@ -255,7 +255,6 @@ func goalCompleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) i
 			return 1
 		}
 		if response.Kind != runtimepb.GoalMutationResultKind_GOAL_MUTATION_RESULT_KIND_AUTHORITATIVE_GOAL ||
-			response.Goal == nil ||
 			response.Goal.Status != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_COMPLETE {
 			fmt.Fprintln(stderr, "Goal completion response did not contain an authoritative completed Goal")
 			return 1

@@ -35,7 +35,7 @@ function taskWithDelete(canDelete: boolean) {
 
 it("shows Delete only for a clean deletable Task and replaces it with Save while dirty", async () => {
   mountTaskDetailSurface(taskWithDelete(true));
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const deleteLabel = appI18n.t("board.deleteTask");
   const saveLabel = appI18n.t("task.save");
 
@@ -73,7 +73,7 @@ it("dismisses its exact host after successful deletion", async () => {
     ],
   });
   const removeTask = vi.spyOn(services.api, "deleteTask");
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const deleteLabel = appI18n.t("board.deleteTask");
 
   await user.click(await screen.findByRole("button", { name: deleteLabel }));
@@ -95,7 +95,7 @@ it("dismisses the exact current sidebar page after successful deletion", async (
     navigator,
     routes: [taskDeleteRoute()],
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
 
   await user.click(await screen.findByRole("button", { name: appI18n.t("board.deleteTask") }));
   await user.click(
@@ -125,7 +125,7 @@ it("treats typed Task-not-found as deletion and lets the user retry an ordinary 
     ],
   });
   const removeTask = vi.spyOn(services.api, "deleteTask");
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const deleteLabel = appI18n.t("board.deleteTask");
   const confirmLabel = appI18n.t("board.deleteTaskConfirm");
 
@@ -156,7 +156,7 @@ it("surfaces an exact-host dismissal failure without closing a replacement", asy
     onDeleteDismiss,
     routes: [taskDeleteRoute()],
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const deleteLabel = appI18n.t("board.deleteTask");
 
   await user.click(await screen.findByRole("button", { name: deleteLabel }));
@@ -194,7 +194,7 @@ it("still best-effort dismisses its exact host when ordinary Task Detail content
     ],
   });
   const removeTask = vi.spyOn(services.api, "deleteTask");
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const deleteLabel = appI18n.t("board.deleteTask");
 
   await user.click(await screen.findByRole("button", { name: deleteLabel }));

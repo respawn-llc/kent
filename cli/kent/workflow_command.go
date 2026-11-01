@@ -219,7 +219,7 @@ func workflowUpdateSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		if !resp.Saved || resp.Definition == nil {
+		if !resp.Saved {
 			fmt.Fprintf(stderr, "workflow update was not saved at version %d\n", resp.CurrentVersion)
 			for _, blocker := range resp.Blockers {
 				fmt.Fprintf(stderr, "- [%s] %s\n", blocker.Code, blocker.Message)

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
@@ -246,16 +246,6 @@ func ProviderCapabilitiesFromLocked(locked *session.LockedContract) (ProviderCap
 		SupportsProviderVerbosity:     supportsProviderVerbosity,
 		IsOpenAIFirstParty:            locked.ProviderContract.IsOpenAIFirstParty,
 	}, true
-}
-
-// ProviderCapabilitiesFromLockedOrOverride resolves the Session Contract before
-// current operator configuration so resumed request shaping cannot drift after
-// a config change.
-func ProviderCapabilitiesFromLockedOrOverride(locked *session.LockedContract, override config.ProviderCapabilitiesOverride) (ProviderCapabilities, bool) {
-	if caps, ok := ProviderCapabilitiesFromLocked(locked); ok {
-		return caps, true
-	}
-	return ProviderCapabilitiesFromOverride(override)
 }
 
 func LockedContractSupportsReasoningEffort(locked *session.LockedContract, model string) bool {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/sessioncontract"
 )

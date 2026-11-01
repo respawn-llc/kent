@@ -199,13 +199,13 @@ func (selections *onboardingSelections) chooseContextWindow(choiceID string, fac
 	fact := modelFactForFacts(facts, selections.model.value)
 	switch choiceID {
 	case "large":
-		if fact.LargeWindow == nil || fact.LargeWindow.Tokens <= 0 {
+		if fact.LargeWindow == nil {
 			return conversionError("context_window", choiceID, "large context window is unavailable")
 		}
 		selections.contextWindow = onboardingContextSelection{kind: onboardingContextLarge}
 	case "default":
 		switch {
-		case fact.ContextWindowTokens != nil && *fact.ContextWindowTokens > 0:
+		case fact.ContextWindowTokens != nil:
 			selections.contextWindow = onboardingContextSelection{kind: onboardingContextDefault}
 		case selections.baselineModelContextWindow != nil:
 			selections.contextWindow = onboardingContextSelection{

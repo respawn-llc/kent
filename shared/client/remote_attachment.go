@@ -108,22 +108,13 @@ func sessionAttachmentIntent(selector runtimeids.SessionSelector) *remoteAttachm
 	return &remoteAttachmentIntent{session: &remoteSessionAttachmentIntent{sessionID: selector}}
 }
 
-func newRemoteSessionReattachmentIntent(attachment remoteSessionAttachment) (*remoteAttachmentIntent, error) {
-	if err := validateRemoteAttachmentField("session ID", attachment.sessionID); err != nil {
-		return nil, err
-	}
-	if err := validateRemoteAttachmentField("Session reattach capability", attachment.reattachCapability); err != nil {
-		return nil, err
-	}
+func newRemoteSessionReattachmentIntent(attachment remoteSessionAttachment) *remoteAttachmentIntent {
 	capability := attachment.reattachCapability
-	id, err := runtimeids.ParseSessionID(attachment.sessionID)
-	if err != nil {
-		return nil, err
-	}
+	id := runtimeids.SessionIDFromProto(attachment.sessionID)
 	return &remoteAttachmentIntent{session: &remoteSessionAttachmentIntent{
 		sessionID:          id,
 		reattachCapability: &capability,
-	}}, nil
+	}}
 }
 
 func (i *remoteAttachmentIntent) projectRequest() (remoteProjectAttachmentIntent, bool) {
@@ -188,9 +179,6 @@ func (i *remoteAttachmentIntent) validateResponse(response remoteAttachment) err
 	}
 	if id, canonical := request.sessionID.(runtimeids.SessionID); canonical && response.session.sessionID != id.String() {
 		return fmt.Errorf("session attach returned session %q, want %q", response.session.sessionID, request.sessionID)
-	}
-	if err := validateRemoteAttachmentField("Session reattach capability", response.session.reattachCapability); err != nil {
-		return err
 	}
 	return nil
 }

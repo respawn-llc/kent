@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 
 func TestTerminalReferenceCleanupPreservesUnfinishedReferencesAndValues(t *testing.T) {
 	root := t.TempDir()
-	db, err := openDatabaseAtVersionForTest(t, root, filepath.Join(root, "db", "main.sqlite3"), 90)
+	db, err := openDatabaseAtVersionForTest(t, 90)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,14 +51,7 @@ VALUES ('approval-terminal', 'done', json_object('entered_by_edge_id', ?, 'node_
 	if err := db.QueryRow(`SELECT target_snapshot_json FROM task_pending_approval_branches`).Scan(&pendingBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 	var pendingAfter string
 	if err := store.db.QueryRow(`SELECT target_snapshot_json FROM task_pending_approval_branches`).Scan(&pendingAfter); err != nil {
 		t.Fatal(err)

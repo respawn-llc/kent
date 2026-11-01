@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 func TestLookupModelKnowledgeCutoff(t *testing.T) {

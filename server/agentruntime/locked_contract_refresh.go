@@ -1,0 +1,149 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"core/prompts"
+	"core/server/sessionstore"
+	"core/shared/config"
+	"core/shared/toolspec"
+)
+
+type PromptFacingSnapshotReloader interface {
+	ReloadPromptFacingSnapshotConfig(ctx context.Context, sessionID string) (PromptFacingSnapshotConfig, error)
+}
+
+type PromptFacingSnapshotConfig struct {
+	ConfiguredThinking string
+	Settings           config.Settings
+	Source             config.SourceReport
+	ActiveToolIDs      []toolspec.ID
+	WebSearchMode      string
+}
+
+func (e *Engine) ensureMainPromptFacingContractFresh(ctx context.Context, locked session.LockedContract) (session.LockedContract, error) {
+	if locked.HasSystemPrompt || strings.TrimSpace(locked.SystemPrompt) != "" {
+		return locked, nil
+	}
+	snapshot, err := e.prepareMainPromptSnapshot(ctx, locked, e.systemPromptWorkspaceRoot())
+	if err != nil {
+		return session.LockedContract{}, err
+	}
+	result, err := e.store.RefreshLockedMainPromptSnapshot(snapshot)
+	if commitErr := e.applyLockedContractMutationResult(result, err, e.lockedContractState().ApplyMainPromptSnapshot); commitErr != nil {
+		return session.LockedContract{}, commitErr
+	}
+	if result.Committed && result.Locked != nil {
+		return *result.Locked, nil
+	}
+	if err != nil {
+		return session.LockedContract{}, err
+	}
+	return session.LockedContract{}, errors.New("locked main prompt snapshot refresh did not commit")
+}
+
+func (e *Engine) prepareMainPromptSnapshot(ctx context.Context, locked session.LockedContract, workspaceRoot string) (session.LockedMainPromptSnapshot, error) {
+	reloaded, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	if err != nil {
+		return session.LockedMainPromptSnapshot{}, err
+	}
+	return e.mainPromptSnapshotFromConfig(locked, workspaceRoot, reloaded)
+}
+
+func (e *Engine) mainPromptSnapshotFromConfig(locked session.LockedContract, workspaceRoot string, reloaded PromptFacingSnapshotConfig) (session.LockedMainPromptSnapshot, error) {
+	locked.ToolPreambles = e.promptRefreshToolPreambles(reloaded.Settings.ToolPreambles)
+	prompt, err := e.buildSystemPromptSnapshotFromConfig(locked, workspaceRoot, systemPromptSnapshotOptions{
+		WorkspaceRoot:    workspaceRoot,
+		GlobalConfigDir:  e.cfg.GlobalConfigDir,
+		SystemPromptFile: reloaded.Settings.SystemPromptFile,
+	}, reloaded.ActiveToolIDs)
+	if err != nil {
+		return session.LockedMainPromptSnapshot{}, err
+	}
+	return session.LockedMainPromptSnapshot{
+		SystemPrompt: prompt, HasSystemPrompt: true, ToolPreambles: locked.ToolPreambles,
+	}, nil
+}
+
+func (e *Engine) ensureReviewerPromptFresh(ctx context.Context) (string, bool, error) {
+	if prompt, ok := e.lockedReviewerPromptSnapshot(); ok || strings.TrimSpace(prompt) != "" {
+		return "", false, nil
+	}
+	reloaded, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	path := reloaded.Settings.Reviewer.SystemPromptFile
+	if path == nil {
+		return prompts.ReviewerSystemPrompt, true, nil
+	}
+	prompt, err := buildReviewerPromptSnapshotFromFile(*path)
+	if err != nil {
+		return "", false, err
+	}
+	result, err := e.store.RefreshLockedReviewerPromptSnapshot(session.LockedReviewerPromptSnapshot{
+		ReviewerPrompt:    prompt,
+		HasReviewerPrompt: true,
+	})
+	if commitErr := e.applyLockedContractMutationResult(result, err, e.lockedContractState().ApplyReviewerPromptSnapshot); commitErr != nil {
+		return "", false, commitErr
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return prompt, true, nil
+}
+
+func (e *Engine) reloadPromptFacingSnapshotConfig(ctx context.Context) (PromptFacingSnapshotConfig, error) {
+	if e.cfg.PromptFacingSnapshotReloader != nil {
+		return e.cfg.PromptFacingSnapshotReloader.ReloadPromptFacingSnapshotConfig(ctx, e.SessionID())
+	}
+	return PromptFacingSnapshotConfig{
+		ConfiguredThinking: config.DefaultOnboardingSettings().ThinkingLevel,
+		Settings: config.Settings{
+			SystemPromptFile: e.cfg.SystemPromptFile,
+			ToolPreambles:    e.cfg.ToolPreambles,
+			Reviewer: config.ReviewerSettings{
+				SystemPromptFile: e.cfg.Reviewer.SystemPromptFile,
+			},
+		},
+		ActiveToolIDs: e.lockedToolIDsFromConfigFallback(),
+		WebSearchMode: e.cfg.WebSearchMode,
+	}, nil
+}
+
+func (e *Engine) reconstructionSkillPolicy(ctx context.Context) (config.SkillPolicy, error) {
+	if e.cfg.PromptFacingSnapshotReloader == nil {
+		return e.cfg.SkillPolicy, nil
+	}
+	reloaded, err := e.reloadPromptFacingSnapshotConfig(ctx)
+	if err != nil {
+		return config.SkillPolicy{}, err
+	}
+	return config.ResolveSkillPolicy(reloaded.Settings), nil
+}
+
+func (e *Engine) promptRefreshToolPreambles(enabled bool) *bool {
+	value := !e.cfg.HeadlessMode && enabled
+	return &value
+}
+
+func (e *Engine) lockedToolIDsFromConfigFallback() []toolspec.ID {
+	if locked, ok := e.lockedContractState().Snapshot(); ok {
+		ids := toolIDsFromNames(locked.EnabledTools)
+		if locked.HasEnabledTools || len(ids) > 0 {
+			return ids
+		}
+	}
+	return append([]toolspec.ID(nil), e.cfg.EnabledTools...)
+}
+
+func (e *Engine) applyLockedContractMutationResult(result session.LockedContractMutationResult, err error, apply func(session.LockedContract)) error {
+	if result.Committed && result.Locked != nil {
+		apply(*result.Locked)
+		return nil
+	}
+	return err
+}

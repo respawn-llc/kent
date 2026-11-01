@@ -131,10 +131,6 @@ func streamQuestionHistoryHuman(
 				}
 			}
 		case *sessionpb.QuestionHistoryEvent_Question:
-			if selected.Question == nil {
-				fmt.Fprintln(stderr, "Question-history question event is missing its Question")
-				return 1
-			}
 			questions++
 			if err := writeBlock(func() error {
 				return writeQuestionHistoryHumanItem(stdout, selected.Question)
@@ -233,10 +229,6 @@ func streamQuestionHistoryJSON(
 		case *sessionpb.QuestionHistoryEvent_Started:
 		case *sessionpb.QuestionHistoryEvent_Question:
 			question := selected.Question
-			if question == nil {
-				fmt.Fprintln(stderr, "Question-history question event is missing its Question")
-				return 1
-			}
 			if !first {
 				if _, err := io.WriteString(stdout, ","); err != nil {
 					fmt.Fprintln(stderr, err)

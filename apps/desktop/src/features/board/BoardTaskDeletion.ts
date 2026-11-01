@@ -1,10 +1,10 @@
-import { MutationObserver, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { MutationObserver, useIsMutating, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import type { ApiService } from "@/api";
-import { queryAction, useAppServices, useAppNavigation } from "@/app-facade";
+import { queryAction, useAppServices } from "@/app-facade";
 import { refreshBoardAfterTaskDelete } from "./useBoardData";
 
 export type BoardDeleteCompletion = Readonly<{
@@ -12,10 +12,13 @@ export type BoardDeleteCompletion = Readonly<{
   onError(error: unknown): void;
 }>;
 
+const taskDeletionMutationKey = ["board-task-delete"] as const;
+
 function createBoardTaskDeletions(api: ApiService, client: QueryClient) {
   const task = Atom.family((taskID: string) =>
     queryAction(
       new MutationObserver<void, Error, BoardDeleteCompletion>(client, {
+        mutationKey: taskDeletionMutationKey,
         mutationFn: async () => api.deleteTask(taskID),
         onSuccess: async (_result, input) => input.onDeleted(),
         onError: (error, input) => {
@@ -42,7 +45,11 @@ export function useBoardTaskDeletions() {
   const { api } = useAppServices();
   const client = useQueryClient();
   const model = useMemo(() => createBoardTaskDeletions(api, client), [api, client]);
-  return { task: model.task, submit: useAtomSet(model.submit, { mode: "value" }) };
+  return {
+    task: model.task,
+    submit: useAtomSet(model.submit, { mode: "value" }),
+    pending: useIsMutating({ mutationKey: taskDeletionMutationKey }) > 0,
+  };
 }
 
 export function useBoardTaskDeletion(owner: ReturnType<typeof useBoardTaskDeletions>, taskID: string) {
@@ -56,32 +63,19 @@ export function useBoardTaskDeletion(owner: ReturnType<typeof useBoardTaskDeleti
 
 export function useBoardDeleteConfirmation(
   input: Readonly<{
-    taskID: string;
     projectID: string;
-    workflowID: string;
-    selectedTaskID: string;
-    onClose(): void;
     onError(error: unknown): void;
-    onNavigationError(error: unknown): void;
     deletions: ReturnType<typeof useBoardTaskDeletions>;
   }>,
 ) {
-  const deletion = useBoardTaskDeletion(input.deletions, input.taskID);
   const client = useQueryClient();
-  const navigation = useAppNavigation();
   return {
-    isPending: deletion.isPending,
-    confirm: () => {
-      deletion.submit({
+    confirm: (taskID: string) => {
+      input.deletions.submit({
+        taskID,
         onError: input.onError,
         onDeleted: async () => {
-          await refreshBoardAfterTaskDelete(client, input.projectID, input.taskID);
-          if (input.taskID === input.selectedTaskID) {
-            await navigation
-              .closeProjectTask(input.projectID, input.workflowID)
-              .catch(input.onNavigationError);
-          }
-          input.onClose();
+          await refreshBoardAfterTaskDelete(client, input.projectID, taskID);
         },
       });
     },

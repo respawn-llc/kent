@@ -11,10 +11,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/metadata"
-	"core/server/runtime"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 )
 
@@ -84,7 +84,7 @@ func newSessionRemovalServiceFixture(t *testing.T) sessionRemovalServiceFixture 
 			t.Errorf("close Session Runtime authority: %v", err)
 		}
 	})
-	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil,
+	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority,
 		metadataStore)
 
 	return sessionRemovalServiceFixture{service: service, authority: authority, metadata: metadataStore, session: persisted}
@@ -104,7 +104,7 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 	t.Run("archive metadata not removed", func(t *testing.T) {
 		fixture := newSessionRemovalServiceFixture(t)
 		blocker := &metadata.SessionInUseError{SessionID: fixture.session.Meta().SessionID}
-		fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
+		fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, sessionRemovalMetadataDelegate{
 			Store: fixture.metadata,
 			delete: func(_ context.Context, _ string) error {
 				return blocker
@@ -127,7 +127,7 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 	t.Run("archive metadata removed cleanup failed", func(t *testing.T) {
 		fixture := newSessionRemovalServiceFixture(t)
 		eventsPath := filepath.Join(fixture.session.Dir(), "events.jsonl")
-		fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
+		fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, sessionRemovalMetadataDelegate{
 			Store: fixture.metadata,
 			delete: func(ctx context.Context, sessionID string) error {
 				if err := fixture.metadata.DeleteSession(ctx, sessionID); err != nil {
@@ -164,7 +164,7 @@ func TestSessionLifecycleRemovalReportsDurableOutcomes(t *testing.T) {
 func TestArchiveDestinationRejectionLeavesIdleRuntimeOpen(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
 	fixture.openRuntime(t)
-	service := NewGlobalSessionLifecycleService("", fixture.authority, nil,
+	service := NewGlobalSessionLifecycleService("", fixture.authority,
 		fixture.metadata)
 
 	assertRuntimeOpen := func() {
@@ -208,7 +208,7 @@ func TestArchiveDestinationCreatedAfterPreflightRetainsSession(t *testing.T) {
 	if _, err := os.Lstat(outputDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("output parent before Archive = %v, want absent", err)
 	}
-	fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
+	fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, sessionRemovalMetadataDelegate{
 		Store: fixture.metadata,
 		resolve: func(ctx context.Context, sessionID string) (session.PersistedSessionRecord, error) {
 			record, err := fixture.metadata.ResolvePersistedSession(ctx, sessionID)
@@ -278,7 +278,7 @@ func TestConnectedArchiveHasOverallTimeout(t *testing.T) {
 			}
 		}()
 		started := make(chan struct{})
-		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil, sessionRemovalMetadataDelegate{
+		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, sessionRemovalMetadataDelegate{
 			Store: metadataStore,
 			resolve: func(ctx context.Context, _ string) (session.PersistedSessionRecord, error) {
 				close(started)
@@ -319,7 +319,7 @@ func runDisconnectedArchiveTimeoutCase(t *testing.T, debug bool) {
 			}
 		}()
 		resolveStarted := make(chan struct{})
-		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, nil, sessionRemovalMetadataDelegate{
+		service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, sessionRemovalMetadataDelegate{
 			Store: metadataStore,
 			resolve: func(ctx context.Context, _ string) (session.PersistedSessionRecord, error) {
 				close(resolveStarted)
@@ -414,7 +414,7 @@ func TestAuthorityCloseCancelsAndJoinsAcceptedSessionRemoval(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newSessionRemovalServiceFixture(t)
 			deleteStarted := make(chan struct{})
-			fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, nil, sessionRemovalMetadataDelegate{
+			fixture.service = NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, sessionRemovalMetadataDelegate{
 				Store: fixture.metadata,
 				delete: func(ctx context.Context, _ string) error {
 					close(deleteStarted)

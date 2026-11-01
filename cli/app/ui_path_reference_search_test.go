@@ -4,16 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
-
-	"core/shared/gitenv"
 )
 
 func TestLoadCorpusSnapshotIncludesDerivedDirectoriesAndExcludesGit(t *testing.T) {
@@ -65,204 +61,180 @@ func TestLoadCorpusSnapshotFiltersControlBearingFileAndKeepsSafeDirectory(t *tes
 }
 
 func TestPathReferenceSearchServiceRunsOnlyOneMatcherAtATime(t *testing.T) {
-	matcher := newBlockingUIPathReferenceMatcher()
-	service := newTestUIPathReferenceSearchService(&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")}, matcher)
+	synctest.Test(t, func(t *testing.T) {
+		matcher := newBlockingUIPathReferenceMatcher()
+		service := newTestUIPathReferenceSearchService(&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")}, matcher)
+		t.Cleanup(service.Stop)
 
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
-	waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
-	if got := <-matcher.started; got != "ab" {
-		t.Fatalf("first started query = %q, want ab", got)
-	}
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
+		waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
+		if got := <-matcher.started; got != "ab" {
+			t.Fatalf("first started query = %q, want ab", got)
+		}
 
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 2, QueryToken: 2, NormalizedQuery: "abc"})
-	time.Sleep(20 * time.Millisecond)
-	if matcher.callCount() != 1 {
-		t.Fatalf("matcher call count = %d, want 1 while first search is still running", matcher.callCount())
-	}
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 2, QueryToken: 2, NormalizedQuery: "abc"})
+		synctest.Wait()
+		if matcher.callCount() != 1 {
+			t.Fatalf("matcher call count = %d, want 1 while first search is still running", matcher.callCount())
+		}
 
-	matcher.releaseOne()
-	first := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
-	if first.NormalizedQuery != "ab" {
-		t.Fatalf("first result query = %q, want ab", first.NormalizedQuery)
-	}
-	if got := <-matcher.started; got != "abc" {
-		t.Fatalf("second started query = %q, want abc", got)
-	}
-	matcher.releaseOne()
-	second := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
-	if second.NormalizedQuery != "abc" {
-		t.Fatalf("second result query = %q, want abc", second.NormalizedQuery)
-	}
+		matcher.releaseOne()
+		first := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
+		if first.NormalizedQuery != "ab" {
+			t.Fatalf("first result query = %q, want ab", first.NormalizedQuery)
+		}
+		if got := <-matcher.started; got != "abc" {
+			t.Fatalf("second started query = %q, want abc", got)
+		}
+		matcher.releaseOne()
+		second := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
+		if second.NormalizedQuery != "abc" {
+			t.Fatalf("second result query = %q, want abc", second.NormalizedQuery)
+		}
+	})
 }
 
 func TestPathReferenceSearchFiltersUnsafeCandidatesBeforeMatchLimit(t *testing.T) {
-	paths := make([]string, 0, slashCommandPickerLines+2)
-	for index := 0; index <= slashCommandPickerLines; index++ {
-		paths = append(paths, fmt.Sprintf("unsafe/match-%02d\x1b[31m.go", index))
-	}
-	const safePath = "safe/match.go"
-	paths = append(paths, safePath)
-
-	service := newTestUIPathReferenceSearchService(
-		&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput(paths...)},
-		unsafeFirstUIPathReferenceMatcher{},
-	)
-	t.Cleanup(service.Stop)
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "match"})
-	waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
-	result := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
-
-	foundSafePath := false
-	for _, candidate := range result.Matches {
-		if !isTerminalSafePathReference(candidate.Path) {
-			t.Fatalf("unsafe candidate reached limited matches: %q", candidate.Path)
+	synctest.Test(t, func(t *testing.T) {
+		paths := make([]string, 0, slashCommandPickerLines+2)
+		for index := 0; index <= slashCommandPickerLines; index++ {
+			paths = append(paths, fmt.Sprintf("unsafe/match-%02d\x1b[31m.go", index))
 		}
-		if candidate.Path == safePath {
-			foundSafePath = true
+		const safePath = "safe/match.go"
+		paths = append(paths, safePath)
+
+		service := newTestUIPathReferenceSearchService(
+			&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput(paths...)},
+			unsafeFirstUIPathReferenceMatcher{},
+		)
+		t.Cleanup(service.Stop)
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "match"})
+		waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
+		result := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
+
+		foundSafePath := false
+		for _, candidate := range result.Matches {
+			if !isTerminalSafePathReference(candidate.Path) {
+				t.Fatalf("unsafe candidate reached limited matches: %q", candidate.Path)
+			}
+			if candidate.Path == safePath {
+				foundSafePath = true
+			}
 		}
-	}
-	if !foundSafePath {
-		t.Fatalf("safe path missing after unsafe higher-ranked candidates: %+v", result.Matches)
-	}
+		if !foundSafePath {
+			t.Fatalf("safe path missing after unsafe higher-ranked candidates: %+v", result.Matches)
+		}
+	})
 }
 
 func TestPathReferenceSearchServiceEmitsLoadingDelayForPendingQuery(t *testing.T) {
-	matcher := newBlockingUIPathReferenceMatcher()
-	service := newTestUIPathReferenceSearchService(&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")}, matcher)
-	service.loadingDelay = 10 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		matcher := newBlockingUIPathReferenceMatcher()
+		service := newTestUIPathReferenceSearchService(&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")}, matcher)
+		t.Cleanup(service.Stop)
+		service.loadingDelay = 10 * time.Millisecond
 
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 7, QueryToken: 9, NormalizedQuery: "abc"})
-	waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
-	if got := <-matcher.started; got != "abc" {
-		t.Fatalf("started query = %q, want abc", got)
-	}
-	loading := waitForPathReferenceEventType[uiPathReferenceLoadingDelayMsg](t, service.Events())
-	if loading.DraftToken != 7 || loading.QueryToken != 9 || loading.NormalizedQuery != "abc" {
-		t.Fatalf("unexpected loading event: %+v", loading)
-	}
-	matcher.releaseOne()
-	_ = waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 7, QueryToken: 9, NormalizedQuery: "abc"})
+		waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
+		if got := <-matcher.started; got != "abc" {
+			t.Fatalf("started query = %q, want abc", got)
+		}
+		loading := waitForPathReferenceEventType[uiPathReferenceLoadingDelayMsg](t, service.Events())
+		if loading.DraftToken != 7 || loading.QueryToken != 9 || loading.NormalizedQuery != "abc" {
+			t.Fatalf("unexpected loading event: %+v", loading)
+		}
+		matcher.releaseOne()
+		_ = waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
+	})
 }
 
 func TestPathReferenceSearchServiceRetriesAfterCorpusBuildFailure(t *testing.T) {
-	runner := &sequenceUIPathReferenceCommandRunner{
-		results: []sequenceUIPathReferenceCommandResult{
-			{err: errors.New("boom")},
-			{output: nulJoinPathReferenceOutput("cli/app/ui.go")},
-		},
-	}
-	matcher := newBlockingUIPathReferenceMatcher()
-	service := newTestUIPathReferenceSearchService(runner, matcher)
+	synctest.Test(t, func(t *testing.T) {
+		runner := &sequenceUIPathReferenceCommandRunner{
+			results: []sequenceUIPathReferenceCommandResult{
+				{err: errors.New("boom")},
+				{output: nulJoinPathReferenceOutput("cli/app/ui.go")},
+			},
+		}
+		matcher := newBlockingUIPathReferenceMatcher()
+		service := newTestUIPathReferenceSearchService(runner, matcher)
+		t.Cleanup(service.Stop)
 
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
-	failed := waitForPathReferenceEventType[uiPathReferenceCorpusFailedMsg](t, service.Events())
-	if failed.Err == nil || failed.Err.Error() != "boom" {
-		t.Fatalf("unexpected failure event: %+v", failed)
-	}
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
+		failed := waitForPathReferenceEventType[uiPathReferenceCorpusFailedMsg](t, service.Events())
+		if failed.Err == nil || failed.Err.Error() != "boom" {
+			t.Fatalf("unexpected failure event: %+v", failed)
+		}
 
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 2, QueryToken: 2, NormalizedQuery: "abc"})
-	ready := waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
-	if ready.WorkspaceRoot != "/tmp/workspace" {
-		t.Fatalf("unexpected ready event: %+v", ready)
-	}
-	if got := <-matcher.started; got != "abc" {
-		t.Fatalf("started query = %q, want abc", got)
-	}
-	matcher.releaseOne()
-	result := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
-	if result.NormalizedQuery != "abc" {
-		t.Fatalf("result query = %q, want abc", result.NormalizedQuery)
-	}
-	if runner.callCount() != 2 {
-		t.Fatalf("runner call count = %d, want 2", runner.callCount())
-	}
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 2, QueryToken: 2, NormalizedQuery: "abc"})
+		ready := waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
+		if ready.WorkspaceRoot != "/tmp/workspace" {
+			t.Fatalf("unexpected ready event: %+v", ready)
+		}
+		if got := <-matcher.started; got != "abc" {
+			t.Fatalf("started query = %q, want abc", got)
+		}
+		matcher.releaseOne()
+		result := waitForPathReferenceEventType[uiPathReferenceMatchResultMsg](t, service.Events())
+		if result.NormalizedQuery != "abc" {
+			t.Fatalf("result query = %q, want abc", result.NormalizedQuery)
+		}
+		if runner.callCount() != 2 {
+			t.Fatalf("runner call count = %d, want 2", runner.callCount())
+		}
+	})
 }
 
 func TestPathReferenceSearchServiceStopUnblocksAndPreventsFurtherRequests(t *testing.T) {
-	matcher := newBlockingUIPathReferenceMatcher()
-	var releaseOnce sync.Once
-	releaseMatcher := func() { releaseOnce.Do(matcher.releaseOne) }
-	t.Cleanup(releaseMatcher)
-	service := newTestUIPathReferenceSearchService(
-		&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")},
-		matcher,
-	)
-	t.Cleanup(service.Stop)
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
-	waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
-	if got := <-matcher.started; got != "ab" {
-		t.Fatalf("started query = %q, want ab", got)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		matcher := newBlockingUIPathReferenceMatcher()
+		var releaseOnce sync.Once
+		releaseMatcher := func() { releaseOnce.Do(matcher.releaseOne) }
+		t.Cleanup(releaseMatcher)
+		service := newTestUIPathReferenceSearchService(
+			&stubUIPathReferenceCommandRunner{output: nulJoinPathReferenceOutput("cli/app/ui.go")},
+			matcher,
+		)
+		t.Cleanup(service.Stop)
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
+		waitForPathReferenceEventType[uiPathReferenceCorpusReadyMsg](t, service.Events())
+		if got := <-matcher.started; got != "ab" {
+			t.Fatalf("started query = %q, want ab", got)
+		}
 
-	stopped := make(chan struct{})
-	go func() {
-		service.Stop()
-		close(stopped)
-	}()
-	select {
-	case <-stopped:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Stop did not return while matcher was in flight")
-	}
-	releaseMatcher()
-	select {
-	case got := <-matcher.finished:
-		if got != "ab" {
+		stopped := make(chan struct{})
+		go func() {
+			service.Stop()
+			close(stopped)
+		}()
+		<-stopped
+		releaseMatcher()
+		if got := <-matcher.finished; got != "ab" {
 			t.Fatalf("finished query = %q, want ab", got)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("matcher did not exit after release")
-	}
 
-	service.StartPrewarm("/tmp/workspace")
-	service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
+		service.StartPrewarm("/tmp/workspace")
+		service.Search(uiPathReferenceSearchRequest{WorkspaceRoot: "/tmp/workspace", DraftToken: 1, QueryToken: 1, NormalizedQuery: "ab"})
 
-	select {
-	case msg := <-service.Events():
-		t.Fatalf("did not expect events after stop, got %T", msg)
-	case <-time.After(50 * time.Millisecond):
-	}
+		synctest.Wait()
+		select {
+		case msg := <-service.Events():
+			t.Fatalf("did not expect events after stop, got %T", msg)
+		default:
+		}
+	})
 }
 
-func TestLoadPathReferenceCorpusSnapshotHonorsIgnorePolicyAndExcludesEmptyDirs(t *testing.T) {
-	root := t.TempDir()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not available")
+func TestLoadPathReferenceCorpusSnapshotUsesListedFilesAndExcludesEmptyDirs(t *testing.T) {
+	// The runner supplies ripgrep's ignore-filtered file listing; only listed
+	// files and their derived parent directories belong in the corpus.
+	runner := &stubUIPathReferenceCommandRunner{
+		output: nulJoinPathReferenceOutput(".gitignore", "src/pkg/main.go"),
 	}
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = root
-	cmd.Env = gitenv.WithoutRepositoryOverrides(os.Environ())
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("git init: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules\nbuild\n"), 0o644); err != nil {
-		t.Fatalf("write .gitignore: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "src", "pkg"), 0o755); err != nil {
-		t.Fatalf("mkdir src/pkg: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "src", "pkg", "main.go"), []byte("package main\n"), 0o644); err != nil {
-		t.Fatalf("write main.go: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "node_modules", "left-pad"), 0o755); err != nil {
-		t.Fatalf("mkdir node_modules: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "node_modules", "left-pad", "index.js"), []byte("module.exports = 1\n"), 0o644); err != nil {
-		t.Fatalf("write ignored file: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "build"), 0o755); err != nil {
-		t.Fatalf("mkdir build: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "build", "out.txt"), []byte("ignored\n"), 0o644); err != nil {
-		t.Fatalf("write ignored build file: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "empty-dir"), 0o755); err != nil {
-		t.Fatalf("mkdir empty-dir: %v", err)
-	}
-
-	snapshot, err := loadPathReferenceCorpusSnapshotForWorkspace(context.Background(), root)
+	service := &uiPathReferenceSearchService{runner: runner}
+	snapshot, err := service.loadCorpusSnapshot(context.Background(), "/tmp/workspace")
 	if err != nil {
-		t.Fatalf("loadPathReferenceCorpusSnapshotForWorkspace() error = %v", err)
+		t.Fatalf("loadCorpusSnapshot() error = %v", err)
 	}
 	paths := make([]string, 0, len(snapshot.Candidates))
 	for _, candidate := range snapshot.Candidates {
@@ -409,17 +381,10 @@ func newTestUIPathReferenceSearchService(runner uiPathReferenceCommandRunner, ma
 
 func waitForPathReferenceEventType[T any](t *testing.T, events <-chan uiPathReferenceSearchEvent) T {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
 	for {
-		select {
-		case msg := <-events:
-			if typed, ok := msg.(T); ok {
-				return typed
-			}
-		case <-deadline:
-			var zero T
-			t.Fatalf("timed out waiting for %T", zero)
-			return zero
+		msg := <-events
+		if typed, ok := msg.(T); ok {
+			return typed
 		}
 	}
 }

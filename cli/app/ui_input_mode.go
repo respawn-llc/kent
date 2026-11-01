@@ -11,6 +11,7 @@ import (
 
 	"core/cli/tui"
 	tuiinput "core/cli/tui/input"
+	"core/shared/clientui"
 )
 
 type uiInputMode string
@@ -31,12 +32,14 @@ type uiInteractionState struct {
 }
 
 type uiAskState struct {
+	dedicated               *askDedicatedPresentation
 	current                 *askEvent
 	currentToken            uint64
 	queue                   []askEvent
 	cursor                  int
 	freeform                bool
 	freeformMode            askFreeformMode
+	chosenApproval          *clientui.ApprovalDecision
 	activeDelivery          *activePromptAnswerDelivery
 	editor                  tuiinput.Editor
 	activeProjection        *activeQuestionProjection

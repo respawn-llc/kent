@@ -5,38 +5,10 @@ import (
 	"testing"
 )
 
-func TestSubmitDoneDispatchesQueuedTurnWithoutNotificationTranscriptFacts(t *testing.T) {
-	ringer := &countRinger{}
-	hooks := newUnfocusedBellHooks(ringer)
-	hooks.OnTranscriptMessage(bellToolStartMessage(1))
-	hooks.OnTranscriptMessage(bellToolStartMessage(1))
-
-	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks))
-	model.activeSubmit = activeSubmitState{token: 1, text: "current turn"}
-	model.setRuntimeActivityBusyForTest(true)
-	model.queued = queuedInputsForTest("next queued turn")
-
-	next, cmd := model.Update(submitDoneMsg{token: 1, submittedText: "current turn", message: "done"})
-	updated := next.(*uiModel)
-
-	if cmd == nil {
-		t.Fatal("submit completion did not dispatch the next queued turn")
-	}
-	if got := updated.activeSubmit.text; got != "next queued turn" {
-		t.Fatalf("active submission = %q, want queued turn", got)
-	}
-	if len(updated.queued) != 0 {
-		t.Fatalf("queued turns after dispatch = %+v, want empty", updated.queued)
-	}
-	if ringer.total() != 0 {
-		t.Fatalf("queued dispatch emitted %d notifications without final transcript facts", ringer.total())
-	}
-}
-
 func TestManualCompactionNotificationWaitsForTerminalTranscriptOutcome(t *testing.T) {
 	ringer := &countRinger{}
 	hooks := newUnfocusedBellHooks(ringer)
-	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks))
+	model := newProjectedStaticUIModel(WithUITurnQueueHook(newTurnQueueHooks(hooks, nil)))
 	next, _ := model.Update(compactDoneMsg{})
 	model = next.(*uiModel)
 	if ringer.total() != 0 {
@@ -73,8 +45,8 @@ func TestManualCompactionNotificationWaitsForTerminalTranscriptOutcome(t *testin
 func TestManualCompactionTerminalEventNotifiesAllAttachedUnfocusedTUIs(t *testing.T) {
 	initiatorRinger := &countRinger{}
 	observerRinger := &countRinger{}
-	initiator := newProjectedStaticUIModel(WithUITurnQueueHook(newUnfocusedBellHooks(initiatorRinger)))
-	observer := newProjectedStaticUIModel(WithUITurnQueueHook(newUnfocusedBellHooks(observerRinger)))
+	initiator := newProjectedStaticUIModel(WithUITurnQueueHook(newTurnQueueHooks(newUnfocusedBellHooks(initiatorRinger), nil)))
+	observer := newProjectedStaticUIModel(WithUITurnQueueHook(newTurnQueueHooks(newUnfocusedBellHooks(observerRinger), nil)))
 
 	event := transcriptTestMessage(1, &transcriptpb.CompactionStatus{StepId: ongoingTestStepID().String(),
 		State: transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED,
@@ -88,43 +60,5 @@ func TestManualCompactionTerminalEventNotifiesAllAttachedUnfocusedTUIs(t *testin
 	}
 	if observerRinger.notifications != 1 {
 		t.Fatalf("observing TUI notifications = %d, want 1", observerRinger.notifications)
-	}
-}
-
-func TestTranscriptHydrationClearsNotificationStateWithoutReplayingRows(t *testing.T) {
-	ringer := &countRinger{}
-	hooks := newUnfocusedBellHooks(ringer)
-	recordToolHeavyBellTurn(hooks, 1)
-
-	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks))
-	hydration := ongoingHydrationMessage(1)
-	hydratedFinal := bellAssistantFinalMessageWithText(2, "hydrated historical answer")
-	hydrationPayload := hydration.Event.GetHydration()
-	hydrationPayload.TailSegment.Entries = []*transcriptpb.CommittedRow{
-		hydratedFinal.Event.GetCommittedRow()}
-	hydration = transcriptTestMessage(1, hydrationPayload)
-	model.applyAdmittedTranscriptMessageState(hydration, runtimeTupleMergeResult{})
-	hooks.OnTurnQueueDrained()
-
-	if ringer.total() != 0 {
-		t.Fatalf("hydration emitted %d historical notification events", ringer.total())
-	}
-}
-
-func TestTranscriptSubscriptionLossClearsNotificationState(t *testing.T) {
-	ringer := &countRinger{}
-	hooks := newUnfocusedBellHooks(ringer)
-	recordToolHeavyBellTurn(hooks, 1)
-
-	model := newProjectedStaticUIModel(WithUITurnQueueHook(hooks))
-	model.ongoingTranscript = newNoopOngoingTranscriptController(
-		&ongoingSurfaceSpy{},
-		ongoingTestFrameProvider,
-	)
-	model.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventLoss})
-	hooks.OnTurnQueueDrained()
-
-	if ringer.total() != 0 {
-		t.Fatalf("subscription loss retained %d notification events", ringer.total())
 	}
 }

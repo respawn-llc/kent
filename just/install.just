@@ -27,6 +27,10 @@ apps-lock: _docs-dependencies
 docs-lock:
     bun install --cwd docs
 
+# Resolve intentional native manifest changes without upgrading locked dependencies.
+desktop-lock:
+    cargo fetch --manifest-path apps/desktop/src-tauri/Cargo.toml
+
 [private]
 _effect-compiler:
     bun run --bun --cwd apps/desktop effect-tsgo patch --typescript --typescript-package typescript7

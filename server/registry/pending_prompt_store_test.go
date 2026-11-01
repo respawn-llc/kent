@@ -1,12 +1,11 @@
 package registry
 
 import (
-	"context"
 	"slices"
 	"testing"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -87,9 +86,8 @@ func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *test
 		t.Fatal(err)
 	}
 	defer sub.Close()
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	if _, err := sub.Next(ctx); err != nil {
+	ctx := t.Context()
+	if _, err := sub.Next(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	stepID := registryTestStepID

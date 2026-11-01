@@ -97,12 +97,8 @@ func (l *sessionPickerLifecycle) Close() error {
 }
 
 func validateSessionPickerLifecycleResult(result sessionPickerResult) error {
-	switch typed := result.(type) {
-	case sessionPickerCreateResult, sessionPickerCancelResult:
-	case sessionPickerOpenResult:
-		if typed.sessionID.IsZero() {
-			return errors.New("session picker lifecycle open result requires a session ID")
-		}
+	switch result.(type) {
+	case sessionPickerCreateResult, sessionPickerCancelResult, sessionPickerOpenResult:
 	default:
 		return errors.New("session picker lifecycle exited without a result")
 	}

@@ -28,9 +28,6 @@ export function TaskSearchResultRow({
     .filter((hit) => hit.source.kind !== "short_id")
     .slice(0, visibleHitLimit);
   const representedHits = [...shortIDHits, ...visibleHits];
-  if (representedHits.length === 0) {
-    throw new Error(`Task Search result group ${result.group.taskID} has no hits.`);
-  }
   const highestRepresentedOrdinal = Math.max(...representedHits.map((hit) => hit.ordinal));
   const remainingHitCount = Math.max(0, result.group.totalHitCount - highestRepresentedOrdinal);
   return (

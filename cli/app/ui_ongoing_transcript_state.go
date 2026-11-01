@@ -13,21 +13,21 @@ import (
 	"core/shared/textutil"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 func (m *uiModel) applyAdmittedTranscriptMessageState(
 	message *transcriptpb.Message,
 	admission runtimeTupleMergeResult,
-) tea.Cmd {
+) (command tea.Cmd) {
 	if m == nil {
 		return nil
 	}
-	if m.turnQueueHook != nil {
-		if message.Event.GetHydration() != nil {
-			m.turnQueueHook.OnTurnQueueAborted()
-		} else {
-			m.turnQueueHook.OnTranscriptMessage(message)
-		}
+	defer func() {
+		command = tea.Batch(command, m.reconcileAskPresentationForMessage(message))
+	}()
+	if m.turnQueueHook != nil && message.Event.GetHydration() == nil {
+		m.turnQueueHook.OnTranscriptMessage(message)
 	}
 	switch message.Event.Payload.(type) {
 	case *transcriptpb.Event_Hydration:
@@ -67,7 +67,7 @@ func (m *uiModel) applyAdmittedTranscriptMessageState(
 			switch status.State {
 			case transcriptpb.CompactionState_COMPACTION_STATE_COMPLETED:
 				if m.turnQueueHook != nil {
-					m.turnQueueHook.OnUserCompactionCompleted(m.inputController().turnQueueDrained())
+					m.turnQueueHook.OnUserCompactionCompleted()
 				}
 			}
 		}
@@ -131,7 +131,7 @@ func (m *uiModel) applyTranscriptHydration(
 
 	cmds = append(cmds, m.reconcileTranscriptPrompts(hydration.PendingPrompts))
 	cmds = append(cmds, m.missingPromptRehydrationCmd(hydration.SessionIdentity.SessionId))
-	currentSessionID := strings.TrimSpace(m.sessionID)
+	currentSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	preserved := m.processList.entries[:0]
 	for _, entry := range m.processList.entries {
 		if strings.TrimSpace(entry.OwnerSessionId) != currentSessionID {
@@ -181,12 +181,11 @@ func (m *uiModel) missingPromptRecoveryScopeFor(sessionID string) (missingPrompt
 		sessionID == "" ||
 		m.runtimeActivityProjection == nil ||
 		m.runtimeActivityProjection.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_AWAITING_PROMPT ||
-		m.runtimeActivityProjection.ActiveStep == nil ||
 		m.ask.hasCurrent() {
 		return missingPromptRecoveryScope{}, false
 	}
 	activeStep := m.runtimeActivityProjection.ActiveStep
-	stepID, err := runtimeids.ParseStepID(activeStep.StepId)
+	stepID, err := runtimeids.StepIDFromProto(activeStep.StepId)
 	if err != nil {
 		panic(err)
 	}
@@ -210,7 +209,7 @@ func (m *uiModel) matchesMissingPromptRecoveryScope(scope missingPromptRecoveryS
 func (m *uiModel) applyTranscriptRuntimeReadModelUpdate(admission runtimeTupleMergeResult) tea.Cmd {
 	switch admission.decision {
 	case runtimeTupleRefresh:
-		return m.startRuntimeMainViewRefresh(nil)
+		return m.startRuntimeMainViewRefresh()
 	}
 	if !admission.project {
 		return nil
@@ -258,7 +257,7 @@ func (m *uiModel) applyTranscriptSessionStatus(status *transcriptpb.SessionStatu
 }
 
 func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionIdentity) tea.Cmd {
-	previousSessionID := strings.TrimSpace(m.sessionID)
+	previousSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	nextSessionID := identity.SessionId
 	previousTarget := m.sessionExecutionTarget
 	m.sessionExecutionTarget = nil
@@ -266,7 +265,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 		normalized := clientui.NormalizeSessionExecutionTarget(identity.ExecutionTarget)
 		m.sessionExecutionTarget = normalized
 	}
-	m.sessionID = nextSessionID
+	m.setKnownSessionTarget(nextSessionID)
 	m.reconcileMissingPromptRecoveryScope()
 	m.sessionName = identity.SessionName
 	category := protoapi.SessionCategoryFromProto(identity.Category)
@@ -285,6 +284,10 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return titleCmd
 	}
+	return tea.Batch(titleCmd, m.resetSessionTranscriptPresentation())
+}
+
+func (m *uiModel) resetSessionTranscriptPresentation() tea.Cmd {
 	m.askController().cancelActiveDelivery()
 	promptCmd := m.reconcileTranscriptPrompts(nil)
 	rollbackCmd := m.discardRollbackStateForSessionReplacement()
@@ -294,7 +297,7 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	loadCmd := m.loadDetailTranscriptPageCmd(m.detailTranscript.requestedPageForDetailEntry())
 	return tea.Batch(
 		promptCmd,
-		sequenceCmds(titleCmd, rollbackCmd, cancelCmd, resetCmd, loadCmd),
+		sequenceCmds(rollbackCmd, cancelCmd, resetCmd, loadCmd),
 	)
 }
 
@@ -310,24 +313,21 @@ func (m *uiModel) applyTranscriptUserMessageFlushed(flushed *transcriptpb.UserMe
 
 func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMessageState) tea.Cmd {
 	if state.Status == transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_ACCEPTED {
-		m.registerSteeredQueuedUserMessage(clientui.QueuedUserMessage{
-			ID:   state.QueueItemId,
-			Text: dereferenceTranscriptText(state.Text),
-		})
 		return nil
 	}
-	ids := []string{state.QueueItemId}
 	index := m.injectedQueueIndexByServerID(state.QueueItemId)
 	if index < 0 {
-		m.retainUnownedQueuedTerminalState(state)
 		return nil
 	}
-	localText := m.injectedQueue[index].Text
-	m.removeInjectedQueueItemsByIDs(ids)
-	if state.Status != transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED {
+	if m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
+		m.injectedQueue[index].Terminal = proto.Clone(state).(*transcriptpb.QueuedMessageState)
 		return nil
 	}
-	m.inputController().restoreInjectedTextIntoInput(localText)
+	m.removeInjectedQueueItemAt(index)
+	if state.Status != transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_FAILED || state.Text == nil {
+		return nil
+	}
+	m.inputController().restoreSubmittedTextIntoInput(*state.Text)
 	return m.sendTransientStatusWithNoticeID(
 		"queued message was not submitted; restored to input",
 		uiStatusNoticeError,
@@ -338,21 +338,20 @@ func (m *uiModel) applyTranscriptQueuedMessageState(state *transcriptpb.QueuedMe
 }
 
 func (m *uiModel) applyTranscriptHumanInputInterrupted(event *transcriptpb.HumanInputInterrupted) tea.Cmd {
-	ids := make([]string, 0, len(event.Items))
 	texts := make([]string, 0, len(event.Items))
 	for _, item := range event.Items {
 		id := item.QueueItemId
-		if m.injectedQueueIndexByServerID(id) < 0 {
-			m.retainUnownedQueuedTerminalState(&transcriptpb.QueuedMessageState{
+		index := m.injectedQueueIndexByServerID(id)
+		if index >= 0 && m.injectedQueue[index].State == injectedRuntimeQueuePendingCreate {
+			m.injectedQueue[index].Terminal = &transcriptpb.QueuedMessageState{
 				QueueItemId: item.QueueItemId,
 				Status:      transcriptpb.QueuedMessageStatus_QUEUED_MESSAGE_STATUS_DISCARDED,
-			})
-		} else {
-			ids = append(ids, id)
+			}
+		} else if index >= 0 {
+			m.removeInjectedQueueItemAt(index)
 		}
 		texts = append(texts, item.Text)
 	}
-	m.removeInjectedQueueItemsByIDs(ids)
 	var cmd tea.Cmd
 	m.inputController().restoreServerOrderedTextBeforeComposer(strings.Join(texts, "\n\n"))
 	if m.hasPendingInterrupt() {
