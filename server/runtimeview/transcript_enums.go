@@ -19,6 +19,7 @@ func transcriptNoticeMessageType(value llm.MessageType) (transcriptpb.NoticeMess
 		llm.MessageTypeInterruption:                   transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_INTERRUPTION,
 		llm.MessageTypeErrorFeedback:                  transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_ERROR_FEEDBACK,
 		llm.MessageTypeCompactionSoonReminder:         transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_COMPACTION_SOON_REMINDER,
+		llm.MessageTypeIdleResumeReminder:             transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_IDLE_RESUME_REMINDER,
 		llm.MessageTypeHandoffFutureMessage:           transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_HANDOFF_FUTURE_MESSAGE,
 		llm.MessageTypeReviewerFeedback:               transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_REVIEWER_FEEDBACK,
 		llm.MessageTypeBackgroundNotice:               transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE,

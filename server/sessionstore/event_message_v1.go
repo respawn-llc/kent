@@ -21,6 +21,7 @@ const (
 	MessageTypeInterruption           MessageType = "interruption"
 	MessageTypeErrorFeedback          MessageType = "error_feedback"
 	MessageTypeCompactionSoonReminder MessageType = "compaction_soon_reminder"
+	MessageTypeIdleResumeReminder     MessageType = "idle_resume_reminder"
 	MessageTypeHandoffFutureMessage   MessageType = "handoff_future_message"
 	MessageTypeReviewerFeedback       MessageType = "reviewer_feedback"
 	MessageTypeBackgroundNotice       MessageType = "background_notice"
@@ -312,7 +313,7 @@ func normalizeOptionalMessageType(messageType *MessageType) (*MessageType, error
 	switch *messageType {
 	case MessageTypeAgentsMD, MessageTypeSkills, MessageTypeSubagents, MessageTypeEnvironment,
 		MessageTypeCompactionSummary, MessageTypeInterruption, MessageTypeErrorFeedback,
-		MessageTypeCompactionSoonReminder, MessageTypeHandoffFutureMessage,
+		MessageTypeCompactionSoonReminder, MessageTypeIdleResumeReminder, MessageTypeHandoffFutureMessage,
 		MessageTypeReviewerFeedback, MessageTypeBackgroundNotice, MessageTypeUserShellCommand, MessageTypeCustomToolCallOutput,
 		MessageTypeCompactionPreservedUserMessage, MessageTypeHeadlessMode, MessageTypeHeadlessModeExit,
 		MessageTypeWorkflowMode, MessageTypeWorkflowModeExit, MessageTypeWorkspaces, MessageTypeWorktreeMode, MessageTypeWorktreeModeExit, MessageTypeSessionRebind,

@@ -100,6 +100,7 @@ type Config struct {
 	EffectiveContextWindowPercent   int
 	LocalCompactionCarryoverLimit   int
 	CompactionMode                  string
+	IdleResumeReminderSeconds       *int
 	CacheWarningMode                config.CacheWarningMode
 	AutoCompactionEnabled           *bool
 	QuestionsEnabled                *bool

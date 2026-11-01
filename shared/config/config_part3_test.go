@@ -28,6 +28,39 @@ func TestLoadConnectionUsageFallbackPolicy(t *testing.T) {
 	}
 }
 
+func TestLoadIdleResumeReminderPolicy(t *testing.T) {
+	home, workspace := newConfigTestEnv(t)
+	if got := loadConfigTestApp(t, workspace, LoadOptions{}).Settings.IdleResumeReminderSeconds; got != 3600 {
+		t.Fatalf("default threshold = %d", got)
+	}
+	path := filepath.Join(home, ConfigDirName, "config.toml")
+	for _, seconds := range []int{20, 0, -1} {
+		writeConfigTestFile(t, path, fmt.Sprintf("idle_resume_reminder_seconds = %d\n", seconds))
+		cfg, err := Load(workspace, workspace, LoadOptions{})
+		if seconds < 0 {
+			if err == nil {
+				t.Fatal("negative threshold accepted")
+			}
+			var validation *ConfigurationValidationError
+			if !errors.As(err, &validation) || validation.Origins["idle_resume_reminder_seconds"].File == nil ||
+				validation.Origins["idle_resume_reminder_seconds"].File.Path != path {
+				t.Fatalf("missing setting origin: %v", err)
+			}
+		} else if err != nil || cfg.Settings.IdleResumeReminderSeconds != seconds {
+			t.Fatalf("threshold %d = %v, %v", seconds, cfg, err)
+		} else if resolved := ResolveIdleResumeReminderSeconds(cfg.Settings); (seconds == 0) != (resolved == nil) {
+			t.Fatalf("disabled policy for %d = %v", seconds, resolved)
+		}
+	}
+	writeConfigTestFile(t, path, "idle_resume_reminder_seconds = 20\n")
+	writeConfigTestFile(t, filepath.Join(workspace, ConfigDirName, "config.toml"), "idle_resume_reminder_seconds = 10\n")
+	_, err := Load(workspace, workspace, LoadOptions{})
+	var layer *SettingsFileLayerError
+	if !errors.As(err, &layer) || layer.Key != "idle_resume_reminder_seconds" {
+		t.Fatalf("workspace setting diagnosis = %v", err)
+	}
+}
+
 func TestLoadRejectsUnknownLegacyTimeoutSettingNames(t *testing.T) {
 	if err := loadConfigTestFileError(t, `[timeouts]
 bash_default_seconds = 42

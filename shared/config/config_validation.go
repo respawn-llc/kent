@@ -126,6 +126,21 @@ func validateConnectionUsageFallbackSeconds(state settingsState, _ map[string]Or
 	return nil
 }
 
+func validateIdleResumeReminderSeconds(state settingsState, _ map[string]Origin) error {
+	if state.Settings.IdleResumeReminderSeconds < 0 {
+		return fmt.Errorf("idle_resume_reminder_seconds must be >= 0")
+	}
+	return nil
+}
+
+func ResolveIdleResumeReminderSeconds(settings Settings) *int {
+	if settings.IdleResumeReminderSeconds == 0 {
+		return nil
+	}
+	seconds := settings.IdleResumeReminderSeconds
+	return &seconds
+}
+
 func validateMinimumExecToBgSeconds(state settingsState, _ map[string]Origin) error {
 	if state.Settings.MinimumExecToBgSeconds <= 0 {
 		return fmt.Errorf("minimum_exec_to_bg_seconds must be > 0")
