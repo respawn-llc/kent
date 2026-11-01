@@ -57,45 +57,28 @@ function committedMember(
   durationMs: number | null = null,
   compactText = text,
 ): TranscriptReasoningDisplayGroup["members"][0] {
-  const value = {
-    StepID: "step",
-    CompactText: compactText,
-    Text: text,
-    duration_ms: durationMs,
-    ProvisionalIdentity: null,
-  } as const;
-  const row = {
-    Visibility: "ongoing",
-    Integrity: 0,
-    Kind: "reasoning_trace",
-    Locator: { event_sequence: sequence, row_ordinal: 1 },
-    User: null,
-    Assistant: null,
-    ToolCall: null,
-    Tool: null,
-    ReasoningTrace: value,
-    Notice: null,
-    ReviewerFeedback: null,
-    ReviewerError: null,
-  } satisfies ChatTranscriptCommittedRow;
-  return { kind: "reasoning_trace", state: "committed", key: `${String(sequence)}:1`, row, value };
+  const row = reasoningRow(sequence, text, durationMs, { compactText });
+  const value = row.ReasoningTrace;
+  if (value === null) throw new Error("Reasoning row fixture is missing its payload.");
+  return {
+    kind: "reasoning_trace",
+    state: "committed",
+    key: `${String(row.Locator.event_sequence)}:${String(row.Locator.row_ordinal)}`,
+    row,
+    value,
+  };
 }
 
 function reasoningRow(
   sequence: number,
   text: string,
   durationMs: number | null,
-  provisionalIdentity: NonNullable<
-    ChatTranscriptCommittedRow["ReasoningTrace"]
-  >["ProvisionalIdentity"] = null,
+  options: Readonly<{
+    provisionalIdentity?: NonNullable<ChatTranscriptCommittedRow["ReasoningTrace"]>["ProvisionalIdentity"];
+    compactText?: string;
+  }> = {},
 ): ChatTranscriptCommittedRow {
-  const value = {
-    StepID: "step",
-    CompactText: text,
-    Text: text,
-    duration_ms: durationMs,
-    ProvisionalIdentity: provisionalIdentity,
-  };
+  const { provisionalIdentity = null, compactText = text } = options;
   return {
     Visibility: "ongoing",
     Integrity: 0,
@@ -105,7 +88,13 @@ function reasoningRow(
     Assistant: null,
     ToolCall: null,
     Tool: null,
-    ReasoningTrace: value,
+    ReasoningTrace: {
+      StepID: "step",
+      CompactText: compactText,
+      Text: text,
+      duration_ms: durationMs,
+      ProvisionalIdentity: provisionalIdentity,
+    },
     Notice: null,
     ReviewerFeedback: null,
     ReviewerError: null,
@@ -215,7 +204,7 @@ it("keeps one expanded disclosure when a preceding trace arrives and the live tr
 
   transcript.dispatch({
     kind: "committed-row",
-    row: reasoningRow(2, "Live A detail", 1000, reasoningIdentity),
+    row: reasoningRow(2, "Live A detail", 1000, { provisionalIdentity: reasoningIdentity }),
   });
   view.rerender(content());
 

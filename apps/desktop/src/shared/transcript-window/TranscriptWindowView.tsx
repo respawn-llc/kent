@@ -317,23 +317,29 @@ function projectReasoningDisplayGroups(
   previousGroups: readonly ReasoningGroupIdentity[],
 ): Readonly<{ items: readonly ViewItem[]; groups: readonly ReasoningGroupIdentity[] }> {
   const previousGroupByMember = indexPreviousGroupMembers(previousGroups);
-  const continuedGroups = new Set<ReasoningGroupIdentity>();
+  const groupedItems = groupAdjacentReasoningMembers(items);
+  const currentGroupByMember = indexCurrentReasoningGroups(groupedItems);
+  const previousGroupsByCurrent = indexPreviousGroupOwners(previousGroups, currentGroupByMember);
   const groups: ReasoningGroupIdentity[] = [];
   const projected: ViewItem[] = [];
 
-  for (const item of groupAdjacentReasoningMembers(items)) {
+  groupedItems.forEach((item, index) => {
     if (item.kind !== "reasoning_members") {
       projected.push(item);
-      continue;
+      return;
     }
 
     const { members } = item;
-    const continued = continuingReasoningGroup(members, previousGroupByMember, continuedGroups);
+    const continued = continuingReasoningGroup(
+      members,
+      previousGroupByMember,
+      previousGroupsByCurrent,
+      index,
+    );
     const key = continued?.key ?? members[0].key;
-    if (continued !== undefined) continuedGroups.add(continued);
     groups.push({ key, memberKeys: members.map((member) => member.key) });
     projected.push({ kind: "reasoning_group", key, members });
-  }
+  });
 
   return { items: projected, groups };
 }
@@ -375,14 +381,52 @@ function indexPreviousGroupMembers(
   return indexed;
 }
 
+function indexCurrentReasoningGroups(items: readonly GroupableTranscriptItem[]): ReadonlyMap<string, number> {
+  const indexed = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (item.kind !== "reasoning_members") return;
+    for (const member of item.members) indexed.set(member.key, index);
+  });
+  return indexed;
+}
+
+function indexPreviousGroupOwners(
+  previousGroups: readonly ReasoningGroupIdentity[],
+  currentGroupByMember: ReadonlyMap<string, number>,
+): ReadonlyMap<number, readonly ReasoningGroupIdentity[]> {
+  const owners = new Map<number, ReasoningGroupIdentity[]>();
+  for (const group of previousGroups) {
+    const owner =
+      currentGroupByMember.get(group.key) ?? firstCurrentGroup(group.memberKeys, currentGroupByMember);
+    if (owner === undefined) continue;
+    const groups = owners.get(owner) ?? [];
+    groups.push(group);
+    owners.set(owner, groups);
+  }
+  return owners;
+}
+
+function firstCurrentGroup(
+  memberKeys: readonly string[],
+  currentGroupByMember: ReadonlyMap<string, number>,
+): number | undefined {
+  for (const key of memberKeys) {
+    const currentGroup = currentGroupByMember.get(key);
+    if (currentGroup !== undefined) return currentGroup;
+  }
+  return undefined;
+}
+
 function continuingReasoningGroup(
   members: TranscriptReasoningDisplayGroup["members"],
   previousGroupByMember: ReadonlyMap<string, ReasoningGroupIdentity>,
-  continuedGroups: ReadonlySet<ReasoningGroupIdentity>,
+  previousGroupsByCurrent: ReadonlyMap<number, readonly ReasoningGroupIdentity[]>,
+  currentGroupIndex: number,
 ): ReasoningGroupIdentity | undefined {
+  const availablePreviousGroups = previousGroupsByCurrent.get(currentGroupIndex) ?? [];
   for (const member of members) {
     const previousGroup = previousGroupByMember.get(member.key);
-    if (previousGroup !== undefined && !continuedGroups.has(previousGroup)) return previousGroup;
+    if (previousGroup !== undefined && availablePreviousGroups.includes(previousGroup)) return previousGroup;
   }
   return undefined;
 }

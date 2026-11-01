@@ -112,7 +112,7 @@ const slots: TranscriptRenderSlots<ReactElement | null> = {
   assistant: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
   tool: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
   reasoning: (group) => (
-    <div data-testid={`family-${group.kind}`}>
+    <div data-key={group.key} data-testid={`family-${group.kind}`}>
       {group.members.map((member) => (
         <span key={member.key}>
           {member.state}: {member.value.Text}
@@ -196,6 +196,55 @@ describe("TranscriptWindowView", () => {
     expect(groups[1]).toHaveTextContent("After message");
     expect(groups[2]).toHaveTextContent("Next Step");
     expect(screen.getByText("Message 2")).toBeInTheDocument();
+  });
+
+  it("keeps split reasoning groups on distinct presentation identities", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({
+      kind: "initial-hydration",
+      hydration: {
+        ...hydration([]),
+        ActiveReasoningTraces: [
+          {
+            StepID: "step",
+            Identity: reasoningIdentity,
+            CompactText: "Original live summary",
+            Text: "Original live summary",
+          },
+        ],
+      },
+    });
+    const content = () => (
+      <TranscriptWindowView
+        boundaryErrorMessage={(error) => error.message}
+        estimateSize={() => 60}
+        loadingLabel="Loading"
+        onInput={vi.fn()}
+        retryLabel="Retry"
+        slots={slots}
+        snapshot={window.snapshot}
+      />
+    );
+    const view = render(content());
+    const originalKey = screen.getByTestId("family-reasoning_group").getAttribute("data-key");
+    expect(originalKey).not.toBeNull();
+
+    window.dispatch({ kind: "committed-row", row: reasoningRow(1, "Earlier completed summary") });
+    view.rerender(content());
+
+    const combined = screen.getByTestId("family-reasoning_group");
+    expect(combined).toHaveAttribute("data-key", originalKey);
+    expect(combined).toHaveTextContent("Earlier completed summary");
+    expect(combined).toHaveTextContent("Original live summary");
+
+    window.dispatch({ kind: "committed-row", row: row(2) });
+    view.rerender(content());
+
+    const groups = screen.getAllByTestId("family-reasoning_group");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toHaveTextContent("Earlier completed summary");
+    expect(groups[1]).toHaveTextContent("Original live summary");
+    expect(groups[0]?.getAttribute("data-key")).not.toBe(groups[1]?.getAttribute("data-key"));
   });
 
   it("keeps local user content mounted when the same input is committed", () => {
