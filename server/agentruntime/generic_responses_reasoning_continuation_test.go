@@ -225,7 +225,8 @@ func runGenericResponsesReasoningContinuation(t *testing.T, encryptedContent *st
 		t.Fatalf("close Session runtime before reopen: %v", err)
 	}
 
-	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, registry, cfg)
+	reopenedStore := mustOpenTestSession(t, store.Dir())
+	reopened := mustNewTestEngine(t, reopenedStore, client, registry, cfg)
 	answer, err := reopened.SubmitUserMessage(t.Context(), "continue after reopening the Session")
 	if err != nil {
 		t.Fatalf("continue reopened Session: %v", err)
@@ -290,7 +291,7 @@ func runGenericResponsesReasoningContinuation(t *testing.T, encryptedContent *st
 		{typeName: "function_call", id: textutil.Value("fc_reopened"), callID: textutil.Value("call_reopened")},
 		{typeName: "function_call_output", callID: textutil.Value("call_reopened")},
 	})
-	requirePersistedNativeResponseItemsUnchanged(t, store, outputs)
+	requirePersistedNativeResponseItemsUnchanged(t, reopenedStore, outputs)
 }
 
 func requireGenericResponsesToolAvailable(t *testing.T, request genericResponsesContinuationRequest) {
