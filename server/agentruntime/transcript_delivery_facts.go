@@ -870,7 +870,7 @@ func localEntryNoticeFact(entry ChatEntry) TranscriptCommittedRowFact {
 		return TranscriptCommittedRowFact{
 			Kind: TranscriptCommittedRowFactNotice, Visibility: entry.Visibility,
 			Notice: &TranscriptNoticeRowFact{
-				Reason: transcript.NoticeReasonConnectionFallback, Severity: transcript.NoticeSeverityInfo,
+				Reason: transcript.NoticeReasonConnectionFallback, Severity: transcript.NoticeSeverityWarning,
 				ConnectionFallback: textutil.Pointer(entry.ConnectionFallback),
 			},
 		}
