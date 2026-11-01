@@ -3,7 +3,7 @@ package sessionlaunch
 import (
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"

@@ -120,7 +120,7 @@ describe("questionPresentation", () => {
         inputs.push(input);
       },
     } satisfies QuestionAnswerMutation;
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     renderQuestionForm(attention, presentation, selection, answerQuestion);
 
@@ -139,7 +139,7 @@ describe("questionPresentation", () => {
   it("activates an option but not Streamdown link descendants", async () => {
     const attention = ordinaryAttention(["ordinary option", "[safe](https://example.com)"], null);
     const presentation = questionPresentation(attention);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     renderQuestionForm(
       attention,
@@ -162,7 +162,7 @@ describe("questionPresentation", () => {
     const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
     const answerQuestion = recordingQuestionAnswerMutation(inputs);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     renderQuestionForm(attention, presentation, selection, answerQuestion);
 
@@ -183,7 +183,7 @@ describe("questionPresentation", () => {
     const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
     const answerQuestion = recordingQuestionAnswerMutation(inputs);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     renderQuestionForm(attention, presentation, selection, answerQuestion);
 
@@ -299,7 +299,7 @@ describe("questionPresentation", () => {
     const selection = anchorQuestionSelection(emptyQuestionSelection(), initialPresentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
     const answerQuestion = recordingQuestionAnswerMutation(inputs);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = renderQuestionForm(initialAttention, initialPresentation, selection, answerQuestion);
 
     await user.type(screen.getByRole("textbox"), "commentary");
@@ -354,7 +354,7 @@ describe("questionPresentation", () => {
     const selection = anchorQuestionSelection(emptyQuestionSelection(), initialPresentation.defaultSelection);
     const inputs: QuestionAnswerInput[] = [];
     const answerQuestion = recordingQuestionAnswerMutation(inputs);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const view = renderQuestionForm(initialAttention, initialPresentation, selection, answerQuestion);
 
     expect(screen.getAllByRole("radio")[2]).toBeChecked();

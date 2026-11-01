@@ -146,13 +146,13 @@ func TestRunningExecCommandGuardPreservesLifecycleAndIndependentPoll(t *testing.
 	}
 	assertOversizedOutputFailure(t, result, snapshot.LogPath)
 	assertGuardedPresentation(t, result, true, true, nil)
-	if log, err := os.ReadFile(snapshot.LogPath); err != nil || string(log) != output {
-		t.Fatalf("retained output = %q, error=%v", log, err)
-	}
 	if poll := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, nil), "later", map[string]any{
 		"session_id": 1000, "yield_time_ms": 15_000, "max_output_tokens": 19,
 	}); poll.IsError {
 		t.Fatalf("independent poll = %s", poll.Output)
+	}
+	if log, err := os.ReadFile(snapshot.LogPath); err != nil || string(log) != output {
+		t.Fatalf("retained output = %q, error=%v", log, err)
 	}
 }
 

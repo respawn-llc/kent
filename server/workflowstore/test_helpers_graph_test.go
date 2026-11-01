@@ -12,7 +12,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/config"
 	"core/shared/runtimeids"

@@ -205,7 +205,7 @@ func testTaskResumeContinuesSiblingAfterSelectedInteractiveSend(t *testing.T, un
 		steps[i] = ScriptedFinalAnswer(`{"commentary":"working"}`)
 		steps[i].BeforeResponse = barrier.ArriveAndWait
 	}
-	client := scriptedllm.NewClient(scriptedllm.Script{
+	client := newObservedScriptedClient(scriptedllm.Script{
 		Steps: steps, AllowConcurrent: true,
 	})
 	f := newCurrentNodeRunnerFixtureWithClient(t, client)

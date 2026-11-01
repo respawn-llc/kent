@@ -9,8 +9,8 @@ import (
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -110,11 +110,23 @@ func renderAnsweredQuestion(
 }
 
 func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string, spinner string) Line {
-	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
 	syntax := newSyntaxProjector(themeName)
-	meta.syntax = &syntax
+	var symbol *string
 	if spinner != "" {
-		meta.SymbolText = &spinner
+		symbol = &spinner
+	}
+	lines := pendingToolLines(tool, width, &syntax, symbol)
+	if len(lines) == 0 {
+		return Line{}
+	}
+	return lines[0]
+}
+
+func pendingToolLines(tool *transcriptpb.ToolStart, width int, syntax *syntaxProjector, symbol *string) []Line {
+	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
+	meta.syntax = syntax
+	if symbol != nil {
+		meta.SymbolText = symbol
 	}
 	role := toolRole(meta)
 	text := compactToolText(meta, tool.ToolName)
@@ -139,10 +151,7 @@ func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string
 	} else {
 		lines = renderTextBlockWithInlineMeta(role, text, inlineMeta, width, ModeOngoing, meta)
 	}
-	if len(lines) == 0 {
-		return Line{}
-	}
-	return lines[0]
+	return lines
 }
 
 type toolMeta struct {

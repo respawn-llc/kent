@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func TestWebSearchDetailProjection(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	"core/shared/runtimeids"

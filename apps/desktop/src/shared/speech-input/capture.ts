@@ -25,6 +25,9 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
   available: SpeechAvailable,
   { onStop, onLimit, report }: Readonly<{ onStop(): void; onLimit(): void; report(error: Error): void }>,
 ) {
+  if (services.speech.microphone === "native") {
+    return yield* captureNativeMicrophone(services, available, { onStop, onLimit, report });
+  }
   if (
     !("MediaRecorder" in globalThis) ||
     !("mediaDevices" in navigator) ||
@@ -216,7 +219,116 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
     recorder.start();
     startedAt = performance.now();
   });
-  return { stream, analyser, ready, stop, finished, transfer };
+  return { analyser, ready, stop, finished, transfer };
+});
+
+const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
+  services: AppServices,
+  available: SpeechAvailable,
+  { onStop, onLimit, report }: Readonly<{ onStop(): void; onLimit(): void; report(error: Error): void }>,
+) {
+  const encoding = available.encodings.find((candidate) => candidate.mimeType === "audio/mp4");
+  if (encoding === undefined)
+    return yield* Effect.fail(new SpeechActionError(new SpeechOperationError("format")));
+  const transfer = yield* Effect.acquireRelease(
+    speechAttempt(async () => services.speech.begin(available, encoding)),
+    (transfer) =>
+      speechAttempt(transfer.cancel).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            report(error);
+          }),
+        ),
+      ),
+  );
+  const microphone = transfer.microphone;
+  if (microphone === undefined)
+    return yield* Effect.fail(new SpeechActionError(new SpeechOperationError("captureUnavailable")));
+  let startedAt: number | null = null;
+  let stoppedAt: number | null = null;
+  let power = 0;
+  let hasSignal = false;
+  let limitTimer: ReturnType<typeof setTimeout> | undefined;
+  let resolveReady!: (time: number) => void;
+  let rejectReady!: (error: Error) => void;
+  const ready = new Promise<number>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  let complete!: (clip: CompletedClip) => void;
+  let rejectFinished!: (error: unknown) => void;
+  const finished = new Promise<CompletedClip>((resolve, reject) => {
+    complete = resolve;
+    rejectFinished = reject;
+  });
+  const stop = () => {
+    if (stoppedAt !== null) return;
+    stoppedAt = performance.now();
+    clearTimeout(limitTimer);
+    onStop();
+    void microphone.stop().catch((cause: unknown) => {
+      const error = new SpeechActionError(cause);
+      rejectReady(error);
+      rejectFinished(error);
+      report(error);
+    });
+  };
+  const analyser = {
+    frequencyBinCount: 56,
+    getByteFrequencyData: (data: Uint8Array) => {
+      data.fill(Math.round(Math.min(1, power) * 255));
+    },
+  };
+  yield* Effect.acquireRelease(
+    speechAttempt(async () =>
+      microphone.start((event) => {
+        switch (event.kind) {
+          case "ready":
+            if (stoppedAt !== null) return;
+            startedAt = performance.now();
+            limitTimer = setTimeout(() => {
+              stop();
+              onLimit();
+            }, available.maxDurationSeconds * 1000);
+            resolveReady(startedAt);
+            break;
+          case "meter":
+            power = event.power;
+            hasSignal ||= power > 1 / 128;
+            break;
+          case "limit":
+            if (stoppedAt !== null) return;
+            stop();
+            onLimit();
+            break;
+          case "finished": {
+            clearTimeout(limitTimer);
+            stoppedAt ??= performance.now();
+            onStop();
+            const error = event.error === null ? null : new SpeechActionError(event.error);
+            rejectReady(error ?? new SpeechOperationError("recording"));
+            const durationMs = startedAt === null ? 0 : stoppedAt - startedAt;
+            void transfer.finalize(durationMs).then((source) => {
+              complete({ source, hasSignal, error });
+            }, rejectFinished);
+            break;
+          }
+        }
+      }),
+    ),
+    () =>
+      speechAttempt(async () => {
+        stop();
+        await finished;
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.sync(() => {
+            report(error);
+          }),
+        ),
+      ),
+  );
+  return { analyser, ready, stop, finished, transfer };
 });
 
 export type CaptureSession = Effect.Success<ReturnType<typeof captureMicrophone>>;

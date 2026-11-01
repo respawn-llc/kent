@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/runtimeids"

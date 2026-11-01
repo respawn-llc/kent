@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"core/cli/app/internal/authui"
-	sharedauth "core/shared/auth"
+	sharedauth "core/shared/authmodel"
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"

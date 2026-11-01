@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"core/internal/testharness/requestfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/client"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -173,11 +174,7 @@ func newSessionRemovalGatewayFixture(t *testing.T) sessionRemovalGatewayFixture 
 	t.Helper()
 	persistenceRoot := t.TempDir()
 	workspaceRoot := t.TempDir()
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
 	binding, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterWorkspaceBinding: %v", err)

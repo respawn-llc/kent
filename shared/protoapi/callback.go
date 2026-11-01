@@ -1,7 +1,7 @@
 package protoapi
 
 import (
-	"core/shared/auth"
+	"core/shared/authmodel"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 )
 

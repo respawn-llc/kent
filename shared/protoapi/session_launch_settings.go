@@ -1,16 +1,16 @@
 package protoapi
 
 import (
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"fmt"
 	"sort"
 
 	"core/shared/config"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/toolspec"
 )
 
-func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings, error) {
+func SessionSettingsToProto(settings config.Settings) (*configurationpb.Settings, error) {
 	modelVerbosity, err := modelVerbosityToProto(settings.ModelVerbosity)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	if err != nil {
 		return nil, err
 	}
-	message := &sessionlaunchpb.Settings{
+	message := &configurationpb.Settings{
 		Connection:                       connection,
 		Model:                            settings.Model,
 		ThinkingLevel:                    settings.ThinkingLevel,
@@ -133,19 +133,19 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 		CompactionMode:                   compactionMode,
 		EnabledTools:                     enabledTools,
 		SkillToggles:                     booleanFactsToProto(settings.SkillToggles),
-		Timeouts:                         &sessionlaunchpb.TimeoutSettings{ModelRequestSeconds: modelTimeout},
+		Timeouts:                         &configurationpb.TimeoutSettings{ModelRequestSeconds: modelTimeout},
 		ShellOutputMaxChars:              shellOutputMax,
 		BgShellsOutput:                   backgroundOutput,
-		Shell: &sessionlaunchpb.ShellSettings{
+		Shell: &configurationpb.ShellSettings{
 			PostprocessingMode: shellMode,
 			PostprocessHook:    clonePointer(settings.Shell.PostprocessHook),
 		},
 		CacheWarningMode: cacheWarningMode,
-		Worktrees: &sessionlaunchpb.WorktreeSettings{
+		Worktrees: &configurationpb.WorktreeSettings{
 			BaseDir: settings.Worktrees.BaseDir, SetupScript: settings.Worktrees.SetupScript,
 			SetupTimeoutSeconds: worktreeTimeout,
 		},
-		Workflow: &sessionlaunchpb.WorkflowSettings{
+		Workflow: &configurationpb.WorkflowSettings{
 			CompletionMode: workflowMode, Concurrency: workflowConcurrency,
 			MaxInvalidCompletionAttempts: workflowAttempts,
 			UseRequiredToolCalls:         settings.Workflow.UseRequiredToolCalls,
@@ -166,7 +166,7 @@ func SessionSettingsToProto(settings config.Settings) (*sessionlaunchpb.Settings
 	return message, nil
 }
 
-func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Settings, error) {
+func SessionSettingsFromProto(message *configurationpb.Settings) (config.Settings, error) {
 	modelVerbosity := modelVerbosityFromProto(message.ModelVerbosity)
 	compactionMode := compactionModeFromProto(message.CompactionMode)
 	backgroundOutput := backgroundShellOutputFromProto(message.BgShellsOutput)
@@ -251,7 +251,7 @@ func SessionSettingsFromProto(message *sessionlaunchpb.Settings) (config.Setting
 	return settings, nil
 }
 
-func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb.ReviewerSettings, error) {
+func reviewerSettingsToProto(settings config.ReviewerSettings) (*configurationpb.ReviewerSettings, error) {
 	verbosity, err := modelVerbosityToProto(settings.ModelVerbosity)
 	if err != nil {
 		return nil, err
@@ -268,7 +268,7 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 	if err != nil {
 		return nil, err
 	}
-	return &sessionlaunchpb.ReviewerSettings{
+	return &configurationpb.ReviewerSettings{
 		Frequency: settings.Frequency, Model: settings.Model, ThinkingLevel: settings.ThinkingLevel,
 		ModelVerbosity: verbosity, Connection: connection,
 		ModelCapabilities:  modelCapabilitiesToProto(settings.ModelCapabilities),
@@ -277,7 +277,7 @@ func reviewerSettingsToProto(settings config.ReviewerSettings) (*sessionlaunchpb
 	}, nil
 }
 
-func reviewerSettingsFromProto(message *sessionlaunchpb.ReviewerSettings) (config.ReviewerSettings, error) {
+func reviewerSettingsFromProto(message *configurationpb.ReviewerSettings) (config.ReviewerSettings, error) {
 	verbosity := modelVerbosityFromProto(message.ModelVerbosity)
 	connection := connectionIDFromProto(message.Connection)
 	return config.ReviewerSettings{
@@ -310,14 +310,14 @@ func connectionIDFromProto(raw *string) *config.ConnectionSelection {
 	return config.SingleConnection(id)
 }
 
-func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *sessionlaunchpb.ModelCapabilitiesOverride {
-	return &sessionlaunchpb.ModelCapabilitiesOverride{
+func modelCapabilitiesToProto(value config.ModelCapabilitiesOverride) *configurationpb.ModelCapabilitiesOverride {
+	return &configurationpb.ModelCapabilitiesOverride{
 		SupportsReasoningEffort: value.SupportsReasoningEffort,
 		SupportsVisionInputs:    value.SupportsVisionInputs,
 	}
 }
 
-func modelCapabilitiesFromProto(value *sessionlaunchpb.ModelCapabilitiesOverride) config.ModelCapabilitiesOverride {
+func modelCapabilitiesFromProto(value *configurationpb.ModelCapabilitiesOverride) config.ModelCapabilitiesOverride {
 	return config.ModelCapabilitiesOverride{
 		SupportsReasoningEffort: value.SupportsReasoningEffort,
 		SupportsVisionInputs:    value.SupportsVisionInputs,
@@ -348,7 +348,7 @@ func providerCapabilitiesFromProto(value *authpb.ProviderCapabilitiesOverride) c
 	}
 }
 
-func systemPromptFileToProto(value *config.SystemPromptFile) (*sessionlaunchpb.SystemPromptFile, error) {
+func systemPromptFileToProto(value *config.SystemPromptFile) (*configurationpb.SystemPromptFile, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -356,10 +356,10 @@ func systemPromptFileToProto(value *config.SystemPromptFile) (*sessionlaunchpb.S
 	if err != nil {
 		return nil, err
 	}
-	return &sessionlaunchpb.SystemPromptFile{Path: value.Path, Scope: scope}, nil
+	return &configurationpb.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
-func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config.SystemPromptFile, error) {
+func systemPromptFileFromProto(value *configurationpb.SystemPromptFile) (*config.SystemPromptFile, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -367,24 +367,24 @@ func systemPromptFileFromProto(value *sessionlaunchpb.SystemPromptFile) (*config
 	return &config.SystemPromptFile{Path: value.Path, Scope: scope}, nil
 }
 
-func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*sessionlaunchpb.ToolEnabledFact, error) {
+func enabledToolFactsToProto(values map[toolspec.ID]bool) ([]*configurationpb.ToolEnabledFact, error) {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, string(key))
 	}
 	sort.Strings(keys)
-	result := make([]*sessionlaunchpb.ToolEnabledFact, 0, len(keys))
+	result := make([]*configurationpb.ToolEnabledFact, 0, len(keys))
 	for _, key := range keys {
 		toolID, err := SessionToolIDToProto(toolspec.ID(key))
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &sessionlaunchpb.ToolEnabledFact{ToolId: toolID, Enabled: values[toolspec.ID(key)]})
+		result = append(result, &configurationpb.ToolEnabledFact{ToolId: toolID, Enabled: values[toolspec.ID(key)]})
 	}
 	return result, nil
 }
 
-func enabledToolFactsFromProto(values []*sessionlaunchpb.ToolEnabledFact) (map[toolspec.ID]bool, error) {
+func enabledToolFactsFromProto(values []*configurationpb.ToolEnabledFact) (map[toolspec.ID]bool, error) {
 	result := make(map[toolspec.ID]bool, len(values))
 	for _, value := range values {
 		toolID := SessionToolIDFromProto(value.ToolId)
@@ -393,16 +393,16 @@ func enabledToolFactsFromProto(values []*sessionlaunchpb.ToolEnabledFact) (map[t
 	return result, nil
 }
 
-func booleanFactsToProto(values map[string]bool) []*sessionlaunchpb.BooleanFact {
+func booleanFactsToProto(values map[string]bool) []*configurationpb.BooleanFact {
 	keys := sortedStringKeys(values)
-	result := make([]*sessionlaunchpb.BooleanFact, 0, len(keys))
+	result := make([]*configurationpb.BooleanFact, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, &sessionlaunchpb.BooleanFact{Key: key, Value: values[key]})
+		result = append(result, &configurationpb.BooleanFact{Key: key, Value: values[key]})
 	}
 	return result
 }
 
-func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) map[string]bool {
+func booleanFactsFromProto(values []*configurationpb.BooleanFact) map[string]bool {
 	result := make(map[string]bool, len(values))
 	for _, value := range values {
 		result[value.Key] = value.Value
@@ -410,10 +410,10 @@ func booleanFactsFromProto(values []*sessionlaunchpb.BooleanFact) map[string]boo
 	return result
 }
 
-func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagentRole, error) {
+func subagentRolesToProto(base config.Settings) ([]*configurationpb.NamedSubagentRole, error) {
 	values := base.Subagents
 	keys := sortedStringKeys(values)
-	result := make([]*sessionlaunchpb.NamedSubagentRole, 0, len(keys))
+	result := make([]*configurationpb.NamedSubagentRole, 0, len(keys))
 	for _, key := range keys {
 		value := values[key]
 		declaration := config.MaterializeSubagentRoleDeclaration(base, value)
@@ -427,9 +427,9 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, &sessionlaunchpb.NamedSubagentRole{
+		result = append(result, &configurationpb.NamedSubagentRole{
 			Name: key,
-			Role: &sessionlaunchpb.SubagentRole{
+			Role: &configurationpb.SubagentRole{
 				Settings: settings, Sources: sources, Description: value.Description,
 				AgentCallable: value.AgentCallable, WorkflowSubagent: value.WorkflowSubagent,
 				ConnectionSelection: ConnectionSelectionToProto(selection),
@@ -439,7 +439,7 @@ func subagentRolesToProto(base config.Settings) ([]*sessionlaunchpb.NamedSubagen
 	return result, nil
 }
 
-func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[string]config.SubagentRole, error) {
+func subagentRolesFromProto(values []*configurationpb.NamedSubagentRole) (map[string]config.SubagentRole, error) {
 	result := make(map[string]config.SubagentRole, len(values))
 	for _, value := range values {
 		settings, err := SessionSettingsFromProto(value.Role.Settings)
@@ -459,12 +459,12 @@ func subagentRolesFromProto(values []*sessionlaunchpb.NamedSubagentRole) (map[st
 	return result, nil
 }
 
-func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.SourceReport, error) {
+func SessionSourceReportToProto(source config.SourceReport) (*configurationpb.SourceReport, error) {
 	sources, err := sourceFactsToProto(source.Sources)
 	if err != nil {
 		return nil, err
 	}
-	message := &sessionlaunchpb.SourceReport{
+	message := &configurationpb.SourceReport{
 		CreatedDefaultConfig: source.CreatedDefaultConfig,
 		Sources:              sources,
 	}
@@ -473,15 +473,15 @@ func SessionSourceReportToProto(source config.SourceReport) (*sessionlaunchpb.So
 		if err != nil {
 			return nil, err
 		}
-		message.Files = append(message.Files, &sessionlaunchpb.ConfigFileReport{
-			File:   &sessionlaunchpb.ConfigFileSource{Layer: layer, Path: file.Path},
+		message.Files = append(message.Files, &configurationpb.ConfigFileReport{
+			File:   &configurationpb.ConfigFileSource{Layer: layer, Path: file.Path},
 			Exists: file.Exists, Enabled: file.Enabled, Applied: file.Applied,
 		})
 	}
 	return message, nil
 }
 
-func SessionSourceReportFromProto(message *sessionlaunchpb.SourceReport) (config.SourceReport, error) {
+func SessionSourceReportFromProto(message *configurationpb.SourceReport) (config.SourceReport, error) {
 	sources, err := sourceFactsFromProto(message.Sources)
 	if err != nil {
 		return config.SourceReport{}, err

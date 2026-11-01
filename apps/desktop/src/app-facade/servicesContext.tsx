@@ -1,7 +1,8 @@
 import { useCallback, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { MarkdownLinkProvider, showStatusToast } from "@/ui";
+import { MarkdownLinkProvider } from "@/ui/markdownLinks";
+import { showStatusToast } from "@/ui";
 import { errorMessage } from "@/api";
 
 import { AppServicesContext } from "./appServicesContextValue";

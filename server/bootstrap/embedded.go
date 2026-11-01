@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
 	"core/server/chatcontext"
 	"core/server/launch"

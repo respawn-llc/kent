@@ -17,7 +17,13 @@ import {
   readModelUpdate,
 } from "./chatReadModel";
 import { goalFacts } from "./chatGoal";
-import { committedRow, assistantPhase, diagnostic, reasoningIdentity } from "./chatTranscriptRows";
+import {
+  committedRow,
+  assistantPhase,
+  assistantSourceState,
+  diagnostic,
+  reasoningIdentity,
+} from "./chatTranscriptRows";
 import { toolPresentation } from "./chatToolPresentation";
 import { pendingWorkKind } from "./chatMutations";
 import { timestampMillis } from "./clientTime";
@@ -61,6 +67,7 @@ function thinking(value: T.ThinkingStatusUpdate): Payloads["thinking_status_upda
 
 function reasoning(value: T.ReasoningTraceUpdateValid): Payloads["reasoning_trace_update"] {
   return {
+    ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     StepID: value.stepId,
     Identity: reasoningIdentity(value.identity),
     CompactText: value.compactText,
@@ -106,6 +113,7 @@ function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
 
 function tool(value: T.ToolStart): Payloads["tool_start"] {
   return {
+    ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     StepID: value.stepId,
     ToolCallID: value.toolCallId,
     ToolName: value.toolName,
@@ -150,6 +158,17 @@ function connectionReplacement(value: T.ConnectionReplacement): Payloads["connec
   return { PreviousID: value.previousId, CurrentID: value.currentId };
 }
 
+function assistantSource(value: T.AssistantStream): Payloads["hydration"]["ActiveAssistants"][number] {
+  return {
+    StepID: value.stepId,
+    StreamID: value.streamId,
+    Phase: assistantPhase(value.phase),
+    Text: value.text,
+    SourceState: assistantSourceState(value.sourceState),
+    ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
+  };
+}
+
 function hydration(value: T.HydrationValid): Payloads["hydration"] {
   const tail = value.tailSegment;
   return {
@@ -163,15 +182,7 @@ function hydration(value: T.HydrationValid): Payloads["hydration"] {
       HasMoreAbove: tail.hasMoreAbove,
       Entries: tail.entries.map(committedRow),
     },
-    ActiveAssistant:
-      value.activeAssistant === undefined
-        ? null
-        : {
-            StepID: value.activeAssistant.stepId,
-            StreamID: value.activeAssistant.streamId,
-            Phase: assistantPhase(value.activeAssistant.phase),
-            Text: value.activeAssistant.text,
-          },
+    ActiveAssistants: value.activeAssistants.map(assistantSource),
     ActiveThinkingStatus:
       value.activeThinkingStatus === undefined ? null : thinking(value.activeThinkingStatus),
     ActiveReasoningTraces: value.activeReasoningTraces.map(reasoning),
@@ -270,6 +281,11 @@ const eventProjections: {
     return { sequence, kind: "hydration", payload: hydration(value) };
   },
   committedRow: (value, sequence) => ({ sequence, kind: "committed_row", payload: committedRow(value) }),
+  assistantSourceComplete: (value, sequence) => ({
+    sequence,
+    kind: "assistant_source_complete",
+    payload: assistantSource(value),
+  }),
   assistantDelta: (value, sequence) => ({
     sequence,
     kind: "assistant_delta",
@@ -278,6 +294,7 @@ const eventProjections: {
       StreamID: value.streamId,
       Phase: assistantPhase(value.phase),
       Delta: value.delta,
+      ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     },
   }),
   assistantStreamAbort: (value, sequence) => ({

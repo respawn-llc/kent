@@ -16,9 +16,10 @@ func TestAcceptedStopReadFailureRemainsVisibleWithoutReplayingStop(t *testing.T)
 		t.Run(readErr.Error(), func(t *testing.T) {
 			controls := &reconnectRetryRuntimeControlClient{stopStatus: runtimepb.LiveStopStatus_RUNTIME_LIVE_STOP_STATUS_IDLE}
 			reads := &flakySessionViewClient{errs: []error{readErr}}
-			client := newTestSessionRuntimeClient(reads, controls)
+			client := newTestSessionRuntimeClient(reads)
 			client.storeMainView(runtimeTupleTestView(10, runtimeTupleTestRunningActivity()))
 			model := newProjectedTestUIModel(client)
+			model.sessionLiveControls = controls
 			model.setRuntimeActivityBusyForTest(true)
 			model.setPendingInterrupt(true)
 			stop := model.runtimeControlCommand(runtimeControlInterrupt, nil)
@@ -69,9 +70,10 @@ func TestAcceptedStopRefreshesAuthoritativeActivity(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			controls := &reconnectRetryRuntimeControlClient{stopStatus: test.status}
 			reads := &countingSessionViewClient{}
-			client := newTestSessionRuntimeClient(reads, controls)
+			client := newTestSessionRuntimeClient(reads)
 			client.storeMainView(runtimeTupleTestView(test.currentSequence, runtimeTupleTestRunningActivity()))
 			model := newProjectedTestUIModel(client)
+			model.sessionLiveControls = controls
 			model.setRuntimeActivityBusyForTest(true)
 			model.setPendingInterrupt(true)
 			activity := runtimeTupleTestIdleActivity()

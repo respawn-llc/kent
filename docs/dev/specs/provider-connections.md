@@ -16,7 +16,19 @@
 - Workflow preparation must use completed connection and default edits without requiring a server restart. Saved Session bindings take precedence as defined by Session Binding.
 - The server must own credentials. Requests must use only the selected connection's credentials.
 - The server must own provider sign-in initiation, device polling, token exchange, and refresh. Clients must receive sign-in instructions without access or refresh credentials. Clients must own browser launch and callback or pasted-input collection.
-- Setup completion must apply server-wide. Credential readiness must be checked for the actual Session/role connection, with no default-connection gate before Session selection. A broken default must not block working connections. If credentials are missing when an interactive Session opens, Kent must open the affected connection's authentication flow. Headless credential failures must return actionable errors.
+- Setup completion must apply server-wide. Credential readiness must be checked for the actual Session/role connection, not as a default-connection gate before Session selection. A broken default must not block working connections. Interactive terminal authentication and connection-setup gating must follow [TUI Startup](tui-startup.md#auth-gate). Headless credential failures must return actionable errors.
+
+## Responses WebSockets
+
+- Kent must use Responses WebSockets for generation through first-party OpenAI API-key, ChatGPT Codex OAuth, and public xAI API-key and OAuth connections. Grok CLI proxy and generic Responses-compatible connections must use HTTP generation.
+- A Session's socket must belong to its Active Session Runtime and follow that Runtime's existing idle retirement. Client observation must not own the socket or provider work. Ordinary completed turns must reuse the socket.
+- A WebSocket must use the credentials selected when it opens until that socket ends. Model requests on an open socket must not refresh credentials. Opening a new socket must resolve credentials through the selected Provider Connection's authentication owner.
+- Kent must send the complete prepared working context on a fresh socket. When subsequent prepared context extends the previous input and completed output unchanged, Kent must send only appended items with the prior response ID. Changed request settings or a non-prefix context must cause a complete current-context request without continuing the old response chain.
+- Public xAI continuation requests must omit `instructions` when sending `previous_response_id`. The response chain must supply the instructions for those requests. First and full-context requests must send the current instructions. Changed instructions must start a full-context request without the prior response ID.
+- Compaction must keep the socket open and send the complete replacement context on the next generation request.
+- Explicit Stop during provider generation must close that socket so generation cannot continue unobserved. A later invocation must start with the complete prepared context on a fresh socket.
+- Model-request retries, authentication handling, and allowance switching must follow their owning contracts. Kent must add no SDK recovery, automatic command replay, or WebSocket-to-HTTP fallback.
+- A socket must allow messages up to 256 MiB and bound queued incoming data to 64 MiB and 1,600 events. Exceeding a bound must use existing model-error/retry behavior without dropping or truncating events.
 
 ## Connection Sets
 
@@ -101,7 +113,7 @@
 - If a terminal Session has saved OAuth credentials, opening it must not attempt refresh. An expired refresh token must not close the terminal, block chat or `/login`, or require deleting saved credentials.
 - If refreshing a terminal Session's saved OAuth credentials fails during a request, Kent must persist a transcript error identifying the Provider Connection, preserving readable original diagnostics, and directing the user to sign in. The error must read: "Failed to authenticate the provider connection: <readable Go error>. Run /login to authenticate connection <conn-id>, used for this session."
 - Provider authentication failure must not automatically retry or replay the failed request or select another connection.
-- Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent requests must use the credentials saved by re-authentication without reopening the terminal Session. Re-authentication must not cancel, replay, or reroute work or change unrelated connections.
+- Re-authentication must be allowed during execution. Already-sent requests must continue. Subsequent HTTP requests and new WebSocket handshakes must use the credentials saved by re-authentication without reopening the terminal Session. Re-authentication must not replace credentials on an open WebSocket, cancel, replay, or reroute work, or change unrelated connections.
 
 ## Desktop subscription usage
 
@@ -157,7 +169,7 @@
 
 ## Terminal Setup And Login
 
-- When no Provider Connections are defined, every interactive terminal open must enter connection setup. This includes terminal startup and subsequent Session opens. Headless agent launches must return an actionable setup error.
+- When no Provider Connections are defined, headless agent launches must return an actionable setup error.
 - First sign-in must be part of onboarding before provider-dependent choices. Kent must defer saving the connection, credentials, and settings until Finish. Slash commands must be unavailable before onboarding.
 - Explicitly canceling setup or restarting the server before Finish must discard the unsaved sign-in. Finish must write configuration last. A failed configuration write must leave onboarding incomplete and report the failure. Unused saved credentials are acceptable.
 - Kent must own one shared pending first-run connection per server. Opening another TUI must not reset it. Explicit setup changes or discard, Finish, and server restart must control its lifetime. An OAuth result arriving after explicit discard must not persist the discarded sign-in.

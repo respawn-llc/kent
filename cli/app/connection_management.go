@@ -21,8 +21,16 @@ func (s *remoteAppServer) EnsureConnectionSetup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(catalog.Connections) != 0 {
-		return nil
+	for _, definition := range catalog.Connections {
+		status, err := s.remote.GetBootstrapStatus(ctx, &authpb.GetBootstrapStatusRequest{
+			Target: &authpb.ConnectionTarget{Target: &authpb.ConnectionTarget_ConnectionId{ConnectionId: definition.Id}},
+		})
+		if err != nil {
+			return err
+		}
+		if status.AuthReady || !status.AuthRequired {
+			return nil
+		}
 	}
 	return s.manageConnections(ctx, catalog)
 }

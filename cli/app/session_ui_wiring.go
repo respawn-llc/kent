@@ -13,13 +13,8 @@ import (
 	"core/shared/apicontract"
 	"core/shared/lifecyclecontract"
 	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/serverapi"
 )
-
-type goalSetClient interface {
-	SetGoal(context.Context, *runtimepb.GoalSetRequest) (*runtimepb.GoalSetSuccess, error)
-}
 
 type sessionUISource interface {
 	SessionUIClients() sessionUIClients
@@ -32,8 +27,8 @@ type sessionUIClients struct {
 	PromptControl          apicontract.PromptControlService
 	RuntimeControls        apicontract.RuntimeControlService
 	RuntimeLiveControls    apicontract.RuntimeLiveControlService
+	PendingWork            apicontract.RuntimePendingWorkService
 	ChatMutations          apicontract.ChatMutationService
-	GoalSet                goalSetClient
 	ChatSettings           apicontract.ChatSettingsService
 	SessionTranscript      apicontract.SessionTranscriptService
 	SessionViews           apicontract.SessionViewService
@@ -90,16 +85,7 @@ func prepareSharedRuntimeWiring(
 	if err != nil {
 		return nil, nil, err
 	}
-	runtimeClient := newUIRuntimeClientWithReads(
-		plan.SessionID,
-		clients.SessionViews,
-		clients.RuntimeControls,
-		clients.GoalSet,
-		clients.ChatSettings,
-	).(*sessionRuntimeClient)
-	runtimeClient.chatMutations = clients.ChatMutations
-	runtimeClient.liveControls = clients.RuntimeLiveControls
-	runtimeClient.preparation = preparation
+	runtimeClient := newUIRuntimeClientWithReads(plan.SessionID, clients.SessionViews).(*sessionRuntimeClient)
 	terminalFocus := newTerminalFocusState()
 	initialLifecycleContext := lifecyclecontract.Context{}
 	if len(plan.ClientLifecycleCommand) > 0 {
@@ -138,11 +124,18 @@ func prepareSharedRuntimeWiring(
 		}
 		return strings.TrimSpace(*plan.SessionTitle)
 	}, terminalFocus.FocusedForAttention)
-	var queueHook turnQueueHook = notificationHooks
+	var completionSink taskCompletionSink
 	if lifecycleProxy != nil {
-		queueHook = newTurnQueueHooks(notificationHooks, lifecycleProxy)
+		completionSink = lifecycleProxy
 	}
+	queueHook := newTurnQueueHooks(notificationHooks, completionSink)
 	wiring := &runtimeWiring{
+		chatMutations:          clients.ChatMutations,
+		chatSettings:           clients.ChatSettings,
+		controls:               clients.RuntimeControls,
+		liveControls:           clients.RuntimeLiveControls,
+		pendingWork:            clients.PendingWork,
+		preparation:            preparation,
 		attentionNotifications: clients.AttentionNotifications,
 		eventDispatcher:        eventDispatcher,
 		requestTranscriptOpen:  requestTranscriptOpen,

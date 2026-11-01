@@ -8,17 +8,73 @@ import (
 	"time"
 
 	testharness "core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/attentionnotify"
-	"core/server/runtime"
+	"core/server/llm"
 	askquestion "core/server/tools"
 	"core/shared/clientui"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
 
 	"core/shared/workflowcontract"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestCompletedAssistantTurnPublishesAttentionWithoutTranscriptSubscriber(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status runtime.RunStatus
+		kind   runtime.LiveRunResultKind
+		work   bool
+		want   bool
+	}{
+		{"completed", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, true, true},
+		{"few tools", runtime.RunStatusCompleted, runtime.LiveRunResultAssistantFinalAnswer, false, false},
+		{"interrupted", runtime.RunStatusInterrupted, runtime.LiveRunResultAssistantFinalAnswer, true, false},
+		{"no final", runtime.RunStatusCompleted, runtime.LiveRunResultNoFinalAnswer, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			broker := attentionnotify.NewBroker()
+			registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
+			engine := newRegistryTestRuntime(t, nil)
+			registerReady(t, registry, engine.SessionID(), engine)
+			t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
+			sub, err := registry.SubscribeAttentionNotifications(t.Context(), &emptypb.Empty{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = sub.Close() })
+			stepID, err := runtimeids.ParseStepID(registryTestStepID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := runtime.LiveRunResult{
+				GroupID: runtimeids.NewLiveRunGroupID(), StepID: stepID,
+				Status: test.status, ResultKind: test.kind, WorkPerformed: test.work,
+				AssistantMessage: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("completed work")},
+				StartedAt:        time.Now().Add(-time.Second), FinishedAt: time.Now(),
+			}
+			if err := registry.PublishAuthorityRuntimeEvent(registryTestResourceRef(engine.SessionID()), runtime.Event{
+				Kind: runtime.EventLiveRunFinished, LiveRunResult: &result,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			event, err := sub.Next(shortRegistryContext(t))
+			if !test.want {
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("excluded completion emitted attention: event=%+v err=%v", event, err)
+				}
+				return
+			}
+			if err != nil || event.GetSessionTurnEnd() == nil || event.GetSessionTurnEnd().SessionId != engine.SessionID() ||
+				!event.GetSessionTurnEnd().CompletedAt.AsTime().Equal(result.FinishedAt) {
+				t.Fatalf("completion attention = %+v, %v", event, err)
+			}
+		})
+	}
+}
 
 func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *testing.T) {
 	broker := attentionnotify.NewBroker()
@@ -308,13 +364,6 @@ func nextRegistryAttentionEvent[T any](t *testing.T, sub interface {
 	return event
 }
 
-func shortRegistryContext(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	t.Cleanup(cancel)
-	return ctx
-}
-
 func resolvedQuestionIDMatches(event *taskpb.AttentionNotificationEvent, id string) bool {
 	return event.GetResolved().GetId().GetKind() == taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION &&
 		event.GetResolved().GetId().GetUuid() == id
@@ -323,6 +372,13 @@ func resolvedQuestionIDMatches(event *taskpb.AttentionNotificationEvent, id stri
 func registryTestWorkflowID() *runtimeids.WorkflowID {
 	workflowID := testharness.WorkflowIDValue("registry-workflow-task")
 	return &workflowID
+}
+
+func shortRegistryContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	t.Cleanup(cancel)
+	return ctx
 }
 
 func taskBatchAskRequest(id string) askquestion.AskQuestionRequest {

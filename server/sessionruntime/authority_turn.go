@@ -2,8 +2,8 @@ package sessionruntime
 
 import (
 	"context"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowruntime"

@@ -54,6 +54,7 @@ export const englishResources = {
       expand: "Expand",
       loadingMore: "Loading more",
       attention: {
+        sessionEnded: "Session ended: {{name}}",
         sessionNamingFailed: "Session naming failed",
         sessionNamingFailureHelp: "You can name this session manually. Check the server logs for details.",
         listenerFailed: "Live attention updates stopped",
@@ -529,7 +530,7 @@ export const englishResources = {
       interruptionDetailCopyFailed: "Could not copy interruption details",
       answer: "Answer",
       answerPlaceholder: "Type answer or commentary",
-      submitAnswer: "Submit answer",
+      submitAnswer: "Submit",
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
       recommended: "Recommended",

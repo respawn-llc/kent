@@ -25,7 +25,7 @@ func (c loadingPromptHistoryClient) GetPromptHistory(context.Context, *sessionpb
 
 func TestPromptHistoryLoadsWithoutBlockingEditing(t *testing.T) {
 	client := loadingPromptHistoryClient{started: make(chan struct{}), release: make(chan struct{})}
-	m := newProjectedStaticUIModel(WithUISessionID("session"), WithUIStatusConfig(uiStatusConfig{SessionViews: client}))
+	m := newProjectedStaticUIModel(WithUISessionID(detailTestSessionID), WithUIStatusConfig(uiStatusConfig{SessionViews: client}))
 	cmd := m.loadPromptHistoryCmd()
 	done := make(chan promptHistoryLoadedMsg, 1)
 	go func() { done <- cmd().(promptHistoryLoadedMsg) }()

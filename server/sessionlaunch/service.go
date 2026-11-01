@@ -3,6 +3,7 @@ package sessionlaunch
 import (
 	"context"
 	"core/server/sessionruntime"
+	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/subagentpolicy"
 	servicecontract "core/shared/apicontract"
 	"core/shared/authstatus"
@@ -153,7 +154,7 @@ func (s *Service) prepareSessionChatSettings(
 	}, taskIdentity, nil
 }
 
-func (s *Service) NewChatSettings(ctx context.Context) (*chatsettingspb.ReadSuccess, error) {
+func (s *Service) NewChatSettings(ctx context.Context, invocation serverapi.RunPromptOverrides) (*chatsettingspb.ReadSuccess, error) {
 	planner := s.planner
 	if planner.ReloadConfig != nil {
 		snapshot, err := planner.ReloadConfig()
@@ -162,11 +163,19 @@ func (s *Service) NewChatSettings(ctx context.Context) (*chatsettingspb.ReadSucc
 		}
 		planner.Config = snapshot
 	}
-	catalog, err := launch.PrepareChatAgentCatalog(planner.Config, false)
+	catalog, err := launch.PrepareChatAgentCatalog(planner.Config, true, invocation)
 	if err != nil {
 		return nil, err
 	}
-	projected, err := projectNewChatCatalog(catalog, planner.Config.Settings.CompactionMode)
+	selected := config.DefaultSubagentRole
+	role, err := invocation.AgentRoleOverride()
+	if err != nil {
+		return nil, err
+	}
+	if role.Present && !role.Default {
+		selected = role.Role
+	}
+	projected, err := projectNewChatCatalog(catalog, planner.Config.Settings.CompactionMode, selected)
 	if err != nil {
 		return nil, err
 	}
@@ -299,14 +308,6 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 		planner.Config = snapshot
 		planner.ReloadConfig = nil
 	}
-	var initialChat *session.ChatDraftState
-	if req.InitialChat != nil {
-		var initialChatErr error
-		initialChat, initialChatErr = s.prepareInitialChatCreation(ctx, planner.Config, *req.InitialChat)
-		if initialChatErr != nil {
-			return PlanResult{}, initialChatErr
-		}
-	}
 	var caller *subagentpolicy.Caller
 	if req.Mode == launch.ModeHeadless {
 		if req.CallerSessionID != nil {
@@ -331,8 +332,13 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	if selectedSessionID != nil {
 		return s.planExistingSession(ctx, planner, req, *selectedSessionID)
 	}
-	if initialChat != nil {
-		req.Overrides.AgentRole = &initialChat.Agent
+	if req.InitialChat != nil {
+		agent := req.InitialChat.Settings.AgentRole
+		if agent != config.DefaultSubagentRole && config.LookupSubagentRole(planner.Config.Settings, agent).Status != config.SubagentRoleLookupPresent {
+			agent = config.DefaultSubagentRole
+		}
+		req.Overrides.AgentRole = &agent
+		req.Overrides.ThinkingLevel = ""
 	}
 	roleOverride, err := req.Overrides.AgentRoleOverride()
 	if err != nil {
@@ -346,6 +352,13 @@ func (s *Service) PlanLaunchSession(ctx context.Context, req PlanRequest) (PlanR
 	preparedOverrides, err := launch.PrepareRunPromptOverridesWithContext(ctx, planner.Config, req.Overrides, preparation)
 	if err != nil {
 		return PlanResult{}, err
+	}
+	var initialChat *session.ChatDraftState
+	if req.InitialChat != nil {
+		initialChat, err = prepareInitialChatCreation(*req.InitialChat, preparedOverrides)
+		if err != nil {
+			return PlanResult{}, err
+		}
 	}
 	preparedPromptFacingTarget := preparedOverrides.PromptFacingTarget()
 	plan, warnings, err := planner.PlanNewSessionWithPreparedOverrides(ctx, launch.SessionRequest{
@@ -544,6 +557,7 @@ func (s *Service) sessionPlanRequestFromGenerated(ctx context.Context, request *
 	initialChat := initialChatCreationFromGenerated(
 		request.InitialChatSettings,
 		request.InitialInputDraft,
+		request.InitialName,
 	)
 	internal := PlanRequest{
 		Mode:            mode,
@@ -564,7 +578,7 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 	if err != nil {
 		return nil, err
 	}
-	enabledToolIDs := make([]sessionlaunchpb.ToolID, 0, len(result.Plan.EnabledTools))
+	enabledToolIDs := make([]configurationpb.ToolID, 0, len(result.Plan.EnabledTools))
 	for _, id := range result.Plan.EnabledTools {
 		generated, err := protoapi.SessionToolIDToProto(id)
 		if err != nil {

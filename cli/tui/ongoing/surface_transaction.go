@@ -3,6 +3,8 @@ package ongoing
 import (
 	"fmt"
 	"iter"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -145,6 +147,8 @@ func (s *Surface) AllocateFrame(frame FrameInput) FrameAllocation {
 func (s *Surface) AllocateTerminalFrames(work []TerminalWork, frame FrameInput) iter.Seq[FrameAllocation] {
 	return func(yield func(FrameAllocation) bool) {
 		next := *s
+		next.source.pendingAssistants = slices.Clone(s.source.pendingAssistants)
+		next.source.pendingTools = slices.Clone(s.source.pendingTools)
 		for _, item := range work {
 			switch item := item.(type) {
 			case TerminalMessage:
@@ -208,12 +212,12 @@ func validateFrameTransactionGeometry(
 }
 
 func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
-	lines := activeAssistantLinesWithLinkPresentation(
-		s.source.activeAssistant,
-		frameWidthOrDefault(frame),
-		frame.Theme,
-		s.source.markdownLinks,
-	)
+	var lines []liveBandLine
+	for _, stream := range append([]activeAssistantState{s.source.activeAssistant}, s.source.pendingAssistants...) {
+		for _, line := range activeAssistantLinesWithLinkPresentation(stream, frameWidthOrDefault(frame), frame.Theme, s.source.markdownLinks) {
+			lines = append(lines, liveBandLine{text: line, outputIndex: stream.outputIndex})
+		}
+	}
 	heights := make([]int, len(frame.Sections))
 	minimums := make([]int, len(frame.Sections))
 	total, minimum := len(lines), min(1, len(lines))
@@ -256,9 +260,7 @@ func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 		}
 	}
 	layout := make([]liveBandLine, 0, min(total, frame.Size.Height))
-	for _, line := range lines {
-		layout = append(layout, liveBandLine{text: line})
-	}
+	layout = append(layout, lines...)
 	cursor := Cursor{}
 	for index, section := range frame.Sections {
 		if section.Demand != nil {
@@ -284,7 +286,18 @@ func (s *Surface) allocateLiveBand(frame FrameInput) ([]liveBandLine, Cursor) {
 		}
 		layout = append(layout, rows...)
 	}
+	orderProviderLines(layout)
 	return layout, cursor
+}
+
+func orderProviderLines(layout []liveBandLine) {
+	sort.SliceStable(layout, func(i, j int) bool {
+		left, right := layout[i].outputIndex, layout[j].outputIndex
+		if left == nil {
+			return false
+		}
+		return right == nil || *left < *right
+	})
 }
 
 func activeAssistantLinesWithLinkPresentation(
@@ -327,6 +340,7 @@ func frameLines(frame FrameInput) []liveBandLine {
 				text:        encodeTranscriptLine(line, frame.Theme),
 				sectionKind: section.Kind,
 				sectionRow:  index + 1,
+				outputIndex: section.outputIndex(index),
 			})
 		}
 		for index, line := range section.Lines {
@@ -334,6 +348,7 @@ func frameLines(frame FrameInput) []liveBandLine {
 				text:        line,
 				sectionKind: section.Kind,
 				sectionRow:  len(section.StyledLines) + index + 1,
+				outputIndex: section.outputIndex(len(section.StyledLines) + index),
 			})
 		}
 	}

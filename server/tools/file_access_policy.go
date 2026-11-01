@@ -534,7 +534,6 @@ func filesystemRootContains(root FilesystemRoot, real string) (bool, error) {
 		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
 			return true, nil
 		}
-		return false, nil
 	}
 
 	if root.Info == nil {

@@ -1,7 +1,7 @@
 import { expect, it, vi } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useAtomValue } from "@effect/atom-react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ReactNode } from "react";
@@ -96,7 +96,6 @@ const resolvedCreateTarget = {
 } as const;
 
 it("keeps an invalid typed Worktree name editable and resumes resolution after correction", async () => {
-  const user = userEvent.setup();
   const services = createTestServices([worktreeBrowserFixtureRoute()]);
   const client = new QueryClient();
   vi.spyOn(services.api, "resolveWorktreeCreateTarget").mockImplementation(async (_sessionID, target) => ({
@@ -134,14 +133,13 @@ it("keeps an invalid typed Worktree name editable and resumes resolution after c
     </BrowserProviders>,
   );
   const input = await screen.findByRole("textbox", { name: appI18n.t("chat.worktree.targetLabel") });
-  await user.type(input, "Test WT");
+  fireEvent.change(input, { target: { value: "Test WT" } });
   await screen.findByText(appI18n.t("chat.worktree.targetInvalid"));
   expect(input).toHaveValue("Test WT");
   expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.createSubmit") }));
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.createSubmit") }));
   expect(create).not.toHaveBeenCalled();
-  await user.clear(input);
-  await user.type(input, "Test-WT");
+  fireEvent.change(input, { target: { value: "Test-WT" } });
   await screen.findByText(appI18n.t("chat.worktree.newBranch"));
   expect(screen.queryByText(appI18n.t("chat.worktree.targetInvalid"))).not.toBeInTheDocument();
   expect(input).toHaveValue("Test-WT");
@@ -179,7 +177,7 @@ it.each(["list", "target"] as const)(
         </QueryClientProvider>
       </BrowserProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const targetInput = await screen.findByRole("textbox", { name: appI18n.t("chat.worktree.targetLabel") });
     await user.clear(targetInput);
     await user.type(targetInput, "topic");
@@ -297,7 +295,7 @@ function WorktreeBrowser({
 it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"])(
   "opens origin Session %s without navigating to itself",
   async (originSessionID) => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const entry = worktreeBrowserFixtureEntry("registered", false);
     if (entry.topology?.topology.case !== "registered" || entry.topology.topology.value.kent === undefined)
       throw new Error("Expected registered fixture");
@@ -330,7 +328,7 @@ it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444
 );
 
 it.each(["registered", "missing"] as const)("copies the full %s path from its subtitle", async (kind) => {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const entry = worktreeBrowserFixtureEntry(kind, true);
   const topology = entry.topology?.topology;
   if (topology?.case === "registered" && topology.value.kent !== undefined) {
@@ -658,7 +656,7 @@ it("owns failed deletion preview at the Worktrees page and restores its popup on
       <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
     </BrowserProviders>,
   );
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
   expect(await screen.findByTestId("error-state")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.switch") })).not.toBeInTheDocument();
@@ -696,7 +694,7 @@ it.each(["operational", "precondition"] as const)(
         <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
       </BrowserProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
     await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") }));
     await waitFor(() => {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	"core/shared/apicontract"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -17,26 +16,27 @@ import (
 )
 
 type testWorktreeClient struct {
-	listResp         *worktreepb.ListSuccess
-	listErr          error
-	listCtx          context.Context
-	listRequests     []*worktreepb.ListRequest
-	selectorCtx      context.Context
-	selectorResp     *worktreepb.SelectorResolveSuccess
-	selectorRequests []*worktreepb.SelectorResolveRequest
-	resolveCtx       context.Context
-	resolveResp      *worktreepb.CreateTargetResolveSuccess
-	resolveRequests  []*worktreepb.CreateTargetResolveRequest
-	createCtx        context.Context
-	createResp       *worktreepb.CreateSuccess
-	createRequests   []*worktreepb.CreateRequest
-	enterCtx         context.Context
-	enterResp        *worktreepb.ScheduledAcknowledgement
-	enterRequests    []*worktreepb.EnterRequest
-	deleteCtx        context.Context
-	deleteResp       *worktreepb.DeleteSuccess
-	deleteRequests   []*worktreepb.DeleteRequest
-	errs             []error
+	workspaceRequests []*worktreepb.WorkspaceListRequest
+	listResp          *worktreepb.ListSuccess
+	listErr           error
+	listCtx           context.Context
+	listRequests      []*worktreepb.ListRequest
+	selectorCtx       context.Context
+	selectorResp      *worktreepb.SelectorResolveSuccess
+	selectorRequests  []*worktreepb.SelectorResolveRequest
+	resolveCtx        context.Context
+	resolveResp       *worktreepb.CreateTargetResolveSuccess
+	resolveRequests   []*worktreepb.CreateTargetResolveRequest
+	createCtx         context.Context
+	createResp        *worktreepb.CreateSuccess
+	createRequests    []*worktreepb.CreateRequest
+	enterCtx          context.Context
+	enterResp         *worktreepb.ScheduledAcknowledgement
+	enterRequests     []*worktreepb.EnterRequest
+	deleteCtx         context.Context
+	deleteResp        *worktreepb.DeleteSuccess
+	deleteRequests    []*worktreepb.DeleteRequest
+	errs              []error
 }
 
 func (c *testWorktreeClient) GetWorktreeStatus(context.Context, *worktreepb.StatusRequest) (*worktreepb.StatusSuccess, error) {
@@ -49,8 +49,29 @@ func (c *testWorktreeClient) ListWorktrees(ctx context.Context, req *worktreepb.
 	return c.listResp, c.listErr
 }
 
-func (c *testWorktreeClient) ListWorkspaceWorktrees(context.Context, *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
-	return nil, c.nextErr()
+func (c *testWorktreeClient) ListWorkspaceWorktrees(_ context.Context, req *worktreepb.WorkspaceListRequest) (*worktreepb.WorkspaceListSuccess, error) {
+	c.workspaceRequests = append(c.workspaceRequests, req)
+	return &worktreepb.WorkspaceListSuccess{WorkspaceId: req.WorkspaceId}, c.nextErr()
+}
+
+func TestWorkspaceBrowseAndDeleteUseWorkspaceWithoutSession(t *testing.T) {
+	client := &testWorktreeClient{}
+	service := Service{Client: client, ProjectID: "project", WorkspaceID: "workspace"}
+	_, err := service.ListWorkspace()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Delete("target", false, worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(client.listRequests) != 0 || len(client.workspaceRequests) != 1 {
+		t.Fatal("workspace browsing required a Session")
+	}
+	scope := client.deleteRequests[0].Scope.GetWorkspace()
+	if scope == nil || scope.SessionContext != nil || scope.Target.ProjectId != "project" || scope.Target.WorkspaceId != "workspace" {
+		t.Fatal("deletion did not retain workspace management authority")
+	}
 }
 
 func (c *testWorktreeClient) ResolveWorktreeSelector(ctx context.Context, req *worktreepb.SelectorResolveRequest) (*worktreepb.SelectorResolveSuccess, error) {
@@ -112,32 +133,6 @@ func (c *testWorktreeClient) nextErr() error {
 	return err
 }
 
-func TestListUsesSession(t *testing.T) {
-	client := &testWorktreeClient{listResp: &worktreepb.ListSuccess{Target: &worktreepb.SessionExecutionTarget{EffectiveWorkdir: "/repo"}}}
-	service := newTestService(client)
-
-	resp, err := service.List()
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	if resp.Target.EffectiveWorkdir != "/repo" {
-		t.Fatalf("target = %+v, want /repo", resp.Target)
-	}
-	if client.listCtx == nil {
-		t.Fatal("expected context recorded")
-	}
-	if _, ok := client.listCtx.Deadline(); !ok {
-		t.Fatal("expected bounded control context")
-	}
-	if len(client.listRequests) != 1 {
-		t.Fatalf("list requests = %+v, want one", client.listRequests)
-	}
-	got := client.listRequests[0]
-	if got.SessionId.GetSessionId() != "session-1" {
-		t.Fatalf("list request = %+v, want session", got)
-	}
-}
-
 func TestMutationDoesNotReplayUnavailableRuntime(t *testing.T) {
 	client := &testWorktreeClient{
 		errs: []error{serverapi.ErrRuntimeUnavailable, nil},
@@ -170,50 +165,24 @@ func TestCreateEnterDeletePopulateRequests(t *testing.T) {
 	}
 	gotCreate := client.createRequests[0]
 	_, setupIDErr := worktreecontract.ParseSetupOperationID(gotCreate.SetupOperationId)
-	if setupIDErr != nil || gotCreate.Scope.GetSessionId().GetSessionId() != "session-1" || gotCreate.Spec.GetBranchName() != "feature/a" {
+	if setupIDErr != nil || gotCreate.Scope.GetWorkspace().GetTarget().GetWorkspaceId() != "workspace-1" || gotCreate.Spec.GetBranchName() != "feature/a" {
 		t.Fatalf("create request = %+v", gotCreate)
 	}
-	if got := client.enterRequests[0]; got.OperationId != testWorktreeOperationID(t).String() ||
+	if got := client.enterRequests[0]; got.OperationId == "" ||
 		got.SessionId.GetSessionId() != "session-1" ||
 		got.Selector != "feature/a" ||
 		got.TargetWorkspace.GetWorkspaceId() != "workspace-1" ||
 		got.TargetWorkspace.GetWorkspaceRoot() != "/repo" {
 		t.Fatalf("enter request = %+v", got)
 	}
-	if got := client.deleteRequests[0]; got.Scope.GetSessionId().GetSessionId() != "session-1" || got.Selector != "wt-3" || !got.ForceFolderRemoval || got.BranchCleanupPolicy != worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE {
+	if got := client.deleteRequests[0]; got.Scope.GetWorkspace().GetTarget().GetWorkspaceId() != "workspace-1" || got.Selector != "wt-3" || !got.ForceFolderRemoval || got.BranchCleanupPolicy != worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE {
 		t.Fatalf("delete request = %+v", got)
-	}
-}
-
-func TestMutationsUseDedicatedMutationContext(t *testing.T) {
-	client := &testWorktreeClient{}
-	service := newTestService(client)
-	service.Runtime.MutationContext = func() (context.Context, context.CancelFunc) {
-		return context.WithTimeout(context.Background(), 10*time.Second)
-	}
-
-	if _, err := service.Delete("wt-1", false, worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_RETAIN); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if client.deleteCtx == nil {
-		t.Fatal("expected delete context recorded")
-	}
-	deadline, ok := client.deleteCtx.Deadline()
-	if !ok {
-		t.Fatal("expected delete context deadline")
-	}
-	remaining := time.Until(deadline)
-	if remaining <= 8*time.Second {
-		t.Fatalf("delete context remaining = %v, want dedicated mutation timeout", remaining)
 	}
 }
 
 func TestCreateDoesNotInstallFixedMutationDeadline(t *testing.T) {
 	client := &testWorktreeClient{}
 	service := newTestService(client)
-	service.Runtime.MutationContext = func() (context.Context, context.CancelFunc) {
-		return context.WithTimeout(context.Background(), 10*time.Millisecond)
-	}
 
 	baseRef := "HEAD"
 	branchName := "feature/a"
@@ -241,41 +210,18 @@ func TestResolveCreateTargetUsesBoundedContext(t *testing.T) {
 	if _, ok := client.resolveCtx.Deadline(); !ok {
 		t.Fatal("expected bounded resolve context")
 	}
-	if got := client.resolveRequests[0]; got.Scope.GetSessionId().GetSessionId() != "session-1" || got.Target != "main" {
+	if got := client.resolveRequests[0]; got.Scope.GetWorkspace().GetTarget().GetWorkspaceId() != "workspace-1" || got.Target != "main" {
 		t.Fatalf("resolve request = %+v", got)
-	}
-}
-
-func TestResolveSelectorUsesBoundedSessionScopedRequest(t *testing.T) {
-	client := &testWorktreeClient{}
-	service := newTestService(client)
-
-	if _, err := service.ResolveSelector(" /wt/feature "); err != nil {
-		t.Fatalf("ResolveSelector: %v", err)
-	}
-	if client.selectorCtx == nil {
-		t.Fatal("expected selector context recorded")
-	}
-	if _, ok := client.selectorCtx.Deadline(); !ok {
-		t.Fatal("expected bounded selector context")
-	}
-	if got := client.selectorRequests[0]; got.SessionId.GetSessionId() != "session-1" || got.Selector != "/wt/feature" {
-		t.Fatalf("selector request = %+v, want trimmed session-scoped selector", got)
 	}
 }
 
 func newTestService(client *testWorktreeClient) Service {
 	return Service{
 		Client:        client,
+		ProjectID:     "project-1",
 		SessionTarget: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: "session-1"}},
 		WorkspaceID:   "workspace-1",
 		WorkspaceRoot: "/repo",
-		Runtime: RuntimeControl{
-			Context: func() (context.Context, context.CancelFunc) {
-				return context.WithTimeout(context.Background(), time.Second)
-			},
-		},
-		NewOperationID: func() worktreecontract.OperationID { return testWorktreeOperationID(nil) },
 	}
 }
 

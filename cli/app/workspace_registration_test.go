@@ -2,16 +2,17 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/corefixture"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
+	"core/server/agentruntime"
+	serverbootstrap "core/server/bootstrap"
+	"core/server/core"
 	"core/server/llm"
 	"core/server/metadata"
-	"core/server/projectview"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	serverstartup "core/server/startup"
 	"core/server/tools"
-	"core/shared/apicontract"
 	"core/shared/config"
 	"core/shared/sessioncontract"
 	"errors"
@@ -23,14 +24,13 @@ import (
 	"testing"
 )
 
-func registerAppWorkspace(t *testing.T, workspace string) {
+func newMemoryAppTestServer(t *testing.T, cfg config.App, store *metadata.Store, loadOptions config.LoadOptions) (*serverstartup.ServeServer, serverbootstrap.AuthSupport) {
 	t.Helper()
-	configureAppTestServerPort(t)
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
-	_ = mustRegisterAppBinding(t, cfg.PersistenceRoot, cfg.WorkspaceRoot)
+	appCore, authSupport := corefixture.Open(t, cfg, store, core.Options{
+		WorkspaceConfigLoadOptions: loadOptions,
+	})
+	server := &serverstartup.ServeServer{Core: appCore}
+	return server, authSupport
 }
 
 func newAppTestHome(t *testing.T) string {
@@ -40,11 +40,11 @@ func newAppTestHome(t *testing.T) string {
 	return home
 }
 
-func newRegisteredAppWorkspace(t *testing.T) (home string, workspace string) {
+func newConfiguredAppWorkspace(t *testing.T) (home string, workspace string) {
 	t.Helper()
 	home = newAppTestHome(t)
 	workspace = t.TempDir()
-	registerAppWorkspace(t, workspace)
+	configureAppTestServerPort(t)
 	writeAppTestSettings(t)
 	return home, workspace
 }
@@ -69,11 +69,11 @@ func writeAppTestSettings(t *testing.T) {
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, cfg.Settings)
 }
 
-func newRegisteredAppWorkspaceWithoutSettings(t *testing.T) (home string, workspace string) {
+func newUnconfiguredAppWorkspace(t *testing.T) (home string, workspace string) {
 	t.Helper()
 	home = newAppTestHome(t)
 	workspace = t.TempDir()
-	registerAppWorkspace(t, workspace)
+	configureAppTestServerPort(t)
 	return home, workspace
 }
 
@@ -86,36 +86,21 @@ func loadAppTestConfig(t *testing.T, workspace string, opts config.LoadOptions) 
 	return cfg
 }
 
-func newAppMetadataProjectViewClient(t *testing.T, cfg config.App) apicontract.ProjectViewService {
-	t.Helper()
-	testsetup.PrepareMetadataPersistenceRoot(t, cfg.PersistenceRoot)
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	service, err := projectview.NewMetadataService(store)
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
-	return service
-}
-
-func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string) func() {
+func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string, metadataStore *metadata.Store) (func(), *metadata.Store) {
 	t.Helper()
 	writeAppTestSettings(t)
 	releasePortProbe := reserveAppTestServerPort(t)
 	cfg := loadAppTestConfig(t, workspace, config.LoadOptions{})
-	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
-	srv, err := serverstartup.StartServeServer(context.Background(), serverstartup.Request{
-		WorkspaceRoot:         workspace,
-		WorkspaceRootExplicit: true,
-		LoadOptions:           config.LoadOptions{Model: "gpt-6-sol"},
-	})
-
-	if err != nil {
-		t.Fatalf("StartServeServer: %v", err)
+	cfg.Settings = testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, openAIBaseURL))
+	if metadataStore == nil {
+		metadataStore = testsetup.OpenStore(t, cfg.PersistenceRoot)
 	}
+	if _, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	loadOptions := config.LoadOptions{Model: "gpt-6-sol"}
+	cfg.Settings.Model = loadOptions.Model
+	srv, _ := newMemoryAppTestServer(t, cfg, metadataStore, loadOptions)
 	stop := serveAppServerAfter(t, srv, releasePortProbe)
 	cleanup := func() {
 		stop()
@@ -129,7 +114,7 @@ func startStandingRunPromptServer(t *testing.T, workspace, openAIBaseURL string)
 	}()
 	waitForConfiguredRunPromptDaemon(t, workspace)
 	needsCleanup = false
-	return cleanup
+	return cleanup, metadataStore
 }
 
 func serveAppServer(t *testing.T, srv *serverstartup.ServeServer) func() {
@@ -230,23 +215,19 @@ func newAppRuntimeEngineWithStore(t *testing.T, store *session.Store, client llm
 	return eng
 }
 
-func mustRegisterAppBinding(t *testing.T, persistenceRoot string, workspaceRoot string) metadata.Binding {
+func mustRegisterAppBinding(t *testing.T, store *metadata.Store, workspaceRoot string) metadata.Binding {
 	t.Helper()
-	testsetup.PrepareMetadataPersistenceRoot(t, persistenceRoot)
-	binding, err := metadata.RegisterBinding(context.Background(), persistenceRoot, workspaceRoot)
+	binding, err := store.RegisterWorkspaceBinding(t.Context(), workspaceRoot)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
 	return binding
 }
 
-func createAuthoritativeAppSession(t *testing.T, persistenceRoot string, workspaceRoot string) *session.Store {
+func createAuthoritativeAppSession(t *testing.T, persistenceRoot string, workspaceRoot string) (*session.Store, *metadata.Store) {
 	t.Helper()
-	binding := mustRegisterAppBinding(t, persistenceRoot, workspaceRoot)
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
+	metadataStore := testsetup.OpenStore(t, persistenceRoot)
+	binding := mustRegisterAppBinding(t, metadataStore, workspaceRoot)
 	// Keep the metadata store alive for the lifetime of the session store so
 	// persistence observer writes continue to succeed during the test.
 	store, err := session.Create(
@@ -255,29 +236,20 @@ func createAuthoritativeAppSession(t *testing.T, persistenceRoot string, workspa
 		workspaceRoot, sessioncontract.SessionCategoryMain, metadataStore.AuthoritativeSessionStoreOptions()...,
 	)
 	if err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("session.Create: %v", err)
 	}
 	if err := store.EnsureDurable(); err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("EnsureDurable: %v", err)
 	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
-	return store
+	return store, metadataStore
 }
 
-func openAuthoritativeAppSession(t *testing.T, persistenceRoot string, sessionID string) *session.Store {
+func openAuthoritativeAppSession(t *testing.T, metadataStore *metadata.Store, sessionID string) *session.Store {
 	t.Helper()
-	metadataStore, err := metadata.Open(persistenceRoot)
+	store, err := session.OpenByID(metadataStore.PersistenceRoot(), sessionID, metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	store, err := session.OpenByID(persistenceRoot, sessionID, metadataStore.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		_ = metadataStore.Close()
 		t.Fatalf("session.OpenByID: %v", err)
 	}
-	t.Cleanup(func() { _ = metadataStore.Close() })
 	return store
 }
 

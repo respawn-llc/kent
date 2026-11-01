@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/session"
+	"core/server/sessionstore"
 )
 
 type SessionInUseError struct {

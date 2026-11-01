@@ -6,7 +6,7 @@ import (
 	"core/internal/testharness/testsetup"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/core"
-	"core/server/session"
+	"core/server/sessionstore"
 	remoteclient "core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -120,14 +120,16 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
-	if bindWorkspace {
-		registerGatewayWorkspace(t, workspace)
-	} else {
-		configureGatewayTestServerPort(t)
-	}
+	configureGatewayTestServerPort(t)
 	resolved, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspace})
 	if err != nil {
 		t.Fatalf("ResolveConfig: %v", err)
+	}
+	metadataStore := testsetup.OpenStore(t, resolved.Config.PersistenceRoot)
+	if bindWorkspace {
+		if _, err := metadataStore.RegisterWorkspaceBinding(t.Context(), workspace); err != nil {
+			t.Fatalf("RegisterWorkspaceBinding: %v", err)
+		}
 	}
 	authSupport := newGatewayTestAuthSupport(t, resolved.Config.PersistenceRoot, ready)
 	resolved.Config.Settings = testsetup.ProviderSettings(resolved.Config.Settings)
@@ -146,7 +148,9 @@ func newGatewayTestCore(t *testing.T, bindWorkspace bool, ready bool) (*core.Cor
 		t.Fatalf("BuildShellManager: %v", err)
 	}
 	t.Cleanup(func() { _ = background.Close() })
-	appCore, err := core.New(resolved.Config, authSupport, background)
+	appCore, err := core.NewWithContextOptions(t.Context(), resolved.Config, authSupport, background, core.Options{
+		MetadataStore: metadataStore,
+	})
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}

@@ -131,6 +131,7 @@ export function createTestServices(
   return {
     api: new ApiClient(transport, projectEventDiagnostics(logger)),
     speech: {
+      microphone: "browser",
       begin: speechUnavailable,
       retry: speechUnavailable,
       discard: speechUnavailable,

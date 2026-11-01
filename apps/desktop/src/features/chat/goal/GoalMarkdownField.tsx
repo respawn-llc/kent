@@ -3,13 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useAnimate } from "motion/react";
 
 import { useTextFieldSubmitShortcutPolicy } from "@/app-facade";
-import {
-  CollapsibleMarkdownField,
-  motionDurationFromCSSVar,
-  Spinner,
-  fieldActions,
-  type MarkdownFieldSubmitIntent,
-} from "@/ui";
+import { motionDurationFromCSSVar, Spinner, fieldActions } from "@/ui";
+import { CollapsibleMarkdownField, type MarkdownFieldSubmitIntent } from "@/ui/markdown";
 import { useSpeechField } from "@/shared/speech-input";
 import { GoalSaveButton } from "./GoalSidebarParts";
 

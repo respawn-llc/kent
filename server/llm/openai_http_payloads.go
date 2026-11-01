@@ -67,7 +67,7 @@ func (t *HTTPTransport) buildDispatchPayload(
 	if err != nil {
 		return responses.ResponseNewParams{}, err
 	}
-	applyCodexClientMetadata(&payload, projection)
+	applyCodexClientMetadata(&payload, projection, nil)
 	return payload, nil
 }
 
@@ -86,12 +86,10 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 
 	out := responses.ResponseNewParams{
 		Model: request.Model,
+		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
 	}
 	if cacheKey := strings.TrimSpace(request.PromptCacheKey); cacheKey != "" && SupportsPromptCacheKeyProvider(b.capabilities) {
 		out.PromptCacheKey = openai.String(cacheKey)
-	}
-	if len(input) > 0 {
-		out.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: input}
 	}
 	if instructions := strings.TrimSpace(request.SystemPrompt); instructions != "" {
 		out.Instructions = openai.String(instructions)
@@ -152,15 +150,15 @@ func (b responsesRequestPayloadBuilder) BuildCompactV2(request ResponsesRequest,
 	return out, nil
 }
 
-func applyCodexClientMetadata(payload *responses.ResponseNewParams, projection *codexDispatchProjection) {
+func applyCodexClientMetadata(payload interface{ SetExtraFields(map[string]any) }, projection *codexDispatchProjection, turnState *string) {
 	if projection == nil {
 		return
 	}
-	payload.SetExtraFields(map[string]any{
-		"client_metadata": map[string]string{
-			"x-codex-turn-metadata": projection.TurnMetadataJSON,
-		},
-	})
+	metadata := map[string]string{"x-codex-turn-metadata": projection.TurnMetadataJSON}
+	if turnState != nil {
+		metadata[codexTurnStateHeader] = *turnState
+	}
+	payload.SetExtraFields(map[string]any{"client_metadata": metadata})
 }
 
 func (b responsesRequestPayloadBuilder) buildTools(requestTools []Tool, enableNativeWebSearch bool) ([]responses.ToolUnionParam, error) {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"core/server/metadata"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	askquestion "core/server/tools"
 	servicecontract "core/shared/apicontract"
 	"core/shared/clientui"

@@ -5,13 +5,13 @@ import (
 	"strconv"
 	"testing"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )

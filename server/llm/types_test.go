@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/textutil"
 )
 

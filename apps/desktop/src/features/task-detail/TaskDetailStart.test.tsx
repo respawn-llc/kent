@@ -1,5 +1,6 @@
 import { expect, it, vi } from "bun:test";
 import { act, screen, waitFor, within } from "@testing-library/react";
+import { toBeVisible } from "@testing-library/jest-dom/matchers";
 import userEvent from "@testing-library/user-event";
 
 import { appI18n } from "@/i18n";
@@ -25,10 +26,10 @@ it("replaces Start with a visible loading spinner and restores the action after 
   const start = await screen.findByRole("button", { name: appI18n.t("task.start") });
   await userEvent.click(start);
   await waitFor(() => {
-    expect(start).toHaveAttribute("aria-busy", "true");
+    expect(start.getAttribute("aria-busy")).toBe("true");
   });
-  expect(within(start).getByText(appI18n.t("task.start"))).not.toBeVisible();
-  expect(within(start).getByTestId("spinner")).toBeVisible();
+  expect(toBeVisible(within(start).getByText(appI18n.t("task.start"))).pass).toBe(false);
+  expect(toBeVisible(within(start).getByTestId("spinner")).pass).toBe(true);
   const failure = taskStartFailure;
   const error = new RpcError({
     code: failure.code,
@@ -40,10 +41,10 @@ it("replaces Start with a visible loading spinner and restores the action after 
     request.reject(error);
   });
   await waitFor(() => {
-    expect(start).toHaveAttribute("aria-busy", "false");
+    expect(start.getAttribute("aria-busy")).toBe("false");
+    expect(toBeVisible(within(start).getByText(appI18n.t("task.start"))).pass).toBe(true);
   });
-  expect(within(start).getByTestId("spinner")).not.toBeVisible();
-  expect(within(start).getByText(appI18n.t("task.start"))).toBeVisible();
+  expect(toBeVisible(within(start).getByTestId("spinner")).pass).toBe(false);
   expect(start).toBeEnabled();
   const diagnostic = log.mock.calls.find(([, , context]) => context?.action === "start");
   expect(diagnostic?.[2]).toMatchObject({
@@ -60,7 +61,7 @@ it("starts the persisted Task without submitting a dirty title or description dr
   });
   const start = vi.spyOn(services.api, "startTask");
   const update = vi.spyOn(services.api, "updateTask");
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
 
   const title = await screen.findByRole("textbox", { name: appI18n.t("task.name") });
   await user.clear(title);
@@ -91,7 +92,7 @@ it("focuses Dependencies in-place for every View deps request without a sidebar 
   mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {
     routes: [taskStartRoute(() => taskStartNeedsDependencies(1))],
   });
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const start = await screen.findByTestId("task-detail-start");
 
   await user.click(start);

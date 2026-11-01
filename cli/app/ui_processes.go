@@ -63,7 +63,7 @@ func (m *uiModel) applyTranscriptBackgroundActivity(activity *transcriptpb.Backg
 	}
 	update := &processpb.BackgroundProcess{
 		Id:             processID,
-		OwnerSessionId: m.sessionID,
+		OwnerSessionId: m.currentRuntimeSessionID(),
 		OwnerStepId:    proto.String(activity.OwnerStepId),
 		State:          transcriptBackgroundState(activity.Lifecycle),
 		Command:        activity.Command,
@@ -293,13 +293,7 @@ func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
 	m.processList.actionInFlight = false
 	if msg.err != nil {
 		statusCmd := m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
-		c := uiInputController{model: m}
-		switch msg.action {
-		case "kill", "logs":
-			return tea.Batch(statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
-		default:
-			return tea.Batch(statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
-		}
+		return statusCmd
 	}
 	c := uiInputController{model: m}
 	switch msg.action {
@@ -309,10 +303,10 @@ func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
 		if m.processList.open && msg.surfaceGeneration == m.processList.surfaceGeneration {
 			refreshCmd = m.requestProcessListRefresh()
 		}
-		return tea.Batch(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, ""), refreshCmd, c.resumeQueuedInputsAfterIdleRuntime())
+		return tea.Batch(m.sendTransientStatusWithNoticeID(status, uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, ""), refreshCmd)
 	case "inline":
 		if msg.inputDraftToken != 0 && msg.inputDraftToken != m.mainInputDraftToken {
-			return c.resumeQueuedInputsAfterIdleRuntime()
+			return nil
 		}
 		preview := strings.TrimSpace(msg.output)
 		if preview == "" {
@@ -337,9 +331,9 @@ func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
 			return sequenceCmds(statusCmd, editorCmd)
 		}
 		if m.processList.open && msg.surfaceGeneration == m.processList.surfaceGeneration {
-			return tea.Batch(c.stopProcessListFlowCmd(), statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
+			return tea.Batch(c.stopProcessListFlowCmd(), statusCmd)
 		}
-		return tea.Batch(statusCmd, c.resumeQueuedInputsAfterIdleRuntime())
+		return statusCmd
 	default:
 		return nil
 	}
@@ -391,12 +385,9 @@ func (m *uiModel) applyProcessLogsDone(msg openProcessLogsDoneMsg) tea.Cmd {
 		}
 	}
 	if msg.err != nil {
-		return tea.Batch(
-			m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
-			m.inputController().resumeQueuedInputsAfterIdleRuntime(),
-		)
+		return m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
-	return m.inputController().resumeQueuedInputsAfterIdleRuntime()
+	return nil
 }
 
 func (c uiInputController) handleProcessListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -94,6 +94,7 @@ function questionRow(
     Locator: { event_sequence: 1, row_ordinal: 1 },
     User: null,
     Assistant: null,
+    ToolCall: null,
     Tool: {
       ViewedImageKind: null,
       StepID: null,

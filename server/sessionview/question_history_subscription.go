@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/serverapi"

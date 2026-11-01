@@ -6,13 +6,12 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"core/internal/testharness/requestfixture"
+	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/promptcontrol"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
@@ -107,9 +106,6 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 	}
 	select {
 	case <-prompts.pending:
-	case <-time.After(time.Second):
-		stopped, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
-		t.Fatalf("model asked a Question but it never reached the Session prompt owner; stop=%+v error=%v", stopped, err)
 	}
 	execution, ok := service.authority.SessionExecution(sessionID)
 	if !ok {

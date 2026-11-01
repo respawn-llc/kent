@@ -6,8 +6,9 @@ export type {
   NativeSpeechOriginal,
   NativeSpeechOptions,
   NativeSpeechReply,
+  NativeMicrophoneEvent,
 } from "./speech";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -154,6 +155,7 @@ export type NativeWindowGlassTint = Readonly<{
 }>;
 
 export type NativeMainNavigation =
+  | Readonly<{ kind: "home" }>
   | Readonly<{ kind: "sessionChat"; projectID: string; sessionID: string }>
   | Readonly<{ kind: "taskDetail"; taskID: string }>;
 
@@ -333,16 +335,21 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
       isFocused: tauriWindowFocus.isFocused,
       focusMain: tauriWindowFocus.focusMain,
       async requestMainNavigation(destination: NativeMainNavigation): Promise<void> {
-        await emitTo("main", mainNavigationEvent, destination);
+        await invoke("open_main_window", { destination });
       },
       mainNavigationRequests: (reportOverflow) =>
-        nativeObservation(
-          async (handler) =>
-            listen<NativeMainNavigation>(mainNavigationEvent, (event) => {
-              handler(event.payload);
-            }),
-          reportOverflow,
-        ),
+        nativeObservation(async (handler) => {
+          const unlisten = await listen<NativeMainNavigation>(mainNavigationEvent, (event) => {
+            handler(event.payload);
+          });
+          try {
+            await invoke("main_window_ready", { channel: "navigation" });
+            return unlisten;
+          } catch (error) {
+            unlisten();
+            throw error;
+          }
+        }, reportOverflow),
       focusChanges: tauriWindowFocus.focusChanges,
       fileDrops: (reportOverflow) =>
         nativeObservation(async (handler) => {

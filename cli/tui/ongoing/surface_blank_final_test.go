@@ -2,11 +2,55 @@ package ongoing
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
+	"core/internal/testharness/pty"
+	"core/internal/testharness/pty/analyzer"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"core/shared/textutil"
+
+	"github.com/google/uuid"
 )
+
+func TestSurfaceInterleavesHostedPreviewBetweenProviderMessages(t *testing.T) {
+	var output bytes.Buffer
+	surface := NewSurface(&output)
+	frame := blankFinalFrame()
+	first, second := runtimeids.NewAssistantStreamID().String(), runtimeids.NewAssistantStreamID().String()
+	apply := func(id string, index int64, text string) {
+		t.Helper()
+		_, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: &transcriptpb.Event{
+			Payload: &transcriptpb.Event_AssistantDelta{AssistantDelta: &transcriptpb.AssistantDelta{
+				StreamId: id, OutputIndex: &index, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, Delta: text,
+			}},
+		}}, frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply(first, 0, "EARLIER")
+	frame.Sections = []FrameSection{{Kind: FrameSectionPendingTools, Lines: []string{"HOSTED"}, OutputIndexes: []*int64{textutil.Value(int64(1))}}}
+	apply(second, 2, "LATER")
+	apply(first, 0, " COMPLETE")
+	terminal, err := analyzer.NewStream(pty.MustDimensions(frame.Size.Height, frame.Size.Width))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminal.Feed(output.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := terminal.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := snapshot.RenderText()
+	before, tool, after := strings.Index(text, "EARLIER COMPLETE"), strings.Index(text, "HOSTED"), strings.Index(text, "LATER")
+	if before < 0 || tool < before || after < tool {
+		t.Fatalf("provider item order changed across interleaved deltas: %q", text)
+	}
+}
 
 func TestSurfaceBlankFinalDefersEmptyStreamPromotion(t *testing.T) {
 	surface := NewSurface(&bytes.Buffer{})
@@ -99,4 +143,55 @@ func streamIDPointer(streamID string) *string {
 
 func blankFinalFrame() FrameInput {
 	return FrameInput{Size: Size{Width: 80, Height: 24}}
+}
+
+func TestSurfaceAcceptsSeparateAssistantStreamsBeforeEitherCommits(t *testing.T) {
+	var output bytes.Buffer
+	surface := NewSurface(&output)
+	first := runtimeids.NewAssistantStreamID().String()
+	second := runtimeids.NewAssistantStreamID().String()
+	phase := transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY
+	apply := func(event *transcriptpb.Event) {
+		t.Helper()
+		if _, err := surface.ApplyTerminalMessage(&transcriptpb.Message{Event: event}, blankFinalFrame()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{first, second} {
+		apply(&transcriptpb.Event{Payload: &transcriptpb.Event_AssistantDelta{
+			AssistantDelta: &transcriptpb.AssistantDelta{StreamId: id, Phase: phase, Delta: "item"},
+		}})
+	}
+	for _, id := range []string{first, second} {
+		apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+			CommittedRow: &transcriptpb.CommittedRow{Row: &transcriptpb.CommittedRow_Assistant{
+				Assistant: &transcriptpb.AssistantRow{StreamId: &id, Phase: phase, Text: "item"},
+			}},
+		}})
+		if id == first {
+			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+				CommittedRow: &transcriptpb.CommittedRow{
+					Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+					Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+					Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 2},
+					Row: &transcriptpb.CommittedRow_ToolCall{ToolCall: &transcriptpb.ToolStart{
+						StepId: uuid.NewString(), ToolCallId: "native-call", ToolName: "exec_command",
+					}},
+				},
+			}})
+		}
+	}
+	apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{
+		CommittedRow: &transcriptpb.CommittedRow{
+			Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING_COLLAPSED,
+			Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,
+			Locator:    &transcriptpb.CommittedRowLocator{EventSequence: 1, RowOrdinal: 2},
+			Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
+				ToolCallId: textutil.Value("native-call"), ToolName: textutil.Value("exec_command"), ResultSummary: textutil.Value("result"),
+			}},
+		},
+	}})
+	if output.Len() == 0 {
+		t.Fatal("separate assistant streams produced no terminal output")
+	}
 }

@@ -48,6 +48,13 @@ func TestNativeOngoingSurfaceWritesBypassRendererGate(t *testing.T) {
 	gate := newUIRendererOutputGateState()
 	gate.SetSuppressRendererWrites(true)
 	var out bytes.Buffer
+	renderer := newUIRendererOutputGateWriter(&out, gate)
+	if _, err := renderer.Write([]byte("suppressed renderer frame")); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatal("suppressed renderer frame reached terminal output")
+	}
 	surface := ongoing.NewSurface(&out)
 
 	if _, err := surface.Render(ongoing.FrameInput{

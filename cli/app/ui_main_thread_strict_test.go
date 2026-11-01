@@ -9,6 +9,7 @@ import (
 	"core/cli/app/internal/status"
 	"core/shared/apicontract"
 	"core/shared/clientui"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 
@@ -68,27 +69,26 @@ func TestTUIStrictIOViewDoesNotFetchProcessesForStatusOrOverlay(t *testing.T) {
 
 type strictRuntimeClient struct {
 	clientui.RuntimeClient
+	apicontract.ChatMutationService
 
-	submitQueuedID string
-	submitCalls    int
+	submitCalls int
 }
 
 func (*strictRuntimeClient) MainView() *runtimepb.MainView {
 	return &runtimepb.MainView{}
 }
 
-func (c *strictRuntimeClient) SubmitRuntimeInput(_ context.Context, request clientui.RuntimeSubmitRequest) (clientui.UserTurnSubmission, error) {
+func (c *strictRuntimeClient) Steer(_ context.Context, request *chatpb.SteerRequest) (*chatpb.InputMutationSuccess, error) {
 	c.submitCalls++
-	return clientui.UserTurnSubmission{
-		Queued: clientui.QueuedUserMessage{
-			ID:   c.submitQueuedID,
-			Text: runtimeSubmitInputText(request),
-		},
-	}, nil
+	return &chatpb.InputMutationSuccess{Session: &chatpb.ExistingSessionTarget{SessionId: request.Target.GetSession().SessionId.GetSessionId()},
+		Outcome: &chatpb.InputMutationSuccess_Accepted{Accepted: &chatpb.InputAccepted{
+			QueueItem:   &chatpb.QueueItemIdentity{Id: request.QueueItemId},
+			Disposition: chatpb.InputAdmissionDisposition_INPUT_ADMISSION_DISPOSITION_PENDING_STEER,
+		}}}, nil
 }
 
 func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
-	client := &strictRuntimeClient{submitQueuedID: "server-queue-1"}
+	client := &strictRuntimeClient{}
 	m := newStrictUIModel(client)
 	m.startupCmds = nil
 	setStrictTestRuntimeBusy(t, m)
@@ -112,7 +112,7 @@ func TestTUIStrictIOBusyEnterQueuesInjectedInputAsCommand(t *testing.T) {
 	if client.submitCalls != 1 {
 		t.Fatalf("SubmitRuntimeInput calls after command = %d, want 1", client.submitCalls)
 	}
-	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].ServerID == nil || *updated.injectedQueue[0].ServerID != "server-queue-1" {
+	if len(updated.injectedQueue) != 1 || updated.injectedQueue[0].Request.QueueItemID.IsZero() || updated.injectedQueue[0].State != injectedRuntimeQueueEnqueued {
 		t.Fatalf("expected server queue item after command, got %+v", updated.injectedQueue)
 	}
 }
@@ -175,7 +175,7 @@ func (c *strictWorktreeClient) EnterWorktree(_ context.Context, request *worktre
 
 func TestTUIStrictIOWorktreeSwitchRunsAsCommand(t *testing.T) {
 	client := &strictWorktreeClient{}
-	m := newStrictUIModel(nil, WithUIWorktreeClient(client), WithUISessionID("session-1"))
+	m := newStrictUIModel(nil, WithUIWorktreeClient(client), WithUISessionID(detailTestSessionID))
 
 	_, cmd := m.inputController().handleWorktreeCommand("switch feature")
 	if cmd == nil {
@@ -191,7 +191,7 @@ func TestTUIStrictIOWorktreeSwitchRunsAsCommand(t *testing.T) {
 }
 
 func newStrictUIModel(client clientui.RuntimeClient, options ...UIOption) *uiModel {
-	return NewProjectedUIModel(client, options...).(*uiModel)
+	return newProjectedTestUIModel(client, options...)
 }
 
 func setStrictTestRuntimeBusy(t *testing.T, m *uiModel) {

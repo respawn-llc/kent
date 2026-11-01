@@ -106,10 +106,11 @@
 
 - One product matrix must define transcript visibility. Kent must not use ad hoc filters.
 - Visibility changes presentation only. It must not change Session history.
-- Outside an active Goal and Workflow Mode, an explicitly present empty or whitespace-only assistant final answer ends work silently. It creates no visible assistant row, completion notification, or terminal bell.
-- A response with omitted assistant final content and actual tool calls executes those calls without a missing-content warning and proceeds.
-- A response with omitted assistant final content and reasoning or nonempty commentary content proceeds without a missing-content warning.
-- A response with omitted assistant final content and no tool calls, reasoning, nonempty commentary content, or final content fails as a provider-contract error.
+- Without a provider turn-completion fact, outside an active Goal and Workflow Mode, an explicitly present empty or whitespace-only assistant final answer ends work silently. It creates no visible assistant row, completion notification, or terminal bell.
+- Outside an active Goal and Workflow Mode, a completed Responses generation must end the turn unless local tool execution, pending input, or an explicit `end_turn: false` requires another Step. Empty output and absent assistant phase must not require another Step. Completion without assistant text must create no visible assistant row, completion notification, or terminal bell.
+- A response with omitted assistant final content and local tool calls must execute those calls without a missing-content warning and proceed.
+- Without a provider turn-completion fact, a response with omitted assistant final content and reasoning or nonempty commentary content proceeds without a missing-content warning.
+- Without a provider turn-completion fact, a response with omitted assistant final content and no tool calls, reasoning, nonempty commentary content, or final content fails as a provider-contract error.
 - During an active Goal or Workflow Mode, a blank final answer follows that mode's ordinary incomplete-output behavior and must not silently stop.
 - Visibility values are `O` full ongoing+detail, `OC` collapsed/short ongoing plus full detail, `D` detail-only, and `X` hidden.
 - Unknown/malformed entries with recoverable text are `O`. Empty unknown/malformed entries are `D` diagnostics.
@@ -205,6 +206,8 @@
 - All user text uses one authoritative submission path. The user's action selects Send/Steer or Queue intent. For Send/Steer, Kent determines from live state whether the submission starts an Agent Turn or becomes a Steer.
 - Queue/send hotkey is `Tab`. `Ctrl+Enter` is an alias.
 - Known `Ctrl+Enter` CSI encodings normalize to the same queue action.
+- The Queue action must submit ordinary text and recognized prompt or Agent commands directly to the server-owned post-turn Queue. The TUI must not hold a pre-admission Queue or drain messages locally.
+- A composer input beginning with `$` must submit a typed Shell activation through the selected Chat Steer or Queue operation, not submit model text, under the [Runtime Steering And Model Loop](runtime-steering-loop.md) Shell scheduling contract.
 - Clipboard paste hotkeys are `Ctrl+V`, `Ctrl+D`, `Alt+V`, and `Alt+D`. Explicit system clipboard reads save images to temporary PNG files and insert the path, or insert text at the active cursor. Terminal bracketed paste is ordinary text input and never causes a system clipboard read.
 - Runtime acceptance, protected Agent Steps, Steering drains, and the separate post-turn Queue follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) specification.
 - Steering submissions never lock the input box. Each `Enter` while busy queues another steering message.
@@ -224,7 +227,7 @@
 - After a failed list read, the TUI must show the displayed Pending Work only when it fetched that collection successfully during the current uninterrupted hydration scope.
 - A failed initial list read after any accepted hydration leaves displayed Pending Work empty.
 - The TUI has no standalone per-item discard affordance for operational Pending Work.
-- Pending queues are lost on process exit. The backend overload invariant is owned by the Runtime Steering specification.
+- Accepted Queue messages must survive TUI exit or disconnection. Pending queues may be lost on server exit. The backend overload invariant is owned by the Runtime Steering specification.
 - A mid-turn message becomes durable only when Kent delivers it.
 - The server-published Live Execution lifecycle and the current server-published pending Question or Approval are the TUI liveness authorities for `Ctrl+C`. While either identifies live work, the TUI sends Interrupt. Otherwise it exits. A second `Ctrl+C` while Interrupt is pending for that same execution exits locally. A later Running lifecycle with a different Live Execution's Step ID sends a new Interrupt. The server revalidates interruption through the Runtime Steering Stop contract. A submission already sent to the server may start or continue after the client detaches.
 - If Interrupt fails, the TUI must refresh authoritative Runtime state and replace its stale activity projection. The refresh must not report idle while the server reports active work.
@@ -317,9 +320,9 @@
 - Unknown slash commands are sent to the model as normal user prompts, except the reserved `/prompt:` namespace.
 - An unavailable or unknown `/prompt:` command reports a command error and is never submitted as model input.
 - Built-ins: `/logout`, `/login`, `/exit`, `/new`, `/resume`, `/compact`, `/name`, `/thinking`, `/fast`, `/review`, `/init`, `/supervisor`, `/autocompaction`, `/questions`, `/status`, `/goal`, `/ps`, `/worktree` (alias `/wt`), `/copy`, `/back`.
-- Exact known slash commands use the normal queued-input drain path when queued. They are never sent as plain user prompts.
+- Direct slash commands must use their dedicated operations even when invoked with the Queue shortcut. They must never enter Queue as model input.
 - Run-safe commands execute immediately while busy. `/exit`, `/new`, `/resume`, `/back`, `/review`, and `/init` detach this TUI from the current Session without interrupting its Active Session Runtime.
-- While an Agent Turn is active, every available `/prompt:*` command submits its typed identity as Steering in the current Session. Kent resolves the prompt body on the server before accepting the Steering input.
+- Available file-backed `/prompt:*` commands must submit their typed identity with the selected Send/Steer or Queue intent. Kent must resolve the prompt body on the server before acceptance.
 - `/name`, `/thinking`, `/fast`, `/supervisor`, `/questions`, and `/autocompaction` follow the [Runtime Steering And Model Loop](runtime-steering-loop.md) Session-setting contract.
 - `/compact` and Active-Runtime `/worktree switch`, `/wt switch`, `/worktree leave`, and `/wt leave` enter typed operational Pending Work while an Agent Step or another boundary-owning Runtime operation is active.
 - Goal follows its Goal owner. Client-local navigation, overlays, reads, detach actions, and direct Worktree management reach their direct owners while an Agent Turn is active.
@@ -359,13 +362,12 @@
 ## Notifications
 
 - Ring terminal bell when a new `ask_question` is shown.
-- Ring on turn end only if the TUI observed at least two tool calls for an eligible turn.
-- Every turn-end notification is requested only after the local queued prompt drain is fully idle.
+- The TUI must consume Session-scoped server turn-end attention events under the [Runtime Steering And Model Loop](runtime-steering-loop.md#turn-end-attention) contract.
+- Each received turn-end event must request an unfocused terminal notification without waiting for queued work.
 - Notifications never delay queued model work.
 - Manual compaction completion notifies unfocused TUIs only when the compacted Session is open at the moment the notification arrives, regardless of which client initiated it.
-- If transcript delivery lags, Kent can omit a notification, delay it until a later Queue drain, or use an earlier observed preview.
 - Reviewer activity must not defer or otherwise change turn-end notification eligibility or preview selection.
-- A queued prompt drain emits at most one turn-end notification when any observed turn in the drain meets the two-tool threshold, using the last final answer observed by the TUI even when that turn has fewer than two tool calls.
+- Turn-end notifications must not consolidate separate completed turns.
 - Turn-end text includes assistant preview when available, else `<session title>: turn complete`.
 - Ask notifications include `<session title>: Question: <question>` or `<session title>: Action required: <question>`.
 - Every text-bearing terminal notification is limited to 80 characters, including the Session title and label. Longer text keeps the first 77 characters and adds `...`.
@@ -385,9 +387,9 @@
 - At most 64 hook commands can run at once for one TUI Session. Kent silently drops a new event when all slots are in use.
 - Every invocation has a 30-second timeout, inherits the controlling TUI's current directory and environment, receives one ordinary JSON object on stdin, ignores stdout, and stores at most 4 KiB of stderr for diagnostics.
 - Kent attempts the configured command once for each scheduled event. It must not retry, acknowledge, save, or reconstruct hook delivery.
-- For every assistant-final live-run result admitted by one controlling TUI attachment, Kent submits exactly one `task.complete` to the hook dispatcher after local queued prompt processing is fully idle.
+- For every assistant-final live-run result admitted by one controlling TUI attachment, Kent must submit exactly one `task.complete` to the hook dispatcher without waiting for queued work.
 - Repeated transcript delivery is not a second admitted turn and must not submit another `task.complete` within the attachment.
-- Every admitted assistant-final turn submits its own `task.complete`, including multiple turns completed during one queued prompt drain.
+- Every admitted assistant-final turn must submit its own `task.complete`, including turns followed by more queued work.
 - `task.complete` uses the same capacity, launch, timeout, and failure semantics as the other lifecycle categories.
 - Terminal focus, notification method, terminal-notification eligibility, and tool-call count must not gate `task.complete`. Focus only populates the lifecycle payload.
 - Launch failures, non-zero exits, and timeouts are delivered losslessly to one structured diagnostic log and appear as transient TUI errors while the Session is attached.
@@ -401,7 +403,7 @@
 - Desktop, unattended headless, subagent, and server-only operation do not run this hook.
 - The supported categories are:
   - `session.start` after a successful new or resumed session open.
-  - `task.complete` once for each admitted live-run result that ends with an assistant final answer, after local queued prompt processing is fully idle.
+  - `task.complete` once for each admitted live-run result that ends with an assistant final answer, without waiting for queued work.
   - `task.error` only when the live-run result is an actual runtime failure.
   - `input.required` for each observed pending question or approval.
   - `resource.limit` for every compaction-start event, including manual compaction.
@@ -410,7 +412,7 @@
 - Payload context carries available Session ID and title, optional Workflow Task ID, client focus, timestamp, opening kind, final answer with `work_performed`, runtime diagnostic, input kind and summary, or compaction mode.
 - Payloads exclude runtime, Agent Step, prompt, Approval, and transcript-stream identifiers.
 - Lifecycle payloads use ordinary JSON with source values unchanged. They have no lifecycle-specific text limit or truncation metadata.
-- Native terminal bell/OSC notifications and `task.complete` share only the authoritative local queue-idle boundary. Notification focus, method, tool threshold, preview consolidation, and state are independent from lifecycle-hook scheduling and `work_performed`.
+- Native terminal bell/OSC turn-end notifications must use server attention events. `task.complete` must use transcript live-run results independently of notification focus, method, tool threshold, and delivery.
 
 ## Reviewer
 

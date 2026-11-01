@@ -210,6 +210,7 @@ export function committedRow(value: T.CommittedRowValid): ChatCommittedRow {
     User: null,
     Assistant: null,
     Tool: null,
+    ToolCall: null,
     ReasoningTrace: null,
     Notice: null,
     ReviewerFeedback: null,
@@ -234,6 +235,17 @@ export function committedRow(value: T.CommittedRowValid): ChatCommittedRow {
         ...base,
         Kind: "tool",
         Tool: toolRow(row.value),
+      };
+    case "toolCall":
+      return {
+        ...base,
+        Kind: "tool_call",
+        ToolCall: {
+          StepID: row.value.stepId,
+          ToolCallID: row.value.toolCallId,
+          ToolName: row.value.toolName,
+          Presentation: toolPresentation(row.value.presentation, row.value.toolName),
+        },
       };
     case "reasoningTrace":
       return {
@@ -287,8 +299,16 @@ function assistantRow(value: T.AssistantRow): NonNullable<ChatCommittedRow["Assi
     Text: value.text,
     CondensedText: value.condensedText ?? null,
     Phase: assistantPhase(value.phase),
+    ...(value.sourceState === undefined ? {} : { SourceState: assistantSourceState(value.sourceState) }),
     committed_at_unix_ms: value.committedAt === undefined ? null : timestampMillis(value.committedAt),
   };
+}
+
+export function assistantSourceState(value: T.AssistantSourceState): "streaming" | "complete" {
+  return enumValue(value, {
+    [T.AssistantSourceState.STREAMING]: "streaming",
+    [T.AssistantSourceState.COMPLETE]: "complete",
+  });
 }
 
 function viewedImageKind(

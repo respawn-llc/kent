@@ -50,12 +50,7 @@ func runPTYFixtureProcess(t *testing.T, ctx context.Context, processConfig appfi
 	}
 	defer func() { runErr = errors.Join(runErr, runtime.Close()) }()
 	baseURL := runtime.OpenAIBaseURL()
-	if err := appfixture.PrepareConfigAndBindingWithOptions(
-		ctx,
-		processConfig.PersistenceRoot,
-		processConfig.WorkspaceRoot,
-		appfixture.ConfigOptions{OpenAIBaseURL: &baseURL},
-	); err != nil {
+	if err := appfixture.WriteConfigWithOptions(ctx, processConfig.PersistenceRoot, appfixture.ConfigOptions{OpenAIBaseURL: &baseURL}); err != nil {
 		return err
 	}
 	defer func() {
@@ -65,7 +60,10 @@ func runPTYFixtureProcess(t *testing.T, ctx context.Context, processConfig appfi
 		))
 	}()
 
-	sessionID, err := runtime.SeedSession(ctx, processConfig.PersistenceRoot, processConfig.WorkspaceRoot)
+	fixture := startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
+		t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
+	), nil)
+	sessionID, err := runtime.SeedSession(ctx, fixture.daemon.MetadataStore(), processConfig.WorkspaceRoot)
 	if err != nil {
 		return err
 	}
@@ -76,10 +74,6 @@ func runPTYFixtureProcess(t *testing.T, ctx context.Context, processConfig appfi
 		ConfigRoot:            processConfig.PersistenceRoot,
 	}
 	interactor := newInteractiveAuthInteractor()
-	startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
-		t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
-	))
-
 	server, err := startSessionServer(ctx, options, interactor, true)
 	if err != nil {
 		return err

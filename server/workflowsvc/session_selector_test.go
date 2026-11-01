@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"

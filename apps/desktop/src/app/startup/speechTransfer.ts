@@ -26,12 +26,21 @@ export function createSpeechTransfer(bridge: NativeBridge, endpoint: string): Sp
     URL.revokeObjectURL(url);
   };
   return {
+    microphone: bridge.capabilities.platform === "macos" ? "native" : "browser",
     begin: async (available, encoding) => {
       const url = speechUploadURL(native === null ? window.location.origin : endpoint, available.uploadUrl);
       if (native !== null) {
         const recording = await native.create({ ...encoding, maxBytes: available.maxBytes, uploadUrl: url });
         return {
           ...nativeRequest(recording.handle),
+          ...(bridge.capabilities.platform === "macos"
+            ? {
+                microphone: {
+                  start: async (receive) => native.startMicrophone(recording.handle, receive),
+                  stop: async () => native.stopMicrophone(recording.handle),
+                },
+              }
+            : {}),
           append: async (chunk) => native.append(recording.handle, new Uint8Array(await chunk.arrayBuffer())),
           finalize: async (durationMs) => ({
             kind: "native",

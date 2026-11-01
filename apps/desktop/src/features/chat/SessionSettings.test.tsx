@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "bun:test";
 import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { toBeVisible } from "@testing-library/jest-dom/matchers";
 import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
 
@@ -133,7 +134,7 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   });
   const pending = deferred<ChatSettingsMutationResponse>();
   const mutate = vi.spyOn(services.api.chat, "mutateSettings").mockReturnValue(pending.promise);
-  const user = userEvent.setup({ skipHover: true });
+  const user = userEvent.setup({ skipHover: true, delay: null });
   render(
     <TestAppProviders skipAnimations services={services}>
       <SessionSettingsChipHost />
@@ -146,7 +147,9 @@ it("requires confirmation before switching a cached Session Agent", async () => 
   let dialog = await screen.findByRole("dialog", { name: appI18n.t("chatSettings.switchAgent") });
   expect(within(dialog).getByRole("button", { name: appI18n.t("chatSettings.cancelSwitch") })).toHaveFocus();
   await user.keyboard("{Enter}");
-  expect(dialog).not.toBeInTheDocument();
+  await waitFor(() => {
+    expect(dialog.isConnected).toBe(false);
+  });
   expect(mutate).not.toHaveBeenCalled();
   await user.hover(screen.getByRole("button", { name: appI18n.t("chatSettings.open") }));
   await user.click(screen.getByText("default"));
@@ -163,7 +166,7 @@ it("requires confirmation before switching a cached Session Agent", async () => 
     await pending.promise;
   });
   await waitFor(() => {
-    expect(dialog).not.toBeInTheDocument();
+    expect(dialog.isConnected).toBe(false);
   });
 });
 
@@ -182,14 +185,15 @@ it.each(["subscription", "api_key", "no_auth"] as const)(
     });
     const user = userEvent.setup({ skipHover: true });
     await user.hover(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
-    expect(
-      await screen.findByText(
-        appI18n.t("chatSettings.sessionConnection", {
-          id: connection.id,
-          mode: appI18n.t(`chatSettings.connectionModes.${mode}`),
-        }),
-      ),
-    ).toBeVisible();
+    const connectionRow = await screen.findByText(
+      appI18n.t("chatSettings.sessionConnection", {
+        id: connection.id,
+        mode: appI18n.t(`chatSettings.connectionModes.${mode}`),
+      }),
+    );
+    await waitFor(() => {
+      expect(toBeVisible(connectionRow).pass).toBe(true);
+    });
   },
 );
 

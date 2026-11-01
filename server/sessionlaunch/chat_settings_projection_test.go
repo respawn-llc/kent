@@ -6,10 +6,12 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	"core/shared/serverapi"
+	"core/shared/textutil"
 	"core/shared/toolspec"
 
 	"google.golang.org/protobuf/proto"
@@ -17,11 +19,11 @@ import (
 
 func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 	app := testNewChatSettingsApp(t)
-	prepared, err := launch.PrepareChatAgentCatalog(app, false)
+	prepared, err := launch.PrepareChatAgentCatalog(app, false, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context(), serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 
 func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 	app := testNewChatSettingsApp(t)
-	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context())
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context(), serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +79,33 @@ func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 		}
 	}
 	t.Fatal("fixture requires a Fast-capable Agent")
+}
+
+func TestNewChatCatalogUsesInvocationCapabilitiesAndSelectedRole(t *testing.T) {
+	app := testNewChatSettingsApp(t)
+	service := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil)
+	response, err := service.NewChatSettings(t.Context(), serverapi.RunPromptOverrides{
+		AgentRole: textutil.Value(config.BuiltInSubagentRoleFast),
+		Model:     "gpt-5.6-sol", ThinkingLevel: "ultra",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := response.GetNewChat()
+	if catalog.InitialSettings.AgentRole != config.BuiltInSubagentRoleFast || catalog.InitialSettings.GetThinking() != "ultra" {
+		t.Fatalf("invocation selection = %+v", catalog.InitialSettings)
+	}
+	for _, choice := range catalog.Choices {
+		if choice.Agent.Role != config.BuiltInSubagentRoleFast {
+			continue
+		}
+		if choice.Agent.GetModel() != "gpt-5.6-sol" || choice.Thinking == nil || !slices.Contains(choice.Thinking.Values, "ultra") ||
+			choice.ConnectionId == nil || *choice.ConnectionId != "test" {
+			t.Fatalf("invocation choices = %+v", choice)
+		}
+		return
+	}
+	t.Fatal("selected invocation role missing from choices")
 }
 
 func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
@@ -172,7 +201,7 @@ func TestProjectChatSettingsAuthoritativeReadSemantics(t *testing.T) {
 
 func testChatSettingsCatalog(t *testing.T) launch.PreparedChatAgentCatalog {
 	t.Helper()
-	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(t), true)
+	catalog, err := launch.PrepareChatAgentCatalog(testChatSettingsApp(t), true, serverapi.RunPromptOverrides{})
 	if err != nil {
 		t.Fatalf("PrepareChatAgentCatalog: %v", err)
 	}

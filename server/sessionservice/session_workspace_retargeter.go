@@ -12,8 +12,8 @@ import (
 
 	"core/server/metadata"
 	"core/server/runtimewire"
-	"core/server/session"
 	sessionruntime "core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"

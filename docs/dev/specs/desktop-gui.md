@@ -61,6 +61,11 @@
 
 ## Home and navigation
 
+- Closing a Desktop window must close only that window. Desktop must exit when its last window closes.
+- While a Chat popup is open, the operator must be able to open the main Project list on macOS, Windows, and Linux.
+- On macOS, reopening Desktop from the Dock must show the main window.
+- Activating a native notification must open its destination even when the main window has been closed and another Desktop window is open.
+
 - Navigation Chrome must show a small gauge icon beside the theme control with a `Subscription usage` tooltip when at least one configured connection supports subscription usage. It must hide this control when no configured connection supports subscription usage. Determining visibility must not fetch provider quota.
 - When the loaded catalog has no supported subscriptions and the control is hidden, Desktop must discover connections added while it is hidden only after restart or reload. Desktop must not add focus refresh, periodic catalog polling, or background quota requests for this discovery. Opening an available usage popup must refresh its catalog.
 - Clicking this control must open a read-only popup listing all supported subscription connections. Clicking the control again, clicking outside, or pressing Escape must close it.
@@ -470,6 +475,11 @@
 - An unfocused window attempts a system notification when available. Activation focuses the main window and opens the matching Task Detail or Session Chat target. Question notifications select the first unresolved Question in their batch. Approval and error-interruption notifications select their matching item.
 - Notification batches are server-authoritative. Resolved notifications dismiss matching persistent in-app notifications. Notification delivery never changes Workflow state. Development failures fail immediately with diagnostics, while production proceeds without delivery.
 - Notification messages are optional structured context. Desktop owns and localizes fallback copy when a message is absent. The server never supplies fallback UI copy.
+- Desktop must receive global Session turn-end attention through the [Runtime Steering And Model Loop](runtime-steering-loop.md#turn-end-attention) contract, including for Sessions without an open Chat.
+- A focused Desktop must show a turn-end notification through the existing in-app notification surface. An unfocused Desktop must attempt a system notification through its existing notification handling.
+- Selecting a turn-end notification must open its Session through ordinary Desktop Session navigation.
+- Turn-end system notifications must identify Kent as the app, use `Session ended: <name>` as the title, and show a plain-text preview of the turn-ending assistant final message as the body. Desktop must localize the copy and ellipsize the title and preview independently to at most 80 Unicode code points each.
+- Desktop must not run TUI client lifecycle hooks.
 
 ## Logs
 

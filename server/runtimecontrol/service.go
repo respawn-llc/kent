@@ -6,12 +6,12 @@ import (
 	"strings"
 	"sync"
 
+	"core/server/agentruntime"
 	"core/server/metadata"
 	"core/server/promptcommands"
 	"core/server/promptcontrol"
-	"core/server/runtime"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	servicecontract "core/shared/apicontract"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -20,7 +20,7 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 type SessionSettingFeedbackPublisher interface {
@@ -293,20 +293,6 @@ func (s *Service) AppendCommittedEntry(ctx context.Context, req *transcriptpb.Ap
 		}
 		return engine.AppendCommittedEntryWithVisibility(callbackCtx, req.Role, req.Text, visibility)
 	})
-}
-
-func (s *Service) AdmitUserShellCommand(ctx context.Context, sessionID runtimeids.SessionID, command string) error {
-	_, err := runRuntimeCommand(ctx, func(ctx context.Context) (struct{}, bool, error) {
-		attempt := newRuntimeCommandAttempt(ctx)
-		defer attempt.Finish()
-		descriptor, err := session.NewOpenSessionDescriptor(sessionID)
-		if err != nil {
-			return struct{}{}, false, err
-		}
-		commandErr := s.authority.SubmitShellCommand(attempt.Context(), descriptor, command, attempt.Accept)
-		return struct{}{}, attempt.Accepted(), agentCommandError(commandErr)
-	})
-	return err
 }
 
 func (s *Service) CompactContext(ctx context.Context, req *runtimepb.CompactContextRequest) error {

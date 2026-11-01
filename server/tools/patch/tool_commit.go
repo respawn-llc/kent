@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"core/shared/config"
-	patchformat "core/shared/transcript/patchformat"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 type patchFileState struct {

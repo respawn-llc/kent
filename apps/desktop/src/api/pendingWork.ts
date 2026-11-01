@@ -17,6 +17,13 @@ export type PendingWorkItem =
       Readonly<{
         id: PendingWorkItemID;
         lane: "queue" | "steer";
+        kind: "shell";
+        shell: Readonly<{ command: string }>;
+      }>)
+  | (PendingWorkItemFacts &
+      Readonly<{
+        id: PendingWorkItemID;
+        lane: "queue" | "steer";
         kind: "message";
         message: Readonly<{ text: string }>;
       }>)

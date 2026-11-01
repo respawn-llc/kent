@@ -8,7 +8,6 @@ import (
 
 	"core/cli/app/internal/runtimeattach"
 	"core/cli/tui"
-	"core/shared/protoapi"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -17,15 +16,12 @@ type runtimeMainViewCandidateClient interface {
 	fetchMainView() (*runtimepb.MainView, error)
 }
 
-func (m *uiModel) startRuntimeMainViewRefresh(interruptedSubmitToken *uint64) tea.Cmd {
+func (m *uiModel) startRuntimeMainViewRefresh() tea.Cmd {
 	if m == nil || !m.hasRuntimeClient() {
 		return nil
 	}
 	if m.runtimeMainViewBusy {
 		m.runtimeMainViewPendingSet = true
-		if interruptedSubmitToken != nil {
-			m.runtimeMainViewPendingInterruptedSubmitToken = interruptedSubmitToken
-		}
 		return nil
 	}
 	m.runtimeMainViewToken++
@@ -49,7 +45,6 @@ func (m *uiModel) startRuntimeMainViewRefresh(interruptedSubmitToken *uint64) te
 		}
 		return runtimeMainViewRefreshedMsg{
 			token:                    token,
-			interruptedSubmitToken:   interruptedSubmitToken,
 			metadataBaselineRevision: metadataBaselineRevision,
 			view:                     view,
 			err:                      err,
@@ -62,9 +57,7 @@ func (m *uiModel) drainPendingRuntimeMainViewRefresh() tea.Cmd {
 		return nil
 	}
 	m.runtimeMainViewPendingSet = false
-	interruptedSubmitToken := m.runtimeMainViewPendingInterruptedSubmitToken
-	m.runtimeMainViewPendingInterruptedSubmitToken = nil
-	return m.startRuntimeMainViewRefresh(interruptedSubmitToken)
+	return m.startRuntimeMainViewRefresh()
 }
 
 func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg) tea.Cmd {
@@ -98,22 +91,18 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 		).view
 	}
 	applyCmd := m.applyRuntimeMainViewState(canonical)
-	var restoreCmd tea.Cmd
-	if msg.interruptedSubmitToken != nil && m.activeSubmit.token == *msg.interruptedSubmitToken &&
-		canonical.Activity != nil && !protoapi.RuntimeActivityActiveForControl(canonical.Activity) {
-		m.activeSubmit = activeSubmitState{}
-		restoreCmd = m.inputController().restoreInterruptedInputsIntoComposer()
-	}
-	return sequenceCmds(applyCmd, restoreCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh())
+	return sequenceCmds(applyCmd, m.applyRuntimeSessionMetadata(canonical.Session), m.drainPendingRuntimeMainViewRefresh())
 }
 
 func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	previousSessionID := strings.TrimSpace(m.sessionID)
+	previousSessionID := strings.TrimSpace(m.currentRuntimeSessionID())
 	nextSessionID := strings.TrimSpace(session.SessionId)
-	m.sessionID = nextSessionID
+	if nextSessionID != "" {
+		m.setKnownSessionTarget(nextSessionID)
+	}
 	m.sessionName = session.SessionName
 	m.conversationFreshness = session.ConversationFreshness
 	if previousSessionID == "" || previousSessionID == nextSessionID {

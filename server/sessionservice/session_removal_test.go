@@ -11,10 +11,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"core/server/agentruntime"
 	"core/server/metadata"
-	"core/server/runtime"
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/shared/runtimeids"
 )
 

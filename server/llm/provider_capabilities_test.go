@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"core/server/httpcompression"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/modelcontract"
 	"core/shared/textutil"

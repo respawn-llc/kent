@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"core/server/metadata"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"

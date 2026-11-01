@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/subagentpolicy"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"

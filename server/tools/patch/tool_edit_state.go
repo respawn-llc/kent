@@ -1,6 +1,6 @@
 package patch
 
-import patchformat "core/shared/transcript/patchformat"
+import patchformat "core/shared/transcriptmodel/patchformat"
 
 const hunkMaxFuzz = 8
 

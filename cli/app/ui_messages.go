@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"time"
@@ -13,26 +14,6 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 )
-
-type submitDoneMsg struct {
-	diagnostic        error
-	selectedSessionID *string
-	token             uint64
-	message           string
-	submittedText     string
-	resultKind        *clientui.UserTurnResultKind
-	queued            clientui.QueuedUserMessage
-	err               error
-}
-
-func newSubmitDoneMsg(token uint64, message string, submittedText string, err error) submitDoneMsg {
-	return submitDoneMsg{
-		token:         token,
-		message:       message,
-		submittedText: submittedText,
-		err:           err,
-	}
-}
 
 type promptHistoryPersistErrMsg struct {
 	err error
@@ -98,16 +79,11 @@ type chatSettingsDoneMsg struct {
 }
 
 type injectedQueueCreateDoneMsg struct {
-	diagnostic error
-	pending    *injectedRuntimeQueueItem
-	item       clientui.QueuedUserMessage
-	completed  bool
-	err        error
-}
-
-type injectedQueueDiscardDoneMsg struct {
-	item      *injectedRuntimeQueueItem
-	discarded bool
+	selectedSessionID *string
+	diagnostic        error
+	pending           *injectedRuntimeQueueItem
+	item              clientui.QueuedUserMessage
+	err               error
 }
 
 type compactDoneMsg struct {
@@ -116,23 +92,6 @@ type compactDoneMsg struct {
 	submittedText string
 	invoked       bool
 	err           error
-}
-
-type activeSubmitOrigin uint8
-
-const (
-	activeSubmitOriginDirect activeSubmitOrigin = iota
-	activeSubmitOriginQueued
-)
-
-// Active submit is the in-flight turn only. uiModel.queued stores future work;
-// never mirror active submit there or it can run again after completion.
-type activeSubmitState struct {
-	token           uint64
-	text            string
-	queuedID        string
-	origin          activeSubmitOrigin
-	submissionOrder inputSubmissionOrder
 }
 
 type spinnerTickMsg struct {
@@ -173,12 +132,12 @@ type uiModelProbeMessage interface {
 }
 
 type runtimeConnectionStateChangedMsg struct {
-	err error
+	scope context.Context
+	err   error
 }
 
 type runtimeMainViewRefreshedMsg struct {
 	token                    uint64
-	interruptedSubmitToken   *uint64
 	metadataBaselineRevision *uint64
 	view                     *runtimepb.MainView
 	err                      error

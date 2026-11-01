@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sync"
 
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/server/workflowruntime"
 )

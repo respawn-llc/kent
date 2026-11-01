@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/config"
 	"core/shared/textutil"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,7 +47,7 @@ func newPacedStreamTransport(t *testing.T, events ...pacedStreamEvent) *HTTPTran
 	}))
 	t.Cleanup(server.Close)
 
-	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)}))
+	transport := newTestHTTPTransport(t, staticAuthHeader{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(server.URL + "/v1")}))
 
 	transport.Client = newRewritingHTTPClient(t, server)
 	return transport
@@ -57,13 +58,24 @@ func newPacedWatchdogClient(t *testing.T, idle time.Duration, events ...pacedStr
 	return newIdleWatchdogClient(NewResponsesClient(newPacedStreamTransport(t, events...), nil), idle)
 }
 
+func finalizedStreamEvent() pacedStreamEvent {
+	return pacedStreamEvent{data: `{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`}
+}
+
 func completedStreamEvent(delay time.Duration) pacedStreamEvent {
-	return pacedStreamEvent{delay: delay, data: `{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`}
+	return pacedStreamEvent{delay: delay, data: `{"type":"response.completed","response":{"id":"paced-response","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`}
 }
 
 func TestOAuthGenerateSurvivesConfiguredHTTPClientTimeout(t *testing.T) {
-	transport := newPacedStreamTransport(t, completedStreamEvent(150*time.Millisecond), pacedStreamEvent{data: `[DONE]`})
-	transport.Auth = oauthStaticAuth{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+			time.Sleep(150 * time.Millisecond)
+			return []string{finalizedStreamEvent().data, completedStreamEvent(0).data}
+		})
+	}))
+	t.Cleanup(server.Close)
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
+	transport.Client = newRewritingHTTPClient(t, server)
 	transport.Client.Timeout = 50 * time.Millisecond
 	dispatch, err := NewCodexDispatchContext(CodexDispatchFacts{
 		SessionID: "session-1", StepID: "step-1", RequestKind: CodexRequestKindTurn.Optional(),
@@ -94,6 +106,7 @@ func TestGenerate_HealthyLongStreamSurvivesTotalWallClockBeyondIdle(t *testing.T
 		pacedStreamEvent{delay: gap, data: `{"type":"response.output_text.delta","delta":"!"}`},
 		pacedStreamEvent{delay: gap, data: `{"type":"response.output_text.delta","delta":"!"}`},
 		pacedStreamEvent{delay: gap, data: `{"type":"response.output_text.delta","delta":"!"}`},
+		finalizedStreamEvent(),
 		completedStreamEvent(gap),
 		pacedStreamEvent{delay: 0, data: `[DONE]`},
 	)
@@ -110,6 +123,7 @@ func TestGenerate_HealthyLongStreamSurvivesTotalWallClockBeyondIdle(t *testing.T
 func TestGenerate_StalledStreamReturnsStallSentinel(t *testing.T) {
 	client := newPacedWatchdogClient(t, 120*time.Millisecond,
 		pacedStreamEvent{delay: 20 * time.Millisecond, data: `{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`},
+		finalizedStreamEvent(),
 		completedStreamEvent(5*time.Second),
 		pacedStreamEvent{delay: 0, data: `[DONE]`},
 	)
@@ -136,6 +150,7 @@ func TestGenerate_StalledStreamReturnsStallSentinel(t *testing.T) {
 func TestGenerate_ParentCancelIsDistinguishableFromStall(t *testing.T) {
 	client := newPacedWatchdogClient(t, 5*time.Second,
 		pacedStreamEvent{delay: 20 * time.Millisecond, data: `{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`},
+		finalizedStreamEvent(),
 		completedStreamEvent(5*time.Second),
 		pacedStreamEvent{delay: 0, data: `[DONE]`},
 	)
@@ -159,6 +174,7 @@ func TestGenerate_StallAfterCompletedSalvagesResponse(t *testing.T) {
 	client := newPacedWatchdogClient(t, time.Second,
 		pacedStreamEvent{delay: 20 * time.Millisecond, data: `{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`},
 		pacedStreamEvent{delay: 20 * time.Millisecond, data: `{"type":"response.output_text.delta","delta":"Done"}`},
+		finalizedStreamEvent(),
 		completedStreamEvent(20*time.Millisecond),
 		pacedStreamEvent{delay: 5 * time.Second, data: `[DONE]`},
 	)
@@ -176,6 +192,7 @@ func TestGenerate_CallerCancelAfterCompletedIsNotSalvaged(t *testing.T) {
 	client := newPacedWatchdogClient(t, 5*time.Second,
 		pacedStreamEvent{delay: 20 * time.Millisecond, data: `{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`},
 		pacedStreamEvent{delay: 20 * time.Millisecond, data: `{"type":"response.output_text.delta","delta":"Done"}`},
+		finalizedStreamEvent(),
 		completedStreamEvent(20*time.Millisecond),
 		pacedStreamEvent{delay: 5 * time.Second, data: `[DONE]`},
 	)
@@ -199,6 +216,7 @@ func TestGenerate_TransportEmitsActivityHeartbeatPerEvent(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
 		`{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[]}}`,
 		`{"type":"response.output_text.delta","delta":"Done"}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},"output":[{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
 		`[DONE]`,
 	)
@@ -209,7 +227,7 @@ func TestGenerate_TransportEmitsActivityHeartbeatPerEvent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
-	if got := beats.Load(); got != 3 {
-		t.Fatalf("activity beats = %d, want one per streamed event (3)", got)
+	if got := beats.Load(); got != 4 {
+		t.Fatalf("activity beats = %d, want one per streamed event (4)", got)
 	}
 }

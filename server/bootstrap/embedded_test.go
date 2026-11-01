@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"

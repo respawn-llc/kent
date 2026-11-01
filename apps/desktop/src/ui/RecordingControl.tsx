@@ -3,14 +3,14 @@ import { createPortal } from "react-dom";
 import { Mic, Square } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { IconTooltipButton } from "./IconTooltipButton";
-import { Spinner } from "./Spinner";
 import { cx } from "./classes";
 import { islandSurfaceClassName } from "./islandSurfaceStyles";
 import { motionDurationFromCSSVar } from "./motion";
+type RecordingMeter = Pick<AnalyserNode, "frequencyBinCount" | "getByteFrequencyData">;
 
 export type RecordingControlProps = Readonly<{
   phase: "idle" | "preparing" | "recording" | "transcribing";
-  recording: Readonly<{ analyser: AnalyserNode; startedAt: number }> | null;
+  recording: Readonly<{ analyser: RecordingMeter; startedAt: number }> | null;
   disabled: boolean;
   label: string;
   tooltip: string;
@@ -62,6 +62,7 @@ export function RecordingControl({
             label={label}
             tooltip={tooltip}
             disabled={disabled}
+            loading={phase === "preparing" || phase === "transcribing"}
             onClick={phase === "recording" ? onStop : onStart}
           >
             <span className="relative grid size-5 place-items-center">
@@ -74,13 +75,7 @@ export function RecordingControl({
                   exit={{ opacity: 0 }}
                   transition={transition}
                 >
-                  {phase === "preparing" || phase === "transcribing" ? (
-                    <Spinner size="sm" />
-                  ) : phase === "recording" ? (
-                    <Square size={16} fill="currentColor" />
-                  ) : (
-                    <Mic size={18} />
-                  )}
+                  {phase === "recording" ? <Square size={16} fill="currentColor" /> : <Mic size={18} />}
                 </motion.span>
               </AnimatePresence>
             </span>
@@ -135,7 +130,7 @@ SOFTWARE.
 function RadialRecordingMeter({
   analyser,
   anchor,
-}: Readonly<{ analyser: AnalyserNode; anchor: RefObject<HTMLSpanElement | null> }>) {
+}: Readonly<{ analyser: RecordingMeter; anchor: RefObject<HTMLSpanElement | null> }>) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const reducedMotion = useReducedMotion();
   useEffect(() => {

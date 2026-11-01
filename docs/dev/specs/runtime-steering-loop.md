@@ -7,7 +7,7 @@
 - Desktop and TUI must use one action-attached Runtime preparation approach. When an action supplies invocation preparation choices, the server must validate and apply them. When those choices are absent, the server must use the saved Session choices.
 - TUI invocation preparation must apply the selected Agent and explicit Thinking and tool choices supported by Session launch.
 - An explicit Thinking choice must apply to an already-loaded Engine during preparation. Applying that choice may wait for the current Agent Step but must not wait for the whole Agent Turn.
-- A foreground user-shell action must use the same server-owned preparation while remaining a separate request. It must work as the first action on a dormant existing Session without a preceding Send. It must execute without a model invocation and report its result at the command boundary.
+- A user-Shell activation in Chat Steer or Queue must use the same server-owned preparation. It must work as the first action from New or a dormant existing Session without a preceding Send. It must execute without a model invocation.
 - Clients never activate, own, release, or otherwise manage an Active Session Runtime as a prerequisite for a Chat mutation.
 - The Active Session Runtime is authoritative for its live model, transcript, Pending Work, and Session-setting state.
 - Every model-executing Agent Turn, including Goal-started work, must belong to a live Exact Execution Scope before its first Agent Step and until its model work finishes.
@@ -32,7 +32,7 @@
 - Post-turn Queue is a separate server-owned first-in, first-out message collection exposed through one public Session Queue operation.
 - Queue accepts the same typed ordinary-text or prompt/Agent-command input as Submit User Turn. The server resolves a prompt or Agent command at admission from the Session's authoritative effective workspace and queues the resolved model input. History and Pending Work presentation use the canonical command text.
 - Post-turn Queue accepts each input as a distinct Queue Item and returns its identity without waiting for its later eligible turn. If no Agent Turn is active and the Session can start ordinary work, the accepted Queue Item starts immediately. Otherwise, ordinary after-turn eligibility applies.
-- Each new Agent Turn must consume at most one post-turn Queue Item, selecting the oldest eligible item. Remaining Queue Items must wait until that Agent Turn ends before starting subsequent turns.
+- Each new Agent Turn must consume at most one post-turn queued model message, selecting the oldest eligible one. Remaining Queue Items must wait until that Agent Turn ends before starting subsequent turns.
 - Session Name persists immediately while an Agent Step is running.
 - An unnamed Session must have explicit name absence. Setting a name must require nonblank text. Clearing a name must remove it rather than store an empty name.
 - A dormant existing Session's name change must persist without starting an Active Session Runtime. Name changes must be available while an Agent Step runs.
@@ -50,7 +50,18 @@
 - A definitely-uncommitted Thinking write has no effect on the live value.
 - Another independently owned Thinking write may replace an authoritative value.
 - Boundary-required model-visible technical entries apply in accepted order.
-- A user foreground shell command reports its terminal result at the command boundary.
+- Human Shell admission must return acceptance without waiting for process completion.
+- Human Shell actions must enter the same server-owned Steer or post-turn Queue collection as human messages, using the caller's selected intent.
+- Human Shell actions must use typed activations through the ordinary Chat Steer and Queue operations, not a separate Shell operation or model text.
+- Steer Shell actions must execute at the next eligible Step Boundary. Queue Shell actions must wait until the current Agent Turn ends.
+- If no Agent Turn is active, eligible Shell actions must execute without starting the model.
+- Eligible Shell actions must execute in their lane's acceptance order. Consecutive eligible Queue Shell actions must execute before the next queued model message starts its turn, with their outputs available in its model context.
+- The one-model-message-per-turn Queue limit must not prevent consecutive Shell-only actions from executing.
+- Accepted Shell actions must appear in Pending Work until execution starts and follow its shared capacity and process-loss rules.
+- Rejection before acceptance must restore the Shell invocation for explicit retry. Stop must restore accepted Shell actions that have not started through ordinary human-input restoration.
+- A Shell command that ran must record its success or nonzero exit through the user-Shell result contract in [Core Runtime And Tools](core-runtime-tools.md#core-tools-and-runtime-integration). It must not be retried automatically or restored as unexecuted.
+- If Shell completes but Stop or terminal request-preparation failure prevents the next model request, Kent must record the completed Shell result in the Session without another model request or resubmission. Uncommitted model messages must keep their ordinary pending/restoration behavior.
+- Stopping running Shell work must follow ordinary Shell interruption behavior without rollback or stronger commit-or-restore guarantees.
 - A foreground shell process may run while later short Session mutations apply.
 - A background process becomes independent after Kent reports it as backgrounded.
 - Background completion is delivered when applicable and never blocks unrelated model or tool work.
@@ -72,9 +83,10 @@
 - A validation failure before acceptance creates no Pending Work or Queue Item.
 - A typed domain failure after acceptance completes only that operation and leaves unrelated later mutations accepted.
 - Interactive submission is accepted against one current Active Session Runtime.
-- Accepted Chat Send and Queue must return the input identity and a typed admission disposition: started turn, pending Steer, or pending Queue.
+- Accepted Chat Send and Queue must return the input identity and a typed admission disposition: started turn, started Shell, pending Steer, or pending Queue.
+- Immediate Shell-only admission must report started Shell rather than started turn. Pending Shell admission must report its Steer or Queue lane.
 - The Runtime must determine this disposition at admission, including work already scheduled but not yet executing. The response must not infer it from a later activity read or wait for model output or client transcript hydration.
-- Queue accepted while idle must report a started turn while retaining its explicit Queue intent.
+- A model message accepted through Queue while idle must report a started turn while retaining its explicit Queue intent.
 - If an interactive Chat mutation, including submission, Queue, or manual compaction, targets a Session without an Active Session Runtime, the server prepares and opens one before admission.
 - The server owns Runtime preparation. Clients never activate or release it.
 - Prepared Runtime lifetime follows the server-owned idle policy in [Core Runtime And Tools](core-runtime-tools.md), whether or not Chat admission accepts the requested work.
@@ -82,10 +94,20 @@
 - Authentication, metadata, execution-target, filesystem, tool, validation, Runtime-opening, or Runtime-publication failure before acceptance is terminal for that submission and creates no Pending Work or Queue Item.
 - Core shutdown may cancel a Chat Operation before acceptance. That cancellation creates no Pending Work or Queue Item. A Session already committed during New Chat target resolution is discoverable.
 
+## Turn-End Attention
+
+- The server must publish one ephemeral Session turn-end attention event for each completed assistant-final Agent Turn with at least two tool calls.
+- Turns with fewer than two tool calls, interruptions, and outcomes without an assistant final answer must not publish turn-end attention events.
+- Turn-end attention events must carry the Session identity and assistant-final content for client-owned notification copy and navigation.
+- The existing attention stream must deliver turn-end events globally to Desktop and by Session to Session-scoped observers, including when Desktop has no Chat open for that Session.
+- Pending Queue messages must not delay turn-end events or consolidate events from separate completed turns.
+- Turn-end events must not be persisted, replayed, or acknowledged. Disconnected clients must not receive missed turn-end events after reconnect.
+- Clients must own notification copy, localization, and presentation. Notification delivery must not change Runtime work.
+
 ## Pending Work
 
 - Pending Work is the process-local server-authoritative projection of accepted work that has not started.
-- Pending Work contains only human messages, manual compaction, and Active-Runtime Worktree enter or leave.
+- Pending Work contains only human messages, human Shell actions, manual compaction, and Active-Runtime Worktree enter or leave.
 - Pending Work is separate from the internal Engine Intent Queue and has no persistence, replay, reconciliation, or connection-owned lifecycle.
 - Every accepted queued action receives one identity.
 - Desktop, TUI, and CLI callers must generate a UUID v4 Queue Item identity before submitting human Steer or Queue input. Kent must validate the supplied identity and accept it unchanged. Server-authored input must receive its identity at its origin.

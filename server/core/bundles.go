@@ -27,7 +27,7 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowrunner"
 	"core/server/workflowsvc"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/apicontract"
 	"core/shared/config"
 )

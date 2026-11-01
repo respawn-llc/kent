@@ -11,7 +11,20 @@ import (
 var ErrScriptedRuntime = scriptedllm.ErrScriptExhausted
 
 type ScriptedRuntimeStep = scriptedllm.Step
-type ScriptedClient = scriptedllm.Client
+type ScriptedClient struct {
+	*scriptedllm.Client
+	requestEvents currentNodeRunnerEvents
+}
+
+func (c *ScriptedClient) Generate(ctx context.Context, request llm.Request, callbacks llm.StreamCallbacks) (llm.Response, error) {
+	// Error and cancellation steps bypass BeforeResponse.
+	defer c.requestEvents.publish()
+	return c.Client.Generate(ctx, request, callbacks)
+}
+
+func (c *ScriptedClient) RequestChanges() <-chan struct{} {
+	return c.requestEvents.subscribe()
+}
 
 type compactingScriptedClient struct {
 	base        *ScriptedClient
@@ -43,6 +56,10 @@ func (c *compactingScriptedClient) Requests() []llm.Request {
 	return c.base.Requests()
 }
 
+func (c *compactingScriptedClient) RequestChanges() <-chan struct{} {
+	return c.base.RequestChanges()
+}
+
 func (c *compactingScriptedClient) Compact(ctx context.Context, request llm.CompactionRequest) (llm.CompactionResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return llm.CompactionResponse{}, err
@@ -69,12 +86,29 @@ func (c *compactingScriptedClient) CompactionCalls() []llm.CompactionRequest {
 }
 
 func NewScriptedClient(caps llm.ProviderCapabilities, steps ...ScriptedRuntimeStep) *ScriptedClient {
-	return scriptedllm.NewClient(scriptedllm.Script{Capabilities: &caps, Steps: steps})
+	return newObservedScriptedClient(scriptedllm.Script{Capabilities: &caps, Steps: steps})
 }
 
 func NewDefaultScriptedClient(steps ...ScriptedRuntimeStep) *ScriptedClient {
 	caps := scriptedllm.DefaultProviderCapabilities()
-	return scriptedllm.NewClient(scriptedllm.Script{Capabilities: &caps, Steps: steps})
+	return NewScriptedClient(caps, steps...)
+}
+
+func newObservedScriptedClient(script scriptedllm.Script) *ScriptedClient {
+	client := &ScriptedClient{}
+	script.Steps = append([]scriptedllm.Step(nil), script.Steps...)
+	for index := range script.Steps {
+		before := script.Steps[index].BeforeResponse
+		script.Steps[index].BeforeResponse = func(ctx context.Context) error {
+			client.requestEvents.publish()
+			if before != nil {
+				return before(ctx)
+			}
+			return nil
+		}
+	}
+	client.Client = scriptedllm.NewClient(script)
+	return client
 }
 
 func ScriptedFinalAnswer(content string) ScriptedRuntimeStep {

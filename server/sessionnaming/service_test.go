@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/shared/config"
 	"core/shared/runtimeids"
 )

@@ -5,13 +5,12 @@ import (
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/analyzer"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-	"core/shared/textutil"
 	"fmt"
 )
 import (
 	"core/cli/tui/ongoing"
-	"core/cli/tui/transcriptrender"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	xansi "github.com/charmbracelet/x/ansi"
 	"reflect"
@@ -128,7 +127,8 @@ func TestOngoingOverlayPrecedenceAndHelpFloor(t *testing.T) {
 func TestOngoingQueueUsesAllocatedHeightAndNewestMessages(t *testing.T) {
 	m := sizedTestUIModel(newProjectedStaticUIModel(), 40, 20)
 	for index := range 8 {
-		m.queueInput(fmt.Sprintf("message%d", index))
+		m.pendingWorkRefresh.collection.Items = append(m.pendingWorkRefresh.collection.Items,
+			pendingWorkMessageForTest(runtimeinput.PendingWorkLaneQueue, fmt.Sprintf("message%d", index)))
 	}
 	var output bytes.Buffer
 	surface := ongoing.NewSurface(&output)
@@ -372,86 +372,14 @@ func TestOngoingFrameInputKeepsServerBackedQueuedStateTranscriptOwned(t *testing
 	m := sizedTestUIModel(newProjectedTestUIModel(&runtimeControlFakeClient{}), 48, 10)
 	m.injectedQueue = []*injectedRuntimeQueueItem{{
 
-		ServerID: textutil.Value("11111111-1111-4111-8111-111111111111"),
-		Text:     "server accepted",
-		State:    injectedRuntimeQueueEnqueued}}
+		Request: inputAdmissionRequest{QueueItemID: runtimeids.NewQueueItemID()},
+		Text:    "server accepted",
+		State:   injectedRuntimeQueueEnqueued}}
 
 	frame := m.ongoingFrameInput()
 
 	if section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered); ok {
 		t.Fatalf("legacy queued section = %+v, want absent for server-backed accepted items", section)
-	}
-}
-
-func TestOngoingFrameInputStillRendersClientLocalQueuedMessages(t *testing.T) {
-	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.queueInput("queued before server acceptance")
-	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{pendingWorkMessageForTest(runtimeinput.PendingWorkLaneSteer, "server pending")}}
-
-	frame := m.ongoingFrameInput()
-
-	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
-	if !ok {
-		t.Fatal("local queued section missing")
-	}
-	if len(section.StyledLines) != 2 || len(section.StyledLines[0].Spans) == 0 {
-		t.Fatalf("merged queued styled lines = %+v, want server and local lines", section.StyledLines)
-	}
-	span := section.StyledLines[0].Spans[0]
-	role, semantic := span.Style.Role()
-	if !semantic ||
-		role != transcriptrender.StyleRoleNoticeSecondary ||
-		!span.Style.Has(transcriptrender.SpanAttributeFaint) {
-		t.Fatalf("local queued span = %+v, want secondary/faint", span)
-	}
-}
-
-func TestOngoingFrameInputRendersPendingInjectedMessagesBeforeServerAcceptance(t *testing.T) {
-	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.injectedQueue = []*injectedRuntimeQueueItem{{
-
-		Text:  "pending injected before server acceptance",
-		State: injectedRuntimeQueuePendingCreate}}
-	frame := m.ongoingFrameInput()
-
-	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
-	if !ok {
-		t.Fatal("pending injected section missing")
-	}
-	if len(section.StyledLines) != 1 || len(section.StyledLines[0].Spans) == 0 {
-		t.Fatalf("pending injected styled lines = %+v, want one typed line", section.StyledLines)
-	}
-	span := section.StyledLines[0].Spans[0]
-	role, semantic := span.Style.Role()
-	if !semantic ||
-		role != transcriptrender.StyleRoleNoticePrimary ||
-		span.Style.Has(transcriptrender.SpanAttributeFaint) {
-		t.Fatalf("pending injected span = %+v, want primary/full-strength", span)
-	}
-}
-
-func TestOngoingFrameInputRendersNoRuntimeInjectedMessages(t *testing.T) {
-	m := sizedTestUIModel(newProjectedStaticUIModel(), 48, 10)
-	m.injectedQueue = []*injectedRuntimeQueueItem{{
-
-		ServerID: textutil.Value("11111111-1111-4111-8111-111111111111"),
-		Text:     "local injected without runtime client",
-		State:    injectedRuntimeQueueEnqueued}}
-	frame := m.ongoingFrameInput()
-
-	section, ok := frameSection(frame, ongoing.FrameSectionQueuedOrSteered)
-	if !ok {
-		t.Fatal("no-runtime injected section missing")
-	}
-	if len(section.StyledLines) != 1 || len(section.StyledLines[0].Spans) == 0 {
-		t.Fatalf("no-runtime injected styled lines = %+v, want one typed line", section.StyledLines)
-	}
-	span := section.StyledLines[0].Spans[0]
-	role, semantic := span.Style.Role()
-	if !semantic ||
-		role != transcriptrender.StyleRoleNoticePrimary ||
-		span.Style.Has(transcriptrender.SpanAttributeFaint) {
-		t.Fatalf("no-runtime injected span = %+v, want primary/full-strength", span)
 	}
 }
 

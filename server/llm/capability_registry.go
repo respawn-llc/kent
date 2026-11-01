@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/modelcontract"
 	"core/shared/textutil"

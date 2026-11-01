@@ -5,11 +5,11 @@ import (
 	"errors"
 	"strings"
 
+	"core/server/agentruntime"
 	"core/server/goalview"
 	"core/server/metadata"
-	"core/server/runtime"
 	"core/server/runtimeview"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"

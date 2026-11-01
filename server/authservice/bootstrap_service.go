@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/authstatus"
 	"core/shared/config"
 	"core/shared/protoapi"

@@ -7,7 +7,7 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/llm"
 	"core/server/runtimewire"
 	"core/shared/config"

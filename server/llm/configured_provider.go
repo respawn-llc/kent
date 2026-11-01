@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/textutil"
 )

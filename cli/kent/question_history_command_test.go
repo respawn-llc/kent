@@ -13,7 +13,7 @@ import (
 	"core/shared/protoapi"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	"core/shared/sessionenv"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/google/uuid"

@@ -12,11 +12,10 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
-	"core/server/metadata"
-	"core/server/onboarding"
 	"core/server/onboardingimports"
+	"core/server/onboardingservice"
 	"core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
@@ -41,15 +40,11 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	binding, err := metadata.RegisterBinding(context.Background(), cfg.PersistenceRoot, workspaceA)
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	binding, err := store.RegisterWorkspaceBinding(t.Context(), workspaceA)
 	if err != nil {
 		t.Fatalf("RegisterBinding: %v", err)
 	}
-	store, err := metadata.Open(cfg.PersistenceRoot)
-	if err != nil {
-		t.Fatalf("metadata.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
 	if _, err := store.AttachWorkspaceToProject(context.Background(), binding.ProjectID, workspaceB); err != nil {
 		t.Fatalf("AttachWorkspaceToProject: %v", err)
 	}
@@ -103,13 +98,13 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}
 
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, responseServer.URL()))
-	server := startServeTestServer(t, Request{
+	server := newMemoryServeTestServer(t, Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		LoadOptions: config.LoadOptions{
 			Model: "gpt-6-sol",
 		},
-	})
+	}, store)
 	connection, err := server.Config().Settings.SelectedConnection()
 	if err != nil || connection.Endpoint == nil || *connection.Endpoint != responseServer.URL() {
 		t.Fatalf("selected connection = %+v, error = %v", connection, err)
