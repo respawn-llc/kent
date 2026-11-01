@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,6 +153,100 @@ func TestExecuteToolCallsMaterializesEveryQuestionBeforeAnyAnswer(t *testing.T) 
 
 func (questionBatchTestHandler) QuestionsEnabled() bool {
 	return true
+}
+
+func TestFiveSlowQuestionsEmitOneReminderOnlyWhenBatchResumes(t *testing.T) {
+	broker := tools.NewAskQuestionBroker()
+	pending := make(chan tools.AskQuestionRequest, 5)
+	finished := make(chan struct{}, 5)
+	releases := make(map[string]chan struct{}, 5)
+	calls := make([]llm.ToolCall, 5)
+	for index := range calls {
+		id := fmt.Sprintf("ask-%d", index)
+		calls[index] = llm.ToolCall{ID: id, Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Proceed?"}`)}
+		releases[id] = make(chan struct{})
+	}
+	broker.SetLifecycleAskHandler(func(ctx context.Context, request tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+		pending <- request
+		select {
+		case <-releases[request.ToolCallID]:
+			return tools.AskQuestionAnswer{Freeform: textutil.Value("answer")}, nil
+		case <-ctx.Done():
+			return nil, context.Cause(ctx)
+		}
+	})
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{
+		{Assistant: llm.Message{Role: llm.RoleAssistant}, ToolCalls: calls},
+		{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")}},
+	}}
+	var clock atomic.Int64
+	start := time.Now().Add(-12 * time.Hour).Truncate(time.Millisecond)
+	clock.Store(start.UnixNano())
+	var reminders atomic.Int32
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolAskQuestion, Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
+	}), Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}, IdleResumeReminderSeconds: textutil.Value(3600),
+		OnEvent: func(event Event) {
+			if event.Kind == EventQuestionCandidateFinished {
+				finished <- struct{}{}
+			}
+			if event.Message.MessageType != nil && *event.Message.MessageType == llm.MessageTypeIdleResumeReminder {
+				reminders.Add(1)
+			}
+		},
+	})
+	engine.transcriptRuntimeState().now = func() time.Time { return time.Unix(0, clock.Load()) }
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { _, err := engine.SubmitUserMessage(ctx, "ask five questions"); done <- err }()
+	for range calls {
+		select {
+		case request := <-pending:
+			if request.QuestionBatch == nil || request.QuestionBatch.PreparedPromptCount != 5 {
+				t.Fatal("Question missing batch identity")
+			}
+		case err := <-done:
+			t.Fatalf("Question turn finished before batch wait: %v", err)
+		case <-time.After(3 * time.Second):
+			t.Fatal("five Questions were not all waiting")
+		}
+	}
+	for index, call := range calls {
+		clock.Add(int64(2 * time.Hour))
+		close(releases[call.ID])
+		select {
+		case <-finished:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Question answer was not delivered")
+		}
+		if index < 4 {
+			if reminders.Load() != 0 {
+				t.Fatal("reminder emitted for an individual answer")
+			}
+			if activity := store.ContextFacts().LastModelToolActivityAt; activity == nil || !activity.Equal(start) {
+				t.Fatalf("answer changed model/tool activity: %v", activity)
+			}
+			client.mu.Lock()
+			requestCount := len(client.calls)
+			client.mu.Unlock()
+			if requestCount != 1 {
+				t.Fatal("model resumed before whole Question batch completed")
+			}
+		}
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("model did not resume after batch completed")
+	}
+	if reminders.Load() != 1 || len(client.calls) != 2 || idleReminderCount(client.calls[1]) != 1 {
+		t.Fatalf("batch continuation reminders=%d requests=%d", reminders.Load(), len(client.calls))
+	}
 }
 
 func TestOrdinaryCompletionRecordsActivityBeforeSiblingQuestionAnswer(t *testing.T) {

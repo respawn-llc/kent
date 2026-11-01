@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,8 +63,8 @@ func TestModelActivityIncludesSilentResponsesAndExcludesFailures(t *testing.T) {
 		response llm.Response
 		err      error
 	}{
-		{name: "tool calls", response: llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{{ID: "call", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"true"}`)}}}}},
+		{name: "tool calls", response: llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant},
+			ToolCalls: []llm.ToolCall{{ID: "call", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"true"}`)}}}},
 		{name: "reasoning", response: llm.Response{Reasoning: []llm.ReasoningEntry{{Text: "working"}}}},
 		{name: "failed", err: errors.New("failed")},
 		{name: "canceled", err: context.Canceled},
@@ -126,7 +127,8 @@ func TestActivityWriteFailureSurfacesWithoutReplayingTool(t *testing.T) {
 
 func TestBackgroundCompletionUsesFinishTimeAndKeepsNewerActivity(t *testing.T) {
 	store := mustCreateTestSession(t)
-	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{Model: "gpt-6-sol"})
+	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")}}}}
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol", IdleResumeReminderSeconds: textutil.Value(3600)})
 	finished := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
 	event := BackgroundShellEvent{Type: BackgroundShellEventCompleted, ID: "background", FinishedAt: &finished}
 	if err := engine.RecordBackgroundShellUpdate(event); err != nil {
@@ -144,6 +146,17 @@ func TestBackgroundCompletionUsesFinishTimeAndKeepsNewerActivity(t *testing.T) {
 	}
 	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(newer) {
 		t.Fatalf("delayed completion replaced newer activity: %v", got)
+	}
+	if err := engine.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true,
+		[]llm.Message{{Role: llm.RoleAssistant, Content: textutil.Value("prior work")}})); err != nil {
+		t.Fatal(err)
+	}
+	engine.transcriptRuntimeState().now = func() time.Time { return newer }
+	if _, err := runStepLoopInActiveTestRun(t, t.Context(), engine); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 1 || idleReminderCount(client.calls[0]) != 0 {
+		t.Fatal("background completion caused a false sleep reminder")
 	}
 }
 
@@ -200,6 +213,65 @@ func TestAccessApprovalWaitOnlyCountsSubsequentExecutedWork(t *testing.T) {
 			}
 			if got := store.ContextFacts().LastModelToolActivityAt != nil; got != test.wantActivity {
 				t.Fatalf("has activity = %v, want %v", got, test.wantActivity)
+			}
+		})
+	}
+}
+
+type longActivityTool struct{ clock *atomic.Int64 }
+
+func (h longActivityTool) Call(context.Context, tools.Call) (tools.Result, error) {
+	h.clock.Add(int64(6 * time.Hour))
+	return tools.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
+}
+
+func TestLongToolWorkAndAccessWaitsAtGenerationBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		decision     *tools.AskQuestionApprovalDecision
+		wantReminder int
+	}{
+		{name: "six hour ordinary tool"},
+		{name: "allowed access", decision: textutil.Value(tools.AskQuestionApprovalDecisionAllowOnce)},
+		{name: "denied access", decision: textutil.Value(tools.AskQuestionApprovalDecisionDeny), wantReminder: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var clock atomic.Int64
+			start := time.Now().Add(-12 * time.Hour).Truncate(time.Millisecond)
+			clock.Store(start.UnixNano())
+			var handler tools.Handler = longActivityTool{&clock}
+			if test.decision != nil {
+				broker := tools.NewAskQuestionBroker()
+				broker.SetLifecycleAskHandler(func(context.Context, tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
+					clock.Add(int64(6 * time.Hour))
+					return tools.AskQuestionApproval{Decision: *test.decision}, nil
+				})
+				handler = approvalActivityTool{broker}
+			}
+			client := &fakeClient{responses: []llm.Response{
+				{Assistant: llm.Message{Role: llm.RoleAssistant}, ToolCalls: []llm.ToolCall{{ID: "work", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"true"}`)}}},
+				{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")}},
+			}}
+			if test.wantReminder == 1 {
+				client.responses[1] = llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant}, ToolCalls: []llm.ToolCall{{
+					ID: "second-wait", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"true"}`),
+				}}}
+				client.responses = append(client.responses, llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")}})
+			}
+			engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: handler}),
+				Config{Model: "gpt-6-sol", IdleResumeReminderSeconds: textutil.Value(3600)})
+			engine.transcriptRuntimeState().now = func() time.Time { return time.Unix(0, clock.Load()) }
+			if _, err := engine.SubmitUserMessage(t.Context(), "work"); err != nil {
+				t.Fatal(err)
+			}
+			if len(client.calls) != 2+test.wantReminder {
+				t.Fatalf("requests=%d", len(client.calls))
+			}
+			if got := idleReminderCount(client.calls[1]); got != test.wantReminder {
+				t.Fatalf("reminders=%d, want %d", got, test.wantReminder)
+			}
+			if test.wantReminder == 1 && idleReminderCount(client.calls[2]) != 2 {
+				t.Fatal("an earlier reminder suppressed a new gap after intervening model work in the same live execution")
 			}
 		})
 	}

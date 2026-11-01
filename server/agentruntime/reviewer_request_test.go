@@ -68,6 +68,9 @@ func TestReviewerSuggestions_ReusesStableMetaForPromptCachePrefix(t *testing.T) 
 	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), eng, "step-1", reviewerClient); err != nil {
 		t.Fatalf("first reviewer suggestions: %v", err)
 	}
+	if store.ContextFacts().LastModelToolActivityAt == nil {
+		t.Fatal("successful Session-owned model request has no activity")
+	}
 	if _, err := runReviewerSuggestionsTestActiveStep(context.Background(), eng, "step-2", reviewerClient); err != nil {
 		t.Fatalf("second reviewer suggestions: %v", err)
 	}

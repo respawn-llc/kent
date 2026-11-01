@@ -2,11 +2,15 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"core/server/llm"
+	"core/server/sessionstore"
+	"core/shared/config"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 )
 
 func TestIdleResumeEligibility(t *testing.T) {
@@ -231,5 +235,63 @@ func TestIdleReminderReusesUnansweredTailOnRetry(t *testing.T) {
 	}
 	if idleReminderCount(client.calls[2]) != 2 {
 		t.Fatal("completed intervening model work suppressed a later idle reminder")
+	}
+}
+
+func TestWorkflowResumeChecksIdleWithoutHumanInput(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("complete", completeNodeCall("complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
+	}}
+	engine := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool),
+		Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}, IdleResumeReminderSeconds: textutil.Value(3600)})
+	prior := time.Now().Add(-2 * time.Hour)
+	if err := store.RecordModelToolActivity(prior); err != nil {
+		t.Fatal(err)
+	}
+	assignment := workflowAssignmentForCompactionTest()
+	steer, err := engine.SteerWorkflowAssignmentResume(t.Context(), assignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := steer.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(prior) {
+		t.Fatal("Workflow Resume changed activity before work")
+	}
+	if _, err := engine.SubmitWorkflowTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 1 || idleReminderCount(client.calls[0]) != 1 {
+		t.Fatalf("workflow resume requests=%d", len(client.calls))
+	}
+}
+
+func TestReopenedSessionRetainsIdleEligibility(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("first")}}}}
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{Model: "gpt-6-sol", IdleResumeReminderSeconds: textutil.Value(3600)})
+	engine.transcriptRuntimeState().now = func() time.Time { return time.Now().Add(-2 * time.Hour) }
+	if _, err := engine.SubmitUserMessage(t.Context(), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := session.Open(store.Dir(), runtimeTestSessionPersistence.Options()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("second")}}}}
+	resumed := mustNewTestEngine(t, reopened, next, newTestToolRegistry(t), Config{Model: "gpt-6-sol", IdleResumeReminderSeconds: textutil.Value(3600)})
+	if len(next.calls) != 0 {
+		t.Fatal("opening Session started model work")
+	}
+	if _, err := resumed.SubmitUserMessage(t.Context(), "resume"); err != nil {
+		t.Fatal(err)
+	}
+	if len(next.calls) != 1 || idleReminderCount(next.calls[0]) != 1 {
+		t.Fatal("reopening lost idle eligibility")
 	}
 }

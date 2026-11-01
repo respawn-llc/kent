@@ -237,6 +237,12 @@ func TestWorkflowSessionCanApproveAnotherTask(t *testing.T) {
 	)
 	targetTask := createDefaultWorkflowServiceTask(t, ctx, service, binding.ProjectID)
 	targetStarted := startWorkflowServiceTask(t, ctx, service, targetTask.Task.Id)
+	targetSessionID := bindWorkflowServiceSessionToTask(t, service, metadataStore, binding,
+		workflow.TaskID(targetTask.Task.Id), targetStarted.CurrentNodes[0])
+	priorActivity := time.Now().Add(-2 * time.Hour).Truncate(time.Millisecond)
+	if _, err := metadataStore.WriteModelToolActivity(ctx, targetSessionID.String(), priorActivity); err != nil {
+		t.Fatal(err)
+	}
 	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(targetTask.Task.Id), targetStarted.CurrentNodes[0])
 	completed, err := workflowfixture.CompleteCurrentNode(t, ctx, metadataStore, service.store, workflowstore.CurrentNodeCompletionRequest{
 		Source:       source,
@@ -255,6 +261,13 @@ func TestWorkflowSessionCanApproveAnotherTask(t *testing.T) {
 	}
 	if response.GetApplied() == nil || response.GetApplied().TaskId != targetTask.Task.Id {
 		t.Fatalf("ApproveWorkflowTask response = %+v, want target Task applied", response)
+	}
+	persisted, err := metadataStore.ResolvePersistedSession(ctx, targetSessionID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activity := persisted.ContextFacts.LastModelToolActivityAt; activity == nil || !activity.Equal(priorActivity) {
+		t.Fatalf("Workflow Task Approval alone refreshed activity: %v", activity)
 	}
 }
 

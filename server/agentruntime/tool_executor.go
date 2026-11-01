@@ -284,6 +284,7 @@ func (e *Engine) executePreparedToolCall(
 	}
 	if toolID == toolspec.ToolCompleteNode {
 		result, err := e.executeCompleteNodeTool(ctx, stepID, call)
+		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
 		return result, true, err
 	}
 	if inputErr != nil {

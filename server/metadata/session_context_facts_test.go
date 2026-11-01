@@ -49,6 +49,9 @@ func TestSessionContextFactsPersistIndependentlyFromFullSnapshots(t *testing.T) 
 	if err := sessionStore.SetInputDraft("unsent", nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := sessionStore.SetThinkingOverride(metadataStringPointer("low")); err != nil {
+		t.Fatal(err)
+	}
 	if err := sessionStore.SetSessionContextFacts(4, true); err != nil {
 		t.Fatalf("SetSessionContextFacts: %v", err)
 	}
@@ -177,6 +180,25 @@ BEGIN SELECT RAISE(FAIL, 'forced activity write failure'); END;`); err != nil {
 	}
 	if reopened.ContextFacts().LastModelToolActivityAt != nil {
 		t.Fatal("snapshot persisted failed activity")
+	}
+}
+
+func TestActivityMigrationLeavesExistingSessionAbsent(t *testing.T) {
+	db, err := openDatabaseAtVersionForTest(t, 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execSeed(t, db, "project", `INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms)
+VALUES ('activity-project', 'Project', 1000, 1000)`)
+	execSeed(t, db, "session", `INSERT INTO sessions (id, project_id, artifact_relpath, short_id, created_at_unix_ms, updated_at_unix_ms)
+VALUES ('activity-session', 'activity-project', 'sessions/activity-session', 1, 1000, 2000)`)
+	store := migrateMetadataTestStore(t, t.TempDir(), db)
+	record, err := store.ResolvePersistedSession(t.Context(), "activity-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ContextFacts.LastModelToolActivityAt != nil {
+		t.Fatal("migration backfilled activity")
 	}
 }
 
