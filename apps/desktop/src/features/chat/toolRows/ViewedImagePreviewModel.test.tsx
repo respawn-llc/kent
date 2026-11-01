@@ -121,9 +121,7 @@ it.each([
     naturalWidth: { value: width },
     naturalHeight: { value: height },
   });
-  await act(async () => {
-    fireEvent.load(image);
-  });
+  fireEvent.load(image);
   if (valid) {
     expect(screen.getByAltText("")).toBe(image);
   } else {

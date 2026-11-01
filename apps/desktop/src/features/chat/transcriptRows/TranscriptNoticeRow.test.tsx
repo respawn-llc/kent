@@ -41,7 +41,7 @@ it("keeps the complete connection-switch warning visible without disclosure", as
       appI18n.t("chatTranscript.notice.connectionFallback", { previous, current }),
     );
   });
-  expect(view.container.querySelector("button")).toBeNull();
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
 });
 
 it("collapses structured worktree summaries without touching model-visible details", async () => {
