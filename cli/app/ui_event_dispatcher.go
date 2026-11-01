@@ -46,8 +46,7 @@ func (d *uiEventDispatcher) wait() tea.Cmd {
 				return nil
 			case event, ok := <-transcriptEvents:
 				if !ok {
-					transcriptEvents = nil
-					continue
+					return uiDispatchedEventMsg{event: ongoingTranscriptEvent{Kind: ongoingTranscriptEventClosed}}
 				}
 				return uiDispatchedEventMsg{source: d, event: event}
 			case issue := <-issues:
@@ -126,6 +125,9 @@ func (m *uiModel) reduceDispatchedEvent(message tea.Msg) uiFeatureUpdateResult {
 			m,
 			tea.Batch(m.batchWithNativeOngoingRepaint(cmd), m.eventDispatcher.wait()),
 		)
+	}
+	if dispatched.event.Kind == ongoingTranscriptEventClosed {
+		m.eventDispatcher.transcriptEvents = nil
 	}
 	result := m.reduceOngoingMessage(dispatched.event)
 	return handledUIFeatureUpdate(result.model, tea.Batch(result.cmd, result.model.eventDispatcher.wait()))

@@ -281,6 +281,7 @@ describe("KanbanColumn retained replacement boundary", () => {
               onInterruptTask={vi.fn()}
               onLoadMoreCards={vi.fn()}
               onResumeTask={vi.fn()}
+              onColumnDisclosure={vi.fn()}
             />
           ))}
         </DragDropSurface>,
@@ -351,12 +352,13 @@ describe("KanbanColumn retained replacement boundary", () => {
         onInterruptTask={vi.fn()}
         onLoadMoreCards={vi.fn()}
         onResumeTask={vi.fn()}
+        onColumnDisclosure={vi.fn()}
         replacementBoundary={boundary}
       />,
     );
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(screen.getByRole("button", { name: boundary.retryLabel }));
     expect(boundary.onRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -381,6 +383,7 @@ describe("KanbanColumn retained replacement boundary", () => {
         onInterruptTask={vi.fn()}
         onLoadMoreCards={vi.fn()}
         onResumeTask={onResumeTask}
+        onColumnDisclosure={vi.fn()}
         replacementBoundary={undefined}
       />,
     );
@@ -414,6 +417,7 @@ describe("KanbanColumn retained replacement boundary", () => {
         onInterruptTask={vi.fn()}
         onLoadMoreCards={vi.fn()}
         onResumeTask={onResumeTask}
+        onColumnDisclosure={vi.fn()}
         replacementBoundary={undefined}
       />,
     );
@@ -442,6 +446,7 @@ describe("KanbanColumn retained replacement boundary", () => {
         onInterruptTask={vi.fn()}
         onLoadMoreCards={vi.fn()}
         onResumeTask={vi.fn()}
+        onColumnDisclosure={vi.fn()}
         pendingResumeTaskIDs={new Set(["task-1"])}
         replacementBoundary={undefined}
       />,

@@ -1,5 +1,6 @@
 ## Ownership And Selection
 
+- An Agent may opt into cybersecurity access through its model capabilities. Kent must request that access only through supported OpenAI connections; provider entitlement remains required, and unsupported connections must reject the selection rather than silently omit it.
 - Kent must own Provider Connection definitions in global server configuration. Workspace configuration must not define connections.
 - A connection must own provider implementation, endpoint, authentication selection, and connection/protocol capabilities. Agents or roles must own Agent model, thinking, model-specific capabilities, and context/compaction policy. Speech-model configuration follows [Speech Input](speech-input.md).
 - The resolved Provider Connection's provider must own local context-token estimation. Saved Session Contracts and capability overrides must not select the estimator.
@@ -153,7 +154,9 @@
 
 - When Kent adds reasoning or a native compaction checkpoint to context, it must attribute the item to its producing Reasoning Type. Connection IDs and model names must not determine Reasoning Type.
 - The selected Provider Connection's transport must determine the destination Reasoning Type. Capability overrides and saved Session Contracts must not change that type.
-- When an existing Session changes connection, Kent must omit encrypted reasoning in context that has a Reasoning Type incompatible with the destination or that the destination explicitly cannot consume. This is a narrow exception to the prohibition on filtering already-sent history.
+- When an existing Session changes connection, Kent must omit encrypted reasoning in context that has a Reasoning Type incompatible with the destination. This is a narrow exception to the prohibition on filtering already-sent history.
+- When the destination cannot consume encrypted content, Kent must omit encrypted-only reasoning. If an item also contains verbatim plaintext reasoning that the destination can represent and no known Reasoning Type mismatch exists, Kent must send the plaintext reasoning without the unsupported encrypted-content field. This is a narrow exception to frozen outgoing history. Persisted historical items must be unchanged.
+- Reasoning summaries are UI presentation only. Kent must never use a reasoning summary as verbatim plaintext reasoning or as a substitute for it.
 - Omission must apply to the entire incompatible reasoning item, including its readable summary. Its historical Reasoning Trace must be unchanged. Kent must not create substitute summary messages.
 - Outgoing context must include unencrypted reasoning when the destination can represent it. Other active messages and complete tool-call/result relationships must be unchanged.
 - Persisted historical entries, Session identity, and Workflow associations must be unchanged. Reasoning omission must not create a history replacement or require a recovery command or confirmation.

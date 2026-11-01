@@ -110,6 +110,9 @@ export type ToolPresentationStrings = Readonly<{
   moreLines(count: number): string;
   patchFailed: string;
   searchedWeb(query: string): string;
+  openedWebPage(url: string): string;
+  foundInWebPage(url: string, pattern: string): string;
+  webActivity: string;
   viewedImage(path: string): string;
   formatPath(path: string): string;
 }>;
@@ -311,16 +314,34 @@ function resolveWebSearch(
   context: ResolutionContext,
   strings: ToolPresentationStrings,
 ): Extract<ToolPresentation, Readonly<{ kind: "web-search" }>> {
-  const query = meaningful(context.meta?.Command);
+  const detail = context.committed?.WebSearch;
   return {
     kind: "web-search",
-    compact: query === undefined ? context.tool.ToolName : strings.searchedWeb(query),
-    detail: context.committed?.WebSearch,
+    compact: webActionSummary(detail, strings),
+    detail,
     failure: context.committed?.IsError ? context.output : undefined,
     icon: "globe",
     iconTone: toolIconTone(context.item, context.meta),
     running: toolIsRunning(context.item),
   };
+}
+
+function webActionSummary(detail: CommittedTool["WebSearch"], strings: ToolPresentationStrings): string {
+  const action = detail?.action;
+  switch (action?.kind) {
+    case "search":
+      return action.queries.length === 0
+        ? strings.webActivity
+        : strings.searchedWeb(action.queries.join("; "));
+    case "open-page":
+      return action.url === null ? strings.webActivity : strings.openedWebPage(action.url);
+    case "find-in-page":
+      return action.url === null || action.pattern === null
+        ? strings.webActivity
+        : strings.foundInWebPage(action.url, action.pattern);
+    case undefined:
+      return strings.webActivity;
+  }
 }
 
 function resolveViewImage(

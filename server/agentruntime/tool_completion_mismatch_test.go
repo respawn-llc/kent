@@ -135,7 +135,7 @@ func TestToolCompletionDeletionMismatchAppliesCommittedFallbackAfterObserverErro
 	defer restoreStep()
 	result := mismatchedDeletionCompletion(t, engine)
 	emitted = nil
-	gate.FailNext(observerErr)
+	gate.FailAfterCommit(observerErr)
 
 	receipt, err := engine.steerWithCommitReceipt(runtimeTestStepID("step-delete"), steerToolCompletionIntent(result))
 	if !receipt.Committed || !errors.Is(err, observerErr) {

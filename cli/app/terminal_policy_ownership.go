@@ -51,7 +51,8 @@ func (g terminalGeometry) canRenderOwnedFrame() bool {
 }
 
 func desiredOngoingOwnership(geometry terminalGeometry, destination terminalDestination) bool {
-	return geometry.canRenderOwnedFrame() && destination == terminalDestinationOngoing
+	size := geometry.Size()
+	return size != nil && size.width >= 40 && size.height >= 4 && destination == terminalDestinationOngoing
 }
 
 type ownershipAppliedState struct {

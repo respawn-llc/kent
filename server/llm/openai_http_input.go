@@ -16,6 +16,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
+	"github.com/openai/openai-go/v3/shared/constant"
 )
 
 // ErrResponsesInputItemUnprepared reports that provider-neutral history reached
@@ -221,10 +222,11 @@ type responsesReasoningSummaryRaw struct {
 }
 
 type responsesReasoningRaw struct {
-	Type             string                         `json:"type"`
-	ID               string                         `json:"id"`
-	Summary          []responsesReasoningSummaryRaw `json:"summary"`
-	EncryptedContent string                         `json:"encrypted_content,omitempty"`
+	Type             string                                   `json:"type"`
+	ID               string                                   `json:"id"`
+	Summary          []responsesReasoningSummaryRaw           `json:"summary"`
+	Content          []responses.ResponseReasoningItemContent `json:"content,omitempty"`
+	EncryptedContent string                                   `json:"encrypted_content,omitempty"`
 }
 
 type responsesCompactionRaw struct {
@@ -233,20 +235,31 @@ type responsesCompactionRaw struct {
 	EncryptedContent string `json:"encrypted_content"`
 }
 
-// RestoreRetainedItemFacts exposes encrypted-content presence at ingestion or
-// restoration without changing the preserved provider payload.
+// RestoreRetainedItemFacts restores typed reasoning facts without changing the
+// preserved provider payload.
 func RestoreRetainedItemFacts(item *ResponseItem) error {
-	if len(item.Raw) == 0 || item.EncryptedContent != nil {
+	if len(item.Raw) == 0 {
 		return nil
 	}
 	switch item.Type {
 	case ResponseItemTypeReasoning:
+		if item.EncryptedContent != nil && len(item.VerbatimReasoning) > 0 {
+			return nil
+		}
 		var raw responsesReasoningRaw
 		if err := json.Unmarshal(item.Raw, &raw); err != nil {
 			return fmt.Errorf("decode retained reasoning: %w", err)
 		}
-		item.EncryptedContent = textutil.OptionalTrimmedString(raw.EncryptedContent)
+		if item.EncryptedContent == nil {
+			item.EncryptedContent = textutil.OptionalTrimmedString(raw.EncryptedContent)
+		}
+		if len(item.VerbatimReasoning) == 0 {
+			item.VerbatimReasoning = verbatimReasoningFromContent(raw.Content)
+		}
 	case ResponseItemTypeCompaction:
+		if item.EncryptedContent != nil {
+			return nil
+		}
 		var raw responsesCompactionRaw
 		if err := json.Unmarshal(item.Raw, &raw); err != nil {
 			return fmt.Errorf("decode retained checkpoint: %w", err)
@@ -254,6 +267,39 @@ func RestoreRetainedItemFacts(item *ResponseItem) error {
 		item.EncryptedContent = textutil.OptionalTrimmedString(raw.EncryptedContent)
 	}
 	return nil
+}
+
+func verbatimReasoningFromContent(content []responses.ResponseReasoningItemContent) []string {
+	var reasoning []string
+	for _, part := range content {
+		if part.Type == constant.ReasoningText("reasoning_text") {
+			reasoning = append(reasoning, part.Text)
+		}
+	}
+	return reasoning
+}
+
+// PrepareReasoningWithoutEncryptedContent materializes the plaintext-only
+// Responses representation while leaving the retained provider item untouched.
+func PrepareReasoningWithoutEncryptedContent(item ResponseItem) (ResponseItem, error) {
+	if item.Type != ResponseItemTypeReasoning || len(item.VerbatimReasoning) == 0 {
+		return ResponseItem{}, errors.New("plaintext reasoning projection requires verbatim reasoning content")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(item.Raw, &fields); err != nil {
+		return ResponseItem{}, fmt.Errorf("decode retained reasoning item: %w", err)
+	}
+	if fields == nil {
+		return ResponseItem{}, errors.New("retained reasoning item must be a JSON object")
+	}
+	delete(fields, "encrypted_content")
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return ResponseItem{}, fmt.Errorf("encode plaintext reasoning item: %w", err)
+	}
+	item.Raw = raw
+	item.EncryptedContent = nil
+	return item, nil
 }
 
 func responsesInputRawForResponseItem(item ResponseItem) (json.RawMessage, bool) {

@@ -23,7 +23,7 @@ func ResolvePersistedSessionView(ctx context.Context, resolver PersistedSessionR
 	}
 	meta := *record.Meta
 	id := runtimeids.SessionIDFromProto(meta.SessionID)
-	eventLog, err := openCurrentEventLog(filepath.Join(record.SessionDir, eventsFile), currentEventLogPersistedSnapshot)
+	eventLog, err := openCommittedEventLog(filepath.Join(record.SessionDir, eventsFile), currentEventLogPersistedSnapshot, meta.LastSequence)
 	if err != nil {
 		return nil, err
 	}

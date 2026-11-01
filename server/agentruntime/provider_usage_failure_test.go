@@ -53,7 +53,7 @@ func TestProviderUsagePersistenceFailureDoesNotRetryProviderAndRetainsCommittedF
 	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	client := &fakeClient{responses: []llm.Response{providerUsageTestResponse(31)}}
 	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
-	gate.FailNext(observerErr)
+	gate.FailAfterCommit(observerErr)
 
 	_, err := generateTestActiveStep(
 		context.Background(),

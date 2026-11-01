@@ -30,7 +30,6 @@ func testMutableBandPrompt(t *testing.T, initialHeight int) {
 			Kind:  ongoing.FrameSectionInput,
 			Lines: lines[:initialHeight],
 		}},
-		Cursor: ongoing.Cursor{Visible: true, Row: 16, Column: 3},
 	}
 	if _, err := surface.Render(frame); err != nil {
 		t.Fatal(err)

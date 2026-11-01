@@ -142,11 +142,13 @@ type ResponseItem struct {
 	CustomInput          *string                             `json:"custom_input,omitempty"`
 	Output               json.RawMessage                     `json:"output,omitempty"`
 	ReasoningSummary     []ReasoningEntry                    `json:"reasoning_summary,omitempty"`
-	ConfigurationEffort  *string                             `json:"configuration_effort,omitempty"`
-	EncryptedContent     *string                             `json:"encrypted_content,omitempty"`
-	Raw                  json.RawMessage                     `json:"raw,omitempty"`
-	LinkedCallID         *string                             `json:"linked_call_id,omitempty"`
-	LinkKind             *ResponseItemLinkKind               `json:"link_kind,omitempty"`
+	// VerbatimReasoning contains provider reasoning_text parts, never UI summaries.
+	VerbatimReasoning   []string              `json:"-"`
+	ConfigurationEffort *string               `json:"configuration_effort,omitempty"`
+	EncryptedContent    *string               `json:"encrypted_content,omitempty"`
+	Raw                 json.RawMessage       `json:"raw,omitempty"`
+	LinkedCallID        *string               `json:"linked_call_id,omitempty"`
+	LinkKind            *ResponseItemLinkKind `json:"link_kind,omitempty"`
 }
 
 func CloneResponseItems(items []ResponseItem) []ResponseItem {
@@ -188,6 +190,9 @@ func CloneResponseItems(items []ResponseItem) []ResponseItem {
 		}
 		if len(item.ReasoningSummary) > 0 {
 			copyItem.ReasoningSummary = append([]ReasoningEntry(nil), item.ReasoningSummary...)
+		}
+		if len(item.VerbatimReasoning) > 0 {
+			copyItem.VerbatimReasoning = append([]string(nil), item.VerbatimReasoning...)
 		}
 		out = append(out, copyItem)
 	}

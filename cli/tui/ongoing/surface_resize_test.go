@@ -37,7 +37,7 @@ func TestSurfaceVerticalShrinkMovesVisibleCommittedRowsIntoNativeScrollback(t *t
 		t.Fatalf("append committed transcript: %v", err)
 	}
 	feedFrame("append committed transcript")
-	if _, err := surface.writeFrameTransaction(initial, []string{
+	if _, err := surface.writeFrameTransaction(initial, surface.AllocateFrame(initial), []string{
 		"IMMUTABLE_02",
 		"IMMUTABLE_03",
 		"IMMUTABLE_04",
@@ -116,12 +116,25 @@ func TestSurfaceVerticalExpansionMarksOnlyTheLiveBandAsRedrawable(t *testing.T) 
 			want,
 		)
 	}
+	for _, size := range []Size{{Width: 81, Height: 28}, initial.Size, {Width: 80, Height: 19}, initial.Size} {
+		output.Reset()
+		if result := surface.ObserveResize(size); result.Action != ResultNoop {
+			t.Fatalf("seamless resize observation requested recovery: %+v", result)
+		}
+		result, err := surface.Resize(size, initial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Action != ResultNoop || strings.Contains(output.String(), "IMMUTABLE") {
+			t.Fatalf("seamless resize replayed history or requested recovery: result=%+v output=%q", result, output.String())
+		}
+	}
 }
 
 func TestTmuxResizeDoesNotMarkMutableBandAsRedrawable(t *testing.T) {
 	var output bytes.Buffer
 	surface := NewSurfaceWithOptions(&output, SurfaceOptions{
-		TerminalResize: TerminalResizeTmuxWidthRehydration,
+		TerminalResize: TerminalResizeRehydration,
 		MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly,
 	})
 	stream, err := analyzer.NewStream(pty.MustDimensions(18, 80))
@@ -183,7 +196,7 @@ func TestTmuxResizeDoesNotMarkMutableBandAsRedrawable(t *testing.T) {
 func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 	var output bytes.Buffer
 	surface := NewSurfaceWithOptions(&output, SurfaceOptions{
-		TerminalResize: TerminalResizeWidthRehydration,
+		TerminalResize: TerminalResizeRehydration,
 		MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly,
 	})
 	initial := FrameInput{
@@ -197,10 +210,20 @@ func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new terminal stream: %v", err)
 	}
+	var retired []string
 	feedFrame := func(operation string) {
 		t.Helper()
-		if err := stream.Feed(output.Bytes()); err != nil {
-			t.Fatalf("%s terminal bytes: %v", operation, err)
+		for _, b := range output.Bytes() {
+			before, err := stream.ScreenSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Feed([]byte{b}); err != nil {
+				t.Fatalf("%s terminal bytes: %v", operation, err)
+			}
+			if b == '\n' && before.Cursor.Row == 27 {
+				retired = append(retired, screenRow(before, 0))
+			}
 		}
 		output.Reset()
 	}
@@ -223,6 +246,11 @@ func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 		t.Fatalf("resize direct-terminal live band: %v", err)
 	}
 	feedFrame("resize direct-terminal live band")
+	for _, witness := range []string{"IMMUTABLE", "OLD_LIVE_TOP", "OLD_LIVE_BOTTOM"} {
+		if !strings.Contains(strings.Join(retired, "\n"), witness) {
+			t.Fatalf("fresh viewport lost %q: retired=%q", witness, retired)
+		}
+	}
 	snapshot, err := stream.ScreenSnapshot()
 	if err != nil {
 		t.Fatalf("snapshot after expansion: %v", err)
@@ -237,6 +265,18 @@ func TestDirectTerminalExpansionErasesPreviousMutableBand(t *testing.T) {
 	if got := screenRow(snapshot, 27); got != "NEW_LIVE_BOTTOM" {
 		t.Fatalf("expanded live band bottom row = %q, want NEW_LIVE_BOTTOM", got)
 	}
+	retired = nil
+	surface.ObserveResize(Size{Width: 80, Height: 29})
+	surface.ObserveResize(expanded.Size)
+	if _, err := surface.Render(expanded); err != nil {
+		t.Fatal(err)
+	}
+	feedFrame("unpainted resize round trip")
+	for _, witness := range []string{"NEW_LIVE_TOP", "NEW_LIVE_BOTTOM"} {
+		if !strings.Contains(strings.Join(retired, "\n"), witness) {
+			t.Fatalf("resize round trip lost %q: retired=%q", witness, retired)
+		}
+	}
 }
 
 func TestScratchHydrationResetErasesExpandedBottomBand(t *testing.T) {
@@ -244,8 +284,7 @@ func TestScratchHydrationResetErasesExpandedBottomBand(t *testing.T) {
 		name   string
 		policy TerminalResizePolicy
 	}{
-		{name: "direct terminal", policy: TerminalResizeWidthRehydration},
-		{name: "tmux", policy: TerminalResizeTmuxWidthRehydration},
+		{name: "direct terminal", policy: TerminalResizeRehydration},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var output bytes.Buffer
@@ -281,7 +320,7 @@ func TestScratchHydrationResetErasesExpandedBottomBand(t *testing.T) {
 
 			expanded := initial
 			expanded.Size = Size{Width: 81, Height: 28}
-			if _, err := surface.ResetForScratchHydration(RehydrateReasonWidthChange, expanded); err != nil {
+			if _, err := surface.ResetForScratchHydration(RehydrateReasonResize, expanded); err != nil {
 				t.Fatalf("reset after expansion: %v", err)
 			}
 			feedFrame("reset after expansion")

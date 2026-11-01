@@ -190,6 +190,7 @@ type Settings struct {
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
 	SystemPromptFile                 *SystemPromptFile
+	SpeechToTextPrompt               string
 	ModelCapabilities                ModelCapabilitiesOverride
 	Theme                            string
 	NotificationMethod               string
@@ -224,6 +225,7 @@ type Settings struct {
 }
 
 type ModelCapabilitiesOverride struct {
+	CyberAccess             bool
 	SupportsReasoningEffort bool
 	SupportsVisionInputs    bool
 }

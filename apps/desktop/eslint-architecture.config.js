@@ -20,7 +20,6 @@ export const architectureOwners = Object.freeze({
 
 export const architectureElements = Object.freeze([
   architectureElement(architectureOwners.SHELL, "src/app"),
-  architectureElement(architectureOwners.SHELL, "src/dev-showcase"),
   architectureElement(architectureOwners.APP_FACADE, "src/app-facade"),
   architectureElement(architectureOwners.FEATURE, "src/features/*", "name"),
   architectureElement(architectureOwners.SHARED, "src/shared/*", "name"),

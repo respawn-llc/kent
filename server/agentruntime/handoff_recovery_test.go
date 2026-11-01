@@ -2,18 +2,16 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"core/server/llm"
 	"core/server/sessionstore"
-	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
 
-func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
+func TestReopenedSessionDoesNotResumeUnfinishedHandoff(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 	engine := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
@@ -25,10 +23,6 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 
 	resumedClient := &fakeClient{responses: []llm.Response{
 		{
-			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("summary")},
-			Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
-		},
-		{
 			Assistant: llm.Message{
 				Role:    llm.RoleAssistant,
 				Phase:   textutil.Value(llm.MessagePhaseFinal),
@@ -38,15 +32,18 @@ func TestReopenedSessionAfterSuccessfulTriggerHandoffRequeuesPendingHandoff(t *t
 		},
 	}}
 	restored := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), resumedClient, Config{})
-	if pending := restored.handoffRuntimeState().RequestSnapshot(); pending == nil {
-		t.Fatal("restored trigger-handoff request is absent")
+	if pending := restored.handoffRuntimeState().RequestSnapshot(); pending != nil {
+		t.Fatal("reopened session restored unfinished handoff")
 	}
 
 	if _, err := restored.SubmitUserMessage(context.Background(), "continue"); err != nil {
 		t.Fatalf("submit after restored handoff: %v", err)
 	}
-	if generation := restored.compactionRuntimeState().Count(); generation != 1 {
-		t.Fatalf("restored handoff compaction generation = %d, want 1", generation)
+	if generation := restored.compactionRuntimeState().Count(); generation != 0 {
+		t.Fatalf("reopened handoff compaction generation = %d, want 0", generation)
+	}
+	if len(resumedClient.calls) != 1 {
+		t.Fatalf("requests after reopen = %d, want one generation without summarization", len(resumedClient.calls))
 	}
 
 	if futureMessages := countHandoffFutureMessageRecords(t, store); futureMessages != 0 {
@@ -65,6 +62,7 @@ func TestHandoffReplacementStoresFutureMessageAtomically(t *testing.T) {
 		Usage:     llm.Usage{InputTokens: textutil.Value(200), WindowTokens: 2_000, ContextUsage: &llm.ContextUsage{Tokens: 200, MeasurementPoint: llm.ContextMeasurementInput}},
 	}}}
 	restored := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), summaryClient, Config{})
+	restored.handoffRuntimeState().QueueRequest("summarize", "continue")
 	var applied bool
 	stepID := runtimeTestStepID("step")
 	err := runTestActiveStep(restored, stepID, func() error {
@@ -79,7 +77,7 @@ func TestHandoffReplacementStoresFutureMessageAtomically(t *testing.T) {
 		t.Fatal("restored handoff did not compact")
 	}
 
-	window, err := mustMaterializeTestEventLog(t, store).ReadRecentRecords(16)
+	window, err := mustMaterializeTestEventLog(t, restored.store).ReadRecentRecords(16)
 	if err != nil {
 		t.Fatalf("read handoff replacement records: %v", err)
 	}
@@ -121,7 +119,7 @@ func TestHandoffReplacementStoresFutureMessageAtomically(t *testing.T) {
 	}
 }
 
-func TestLegacyPendingOnlyHandoffRecoveryRemainsStable(t *testing.T) {
+func TestReopenedSessionDoesNotRestorePendingFutureMessage(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name             string
@@ -177,15 +175,15 @@ func TestLegacyPendingOnlyHandoffRecoveryRemainsStable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("append recovered legacy future message: %v", err)
 			}
-			if got := countHandoffFutureMessageRecords(t, store); got != 1 {
-				t.Fatalf("legacy recovered future-message records = %d, want 1", got)
+			if got := countHandoffFutureMessageRecords(t, store); got != 0 {
+				t.Fatalf("unfinished future-message records = %d, want 0", got)
 			}
 			if err := restored.Close(); err != nil {
 				t.Fatalf("close recovered legacy engine: %v", err)
 			}
 			reopened := mustNewHandoffTestEngine(t, mustOpenTestSession(t, store.Dir()), &fakeClient{}, Config{})
-			if got := countHandoffFutureMessages(reopened.transcriptRuntimeState().SnapshotItems()); got != 1 {
-				t.Fatalf("reopened recovered legacy future messages = %d, want 1", got)
+			if got := countHandoffFutureMessages(reopened.transcriptRuntimeState().SnapshotItems()); got != 0 {
+				t.Fatalf("reopened unfinished future messages = %d, want 0", got)
 			}
 		})
 	}
@@ -385,35 +383,6 @@ func TestReopenedSessionAfterTriggerHandoffUsesAtomicFutureMessageReplacement(t 
 	}
 	if got := countHandoffFutureMessageRecords(t, restored.store); got != 0 {
 		t.Fatalf("atomic handoff appended future-message records = %d, want 0", got)
-	}
-}
-
-func TestPendingHandoffFutureMessageConsumesCommittedObserverFailure(t *testing.T) {
-	t.Parallel()
-	observerErr := errors.New("handoff future-message observer failure")
-	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
-	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
-	engine := mustNewHandoffTestEngine(t, store, &fakeClient{}, Config{})
-	stepID := runtimeTestStepID("step")
-	restoreStep := setTestActiveStep(engine, stepID)
-	defer restoreStep()
-	engine.handoffRuntimeState().QueueFutureMessage("continue")
-	gate.FailNext(observerErr)
-
-	applied, err := engine.applyPendingHandoffIfNeeded(context.Background(), stepID)
-	if applied || !errors.Is(err, observerErr) {
-		t.Fatalf("future-message append outcome = applied:%v error:%v", applied, err)
-	}
-	if futureMessages := countHandoffFutureMessageRecords(t, store); futureMessages != 1 {
-		t.Fatalf("committed handoff future-message records = %d, want 1", futureMessages)
-	}
-
-	applied, err = engine.applyPendingHandoffIfNeeded(context.Background(), stepID)
-	if applied || err != nil {
-		t.Fatalf("second future-message append outcome = applied:%v error:%v", applied, err)
-	}
-	if futureMessages := countHandoffFutureMessageRecords(t, store); futureMessages != 1 {
-		t.Fatalf("second future-message append changed durable record count to %d", futureMessages)
 	}
 }
 

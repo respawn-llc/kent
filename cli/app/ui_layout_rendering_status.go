@@ -260,10 +260,6 @@ func (l uiViewLayout) renderStatusNotice(available int) string {
 		text = strings.TrimSpace(m.runtimeDisconnectStatusText())
 		kind = uiStatusNoticeError
 	}
-	if text == "" && m.drafts != nil && m.drafts.saving {
-		text = "Saving draft"
-		kind = uiStatusNoticeInfo
-	}
 	if text == "" {
 		return ""
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/cli/tui/ongoing"
 	"core/shared/client"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
@@ -58,7 +59,10 @@ func TestStartSessionTranscriptEventsWaitsForExplicitRehydrationAfterLoss(t *tes
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	stream.RequestRehydration()
+	stream.RequestRehydration(ongoing.RehydrateReasonSequenceGap)
+	if cutover := nextTranscriptEvent(t, stream.Events); cutover.Kind != ongoingTranscriptEventCutover {
+		t.Fatalf("expected recovery cutover, got %+v", cutover)
+	}
 	second := nextTranscriptEvent(t, stream.Events)
 	if second.Kind != ongoingTranscriptEventMessage || reflect.TypeOf(second.Message.Event.Payload) != reflect.TypeFor[*transcriptpb.Event_Hydration]() {
 		t.Fatalf("second event = %+v, want reopened hydration message", second)
@@ -97,7 +101,12 @@ func TestStartSessionTranscriptEventsReopensOnLocalRehydrationRequest(t *testing
 		t.Fatalf("first event = %+v, want hydration", first)
 	}
 
-	stream.RequestRehydration()
+	stream.RequestRehydration(ongoing.RehydrateReasonResize)
+
+	cutover := nextTranscriptEvent(t, stream.Events)
+	if cutover.Kind != ongoingTranscriptEventCutover || cutover.Reason == nil || *cutover.Reason != ongoing.RehydrateReasonResize {
+		t.Fatalf("expected ordered resize cutover before hydration: %+v", cutover)
+	}
 
 	second := nextTranscriptEvent(t, stream.Events)
 	if second.Kind != ongoingTranscriptEventMessage || second.Message.Sequence != 1 {
@@ -164,7 +173,10 @@ func TestStartSessionTranscriptEventsRetriesTransportFailureUntilServerReturns(t
 		t.Fatalf("disconnect event = %+v, want subscription loss", event)
 	}
 
-	stream.RequestRehydration()
+	stream.RequestRehydration(ongoing.RehydrateReasonSequenceGap)
+	if cutover := nextTranscriptEvent(t, stream.Events); cutover.Kind != ongoingTranscriptEventCutover {
+		t.Fatalf("expected recovery cutover, got %+v", cutover)
+	}
 	failure := nextTranscriptEvent(t, stream.Events)
 	if failure.Kind != ongoingTranscriptEventFailure || !errors.Is(failure.Err, connectionFailure) {
 		t.Fatalf("reopen failure = %+v, want transport failure", failure)

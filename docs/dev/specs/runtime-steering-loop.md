@@ -96,7 +96,7 @@
 
 ## Turn-End Attention
 
-- The server must publish one ephemeral Session turn-end attention event for each completed assistant-final Agent Turn with at least two tool calls.
+- The server must publish one ephemeral Session turn-end attention event for each completed assistant-final Agent Turn with at least two tool calls in an interactive Session, excluding headless runs and Workflow Node executions.
 - Turns with fewer than two tool calls, interruptions, and outcomes without an assistant final answer must not publish turn-end attention events.
 - Turn-end attention events must carry the Session identity and assistant-final content for client-owned notification copy and navigation.
 - The existing attention stream must deliver turn-end events globally to Desktop and by Session to Session-scoped observers, including when Desktop has no Chat open for that Session.

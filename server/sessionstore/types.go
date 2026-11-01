@@ -216,7 +216,6 @@ type Meta struct {
 	HeadlessActive                  bool                             `json:"headless_active,omitempty"`
 	CompactionSoonReminderIssued    bool                             `json:"compaction_soon_reminder_issued,omitempty"`
 	GeneratedRecoveredWarningIssued bool                             `json:"generated_recovered_warning_issued,omitempty"`
-	LegacyInFlightStepRecovery      bool                             `json:"-"`
 	WorktreeReminder                *WorktreeReminderState           `json:"worktree_reminder,omitempty"`
 	RebindReminder                  *SessionRebindReminder           `json:"rebind_reminder,omitempty"`
 	UsageState                      *UsageState                      `json:"usage_state,omitempty"`

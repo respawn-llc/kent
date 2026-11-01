@@ -605,7 +605,7 @@ func TestConversationFreshnessAdvancesOnlyForVisibleUserMessages(t *testing.T) {
 	}
 }
 
-func TestMaterializeEventLogBackfillsConversationFreshnessFromTail(t *testing.T) {
+func TestMaterializeEventLogPreservesCommittedConversationFreshness(t *testing.T) {
 	store := newSessionTestStore(t)
 	appendSessionTestRecord(t, store, "s1", sessionTestMessage(MessageRoleUser, "established session"))
 
@@ -624,20 +624,19 @@ func TestMaterializeEventLogBackfillsConversationFreshnessFromTail(t *testing.T)
 		t.Fatalf("open store: %v", err)
 	}
 	log := mustMaterializeSessionTestEventLog(t, opened)
-	if got := mustConversationFreshness(log); got != ConversationFreshnessEstablished {
-		t.Fatalf("backfilled freshness = %v, want established", got)
+	if got := mustConversationFreshness(log); got != ConversationFreshnessFresh {
+		t.Fatalf("freshness changed from committed metadata: %v", got)
 	}
-	if mustConversationFreshness(log) != ConversationFreshnessEstablished {
-		t.Fatalf("expected backfill to persist conversation_established flag")
+	if opened.Meta().ConversationEstablished {
+		t.Fatal("materialization changed committed conversation flag")
 	}
 }
 
-func TestMaterializeEventLogRecoversLastSequenceFromTailWhenMetaStale(t *testing.T) {
+func TestMaterializeEventLogDoesNotPromoteUncommittedTail(t *testing.T) {
 	store := newSessionTestStore(t)
 	for i := 0; i < 3; i++ {
 		appendSessionTestRecord(t, store, "s1", sessionTestMessage(MessageRoleAssistant, "reply"))
 	}
-	trueLastSeq := mustMaterializedRevision(mustMaterializeSessionTestEventLog(t, store))
 
 	meta := storeTestMeta(store)
 	meta.LastSequence = 0
@@ -660,8 +659,8 @@ func TestMaterializeEventLogRecoversLastSequenceFromTailWhenMetaStale(t *testing
 		t.Fatalf("metadata-only last sequence = %d, want stale authoritative value 0", got)
 	}
 	mustMaterializeSessionTestEventLog(t, opened)
-	if got := mustMaterializedRevision(mustMaterializeSessionTestEventLog(t, opened)); got != trueLastSeq {
-		t.Fatalf("recovered last sequence = %d, want %d", got, trueLastSeq)
+	if got := mustMaterializedRevision(mustMaterializeSessionTestEventLog(t, opened)); got != 0 {
+		t.Fatalf("promoted uncommitted tail sequence: %d", got)
 	}
 }
 

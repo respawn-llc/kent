@@ -259,6 +259,9 @@ func TestBuildResponsesInput_AssistantReasoningItemsUseEncryptedContentOnly(t *t
 	if second["encrypted_content"] != "enc_1" {
 		t.Fatalf("expected encrypted content enc_1, got %#v", second["encrypted_content"])
 	}
+	if _, present := second["content"]; present {
+		t.Fatalf("encrypted-only reasoning unexpectedly included plaintext content: %#v", second["content"])
+	}
 	if text, ok := second["text"].(string); ok && strings.TrimSpace(text) != "" {
 		t.Fatalf("expected no reasoning text to be serialized, got %q", text)
 	}

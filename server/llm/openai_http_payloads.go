@@ -19,6 +19,7 @@ var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 type responsesRequestPayloadBuilder struct {
 	policy         responsesPolicy
 	store          bool
+	cyberAccess    bool
 	modelVerbosity string
 	capabilities   ProviderCapabilities
 }
@@ -45,8 +46,9 @@ func (t *HTTPTransport) effectiveRequestCapabilities(connectionCapabilities Prov
 
 func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities, policy responsesPolicy) responsesRequestPayloadBuilder {
 	return responsesRequestPayloadBuilder{
-		policy: policy,
-		store:  t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
+		policy:      policy,
+		cyberAccess: t.CyberAccess,
+		store:       t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
 		capabilities: t.effectiveRequestCapabilities(connectionCapabilities),
 	}
 }
