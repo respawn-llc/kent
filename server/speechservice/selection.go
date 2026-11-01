@@ -26,6 +26,7 @@ type Invocation struct {
 	ID         config.ConnectionID
 	Definition config.ProviderConnection
 	Profile    llm.SpeechProfile
+	Prompt     *string
 }
 
 // EligibleDefaults is a read-only projection. Allocation remains owned by the
@@ -85,5 +86,9 @@ func (s Selection) Allocate(ctx context.Context, rotation *launch.ConnectionRota
 	if profile.Model != nil && definition.SpeechToTextModel != nil {
 		profile.Model = definition.SpeechToTextModel
 	}
-	return Invocation{ID: id, Definition: definition, Profile: profile}, nil
+	var prompt *string
+	if profile.SupportsPrompt() {
+		prompt = &s.settings.SpeechToTextPrompt
+	}
+	return Invocation{ID: id, Definition: definition, Profile: profile, Prompt: prompt}, nil
 }

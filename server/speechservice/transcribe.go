@@ -44,7 +44,7 @@ func transcribe(ctx context.Context, invocation Invocation, credential *llm.Disp
 	})
 	defer stopInput()
 	go func() {
-		err := writeMultipart(multipartWriter, invocation.Profile, encoding, input)
+		err := writeMultipart(multipartWriter, invocation.Profile, invocation.Prompt, encoding, input)
 		_ = writer.CloseWithError(err)
 		done <- err
 	}()
@@ -112,9 +112,14 @@ type boundedResponse struct {
 	io.Closer
 }
 
-func writeMultipart(writer *multipart.Writer, profile llm.SpeechProfile, encoding llm.SpeechEncoding, input io.Reader) error {
+func writeMultipart(writer *multipart.Writer, profile llm.SpeechProfile, prompt *string, encoding llm.SpeechEncoding, input io.Reader) error {
 	if profile.Model != nil {
 		if err := writer.WriteField("model", *profile.Model); err != nil {
+			return err
+		}
+	}
+	if prompt != nil {
+		if err := writer.WriteField("prompt", *prompt); err != nil {
 			return err
 		}
 	}

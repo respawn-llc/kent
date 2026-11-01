@@ -190,6 +190,7 @@ type Settings struct {
 	ThinkingLevel                    string
 	ModelVerbosity                   ModelVerbosity
 	SystemPromptFile                 *SystemPromptFile
+	SpeechToTextPrompt               string
 	ModelCapabilities                ModelCapabilitiesOverride
 	Theme                            string
 	NotificationMethod               string
