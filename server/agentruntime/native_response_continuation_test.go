@@ -229,6 +229,74 @@ func nativeResponseTestClient(t *testing.T, handler http.Handler) llm.Client {
 	return client
 }
 
+func TestNativeThinkingStatusDoesNotBecomeTranscriptHistory(t *testing.T) {
+	for _, body := range []string{"", "Reasoning body"} {
+		t.Run(fmt.Sprintf("body=%t", body != ""), func(t *testing.T) {
+			prefix, suffix := "**Transient", " status**"
+			if body != "" {
+				suffix += "\n\n" + body
+			}
+			summary := prefix + suffix
+			reasoning := fmt.Sprintf(`{"type":"reasoning","id":"status-reasoning","summary":[{"type":"summary_text","text":%q}],"encrypted_content":"opaque"}`, summary)
+			answer := `{"type":"message","id":"status-answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}`
+			client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+				return []string{
+					`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"status-reasoning","summary":[]}}`,
+					fmt.Sprintf(`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"status-reasoning","delta":%q}`, prefix),
+					fmt.Sprintf(`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"status-reasoning","delta":%q}`, suffix),
+					fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, reasoning),
+					fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, answer),
+					fmt.Sprintf(`{"type":"response.completed","response":{"id":"status-response","status":"completed","output":[%s,%s]}}`, reasoning, answer),
+				}
+			}))
+			var statusDelivered bool
+			var committed []TranscriptCommittedRowFact
+			store := mustCreateTestSession(t)
+			engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+				Model: "gpt-6-sol",
+				OnEvent: func(event Event) {
+					if event.ReasoningDelta != nil && event.ReasoningDelta.CurrentStatus != nil {
+						statusDelivered = true
+					}
+					committed = append(committed, TranscriptCommittedRowFactsFromEvent(event)...)
+				},
+			})
+			if _, err := engine.SubmitUserMessage(t.Context(), "finish"); err != nil {
+				t.Fatal(err)
+			}
+			assertReasoning := func(rows []TranscriptCommittedRowFact) {
+				t.Helper()
+				count := 0
+				for _, row := range rows {
+					if row.ReasoningTrace != nil {
+						count++
+						if row.ReasoningTrace.Text != body {
+							t.Fatalf("reasoning contains thinking status: %q", row.ReasoningTrace.Text)
+						}
+					}
+				}
+				want := 0
+				if body != "" {
+					want = 1
+				}
+				if count != want {
+					t.Fatalf("reasoning rows = %d, want %d", count, want)
+				}
+			}
+			if !statusDelivered {
+				t.Fatal("thinking status was not delivered to the live status line")
+			}
+			assertReasoning(committed)
+			assertReasoning(mustNewestTranscriptFacts(t, engine))
+			if err := engine.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), client, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
+			assertReasoning(mustNewestTranscriptFacts(t, reopened))
+		})
+	}
+}
+
 func TestEmptyNativeFinalPublishesCommittedRowsOnce(t *testing.T) {
 	output := `[{"type":"reasoning","id":"reasoning-empty-final","summary":[{"type":"summary_text","text":"Finished"}],"encrypted_content":"opaque"},{"type":"message","id":"empty-final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"","annotations":[]}]}]`
 	var calls atomic.Int32
