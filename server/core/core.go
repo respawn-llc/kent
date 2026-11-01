@@ -176,11 +176,13 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 	}
 	trimmedWorkspaceRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedWorkspaceRoot != "" {
-		binding, err := s.safeBundles().Persistence.metadataStore.EnsureWorkspaceBinding(ctx, trimmedWorkspaceRoot)
+		store := s.safeBundles().Persistence.metadataStore
+		binding, err := store.ResolveProjectWorkspaceSelector(
+			ctx,
+			trimmedProjectID,
+			serverapi.NewProjectWorkspaceSelectorForRoot(trimmedWorkspaceRoot),
+		)
 		if err == nil {
-			if strings.TrimSpace(binding.ProjectID) != trimmedProjectID {
-				return projectContext{}, fmt.Errorf("workspace %q is not bound to project %q", binding.CanonicalRoot, trimmedProjectID)
-			}
 			projectCfg, err := s.configForWorkspace(binding.CanonicalRoot)
 			if err != nil {
 				return projectContext{}, err
@@ -194,6 +196,16 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 			}, nil
 		}
 		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+			return projectContext{}, err
+		}
+		_, resolvedBinding, resolveErr := store.ResolveWorkspacePath(ctx, trimmedWorkspaceRoot)
+		if resolveErr != nil {
+			return projectContext{}, resolveErr
+		}
+		if resolvedBinding != nil {
+			if strings.TrimSpace(resolvedBinding.ProjectID) != trimmedProjectID {
+				return projectContext{}, fmt.Errorf("workspace %q is not bound to project %q", resolvedBinding.CanonicalRoot, trimmedProjectID)
+			}
 			return projectContext{}, err
 		}
 	}

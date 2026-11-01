@@ -10,7 +10,6 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
-	projectpb "core/shared/protoapi/gen/kent/api/project"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -48,17 +47,29 @@ func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, request *
 		}
 		return binding.WorkspaceID, strings.TrimSpace(binding.CanonicalRoot), nil
 	case *connectionpb.AttachProjectRequest_WorkspaceRoot:
-		resolved, err := g.deps.ProjectViewClient().ResolveProjectPath(ctx, &projectpb.ResolvePathRequest{Path: workspace.WorkspaceRoot})
+		store := g.deps.MetadataStore()
+		binding, err := store.ResolveProjectWorkspaceSelector(
+			ctx,
+			request.ProjectId,
+			serverapi.NewProjectWorkspaceSelectorForRoot(workspace.WorkspaceRoot),
+		)
+		if err == nil {
+			return binding.WorkspaceID, strings.TrimSpace(binding.CanonicalRoot), nil
+		}
+		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+			return "", "", err
+		}
+		canonicalRoot, resolvedBinding, err := store.ResolveWorkspacePath(ctx, workspace.WorkspaceRoot)
 		if err != nil {
 			return "", "", err
 		}
-		if resolved.Binding == nil {
-			return "", "", errors.Join(serverapi.ErrWorkspaceNotRegistered, fmt.Errorf("workspace %q is not registered", resolved.CanonicalRoot))
+		if resolvedBinding == nil {
+			return "", "", errors.Join(serverapi.ErrWorkspaceNotRegistered, fmt.Errorf("workspace %q is not attached to project %q", canonicalRoot, request.ProjectId))
 		}
-		if strings.TrimSpace(resolved.Binding.ProjectId) != request.ProjectId {
-			return "", "", fmt.Errorf("workspace %q is not bound to project %q", resolved.Binding.CanonicalRoot, request.ProjectId)
+		if strings.TrimSpace(resolvedBinding.ProjectID) != request.ProjectId {
+			return "", "", fmt.Errorf("workspace %q is not bound to project %q", resolvedBinding.CanonicalRoot, request.ProjectId)
 		}
-		return strings.TrimSpace(resolved.Binding.WorkspaceId), strings.TrimSpace(resolved.Binding.CanonicalRoot), nil
+		return resolvedBinding.WorkspaceID, strings.TrimSpace(resolvedBinding.CanonicalRoot), nil
 	default:
 		return "", "", errors.New("AttachProject workspace selection is invalid")
 	}

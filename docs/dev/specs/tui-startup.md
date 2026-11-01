@@ -85,6 +85,11 @@ Kent must process the following gates in order. It must skip a gate only when it
 
 ## Project binding flow
 
+- An explicitly selected Project must take precedence over Project selection inferred from CWD.
+- When the CWD Workspace belongs to several Projects, startup must select the unique matching Project that uses it as its default Workspace.
+- If no matching Project or several matching Projects use that Workspace as default, startup must offer the existing Project selector restricted to Projects attached to that Workspace.
+- Selecting a Project for an already attached CWD Workspace must use that Workspace. Canceling selection must leave Project attachments, files, and Session history unchanged.
+
 - An unregistered current directory offers new-Project creation first and an existing-Project picker below.
 - Creating a Project attaches the current workspace as its first workspace and main worktree.
 - Selecting an existing Project attaches the workspace to it.

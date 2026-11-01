@@ -1,5 +1,9 @@
 ## Authority and scope
 
+- Chat and Chat Settings must support Projects with multiple Workspaces and Workspace paths attached to multiple Projects without ambiguity errors.
+- New Chat must use the Project selected through the existing Project menu. Workspace selection must be available through the existing Workspace menu.
+- Opening an existing Session must use that Session's Project and Workspace without changing its ownership, files, or history.
+
 - Chat must support non-Git workspaces. Confirmed absence of a Git repository must produce an empty Git Worktree inventory without a whole-Chat failure. Genuine Git inspection failures must produce observable errors.
 - Transcript rows must use compact, consistent spacing, including skill guidance, developer context, and Goal nudges.
 - Message bubbles must have horizontal inset aligned with the collapsed-row icon column rather than touching the transcript edge. Working/Thinking Status must be a flat, background-free spinner-and-text row.

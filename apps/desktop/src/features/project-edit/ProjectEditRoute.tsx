@@ -456,7 +456,7 @@ function projectCatalogBoundary(
   if (catalog.isFetchNextPageError || (catalog.isError && catalog.data === undefined)) {
     return {
       state: "error",
-      message: errorMessage(catalog.error),
+      message: t("projectEdit.workspaceCatalogLoadFailed"),
       retryLabel: t("app.retry"),
       onRetry: () => {
         if (catalog.data === undefined) {
@@ -481,7 +481,7 @@ function projectCatalogPreviousBoundary(
   if (catalog.isFetchPreviousPageError) {
     return {
       state: "error",
-      message: errorMessage(catalog.error),
+      message: t("projectEdit.workspaceCatalogLoadFailed"),
       retryLabel: t("app.retry"),
       onRetry: () => {
         previousPage();

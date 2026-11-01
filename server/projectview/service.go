@@ -171,12 +171,50 @@ func (s *Service) PlanWorkspaceBinding(ctx context.Context, req *projectpb.PlanW
 			}
 			switch req.Mode {
 			case projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_INTERACTIVE:
+				selector := serverapi.NewProjectWorkspaceSelectorForRoot(ambiguous.CanonicalRoot)
+				var defaultProjectID string
+				defaultProjectCount := 0
+				for _, projectID := range ambiguous.ProjectIDs {
+					workspace, err := s.metadata.GetProjectWorkspaceCatalogRow(ctx, projectID, selector)
+					if err != nil {
+						return nil, err
+					}
+					if workspace.IsDefault {
+						defaultProjectID = projectID
+						defaultProjectCount++
+					}
+				}
+				if defaultProjectCount == 1 {
+					binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, defaultProjectID, selector)
+					if err != nil {
+						return nil, err
+					}
+					generated, err := BindingToProto(binding)
+					if err != nil {
+						return nil, err
+					}
+					resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_BOUND
+					resp.Binding = generated
+					return resp, nil
+				}
 				projects, err := s.ListProjects(ctx, &emptypb.Empty{})
 				if err != nil {
 					return nil, err
 				}
-				resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_SERVER_WORKSPACE_SELECTION
-				resp.Projects = projects.Projects
+				matchingProjectIDs := make(map[string]struct{}, len(ambiguous.ProjectIDs))
+				for _, projectID := range ambiguous.ProjectIDs {
+					matchingProjectIDs[projectID] = struct{}{}
+				}
+				resp.Projects = make([]*projectpb.ProjectSummary, 0, len(matchingProjectIDs))
+				for _, project := range projects.Projects {
+					if _, matches := matchingProjectIDs[project.ProjectId]; matches {
+						resp.Projects = append(resp.Projects, project)
+					}
+				}
+				if len(resp.Projects) == 0 {
+					return nil, serverapi.ErrWorkspaceNotRegistered
+				}
+				resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION
 				return resp, nil
 			case projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_HEADLESS:
 				resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_HEADLESS_REMOTE_AMBIGUOUS
