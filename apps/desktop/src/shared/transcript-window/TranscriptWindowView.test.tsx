@@ -92,11 +92,34 @@ function committedPromotions(): readonly TranscriptCommittedItem["row"][] {
   ];
 }
 
+function reasoningRow(sequence: number, text: string, stepID = "step"): TranscriptCommittedItem["row"] {
+  return {
+    ...row(sequence),
+    Kind: "reasoning_trace",
+    User: null,
+    ReasoningTrace: {
+      StepID: stepID,
+      CompactText: text,
+      Text: text,
+      duration_ms: null,
+      ProvisionalIdentity: null,
+    },
+  };
+}
+
 const slots: TranscriptRenderSlots<ReactElement | null> = {
   user: (item) => <div data-testid={`family-${item.kind}`}>{item.value.Text}</div>,
   assistant: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
   tool: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
-  reasoning: (item) => <div data-testid={`family-${item.kind}`}>{item.state}</div>,
+  reasoning: (group) => (
+    <div data-testid={`family-${group.kind}`}>
+      {group.members.map((member) => (
+        <span key={member.key}>
+          {member.state}: {member.value.Text}
+        </span>
+      ))}
+    </div>
+  ),
   notice: (item) => <div data-testid={`family-${item.kind}`} />,
   thinkingStatus: (item) =>
     item === null ? null : (
@@ -117,6 +140,62 @@ describe("TranscriptWindowView", () => {
     else Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
     if (originalOffsetWidth === undefined) Reflect.deleteProperty(HTMLElement.prototype, "offsetWidth");
     else Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidth);
+  });
+
+  it("groups adjacent reasoning traces with the same Live Execution Step ID", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([]) });
+    window.dispatch({ kind: "committed-row", row: reasoningRow(1, "First summary") });
+    window.dispatch({ kind: "committed-row", row: reasoningRow(2, "Second summary") });
+    const sourceItems = structuredClone(window.snapshot.items);
+
+    render(
+      <TranscriptWindowView
+        boundaryErrorMessage={(error) => error.message}
+        estimateSize={() => 60}
+        loadingLabel="Loading"
+        onInput={vi.fn()}
+        retryLabel="Retry"
+        slots={slots}
+        snapshot={window.snapshot}
+      />,
+    );
+
+    const groups = screen.getAllByTestId("family-reasoning_group");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toHaveTextContent("First summary");
+    expect(groups[0]).toHaveTextContent("Second summary");
+    expect(window.snapshot.items).toEqual(sourceItems);
+    expect(window.snapshot.items).toHaveLength(2);
+    expect(window.snapshot.items.every((item) => item.kind === "reasoning_trace")).toBe(true);
+  });
+
+  it("starts a new reasoning group after intervening items and at a Live Execution boundary", () => {
+    const window = new TranscriptWindow();
+    window.dispatch({ kind: "initial-hydration", hydration: hydration([]) });
+    window.dispatch({ kind: "committed-row", row: reasoningRow(1, "Before message") });
+    window.dispatch({ kind: "committed-row", row: row(2) });
+    window.dispatch({ kind: "committed-row", row: reasoningRow(3, "After message") });
+    window.dispatch({ kind: "committed-row", row: reasoningRow(4, "Next Step", "next-step") });
+
+    render(
+      <TranscriptWindowView
+        boundaryErrorMessage={(error) => error.message}
+        estimateSize={() => 60}
+        loadingLabel="Loading"
+        onInput={vi.fn()}
+        retryLabel="Retry"
+        slots={slots}
+        snapshot={window.snapshot}
+      />,
+    );
+
+    const groups = screen.getAllByTestId("family-reasoning_group");
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toHaveTextContent("Before message");
+    expect(groups[1]).toHaveTextContent("After message");
+    expect(groups[2]).toHaveTextContent("Next Step");
+    expect(screen.getByText("Message 2")).toBeInTheDocument();
   });
 
   it("keeps local user content mounted when the same input is committed", () => {
@@ -271,7 +350,7 @@ describe("TranscriptWindowView", () => {
     );
     const view = render(content());
     const before = new Map(
-      ["assistant", "tool", "reasoning_trace"].map((family) => [
+      ["assistant", "tool", "reasoning_group"].map((family) => [
         family,
         screen.getByTestId(`family-${family}`),
       ]),
@@ -308,11 +387,11 @@ describe("TranscriptWindowView", () => {
       />,
     );
 
-    for (const family of ["assistant", "tool", "reasoning_trace"]) {
+    for (const family of ["assistant", "tool", "reasoning_group"]) {
       const presentation = screen.getByTestId(`family-${family}`);
       const previous = before.get(family);
       if (previous === undefined) throw new Error(`Missing initial presentation for ${family}.`);
-      expect(presentation).toBe(previous);
+      expect(presentation === previous).toBe(true);
       expect(presentation).toHaveTextContent("committed");
     }
   });

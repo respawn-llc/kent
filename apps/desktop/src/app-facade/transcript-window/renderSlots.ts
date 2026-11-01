@@ -43,13 +43,19 @@ type LiveItem = {
 
 export type TranscriptProvisionalItem = LiveItem;
 export type TranscriptRenderItem = TranscriptCommittedItem | TranscriptProvisionalItem;
+export type TranscriptReasoningTraceItem = Extract<TranscriptRenderItem, { kind: "reasoning_trace" }>;
+export type TranscriptReasoningDisplayGroup = Readonly<{
+  kind: "reasoning_group";
+  key: string;
+  members: readonly [TranscriptReasoningTraceItem, ...TranscriptReasoningTraceItem[]];
+}>;
 
 /** The host supplies every family, including live-or-committed variants, without a fallback renderer. */
 export type TranscriptRenderSlots<Output> = Readonly<{
   user(item: Extract<TranscriptRenderItem, { kind: "user" }>): Output;
   assistant(item: Extract<TranscriptRenderItem, { kind: "assistant" }>): Output;
   tool(item: Extract<TranscriptRenderItem, { kind: "tool" | "tool_call" }>): Output;
-  reasoning(item: Extract<TranscriptRenderItem, { kind: "reasoning_trace" }>): Output;
+  reasoning(group: TranscriptReasoningDisplayGroup): Output;
   notice(
     item: Extract<TranscriptRenderItem, { kind: "notice" | "reviewer_feedback" | "reviewer_error" }>,
   ): Output;
