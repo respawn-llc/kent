@@ -22,8 +22,7 @@ import (
 )
 
 func (r *RuntimeRegistry) publishTurnEndAttention(entry *authorityRuntimeEntry, result *runtime.LiveRunResult) error {
-	if r.attentionBroker == nil || result == nil || result.Status != runtime.RunStatusCompleted ||
-		result.ResultKind != runtime.LiveRunResultAssistantFinalAnswer || !result.WorkPerformed {
+	if r.attentionBroker == nil || !entry.engine.TurnEndAttentionEligible(result) {
 		return nil
 	}
 	id := entry.ref.SessionID()
