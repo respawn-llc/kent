@@ -181,6 +181,9 @@ func TestPersistSessionDraftIncludesOnlyComposerInput(t *testing.T) {
 	if cmd == nil || captured != nil {
 		t.Fatal("editing must schedule persistence without waiting for it")
 	}
+	if notice := model.layout().renderStatusNotice(80); notice != "" {
+		t.Fatal("background draft persistence must not display a status notice")
+	}
 	testSetMainInput(model, "newer draft")
 	if next := model.saveEditedDraft(); next != nil {
 		t.Fatal("editing during a save must coalesce behind the in-flight write")

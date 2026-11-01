@@ -33,6 +33,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcriptmodel"
 	"github.com/coder/websocket"
 )
 
@@ -226,6 +227,46 @@ func nativeResponseTestClient(t *testing.T, handler http.Handler) llm.Client {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func TestEmptyNativeFinalPublishesCommittedRowsOnce(t *testing.T) {
+	output := `[{"type":"reasoning","id":"reasoning-empty-final","summary":[{"type":"summary_text","text":"Finished"}],"encrypted_content":"opaque"},{"type":"message","id":"empty-final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"","annotations":[]}]}]`
+	var calls atomic.Int32
+	client := nativeResponseTestClient(t, nativeResponsesSocketHandler(t, func(json.RawMessage) []string {
+		if calls.Add(1) > 1 {
+			return []string{`{"type":"response.completed","response":{"id":"next-response","status":"completed","output":[{"type":"message","id":"next-final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`}
+		}
+		return []string{
+			`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reasoning-empty-final","summary":[]}}`,
+			`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"Finished"}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reasoning-empty-final","summary":[{"type":"summary_text","text":"Finished"}],"encrypted_content":"opaque"}}`,
+			`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"empty-final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"","annotations":[]}]}}`,
+			fmt.Sprintf(`{"type":"response.completed","response":{"id":"empty-final-response","status":"completed","output":%s}}`, output),
+		}
+	}))
+	seen := make(map[transcript.CommittedRowLocator]bool)
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+		Model:        "gpt-6-sol",
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+		OnEvent: func(event Event) {
+			for _, row := range TranscriptCommittedRowFactsFromEvent(event) {
+				if seen[row.Locator] {
+					t.Errorf("committed row published twice: %+v", row.Locator)
+				}
+				seen[row.Locator] = true
+			}
+		},
+	})
+	if _, err := engine.SetGoal(t.Context(), "finish", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.SubmitUserMessage(t.Context(), "finish"); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) == 0 {
+		t.Fatal("no committed rows delivered")
+	}
 }
 
 func TestAcceptedNativeAnswerContinuesWithoutReconstruction(t *testing.T) {
