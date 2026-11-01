@@ -134,17 +134,20 @@ function SettingsPage({
       data-settings-scroll={scrollID}
       className="h-full min-h-0 overflow-auto p-[var(--space-5)]"
     >
-      <div className="grid max-w-2xl gap-[var(--space-5)]">
-        <h1 className="m-0 flex items-center gap-[var(--space-2)] text-xl font-bold">
+      <div className="grid max-w-2xl gap-[var(--space-7)]">
+        <h1 className="m-0 flex items-center gap-[var(--space-2)] text-2xl font-semibold">
           {t("settings.title")}
           {change.isPending && <Spinner size="sm" />}
         </h1>
-        <section className="grid gap-[var(--space-2)]">
-          <h2 className="m-0 text-base font-bold" id={`${scrollID}-${sections[0].id}`} data-settings-heading>
+        <section className="grid gap-[11px]">
+          <h2
+            className="m-0 text-xl font-semibold"
+            id={`${scrollID}-${sections[0].id}`}
+            data-settings-heading
+          >
             {t(sections[0].title)}
           </h2>
-          <div className="grid gap-[var(--space-1)] pb-[var(--space-2)]">
-            <ConnectionForm />
+          <div className="grid">
             <ConfigNotice
               path={config.data.path}
               available={config.data.available}
@@ -153,101 +156,112 @@ function SettingsPage({
                 open.submit(undefined);
               }}
             />
+            <div className="py-[var(--space-2)]">
+              <ConnectionForm />
+            </div>
+            <div className="grid auto-rows-fr py-[var(--space-1)]">
+              <PreferenceRow
+                label={t("settings.notifications")}
+                help={t("settings.help.notifications")}
+                disabled={busy}
+              >
+                <SegmentedControl<DesktopSettings["notifications"]>
+                  ariaLabel={t("settings.notifications")}
+                  value={saved.notifications}
+                  onValueChange={(value) => {
+                    submit({ field: "notifications", value });
+                  }}
+                  options={[
+                    { value: "automatic", label: t("settings.automatic") },
+                    { value: "native", label: t("settings.native") },
+                    { value: "inApp", label: t("settings.inApp") },
+                  ]}
+                />
+              </PreferenceRow>
+              <PreferenceRow
+                label={t("settings.projectOpening")}
+                help={t("settings.help.projectOpening")}
+                disabled={busy}
+              >
+                <SegmentedControl<DesktopSettings["projectOpening"]>
+                  ariaLabel={t("settings.projectOpening")}
+                  value={saved.projectOpening}
+                  onValueChange={(value) => {
+                    submit({ field: "projectOpening", value });
+                  }}
+                  options={[
+                    { value: "lastUsed", label: t("settings.lastUsed") },
+                    { value: "tasks", label: t("settings.tasks") },
+                    { value: "sessions", label: t("settings.sessions") },
+                  ]}
+                />
+              </PreferenceRow>
+            </div>
           </div>
-          <PreferenceRow
-            label={t("settings.notifications")}
-            help={t("settings.help.notifications")}
-            disabled={busy}
-          >
-            <SegmentedControl<DesktopSettings["notifications"]>
-              ariaLabel={t("settings.notifications")}
-              value={saved.notifications}
-              onValueChange={(value) => {
-                submit({ field: "notifications", value });
-              }}
-              options={[
-                { value: "automatic", label: t("settings.automatic") },
-                { value: "native", label: t("settings.native") },
-                { value: "inApp", label: t("settings.inApp") },
-              ]}
-            />
-          </PreferenceRow>
-          <PreferenceRow
-            label={t("settings.projectOpening")}
-            help={t("settings.help.projectOpening")}
-            disabled={busy}
-          >
-            <SegmentedControl<DesktopSettings["projectOpening"]>
-              ariaLabel={t("settings.projectOpening")}
-              value={saved.projectOpening}
-              onValueChange={(value) => {
-                submit({ field: "projectOpening", value });
-              }}
-              options={[
-                { value: "lastUsed", label: t("settings.lastUsed") },
-                { value: "tasks", label: t("settings.tasks") },
-                { value: "sessions", label: t("settings.sessions") },
-              ]}
-            />
-          </PreferenceRow>
         </section>
-        <section className="grid gap-[var(--space-2)]">
-          <h2 className="m-0 text-base font-bold" id={`${scrollID}-${sections[1].id}`} data-settings-heading>
+        <section className="grid gap-[11px]">
+          <h2
+            className="m-0 text-xl font-semibold"
+            id={`${scrollID}-${sections[1].id}`}
+            data-settings-heading
+          >
             {t(sections[1].title)}
           </h2>
-          <PreferenceRow label={t("settings.theme")} disabled={busy}>
-            <SegmentedControl<DesktopSettings["theme"]>
-              ariaLabel={t("settings.theme")}
-              value={saved.theme}
-              onValueChange={(value) => {
-                submit({ field: "theme", value });
-              }}
-              options={[
-                { value: "system", label: t("settings.system") },
-                { value: "light", label: t("settings.light") },
-                { value: "dark", label: t("settings.dark") },
-              ]}
-            />
-          </PreferenceRow>
-          <PreferenceRow label={t("settings.lowPower")} help={t("settings.help.lowPower")} disabled={busy}>
-            <Switch
-              checked={saved.lowPower}
-              aria-label={t("settings.lowPower")}
-              onCheckedChange={(value) => {
-                submit({ field: "lowPower", value });
-              }}
-            />
-          </PreferenceRow>
-          <PreferenceRow
-            label={t("settings.transparency")}
-            help={t("settings.help.transparency")}
-            disabled={busy}
-            disabledReason={overridden}
-          >
-            <Switch
-              checked={saved.transparency}
-              aria-label={t("settings.transparency")}
-              disabled={saved.lowPower || change.isPending}
-              onCheckedChange={(value) => {
-                submit({ field: "transparency", value });
-              }}
-            />
-          </PreferenceRow>
-          <PreferenceRow
-            label={t("settings.reducedMotion")}
-            help={t("settings.help.reducedMotion")}
-            disabled={busy}
-            disabledReason={overridden}
-          >
-            <Switch
-              checked={saved.reducedMotion}
-              aria-label={t("settings.reducedMotion")}
-              disabled={saved.lowPower || change.isPending}
-              onCheckedChange={(value) => {
-                submit({ field: "reducedMotion", value });
-              }}
-            />
-          </PreferenceRow>
+          <div className="grid auto-rows-fr py-[var(--space-1)]">
+            <PreferenceRow label={t("settings.theme")} disabled={busy}>
+              <SegmentedControl<DesktopSettings["theme"]>
+                ariaLabel={t("settings.theme")}
+                value={saved.theme}
+                onValueChange={(value) => {
+                  submit({ field: "theme", value });
+                }}
+                options={[
+                  { value: "system", label: t("settings.system") },
+                  { value: "light", label: t("settings.light") },
+                  { value: "dark", label: t("settings.dark") },
+                ]}
+              />
+            </PreferenceRow>
+            <PreferenceRow label={t("settings.lowPower")} help={t("settings.help.lowPower")} disabled={busy}>
+              <Switch
+                checked={saved.lowPower}
+                aria-label={t("settings.lowPower")}
+                onCheckedChange={(value) => {
+                  submit({ field: "lowPower", value });
+                }}
+              />
+            </PreferenceRow>
+            <PreferenceRow
+              label={t("settings.transparency")}
+              help={t("settings.help.transparency")}
+              disabled={busy}
+              disabledReason={overridden}
+            >
+              <Switch
+                checked={saved.transparency}
+                aria-label={t("settings.transparency")}
+                disabled={saved.lowPower || change.isPending}
+                onCheckedChange={(value) => {
+                  submit({ field: "transparency", value });
+                }}
+              />
+            </PreferenceRow>
+            <PreferenceRow
+              label={t("settings.reducedMotion")}
+              help={t("settings.help.reducedMotion")}
+              disabled={busy}
+              disabledReason={overridden}
+            >
+              <Switch
+                checked={saved.reducedMotion}
+                aria-label={t("settings.reducedMotion")}
+                disabled={saved.lowPower || change.isPending}
+                onCheckedChange={(value) => {
+                  submit({ field: "reducedMotion", value });
+                }}
+              />
+            </PreferenceRow>
+          </div>
         </section>
       </div>
     </div>
@@ -268,14 +282,14 @@ function ConfigNotice({
   const { t } = useTranslation();
   if (path === null) return null;
   return (
-    <div className="w-full">
+    <div className="flex w-full items-center">
       <DisabledInteractionGuard
         className="w-full"
         disabled={!available || opening}
         reason={!available ? t("settings.configUnavailable") : undefined}
       >
         <Button
-          className="w-full text-sm"
+          className="w-full px-0! text-sm disabled:opacity-100!"
           variant="ghost"
           disabled={!available || opening}
           onClick={onOpen}
@@ -283,7 +297,7 @@ function ConfigNotice({
         >
           <span className="flex w-full items-center justify-between gap-[var(--space-3)] text-left">
             <span>{t("settings.serverConfig")}</span>
-            <span className="inline-flex shrink-0 items-center gap-[var(--space-1)]">
+            <span className="inline-flex shrink-0 items-center gap-[var(--space-1)] text-[var(--color-primary)]">
               {t("settings.open")}
               <ArrowUpRight size={16} />
             </span>

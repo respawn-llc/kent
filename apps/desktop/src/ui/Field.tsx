@@ -40,9 +40,9 @@ export function FieldShell({
   const errors = normalizeErrors(error);
 
   return (
-    <div className="grid gap-[var(--space-3)]">
+    <div className="grid">
       {label === undefined ? null : (
-        <span className="inline-flex items-center gap-[var(--space-1)]">
+        <span className="mb-[var(--space-3)] inline-flex items-center gap-[var(--space-1)]">
           <label className={fieldLabelClassName} htmlFor={inputId}>
             {label}
           </label>
@@ -51,13 +51,13 @@ export function FieldShell({
       )}
       {children}
       {hint !== undefined ? (
-        <span className="text-[var(--color-muted)]" id={hintId}>
+        <span className="mt-[var(--space-3)] text-[var(--color-muted)]" id={hintId}>
           {hint}
         </span>
       ) : null}
       <span
         aria-live="polite"
-        className="grid overflow-hidden opacity-0 transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] data-[visible=true]:grid-rows-[1fr] data-[visible=true]:opacity-100 grid-rows-[0fr]"
+        className="grid overflow-hidden opacity-0 transition-[grid-template-rows,opacity,margin] duration-[var(--motion-normal)] data-[visible=true]:mt-[var(--space-3)] data-[visible=true]:grid-rows-[1fr] data-[visible=true]:opacity-100 grid-rows-[0fr]"
         data-visible={errors.length > 0 ? "true" : "false"}
         id={errorId}
       >
@@ -79,6 +79,7 @@ export type TextInputProps = Readonly<{
   error?: FieldError | undefined;
   hint?: ReactNode | undefined;
   trailingControl?: ReactNode | undefined;
+  action?: ReactNode | undefined;
 }> &
   InputHTMLAttributes<HTMLInputElement>;
 
@@ -89,6 +90,7 @@ export function TextInput({
   hint,
   className,
   trailingControl,
+  action,
   ...props
 }: TextInputProps) {
   const generatedId = useId();
@@ -106,23 +108,32 @@ export function TextInput({
       label={label}
       labelHelp={labelHelp}
     >
-      <span className="relative block">
-        <input
-          aria-describedby={`${hintId} ${errorId}`}
-          aria-invalid={error === undefined ? undefined : true}
-          className={cx(fieldInputClassName, trailingControl === undefined ? undefined : "pr-12", className)}
-          {...props}
-          id={inputId}
-        />
-        {trailingControl === undefined ? null : (
-          <span
-            className="absolute top-1/2 right-[6px] -translate-y-1/2"
-            data-testid="text-input-trailing-control"
-          >
-            {trailingControl}
-          </span>
-        )}
-      </span>
+      <div className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)]">
+        <span
+          className={cx("relative block min-w-0 flex-1", action !== undefined && "min-w-[min(100%,16rem)]")}
+        >
+          <input
+            aria-describedby={`${hintId} ${errorId}`}
+            aria-invalid={error === undefined ? undefined : true}
+            className={cx(
+              fieldInputClassName,
+              trailingControl === undefined ? undefined : "pr-12",
+              className,
+            )}
+            {...props}
+            id={inputId}
+          />
+          {trailingControl === undefined ? null : (
+            <span
+              className="absolute top-1/2 right-[6px] -translate-y-1/2"
+              data-testid="text-input-trailing-control"
+            >
+              {trailingControl}
+            </span>
+          )}
+        </span>
+        {action}
+      </div>
     </FieldShell>
   );
 }
