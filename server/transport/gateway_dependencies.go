@@ -48,28 +48,21 @@ func (g *Gateway) resolveAttachedProjectWorkspace(ctx context.Context, request *
 		return binding.WorkspaceID, strings.TrimSpace(binding.CanonicalRoot), nil
 	case *connectionpb.AttachProjectRequest_WorkspaceRoot:
 		store := g.deps.MetadataStore()
-		binding, err := store.ResolveProjectWorkspaceSelector(
-			ctx,
-			request.ProjectId,
-			serverapi.NewProjectWorkspaceSelectorForRoot(workspace.WorkspaceRoot),
-		)
-		if err == nil {
-			return binding.WorkspaceID, strings.TrimSpace(binding.CanonicalRoot), nil
-		}
-		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-			return "", "", err
-		}
-		canonicalRoot, resolvedBinding, err := store.ResolveWorkspacePath(ctx, workspace.WorkspaceRoot)
+		resolution, err := store.ResolveProjectWorkspacePath(ctx, request.ProjectId, workspace.WorkspaceRoot)
 		if err != nil {
 			return "", "", err
 		}
-		if resolvedBinding == nil {
-			return "", "", errors.Join(serverapi.ErrWorkspaceNotRegistered, fmt.Errorf("workspace %q is not attached to project %q", canonicalRoot, request.ProjectId))
+		switch resolution.Kind {
+		case metadata.ProjectWorkspacePathUnregistered:
+			return "", "", errors.Join(
+				serverapi.ErrWorkspaceNotRegistered,
+				fmt.Errorf("workspace %q is not attached to project %q", resolution.CanonicalRoot, request.ProjectId),
+			)
+		case metadata.ProjectWorkspacePathWorkspace, metadata.ProjectWorkspacePathWorktree:
+			return resolution.Binding.WorkspaceID, strings.TrimSpace(resolution.Binding.CanonicalRoot), nil
+		default:
+			return "", "", fmt.Errorf("invalid Project Workspace path resolution kind %d", resolution.Kind)
 		}
-		if strings.TrimSpace(resolvedBinding.ProjectID) != request.ProjectId {
-			return "", "", fmt.Errorf("workspace %q is not bound to project %q", resolvedBinding.CanonicalRoot, request.ProjectId)
-		}
-		return resolvedBinding.WorkspaceID, strings.TrimSpace(resolvedBinding.CanonicalRoot), nil
 	default:
 		return "", "", errors.New("AttachProject workspace selection is invalid")
 	}
