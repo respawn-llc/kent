@@ -3,14 +3,13 @@ package session
 import "errors"
 
 // IndeterminatePersistenceError prevents further writes through a Store whose
-// last database commit could not be confirmed. Reopening reads the database
-// authority; it does not replay the failed operation.
+// last database commit could not be confirmed by its persistence observer.
 type IndeterminatePersistenceError struct {
 	Cause error
 }
 
 func (e *IndeterminatePersistenceError) Error() string {
-	return "Session persistence outcome is unknown; reopen the Session before making further changes: " + e.Cause.Error()
+	return "Session save failed: " + e.Cause.Error()
 }
 
 func (e *IndeterminatePersistenceError) Unwrap() error { return e.Cause }
