@@ -11,7 +11,14 @@ import * as Effect from "effect/Effect";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
-import { queryAtom, queryKeys, type AppServices, type QuerySnapshot } from "@/app-facade";
+import {
+  queryAtom,
+  queryKeys,
+  desktopSettingsOptions,
+  type AppServices,
+  type QuerySnapshot,
+  type SettingsSnapshot,
+} from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import type { ServerReadiness } from "@/api";
 import { ProtocolMismatchError, TransportError, errorMessage } from "@/api";
@@ -38,7 +45,17 @@ function createStartupModel(services: AppServices, client: QueryClient, t: TFunc
   const { api, protocolVersion } = services;
   const observer = new QueryObserver(client, {
     queryKey: queryKeys.readiness,
-    queryFn: async () => api.getReadiness(),
+    queryFn: async () => {
+      const readiness = await api.getReadiness();
+      if (readiness.ready && readiness.protocolVersion === protocolVersion) {
+        await services.nativeBridge.settings.completeStartup();
+        client.setQueryData<SettingsSnapshot>(desktopSettingsOptions(services).queryKey, (current) => ({
+          ...(current ?? services.initialSettings),
+          initialStartup: false,
+        }));
+      }
+      return readiness;
+    },
   });
   const request = queryAtom(observer);
   const retry = Atom.fn(() => Effect.promise(async () => observer.refetch()), { concurrent: true });

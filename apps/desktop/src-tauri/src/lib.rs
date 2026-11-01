@@ -658,7 +658,7 @@ pub fn run() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 speech::close_window(window);
                 if window.label() == "main" {
-                    main_window::closed(window.app_handle());
+                    window.state::<main_window::State>().closed();
                 }
             }
         })
@@ -672,20 +672,9 @@ pub fn run() {
                 settings::SettingsOwner::new(app.path().app_data_dir()?.join("settings.json"));
             let loaded = owner.read(app.handle());
             let launch = settings::DesktopLaunch::from_settings(&loaded);
-            let transparent = launch.transparent();
             app.manage(owner);
             app.manage(launch);
-            let mut config = app.config().app.windows[0].clone();
-            config.transparent = transparent;
-            let window = tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
-            #[cfg(not(any(target_os = "macos", windows)))]
-            drop(window);
-            #[cfg(any(target_os = "macos", windows))]
-            if transparent {
-                if let Err(error) = native_glass::apply_to_window_now(&window) {
-                    eprintln!("Apply native window glass failed: {error}");
-                }
-            }
+            main_window::create(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -694,6 +683,7 @@ pub fn run() {
             settings::desktop_launch_appearance,
             settings::connect_desktop_server,
             main_window::open_main_window,
+            main_window::complete_main_startup,
             main_window::main_window_ready,
             clipboard::paste_clipboard,
             #[cfg(target_os = "macos")]
@@ -852,8 +842,8 @@ mod tests {
     use super::{
         clean_path, close_existing_attention_notification_record,
         insert_attention_notification_record, remove_attention_notification_backend,
-        remove_attention_notification_record_without_closing,
-        AttentionNotificationCloser, AttentionNotificationState,
+        remove_attention_notification_record_without_closing, AttentionNotificationCloser,
+        AttentionNotificationState,
     };
     use std::path::{Path, PathBuf};
     use std::sync::{
@@ -993,5 +983,4 @@ mod tests {
             PathBuf::from("/tmp/kent/root")
         );
     }
-
 }

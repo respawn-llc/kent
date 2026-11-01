@@ -42,6 +42,7 @@ impl DesktopLaunch {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsSnapshot {
+    pub initial_startup: bool,
     pub saved: DesktopSettings,
     pub launch: Option<LaunchAppearance>,
     pub active_address: Option<ServerAddress>,
@@ -60,6 +61,7 @@ pub fn connect_desktop_server(
     window: tauri::WebviewWindow,
     owner: tauri::State<'_, SettingsOwner>,
     launch: tauri::State<'_, DesktopLaunch>,
+    main: tauri::State<'_, crate::main_window::State>,
     address: String,
     mode: ConnectionMode,
 ) -> Result<DesktopSettings, SettingsError> {
@@ -68,16 +70,22 @@ pub fn connect_desktop_server(
             "Only main-window startup can activate a connection.".into(),
         ));
     }
-    owner.connect(&app, &launch, &address, mode)
+    match mode {
+        ConnectionMode::MainStartup => main.connect(&app, &owner, &launch, &address),
+        ConnectionMode::Restart => owner.connect(&app, &launch, &address, mode),
+    }
 }
 
 #[tauri::command]
 pub fn read_desktop_settings(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    main: tauri::State<'_, crate::main_window::State>,
     owner: tauri::State<'_, SettingsOwner>,
     launch: tauri::State<'_, DesktopLaunch>,
 ) -> Result<SettingsSnapshot, SettingsError> {
     Ok(SettingsSnapshot {
+        initial_startup: window.label() == "main" && main.initial_startup(),
         saved: owner.read(&app)?,
         launch: launch.appearance,
         active_address: launch
@@ -521,6 +529,71 @@ mod tests {
         assert_eq!(retried.server_address, saved.server_address);
         assert_eq!(retried.theme, Theme::Light);
         assert_eq!(owner.read(app.handle()).unwrap(), retried);
+    }
+
+    #[test]
+    fn completed_startup_rejects_activation_without_changing_saved_or_active_address() {
+        let app = app();
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SettingsOwner::new(dir.path().join("settings.json"));
+        let initial = owner.read(app.handle()).unwrap();
+        let launch = DesktopLaunch::from_settings(&Ok(initial.clone()));
+        let main = crate::main_window::State::default();
+        assert!(main.initial_startup());
+        for address in ["wss://first.example/rpc", "wss://retry.example/rpc"] {
+            main.connect(app.handle(), &owner, &launch, address)
+                .unwrap();
+            assert!(main.initial_startup());
+            assert_eq!(
+                *launch.active_address.lock().unwrap(),
+                Some(ServerAddress::parse(address).unwrap())
+            );
+        }
+        let initial = owner.read(app.handle()).unwrap();
+        main.finish_startup();
+        assert!(!main.initial_startup());
+        assert!(main
+            .connect(app.handle(), &owner, &launch, "wss://other.example/rpc")
+            .is_err());
+        assert_eq!(owner.read(app.handle()).unwrap(), initial);
+        assert_eq!(
+            *launch.active_address.lock().unwrap(),
+            Some(initial.server_address.clone())
+        );
+        owner
+            .connect(
+                app.handle(),
+                &launch,
+                "wss://other.example/rpc",
+                ConnectionMode::Restart,
+            )
+            .unwrap();
+        assert_eq!(
+            *launch.active_address.lock().unwrap(),
+            Some(initial.server_address)
+        );
+    }
+
+    #[test]
+    fn closing_original_main_ends_connection_activation_for_the_process() {
+        use tauri::Manager;
+        let app = app();
+        app.manage(crate::main_window::State::default());
+        let dir = tempfile::tempdir().unwrap();
+        let owner = SettingsOwner::new(dir.path().join("settings.json"));
+        let initial = owner.read(app.handle()).unwrap();
+        let launch = DesktopLaunch::from_settings(&Ok(initial.clone()));
+        let main = app.state::<crate::main_window::State>();
+        main.closed();
+        assert!(!main.initial_startup());
+        assert!(main
+            .connect(app.handle(), &owner, &launch, "wss://other.example/rpc")
+            .is_err());
+        assert_eq!(owner.read(app.handle()).unwrap(), initial);
+        assert_eq!(
+            *launch.active_address.lock().unwrap(),
+            Some(initial.server_address)
+        );
     }
 
     #[test]

@@ -1,4 +1,5 @@
 export const speechEnglish = {
+  finishBeforeSubmit: "Finish dictation before submitting.",
   connection: "Connection: {{connection}}",
   providerRejected:
     "The provider rejected this recording (HTTP {{status}}). Check this connection’s access, or retry using another speech-capable global default. You can save your recording.",

@@ -231,7 +231,7 @@ function ExactGoalContent({
         <GoalMarkdownField
           editorRef={speech.editorRef}
           editing={model.editing}
-          floatingAction={fieldActions(speech.control, renderSaveAction(model))}
+          floatingAction={fieldActions(speech.control, renderSaveAction(model, speech.busy))}
           expanded={model.expanded}
           onChange={model.setDraft}
           onEdit={() => {
@@ -264,7 +264,7 @@ function ExactGoalContent({
   );
 }
 
-function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefined {
+function renderSaveAction(model: ExactGoalSidebarModel, speechBusy: boolean): ReactElement | undefined {
   if (model.pendingIntent?.kind === "set" || model.pendingIntent?.kind === "clear") {
     return <Spinner size="sm" testID="goal-mutation-pending" />;
   }
@@ -272,7 +272,13 @@ function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefine
   return (
     <GoalSaveButton
       disabled={!model.saveAvailable || model.unavailable}
-      label={model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save")}
+      label={model.t(
+        speechBusy
+          ? "speech.finishBeforeSubmit"
+          : model.unavailable
+            ? "chat.goal.unavailableForAgent"
+            : "chat.goal.save",
+      )}
       onClick={model.save}
       pending={false}
     />

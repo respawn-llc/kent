@@ -349,7 +349,7 @@ function QuestionFormFrame({
         rows={3}
         value={answer}
       />
-      <ControlTooltip label={t("task.submitAnswer")}>
+      <ControlTooltip label={t(speech.busy ? "speech.finishBeforeSubmit" : "task.submitAnswer")}>
         <Button disabled={!submitEnabled} type="submit" variant="primary">
           {t("task.submitAnswer")}
         </Button>

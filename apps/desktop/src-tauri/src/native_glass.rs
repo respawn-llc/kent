@@ -2,9 +2,13 @@
 #[serde(rename_all = "camelCase", tag = "status")]
 pub enum NativeGlassStatus {
     #[cfg(any(target_os = "macos", windows))]
-    Applied { effect: &'static str },
+    Applied {
+        effect: &'static str,
+    },
     #[cfg(not(windows))]
-    Unsupported { reason: &'static str },
+    Unsupported {
+        reason: &'static str,
+    },
     DisabledByPreferences,
 }
 

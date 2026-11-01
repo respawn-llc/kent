@@ -439,7 +439,7 @@ function NewTaskFormContent({
       {workspaceItems.length > 0 && workspacePaging.initialBoundary !== undefined ? (
         <InfiniteListBoundary direction="initial" state={workspacePaging.initialBoundary} />
       ) : null}
-      <NewTaskSubmitButton enabled={canSubmit} pending={createTask.isPending} />
+      <NewTaskSubmitButton enabled={canSubmit} pending={createTask.isPending} speechBusy={speech.busy} />
     </form>
   );
 }
@@ -447,13 +447,18 @@ function NewTaskFormContent({
 function NewTaskSubmitButton({
   enabled,
   pending,
+  speechBusy,
 }: Readonly<{
   enabled: boolean;
   pending: boolean;
+  speechBusy: boolean;
 }>) {
   const { t } = useTranslation();
   return (
-    <ControlTooltip label={t("task.create")} className="mx-auto inline-flex w-full max-w-[400px]">
+    <ControlTooltip
+      label={t(speechBusy ? "speech.finishBeforeSubmit" : "task.create")}
+      className="mx-auto inline-flex w-full max-w-[400px]"
+    >
       <Button
         className="w-full"
         disabled={!enabled}

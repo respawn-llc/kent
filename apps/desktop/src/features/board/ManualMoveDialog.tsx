@@ -80,6 +80,7 @@ function ManualMoveDestination({
       {preview === null ? null : (
         <MoveDraftContext.Provider value={captureDraft}>
           <ManualMoveDialogContent
+            speechBusy={speechBusy}
             canAdvance={canAdvance}
             canSubmit={canSubmit}
             choices={choices}
@@ -107,6 +108,7 @@ function ManualMoveDestination({
 }
 
 function ManualMoveDialogContent({
+  speechBusy,
   canAdvance,
   canSubmit,
   choices,
@@ -121,6 +123,7 @@ function ManualMoveDialogContent({
   setPhase,
   values,
 }: Readonly<{
+  speechBusy: boolean;
   canAdvance: boolean;
   canSubmit: boolean;
   choices: readonly TaskMovePreviewChoice[];
@@ -188,7 +191,7 @@ function ManualMoveDialogContent({
             {t("app.continue")}
           </Button>
         ) : (
-          <ControlTooltip label={t("board.manualMoveConfirm")}>
+          <ControlTooltip label={t(speechBusy ? "speech.finishBeforeSubmit" : "board.manualMoveConfirm")}>
             <Button disabled={!canSubmit} type="submit" variant="primary">
               {t("board.manualMoveConfirm")}
             </Button>

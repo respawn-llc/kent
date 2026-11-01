@@ -19,6 +19,7 @@ export type DesktopSettings = Readonly<{
 
 export type LaunchAppearance = Readonly<{ transparency: boolean; lowPower: boolean }>;
 export type SettingsSnapshot = Readonly<{
+  initialStartup: boolean;
   saved: DesktopSettings;
   launch: LaunchAppearance | null;
   activeAddress: string | null;
@@ -28,6 +29,7 @@ export type SettingsChange = {
 }[Exclude<keyof DesktopSettings, "version">];
 
 export type DesktopSettingsBridge = Readonly<{
+  completeStartup(): Promise<void>;
   read(): Promise<SettingsSnapshot>;
   change(change: SettingsChange): Promise<DesktopSettings>;
   changes(reportOverflow: NativeOverflowReporter): Stream.Stream<undefined, Error>;
@@ -73,6 +75,7 @@ async function settingsCommand<T>(command: string, args?: Record<string, unknown
 }
 
 export const browserSettingsFixture: SettingsSnapshot = {
+  initialStartup: true,
   saved: {
     version: 1,
     selfUpdate: "enabled",
@@ -90,6 +93,7 @@ export const browserSettingsFixture: SettingsSnapshot = {
 
 export function createTauriSettings(): DesktopSettingsBridge {
   return {
+    completeStartup: async () => invoke("complete_main_startup"),
     read: async () => settingsCommand<SettingsSnapshot>("read_desktop_settings"),
     change: async (change) => settingsCommand<DesktopSettings>("change_desktop_setting", { change }),
     connect: async (address, mode) =>
@@ -112,8 +116,12 @@ export function createBrowserSettings(
   let saved = { ...browserSettingsFixture.saved, serverAddress: endpoint };
   const listeners = new Set<(value: undefined) => void>();
   let activeAddress = saved.serverAddress;
+  let initialStartup = true;
   return {
-    read: async () => ({ ...browserSettingsFixture, saved, activeAddress }),
+    completeStartup: async () => {
+      initialStartup = false;
+    },
+    read: async () => ({ ...browserSettingsFixture, saved, activeAddress, initialStartup }),
     connect: async (address, mode) => {
       saved = { ...saved, serverAddress: parseBrowserServerAddress(address) };
       if (mode === "mainStartup") activeAddress = saved.serverAddress;

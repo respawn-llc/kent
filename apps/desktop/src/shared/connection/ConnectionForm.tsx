@@ -18,7 +18,10 @@ export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean
   const status = useStatusController();
   const { t } = useTranslation();
   const snapshot = useDesktopSettings();
-  const mode = startup && services.nativeBridge.app.isMainWindow() ? "mainStartup" : "restart";
+  const mode =
+    startup && snapshot.initialStartup && services.nativeBridge.app.isMainWindow()
+      ? "mainStartup"
+      : "restart";
   const model = useMemo(
     () => createConnectionViewModel({ services, client, mode, status, t }),
     [services, client, mode, status, t],
