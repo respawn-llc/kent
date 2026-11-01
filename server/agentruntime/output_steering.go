@@ -728,7 +728,7 @@ func workflowPostCompletionActivityForSteeringItem(item steeringItem) workflowPo
 		item.toolCompletion != nil ||
 		(item.resultGroupFlush != nil && item.resultGroupFlush.committed) ||
 		(item.missingToolOutputRepair != nil && item.missingToolOutputRepair.repaired > 0) ||
-		(item.modelInput != nil && len(item.modelInput.prepared.groups) > 0) {
+		(item.modelInput != nil && (len(item.modelInput.prepared.groups) > 0 || len(item.modelInput.prepared.prefix) > 0)) {
 		return workflowPostCompletionDurableActivity
 	}
 	return workflowPostCompletionNoActivity

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompactionSoonReminderStaysSingleShotAfterReEnablingAutoCompactionAboveReminderBand(t *testing.T) {
@@ -307,6 +308,9 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
+	if err := store.RecordModelToolActivity(time.Now().Add(-2 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 
 	client := &fakeCompactionClient{
 		responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)}}},
@@ -321,11 +325,12 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	}
 
 	eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
-		Model:                 "gpt-6-sol",
-		ContextWindowTokens:   20_000,
-		AutoCompactTokenLimit: 10_000,
-		MaxTokens:             20,
-		CompactionMode:        "native",
+		Model:                     "gpt-6-sol",
+		ContextWindowTokens:       20_000,
+		AutoCompactTokenLimit:     10_000,
+		MaxTokens:                 20,
+		CompactionMode:            "native",
+		IdleResumeReminderSeconds: textutil.Value(3600),
 	})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleUser, Content: textutil.Value("seed")}})); err != nil {
 		t.Fatalf("append seed message: %v", err)
@@ -343,6 +348,9 @@ func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t
 	}
 	if len(client.calls) != 1 {
 		t.Fatalf("expected one model request after compaction, got %d", len(client.calls))
+	}
+	if idleReminderCount(client.calls[0]) != 0 {
+		t.Fatal("preparation compaction did not suppress idle reminder")
 	}
 	for _, reqMsg := range requestMessages(client.calls[0]) {
 		if reqMsg.Role == llm.RoleDeveloper && reqMsg.MessageType != nil && *reqMsg.MessageType == llm.MessageTypeCompactionSoonReminder {

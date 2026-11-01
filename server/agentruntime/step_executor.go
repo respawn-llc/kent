@@ -585,11 +585,25 @@ func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, step
 	if err != nil {
 		return llm.Request{}, false, err
 	}
+	e := s.engine
+	hasConversation, unansweredReminder := e.transcriptRuntimeState().chat.idleResumeEvidence()
+	compactionCount := e.compactionRuntimeState().Count()
+	lastActivity := e.store.ContextFacts().LastModelToolActivityAt
 	if err := s.prepareModelTurn(ctx, stepID, prepared.items...); err != nil {
 		return llm.Request{}, false, err
 	}
 	if err := s.engine.prepareRequestGenerationContext(ctx, stepID); err != nil {
 		return llm.Request{}, false, err
+	}
+	now := e.transcriptRuntimeState().now()
+	if hasConversation && !unansweredReminder && e.compactionRuntimeState().Count() == compactionCount &&
+		idleResumeEligible(e.cfg.IdleResumeReminderSeconds, lastActivity, now) {
+		prepared.prependRuntimeMessages([]llm.Message{{
+			Role:        llm.RoleDeveloper,
+			MessageType: textutil.Value(llm.MessageTypeIdleResumeReminder),
+			Content: textutil.Value(prompts.RenderIdleResumeReminder(
+				formatIdleResumeDuration(now.Sub(*lastActivity)), now.Local().Format("2006-01-02T15:04:05"))),
+		}})
 	}
 	assembly, err := s.engine.assembleRequest(ctx, stepID, prepared.items, true, true)
 	if err != nil {
