@@ -69,7 +69,6 @@ export function ProjectWorkflowStrip({
       isFetchingPreviousPage={isFetchingPreviousPage}
       itemRole="presentation"
       items={workflows}
-      loadingLabel={t("app.loadingMore")}
       onLoadMore={onLoadNext}
       onLoadPrevious={onLoadPrevious}
       orientation="horizontal"

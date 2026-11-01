@@ -49,7 +49,6 @@ export function ChatWorkspaceChip({
       failed: direction === "next" ? catalog.isFetchNextPageError : catalog.isFetchPreviousPageError,
       loading: direction === "next" ? catalog.isFetchingNextPage : catalog.isFetchingPreviousPage,
       message: errorMessage(catalog.error),
-      loadingLabel: t("states.loading"),
       retryLabel: t("app.retry"),
       onRetry: () => {
         void (direction === "next" ? catalog.fetchNextPage() : catalog.fetchPreviousPage());
@@ -69,7 +68,7 @@ export function ChatWorkspaceChip({
               </PopoverTrigger>
             </span>
           </TooltipTrigger>
-          <TooltipContent>{pending ? t("chat.workspacePending") : t("chat.workspace")}</TooltipContent>
+          <TooltipContent>{t("chat.workspace")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
       <PopoverContent
@@ -77,7 +76,7 @@ export function ChatWorkspaceChip({
         className="w-80 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] grid-rows-[minmax(0,1fr)] overflow-hidden"
       >
         {catalog.isPending ? (
-          <LoadingState title={t("states.loading")} />
+          <LoadingState />
         ) : (
           <VirtualizedInfiniteList
             items={rows}
@@ -100,15 +99,12 @@ export function ChatWorkspaceChip({
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    {pending ? t("chat.workspacePending") : formatPath(row.rootPath)}
-                  </TooltipContent>
+                  <TooltipContent>{formatPath(row.rootPath)}</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
             estimateSize={() => 40}
             className="h-64 max-h-full min-h-0 overflow-y-auto"
-            loadingLabel={t("states.loading")}
             hasNextPage={catalog.hasNextPage}
             isFetchingNextPage={catalog.isFetchingNextPage}
             onLoadMore={() => {

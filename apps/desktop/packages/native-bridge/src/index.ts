@@ -1,3 +1,5 @@
+import type { NativeWindowGlassStatus } from "./windowGlass";
+export type { NativeWindowGlassStatus } from "./windowGlass";
 import { invoke } from "@tauri-apps/api/core";
 import { createTauriSpeechBridge, type NativeSpeechBridge } from "./speech";
 export type {
@@ -134,7 +136,7 @@ export type NativeBridge = Readonly<{
     ): Stream.Stream<NativeMainNavigation, Error>;
     focusChanges(reportOverflow: NativeOverflowReporter): Stream.Stream<boolean, Error>;
     fileDrops(reportOverflow: NativeOverflowReporter): Stream.Stream<readonly string[], Error>;
-    setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void>;
+    setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<NativeWindowGlassStatus>;
   }>;
   dialogs: Readonly<{
     openWindow(options: NativeDialogWindowOptions): Promise<NativeDialogOpenResult>;
@@ -248,8 +250,8 @@ export function createBrowserNativeBridge(options: BrowserNativeBridgeOptions = 
         nativeObservation(async () => () => undefined, reportOverflow),
       focusChanges: browserWindowFocus.focusChanges,
       fileDrops: (reportOverflow) => nativeObservation(async () => () => undefined, reportOverflow),
-      async setCurrentGlassTint(): Promise<void> {
-        return Promise.resolve();
+      async setCurrentGlassTint(): Promise<NativeWindowGlassStatus> {
+        return { status: "unsupported", reason: "Native glass is unavailable in the browser." };
       },
     },
     dialogs: {
@@ -340,9 +342,9 @@ export function createTauriNativeBridge(platform: NativePlatform = "unknown"): N
             }
           });
         }, reportOverflow),
-      async setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<void> {
+      async setCurrentGlassTint(tint: NativeWindowGlassTint | null): Promise<NativeWindowGlassStatus> {
         validateNativeWindowGlassTint(tint);
-        await invoke("set_native_window_glass_tint", {
+        return invoke<NativeWindowGlassStatus>("set_native_window_glass_tint", {
           label: getCurrentWindow().label,
           tint,
         });

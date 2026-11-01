@@ -30,14 +30,7 @@ export function StartupGate({ children }: StartupGateProps): ReactElement {
   }, [location.pathname, navigate, startupTitleKey]);
 
   if (startup.kind === "loading") {
-    return (
-      <LoadingState
-        body={t("startup.loadingBody")}
-        chromePadding
-        reveal={false}
-        title={t("startup.loadingTitle")}
-      />
-    );
+    return <LoadingState chromePadding reveal={false} />;
   }
 
   if (startup.kind === "server-missing") {

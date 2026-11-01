@@ -1,4 +1,5 @@
-import { useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { useId, useMemo, useState, type ReactNode, type RefCallback } from "react";
+import { useScrollSpy } from "@mantine/hooks";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -18,15 +19,20 @@ import {
   DisabledInteractionGuard,
   ErrorState,
   LoadingState,
+  HelpHint,
   PreferenceRow,
   SegmentedControl,
   Spinner,
   Switch,
+  cx,
   prefersReducedMotion,
 } from "@/ui";
 import { createSettingsViewModel, type SettingsViewModel } from "./SettingsViewModel";
 
-const sections = [{ id: "appearance", title: "settings.appearance" }] as const;
+const sections = [
+  { id: "general", title: "settings.general" },
+  { id: "appearance", title: "settings.appearance" },
+] as const;
 
 export function SettingsDestination({
   active,
@@ -45,26 +51,37 @@ export function SettingsDestination({
     () => createSettingsViewModel({ services, client, configPath, status, t }),
     [services, client, configPath, status, t],
   );
-  const scroll = useRef<HTMLDivElement>(null);
-  const appearance = useRef<HTMLElement>(null);
+  const scrollID = useId();
+  const [scrollHost, setScrollHost] = useState<HTMLDivElement | null>(null);
+  const spy = useScrollSpy({
+    selector: `[data-settings-scroll="${scrollID}"] [data-settings-heading]`,
+    ...(scrollHost === null ? {} : { scrollHost }),
+  });
+  const activeSection = scrollHost === null ? undefined : spy.data[spy.active]?.id;
   return children({
-    page: active ? <SettingsPage model={model} scroll={scroll} appearance={appearance} /> : null,
+    page: active ? <SettingsPage model={model} scrollRef={setScrollHost} scrollID={scrollID} /> : null,
     sidebar: active ? (
-      <nav className="grid gap-[var(--space-2)] p-[var(--space-3)]">
+      <nav className="grid gap-[var(--space-1)] py-[var(--space-5)]">
         {sections.map((section) => (
           <button
-            className="text-left"
+            className={cx(
+              "rounded-[var(--radius-m)] px-[var(--space-3)] py-[var(--space-2)] text-left text-sm text-[var(--color-muted)] transition-colors hover:text-[var(--color-on-island)]",
+              activeSection === `${scrollID}-${section.id}` &&
+                "bg-[color-mix(in_srgb,var(--color-primary)_12%,transparent)] font-bold text-[var(--color-primary)]",
+            )}
+            aria-current={activeSection === `${scrollID}-${section.id}` ? "location" : undefined}
             key={section.id}
             onClick={() => {
-              const container = scroll.current;
+              const container = scrollHost;
+              const heading = spy.data.find((entry) => entry.id === `${scrollID}-${section.id}`)?.getNode();
               if (
                 container === null ||
-                appearance.current === null ||
+                heading === undefined ||
                 container.scrollHeight <= container.clientHeight
               )
                 return;
               const top =
-                appearance.current.getBoundingClientRect().top -
+                heading.getBoundingClientRect().top -
                 container.getBoundingClientRect().top +
                 container.scrollTop;
               container.scrollTo({ top, behavior: prefersReducedMotion() ? "instant" : "smooth" });
@@ -80,12 +97,12 @@ export function SettingsDestination({
 
 function SettingsPage({
   model,
-  scroll,
-  appearance,
+  scrollRef,
+  scrollID,
 }: Readonly<{
   model: SettingsViewModel;
-  scroll: RefObject<HTMLDivElement | null>;
-  appearance: RefObject<HTMLElement | null>;
+  scrollRef: RefCallback<HTMLDivElement>;
+  scrollID: string;
 }>) {
   const { t } = useTranslation();
   const settings = useAtomValue(model.settings);
@@ -106,29 +123,79 @@ function SettingsPage({
         retryLabel={t("app.retry")}
       />
     );
-  if (settings.data === undefined || config.isPending)
-    return <LoadingState title={t("settings.title")} body={t("settings.loading")} />;
+  if (settings.data === undefined || config.isPending) return <LoadingState />;
   const saved = settings.data.saved;
-  const busy = change.isPending ? t("settings.saving") : undefined;
-  const overridden = saved.lowPower ? t("settings.overridden") : busy;
+  const busy = change.isPending;
+  const overridden = saved.lowPower ? t("settings.overridden") : undefined;
   const submit = (input: SettingsChange) => {
     change.submit(input);
   };
   return (
-    <div ref={scroll} className="h-full min-h-0 overflow-auto p-[var(--space-5)]">
+    <div
+      ref={scrollRef}
+      data-settings-scroll={scrollID}
+      className="h-full min-h-0 overflow-auto p-[var(--space-5)]"
+    >
       <div className="mx-auto grid max-w-3xl gap-[var(--space-5)]">
-        <ConnectionForm />
-        <ConfigNotice
-          path={config.data.path}
-          available={config.data.available}
-          opening={open.isPending}
-          onOpen={() => {
-            open.submit(undefined);
-          }}
-        />
-        <section ref={appearance} className="grid gap-[var(--space-3)]">
-          <h2>{t(sections[0].title)}</h2>
-          <PreferenceRow label={t("settings.theme")} disabledReason={busy}>
+        <h1 className="m-0 flex items-center gap-[var(--space-2)] text-xl font-bold">
+          {t("settings.title")}
+          {change.isPending && <Spinner size="sm" />}
+        </h1>
+        <section className="grid gap-[var(--space-3)]">
+          <h2 className="m-0 text-base font-bold" id={`${scrollID}-${sections[0].id}`} data-settings-heading>
+            {t(sections[0].title)}
+          </h2>
+          <ConnectionForm />
+          <ConfigNotice
+            path={config.data.path}
+            available={config.data.available}
+            opening={open.isPending}
+            onOpen={() => {
+              open.submit(undefined);
+            }}
+          />
+          <PreferenceRow
+            label={t("settings.notifications")}
+            help={t("settings.help.notifications")}
+            disabled={busy}
+          >
+            <SegmentedControl<DesktopSettings["notifications"]>
+              ariaLabel={t("settings.notifications")}
+              value={saved.notifications}
+              onValueChange={(value) => {
+                submit({ field: "notifications", value });
+              }}
+              options={[
+                { value: "automatic", label: t("settings.automatic") },
+                { value: "native", label: t("settings.native") },
+                { value: "inApp", label: t("settings.inApp") },
+              ]}
+            />
+          </PreferenceRow>
+          <PreferenceRow
+            label={t("settings.projectOpening")}
+            help={t("settings.help.projectOpening")}
+            disabled={busy}
+          >
+            <SegmentedControl<DesktopSettings["projectOpening"]>
+              ariaLabel={t("settings.projectOpening")}
+              value={saved.projectOpening}
+              onValueChange={(value) => {
+                submit({ field: "projectOpening", value });
+              }}
+              options={[
+                { value: "lastUsed", label: t("settings.lastUsed") },
+                { value: "tasks", label: t("settings.tasks") },
+                { value: "sessions", label: t("settings.sessions") },
+              ]}
+            />
+          </PreferenceRow>
+        </section>
+        <section className="grid gap-[var(--space-3)]">
+          <h2 className="m-0 text-base font-bold" id={`${scrollID}-${sections[1].id}`} data-settings-heading>
+            {t(sections[1].title)}
+          </h2>
+          <PreferenceRow label={t("settings.theme")} help={t("settings.help.theme")} disabled={busy}>
             <SegmentedControl<DesktopSettings["theme"]>
               ariaLabel={t("settings.theme")}
               value={saved.theme}
@@ -142,7 +209,7 @@ function SettingsPage({
               ]}
             />
           </PreferenceRow>
-          <PreferenceRow label={t("settings.lowPower")} disabledReason={busy}>
+          <PreferenceRow label={t("settings.lowPower")} help={t("settings.help.lowPower")} disabled={busy}>
             <Switch
               checked={saved.lowPower}
               aria-label={t("settings.lowPower")}
@@ -151,7 +218,12 @@ function SettingsPage({
               }}
             />
           </PreferenceRow>
-          <PreferenceRow label={t("settings.transparency")} disabledReason={overridden}>
+          <PreferenceRow
+            label={t("settings.transparency")}
+            help={t("settings.help.transparency")}
+            disabled={busy}
+            disabledReason={overridden}
+          >
             <Switch
               checked={saved.transparency}
               aria-label={t("settings.transparency")}
@@ -161,7 +233,12 @@ function SettingsPage({
               }}
             />
           </PreferenceRow>
-          <PreferenceRow label={t("settings.reducedMotion")} disabledReason={overridden}>
+          <PreferenceRow
+            label={t("settings.reducedMotion")}
+            help={t("settings.help.reducedMotion")}
+            disabled={busy}
+            disabledReason={overridden}
+          >
             <Switch
               checked={saved.reducedMotion}
               aria-label={t("settings.reducedMotion")}
@@ -172,35 +249,6 @@ function SettingsPage({
             />
           </PreferenceRow>
         </section>
-        <PreferenceRow label={t("settings.notifications")} disabledReason={busy}>
-          <SegmentedControl<DesktopSettings["notifications"]>
-            ariaLabel={t("settings.notifications")}
-            value={saved.notifications}
-            onValueChange={(value) => {
-              submit({ field: "notifications", value });
-            }}
-            options={[
-              { value: "automatic", label: t("settings.automatic") },
-              { value: "native", label: t("settings.native") },
-              { value: "inApp", label: t("settings.inApp") },
-            ]}
-          />
-        </PreferenceRow>
-        <PreferenceRow label={t("settings.projectOpening")} disabledReason={busy}>
-          <SegmentedControl<DesktopSettings["projectOpening"]>
-            ariaLabel={t("settings.projectOpening")}
-            value={saved.projectOpening}
-            onValueChange={(value) => {
-              submit({ field: "projectOpening", value });
-            }}
-            options={[
-              { value: "lastUsed", label: t("settings.lastUsed") },
-              { value: "tasks", label: t("settings.tasks") },
-              { value: "sessions", label: t("settings.sessions") },
-            ]}
-          />
-        </PreferenceRow>
-        {change.isPending && <Spinner />}
       </div>
     </div>
   );
@@ -222,11 +270,11 @@ function ConfigNotice({
   if (path === null) return null;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-[var(--space-2)] text-sm text-[var(--color-muted)]">
-      <Info size={16} />
+      <HelpHint icon={Info} label={t("settings.help.serverConfig")} />
       <span>{t("settings.serverConfig")}</span>
       <span className="min-w-0 break-all font-mono">{formatPath(path)}</span>
       {available && (
-        <DisabledInteractionGuard disabled={opening} reason={t("settings.opening")}>
+        <DisabledInteractionGuard disabled={opening}>
           <Button variant="secondary" disabled={opening} onClick={onOpen} loading={opening}>
             {t("settings.open")}
           </Button>

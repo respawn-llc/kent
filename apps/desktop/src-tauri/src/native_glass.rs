@@ -1,5 +1,16 @@
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "status")]
+pub enum NativeGlassStatus {
+    #[cfg(any(target_os = "macos", windows))]
+    Applied { effect: &'static str },
+    #[cfg(not(windows))]
+    Unsupported { reason: &'static str },
+    DisabledByPreferences,
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
+    use super::NativeGlassStatus;
     use objc2::runtime::{AnyClass, NSObjectProtocol};
     use objc2_app_kit::{
         NSAutoresizingMaskOptions, NSColor, NSGlassEffectView, NSGlassEffectViewStyle,
@@ -18,13 +29,6 @@ mod platform {
     enum NativeWindowEffect {
         LiquidGlass,
         VisualEffect,
-    }
-
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase", tag = "status")]
-    pub enum NativeGlassStatus {
-        Applied { effect: &'static str },
-        Unsupported { reason: &'static str },
     }
 
     #[derive(Clone, Copy, serde::Deserialize)]
@@ -327,16 +331,11 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
+    use super::NativeGlassStatus;
     use tauri::window::{Color, Effect, EffectsBuilder};
     use tauri::{Manager, Runtime, WebviewWindow};
 
     const ACRYLIC_EFFECT_NAME: &str = "windowEffect.acrylic";
-
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase", tag = "status")]
-    pub enum NativeGlassStatus {
-        Applied { effect: &'static str },
-    }
 
     #[derive(Clone, Copy, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -421,11 +420,7 @@ mod platform {
 mod platform {
     use tauri::Runtime;
 
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase", tag = "status")]
-    pub enum NativeGlassStatus {
-        Unsupported { reason: &'static str },
-    }
+    use super::NativeGlassStatus;
 
     #[derive(Clone, Copy, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -462,4 +457,4 @@ mod platform {
 
 #[cfg(any(target_os = "macos", windows))]
 pub use platform::apply_to_window_now;
-pub use platform::{apply_to_label, set_tint_for_label, NativeGlassStatus, NativeGlassTint};
+pub use platform::{apply_to_label, set_tint_for_label, NativeGlassTint};

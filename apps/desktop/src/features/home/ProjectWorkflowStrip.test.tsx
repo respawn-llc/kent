@@ -29,7 +29,7 @@ describe("ProjectWorkflowStrip", () => {
 
   it("keeps the fixed controls visible before an initial loading boundary", () => {
     renderStrip({
-      initialBoundary: { label: "loading", state: "loading" },
+      initialBoundary: { state: "loading" },
       workflows: [],
     });
 
@@ -57,7 +57,7 @@ function renderStrip({
   initialBoundary,
   workflows,
 }: Readonly<{
-  initialBoundary?: { label: string; state: "loading" };
+  initialBoundary?: { state: "loading" };
   workflows: readonly Readonly<{
     description: string;
     id: string;

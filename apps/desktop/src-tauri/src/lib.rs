@@ -18,7 +18,6 @@ mod speech;
 #[cfg(target_os = "linux")]
 mod speech_linux;
 
-const DEFAULT_PERSISTENCE_ROOT: &str = "~/.kent";
 const GUI_LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const GUI_LOG_RETAIN_BYTES: u64 = 5 * 1024 * 1024;
 const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
@@ -612,9 +611,7 @@ async fn apply_native_window_glass(
     label: String,
 ) -> Result<native_glass::NativeGlassStatus, String> {
     if !app.state::<settings::DesktopLaunch>().transparent() {
-        return Ok(native_glass::NativeGlassStatus::Unsupported {
-            reason: "Window transparency disabled.",
-        });
+        return Ok(native_glass::NativeGlassStatus::DisabledByPreferences);
     }
     native_glass::apply_to_label(app, label).await
 }
@@ -626,9 +623,7 @@ async fn set_native_window_glass_tint(
     tint: Option<native_glass::NativeGlassTint>,
 ) -> Result<native_glass::NativeGlassStatus, String> {
     if !app.state::<settings::DesktopLaunch>().transparent() {
-        return Ok(native_glass::NativeGlassStatus::Unsupported {
-            reason: "Window transparency disabled.",
-        });
+        return Ok(native_glass::NativeGlassStatus::DisabledByPreferences);
     }
     native_glass::set_tint_for_label(app, label, tint).await
 }
@@ -785,45 +780,6 @@ fn platform() -> &'static str {
     }
 }
 
-fn persistence_root() -> Result<PathBuf, String> {
-    match env::var("KENT_PERSISTENCE_ROOT") {
-        Ok(value) if !value.trim().is_empty() => resolve_configured_path(value.trim()),
-        _ => resolve_configured_path(DEFAULT_PERSISTENCE_ROOT),
-    }
-}
-
-fn resolve_configured_path(value: &str) -> Result<PathBuf, String> {
-    let trimmed = value.trim();
-    if trimmed == "~" {
-        return home_dir();
-    }
-    // Match the Go loader's expandTildePath, which expands both `~/` and the
-    // Windows `~\` separator form. A server started with
-    // KENT_PERSISTENCE_ROOT=~\kent-root is accepted by the CLI/server, so the
-    // desktop must resolve the same value rather than reject it as relative and
-    // fail to connect to the matching selected-root server.
-    let expanded = if let Some(rest) = trimmed
-        .strip_prefix("~/")
-        .or_else(|| trimmed.strip_prefix("~\\"))
-    {
-        home_dir()?.join(rest)
-    } else {
-        PathBuf::from(trimmed)
-    };
-    if expanded.is_absolute() {
-        return Ok(expanded);
-    }
-    // A relative KENT_PERSISTENCE_ROOT is ambiguous for the desktop app: it would
-    // resolve against the app bundle's working directory (often `/`), which
-    // differs from the directory a `kent serve`/CLI was launched from, so the GUI
-    // would read config and write data under a different root than the server it
-    // controls. Require an absolute (or ~-rooted) path instead of silently
-    // diverging.
-    Err(format!(
-        "KENT_PERSISTENCE_ROOT must be an absolute path (or start with ~); got relative path {trimmed:?}."
-    ))
-}
-
 fn resolve_user_file_path(path: &str, base_path: &str) -> Result<PathBuf, String> {
     let trimmed_path = path.trim();
     if trimmed_path.is_empty() {
@@ -868,7 +824,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 }
 
 fn gui_log_path() -> Result<PathBuf, String> {
-    Ok(persistence_root()?.join("gui").join("desktop.log"))
+    Ok(home_dir()?.join(".kent").join("gui").join("desktop.log"))
 }
 
 fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
@@ -896,7 +852,7 @@ mod tests {
     use super::{
         clean_path, close_existing_attention_notification_record,
         insert_attention_notification_record, remove_attention_notification_backend,
-        remove_attention_notification_record_without_closing, resolve_configured_path,
+        remove_attention_notification_record_without_closing,
         AttentionNotificationCloser, AttentionNotificationState,
     };
     use std::path::{Path, PathBuf};
@@ -1038,26 +994,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolve_configured_path_rejects_relative_roots() {
-        let err = resolve_configured_path("rel/root").expect_err("relative root must be rejected");
-        assert!(err.contains("absolute"), "unexpected error: {err}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolve_configured_path_accepts_absolute_roots() {
-        let path = resolve_configured_path("/tmp/kent-root").expect("absolute root");
-        assert_eq!(path, std::path::PathBuf::from("/tmp/kent-root"));
-    }
-
-    #[test]
-    fn resolve_configured_path_expands_windows_tilde_separator() {
-        // The Go loader expands `~\` as well as `~/`, so a server started with
-        // KENT_PERSISTENCE_ROOT=~\kent-root must resolve to the home-rooted path
-        // rather than be rejected as a relative root.
-        std::env::set_var("HOME", "/home/kent-user");
-        let path = resolve_configured_path("~\\kent-root").expect("tilde-backslash root");
-        assert_eq!(path, std::path::PathBuf::from("/home/kent-user/kent-root"));
-    }
 }

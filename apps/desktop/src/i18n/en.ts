@@ -11,22 +11,39 @@ export const englishResources = {
   translation: {
     settings: {
       title: "Settings",
-      loading: "Loading preferences…",
       readFailed: "Could not read Desktop settings",
       restartRequired: "Restart Kent to apply these settings.",
       restart: "Restart",
-      restarting: "Restarting Kent…",
       connection: "Server connection",
       serverAddress: "Server WebSocket address",
       invalidAddress: "Enter a complete ws:// or wss:// server address.",
       connect: "Connect",
       saveConnection: "Save connection",
       appearance: "Appearance",
-      saving: "Saving…",
+      general: "General",
+      help: {
+        connection:
+          "Save the full ws:// or wss:// address, then restart Kent to connect. The current server stays connected until restart.",
+        connect:
+          "Save the full ws:// or wss:// address and try connecting once. An unreachable address is still saved.",
+        serverConfig:
+          "This path comes from the connected server. Open uses the exact local file when it exists, even when the server is remote.",
+        notifications:
+          "Native sends supported attention alerts to the OS; In-app keeps them in Kent. Automatic chooses by window focus. Action and error feedback stays in-app.",
+        projectOpening:
+          "Last used remembers each Project’s tab separately for each server. New Projects open Tasks. Explicit links still open their requested destination.",
+        theme:
+          "System follows your operating system’s appearance. Theme changes apply immediately in every window.",
+        lowPower:
+          "Turns off animations, window transparency, and all blur after restart. Your Transparency and Reduced motion choices are kept.",
+        transparency:
+          "Allows the background behind the window to show through. Changes require restart. Turning this off keeps in-window blur.",
+        reducedMotion:
+          "Suppresses animation immediately. Your operating system’s reduced-motion preference is always respected.",
+      },
       overridden: "Low-power mode overrides this",
       serverConfig: "Server configuration",
       open: "Open",
-      opening: "Opening…",
       theme: "Theme",
       system: "System",
       light: "Light",
@@ -57,8 +74,7 @@ export const englishResources = {
       backHome: "Back to Home",
       update: {
         available: "Update",
-        installing: "Updating…",
-        installingPercent: "Updating… {{percent}}%",
+        progressPercent: "{{percent}}%",
         retry: "Retry",
         installAria: "Install the available update and restart",
         dismiss: "Not now",
@@ -86,7 +102,6 @@ export const englishResources = {
       retry: "Try again",
       collapse: "Collapse",
       expand: "Expand",
-      loadingMore: "Loading more",
       attention: {
         sessionEnded: "Session ended: {{name}}",
         sessionNamingFailed: "Session naming failed",
@@ -201,7 +216,6 @@ export const englishResources = {
       title: "Search tasks",
       input: "Search tasks",
       results: "Task search results",
-      searching: "Searching tasks",
       failed: "Task search failed.",
       loadMoreFailed: "More search results could not be loaded.",
       commentHit: "Comment match",
@@ -209,8 +223,6 @@ export const englishResources = {
       moreHits_other: "{{count}} more hits",
     },
     startup: {
-      loadingTitle: "Connecting to Kent service",
-      loadingBody: "Checking readiness and authentication state.",
       readyTitle: "Kent service ready",
       errorTitle: "Startup blocked",
       updateTitle: "Update Kent",
@@ -247,7 +259,6 @@ export const englishResources = {
       workspaceSelectionRequired: "Choose an existing project",
       workspaceSelectionRequiredBody:
         "This workspace is already linked to Kent projects. Open one from the project list instead of creating another.",
-      boundWorkspace: "Workspace already belongs to a project. Opening existing project.",
       unboundWorkspace: "Workspace is unbound. Create a project before opening board.",
       noAttentionBody: "Blocked tasks and approvals will appear here.",
       primaryWorkspace: "Primary workspace",
@@ -296,7 +307,6 @@ export const englishResources = {
     chat: { ...chatEnglish, goal: chatGoalEnglish },
     projectEdit: {
       title: "Project",
-      loadingTitle: "Loading project",
       missingProject: "Project edit data is unavailable.",
       back: "Back",
       name: "Name",
@@ -432,7 +442,6 @@ export const englishResources = {
       createWorkflow: "Create workflow",
       newWorkflow: "New workflow",
       createFailed: "Workflow creation failed",
-      creating: "Creating workflow",
       name: "Workflow name",
       namePlaceholder: "Delivery",
       description: "Description",
@@ -453,7 +462,6 @@ export const englishResources = {
       activeCount_other: "{{count}} shells",
       sessionRequired: "Create a Session before opening its processes.",
       title: "Processes",
-      loading: "Loading processes",
       loadFailed: "Processes could not be loaded",
       emptyTitle: "No background processes",
       emptyBody: "Background processes will appear here.",
@@ -603,7 +611,6 @@ export const englishResources = {
       noDescription: "No description.",
     },
     states: {
-      loading: "Loading",
       empty: "Empty",
       error: "Error",
     },

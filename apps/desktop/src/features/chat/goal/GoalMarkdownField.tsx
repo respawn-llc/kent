@@ -46,7 +46,7 @@ export function NewChatGoalField({
             ) : draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
                 disabled={!canSave || speech.busy}
-                label={speech.busy ? speech.busyReason : label}
+                label={label}
                 onClick={submit}
                 pending={pending}
               />

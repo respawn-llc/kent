@@ -118,7 +118,7 @@ function WorkflowSettingsRoute({ navigator, projectID, workflowID }: WorkflowEdi
     );
   }
   if (data.workflowQuery.isPending || controller === null) {
-    return <LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />;
+    return <LoadingState appearanceDelayMs={0} />;
   }
   return (
     <>
@@ -234,8 +234,7 @@ function WorkflowEditorRouteContent({
       />
     );
   }
-  if (controller === null)
-    return <LoadingState appearanceDelayMs={0} title={t("workflowEditor.loadingTitle")} />;
+  if (controller === null) return <LoadingState appearanceDelayMs={0} />;
 
   return (
     <>
@@ -485,14 +484,7 @@ function WorkflowEditorNonReadyState({
 }>) {
   const { t } = useTranslation();
   if (viewState.kind === "loading") {
-    return (
-      <LoadingState
-        appearanceDelayMs={0}
-        chromePadding
-        contentWidth="full"
-        title={t("workflowEditor.loadingTitle")}
-      />
-    );
+    return <LoadingState appearanceDelayMs={0} chromePadding contentWidth="full" />;
   }
   if (viewState.kind === "linkError") {
     return (

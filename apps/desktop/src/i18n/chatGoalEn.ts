@@ -14,7 +14,6 @@ export const chatGoalEnglish = {
   mutationFailed: "Goal action failed",
   setFailed: "Goal could not be saved",
   savedWithWarning: "Goal saved with a warning",
-  loading: "Loading Goal",
   loadFailed: "Goal could not be loaded",
   setAt: "Set at",
   age: "({{age}} ago)",

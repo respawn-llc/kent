@@ -188,21 +188,11 @@ export function HomeShellRoute() {
 }
 
 export function WorkflowEditorShellRoute() {
-  const { t } = useTranslation();
   const params = workflowEditorRouteApi.useParams();
   const search = workflowEditorRouteApi.useSearch();
   useWindowChromeTitle(null);
   return (
-    <Suspense
-      fallback={
-        <LoadingState
-          appearanceDelayMs={0}
-          chromePadding
-          contentWidth="full"
-          title={t("workflowEditor.loadingTitle")}
-        />
-      }
-    >
+    <Suspense fallback={<LoadingState appearanceDelayMs={0} chromePadding contentWidth="full" />}>
       <LazyWorkflowEditorRoute projectID={search.projectId} workflowID={params.workflowId} />
     </Suspense>
   );
@@ -212,7 +202,7 @@ export function WorkflowLibraryShellRoute() {
   const { t } = useTranslation();
   useWindowChromeTitle(t("workflowLibrary.title"));
   return (
-    <Suspense fallback={<LoadingState appearanceDelayMs={0} title={t("workflowLibrary.title")} />}>
+    <Suspense fallback={<LoadingState appearanceDelayMs={0} />}>
       <LazyWorkflowLibraryRoute />
     </Suspense>
   );

@@ -364,7 +364,6 @@ export function ThinkingShowcase() {
               snapshot={snapshot}
               slots={slots}
               estimateSize={estimateSize}
-              loadingLabel="Loading fixture history"
               retryLabel="Retry fixture history"
               boundaryErrorMessage={(error) => error.message}
               onInput={dispatch}

@@ -173,7 +173,7 @@ function AttentionList({ items, query, model }: AttentionListProps) {
     openChat({ target, open: navigation.openSessionChat });
   });
   if (query.isPending) {
-    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} />;
   }
   if (query.isError) {
     return <ErrorState body={errorMessage(query.error)} reveal={false} title={t("states.error")} />;
@@ -197,7 +197,6 @@ function AttentionList({ items, query, model }: AttentionListProps) {
       }
       isFetchingNextPage={query.isFetchingNextPage}
       items={items}
-      loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
         query.fetchNextPage();
       }}

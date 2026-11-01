@@ -18,7 +18,8 @@ import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectRow } from "./ProjectRow";
 import type { useProjectPages } from "./useHomeData";
 
-export type HomeSidebarCategory = "projects" | "workflows";
+export type HomeCatalogCategory = "projects" | "workflows";
+export type HomeSidebarCategory = HomeCatalogCategory | "settings";
 
 export function HomeSidebar({
   onCategorySelect,
@@ -32,14 +33,14 @@ export function HomeSidebar({
   selectedProjectID,
   settingsSidebar,
 }: Readonly<{
-  onCategorySelect: (category: HomeSidebarCategory) => void;
+  onCategorySelect: (category: HomeCatalogCategory) => void;
   onChooseWorkspace: () => void;
   onCreateWorkflow: () => void;
   onProjectSelect: (projectID: string) => void;
   projectItems: readonly ProjectSummary[];
   projectCreationPending: boolean;
   projectsQuery: ReturnType<typeof useProjectPages>;
-  selectedCategory: HomeSidebarCategory | "settings";
+  selectedCategory: HomeSidebarCategory;
   selectedProjectID: string | null;
   settingsSidebar?: ReactNode;
 }>) {
@@ -51,17 +52,20 @@ export function HomeSidebar({
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
   );
-  const activeQuery = selectedCategory === "projects" ? projectsQuery : workflowsQuery;
-  const initialBoundary = directionalBoundary({
-    failed: activeQuery.isError,
-    loading: activeQuery.isPending,
-    loadingLabel: t("states.loading"),
-    message: activeQuery.isError ? errorMessage(activeQuery.error) : "",
-    onRetry: () => {
-      activeQuery.refetch();
-    },
-    retryLabel: t("app.retry"),
-  });
+  const activeQuery =
+    selectedCategory === "settings" ? null : selectedCategory === "projects" ? projectsQuery : workflowsQuery;
+  const initialBoundary =
+    activeQuery === null
+      ? undefined
+      : directionalBoundary({
+          failed: activeQuery.isError,
+          loading: activeQuery.isPending,
+          message: activeQuery.isError ? errorMessage(activeQuery.error) : "",
+          onRetry: () => {
+            activeQuery.refetch();
+          },
+          retryLabel: t("app.retry"),
+        });
   const empty =
     initialBoundary === undefined ? (
       <EmptyState
@@ -118,7 +122,6 @@ export function HomeSidebar({
               hasNextPage={projectsQuery.hasNextPage}
               isFetchingNextPage={projectsQuery.isFetchingNextPage}
               items={projectItems}
-              loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
                 projectsQuery.fetchNextPage();
               }}
@@ -144,7 +147,6 @@ export function HomeSidebar({
               hasNextPage={workflowsQuery.hasNextPage}
               isFetchingNextPage={workflowsQuery.isFetchingNextPage}
               items={workflows}
-              loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
                 workflowsQuery.fetchNextPage();
               }}
@@ -189,7 +191,6 @@ function CategoryRow({
   onSelect: () => void;
   selected: boolean;
 }>) {
-  const { t } = useTranslation();
   return (
     <div
       className={cx(

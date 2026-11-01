@@ -147,7 +147,7 @@ function BoardRouteData({
   });
 
   if (boardQuery.isPending && board === undefined) {
-    return <LoadingState chromePadding reveal={false} title={t("states.loading")} />;
+    return <LoadingState chromePadding reveal={false} />;
   }
   if (boardQuery.isError && board === undefined) {
     return (

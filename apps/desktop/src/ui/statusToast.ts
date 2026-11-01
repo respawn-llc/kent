@@ -1,7 +1,7 @@
 import { createElement, type MouseEvent, type ReactNode } from "react";
 import { toast, type ExternalToast } from "sonner";
 
-export type ToastTone = "neutral" | "info" | "success" | "warning" | "danger";
+export type ToastTone = "neutral" | "info" | "success" | "warning" | "danger" | "loading";
 
 export type StatusNotice = Readonly<{
   id: string;
@@ -18,6 +18,7 @@ export type StatusNotice = Readonly<{
 type ToastDispatcher = (message: ReactNode, options?: ExternalToast) => string | number;
 
 const toastByTone: Readonly<Record<ToastTone, ToastDispatcher>> = {
+  loading: toast.loading,
   danger: toast.error,
   info: toast.info,
   neutral: toast,

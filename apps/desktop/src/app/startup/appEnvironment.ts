@@ -5,6 +5,7 @@ import {
   type NativePlatform,
   type SettingsSnapshot,
 } from "@app/native-bridge";
+import { z } from "zod";
 
 import { StartupConfigurationError } from "@/api";
 import { ApiClient, createRpcTransport, protocolVersion, type RpcTransport } from "@/api/composition";
@@ -177,6 +178,7 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  if (typeof error === "string") return error;
+  const text = z.string().safeParse(error);
+  if (text.success) return text.data;
   return "Unknown native context error.";
 }

@@ -158,7 +158,6 @@ function SessionList({
   const initialBoundary = directionalBoundary({
     failed: query.isError,
     loading: query.isPending,
-    loadingLabel: t("states.loading"),
     message: query.isError ? errorMessage(query.error) : "",
     onRetry: () => {
       query.refetch();
@@ -184,7 +183,6 @@ function SessionList({
       hasNextPage={query.hasNextPage}
       isFetchingNextPage={query.isFetchingNextPage}
       items={sessions}
-      loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
         query.fetchNextPage();
       }}

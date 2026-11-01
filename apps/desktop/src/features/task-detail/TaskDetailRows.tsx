@@ -175,7 +175,6 @@ export function TaskHeaderIsland({
   onSave: SaveTaskDraft;
 }>) {
   const { t } = useTranslation();
-  const { description: speech } = useTaskSpeech();
   const title = draft.title;
   const dirty = draft.title !== detail.title || draft.body !== detail.body;
   const formShortcut = useTextFieldSubmitShortcut({
@@ -219,10 +218,7 @@ export function TaskHeaderIsland({
       />
       {dirty || detail.actions.canDelete ? (
         <span className="relative block h-9 w-9 shrink-0" data-testid="task-detail-title-action-slot">
-          <ControlTooltip
-            label={speech.busy ? speech.busyReason : t("task.save")}
-            className="absolute inset-0"
-          >
+          <ControlTooltip label={t("task.save")} className="absolute inset-0">
             <Button
               aria-label={t("task.save")}
               aria-hidden={!dirty}

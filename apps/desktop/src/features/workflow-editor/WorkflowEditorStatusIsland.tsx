@@ -129,9 +129,10 @@ export function WorkflowEditorSaveActions({
           controller.saving || (controller.dirty.graphDirty && controller.draftValidation?.valid === false)
         }
         onClick={controller.save}
+        loading={controller.saving}
         variant="primary"
       >
-        {controller.saving ? t("workflowEditor.saving") : t("workflowEditor.save")}
+        {t("workflowEditor.save")}
       </Button>
     </div>
   );
@@ -198,8 +199,14 @@ function WorkflowSaveConfirmation({
         <Button className="w-full" disabled={disabled} onClick={onCancel} variant="secondary">
           {t("app.cancel")}
         </Button>
-        <Button className="w-full" disabled={disabled} onClick={onConfirm} variant="danger">
-          {disabled ? t("workflowEditor.saving") : t("workflowEditor.confirmSave")}
+        <Button
+          className="w-full"
+          disabled={disabled}
+          loading={disabled}
+          onClick={onConfirm}
+          variant="danger"
+        >
+          {t("workflowEditor.confirmSave")}
         </Button>
       </div>
     </div>

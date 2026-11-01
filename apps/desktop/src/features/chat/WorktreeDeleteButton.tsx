@@ -62,35 +62,28 @@ function WorktreeDeleteContent({ preview, pending, confirm, onOpenChange }: Prop
       {preview === undefined || pending ? <Spinner size="sm" /> : null}
       {cleanliness === undefined ? null : <WorktreeCleanliness value={cleanliness} />}
       {preview !== undefined ? (
-        <TooltipProvider>
-          <Tooltip {...(pending ? {} : { open: false })}>
-            <TooltipTrigger asChild>
-              <div className="flex flex-wrap gap-[var(--space-2)]">
-                <Button
-                  disabled={pending}
-                  variant="danger"
-                  onClick={() => {
-                    confirm("confirm");
-                  }}
-                >
-                  {t("chat.worktree.confirm")}
-                </Button>
-                {hasDeletableWorktreeBranch(preview) ? (
-                  <Button
-                    disabled={pending}
-                    variant="danger"
-                    onClick={() => {
-                      confirm("confirm_and_branch");
-                    }}
-                  >
-                    {t("chat.worktree.confirmBranch")}
-                  </Button>
-                ) : null}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>{t("chat.worktree.requestPending")}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <div className="flex flex-wrap gap-[var(--space-2)]">
+          <Button
+            disabled={pending}
+            variant="danger"
+            onClick={() => {
+              confirm("confirm");
+            }}
+          >
+            {t("chat.worktree.confirm")}
+          </Button>
+          {hasDeletableWorktreeBranch(preview) ? (
+            <Button
+              disabled={pending}
+              variant="danger"
+              onClick={() => {
+                confirm("confirm_and_branch");
+              }}
+            >
+              {t("chat.worktree.confirmBranch")}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <Button
         onClick={() => {

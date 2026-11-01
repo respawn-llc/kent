@@ -67,13 +67,7 @@ export function CommentComposer({
         />
         <div className="relative z-10 col-start-1 row-start-1 flex items-center gap-[var(--space-2)] self-end justify-self-end m-[var(--space-2)]">
           {speech.control}
-          <ControlTooltip
-            label={
-              speech.busy
-                ? speech.busyReason
-                : t(editing === null ? "task.submitComment" : "task.saveComment")
-            }
-          >
+          <ControlTooltip label={t(editing === null ? "task.submitComment" : "task.saveComment")}>
             <Button
               aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}
               data-testid="task-comment-save"

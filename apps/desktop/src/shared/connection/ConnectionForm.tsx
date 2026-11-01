@@ -9,7 +9,7 @@ import {
   useStatusController,
   SettingsCommandError,
 } from "@/app-facade";
-import { Button, DisabledInteractionGuard, Spinner, TextInput } from "@/ui";
+import { Button, DisabledInteractionGuard, TextInput } from "@/ui";
 import { createConnectionViewModel } from "./ConnectionViewModel";
 
 export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean }>) {
@@ -36,6 +36,8 @@ export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean
     >
       <TextInput
         label={t("settings.serverAddress")}
+        labelHelp={t(mode === "mainStartup" ? "settings.help.connect" : "settings.help.connection")}
+        className="font-mono"
         value={draft ?? snapshot.saved.serverAddress}
         error={
           action.error instanceof SettingsCommandError && action.error.failure.kind === "address"
@@ -46,13 +48,8 @@ export function ConnectionForm({ startup = false }: Readonly<{ startup?: boolean
           setDraft(event.target.value);
         }}
       />
-      <DisabledInteractionGuard
-        className="justify-self-start"
-        disabled={action.isPending}
-        reason={t("settings.saving")}
-      >
-        <Button type="submit" disabled={action.isPending}>
-          {action.isPending && <Spinner />}
+      <DisabledInteractionGuard className="justify-self-start" disabled={action.isPending}>
+        <Button type="submit" disabled={action.isPending} loading={action.isPending}>
           {t(mode === "mainStartup" ? "settings.connect" : "settings.saveConnection")}
         </Button>
       </DisabledInteractionGuard>

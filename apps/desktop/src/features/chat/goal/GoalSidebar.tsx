@@ -127,13 +127,7 @@ function NewChatGoalSidebar({
       canSave={canSave}
       save={save}
       pending={snapshot.pending}
-      label={
-        !snapshot.ready
-          ? t("chatComposer.loadingSettings")
-          : unavailable
-            ? t("chat.goal.unavailableForAgent")
-            : t("chat.goal.save")
-      }
+      label={unavailable ? t("chat.goal.unavailableForAgent") : t("chat.goal.save")}
     />
   );
 }
@@ -183,7 +177,7 @@ function ExactGoalSidebar({
     },
   };
   if (state.observation.kind === "loading" && state.fact === null) {
-    return <LoadingState surface="plain" title={t("chat.goal.loading")} />;
+    return <LoadingState surface="plain" />;
   }
   if (state.observation.kind === "error" || state.observation.kind === "loading_retryable") {
     return (
@@ -237,10 +231,7 @@ function ExactGoalContent({
         <GoalMarkdownField
           editorRef={speech.editorRef}
           editing={model.editing}
-          floatingAction={fieldActions(
-            speech.control,
-            renderSaveAction(model, speech.busy ? speech.busyReason : undefined),
-          )}
+          floatingAction={fieldActions(speech.control, renderSaveAction(model))}
           expanded={model.expanded}
           onChange={model.setDraft}
           onEdit={() => {
@@ -273,7 +264,7 @@ function ExactGoalContent({
   );
 }
 
-function renderSaveAction(model: ExactGoalSidebarModel, speechReason?: string): ReactElement | undefined {
+function renderSaveAction(model: ExactGoalSidebarModel): ReactElement | undefined {
   if (model.pendingIntent?.kind === "set" || model.pendingIntent?.kind === "clear") {
     return <Spinner size="sm" testID="goal-mutation-pending" />;
   }
@@ -281,10 +272,7 @@ function renderSaveAction(model: ExactGoalSidebarModel, speechReason?: string): 
   return (
     <GoalSaveButton
       disabled={!model.saveAvailable || model.unavailable}
-      label={
-        speechReason ??
-        (model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save"))
-      }
+      label={model.unavailable ? model.t("chat.goal.unavailableForAgent") : model.t("chat.goal.save")}
       onClick={model.save}
       pending={false}
     />

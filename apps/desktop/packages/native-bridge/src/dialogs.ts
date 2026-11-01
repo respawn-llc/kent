@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { NativeWindowGlassStatus } from "./windowGlass";
 
 export type NativeDialogWindowOptions = Readonly<{
   label: string;
@@ -106,8 +107,8 @@ async function prepareNativeDialogWindow(label: string, window: WebviewWindow): 
   }
 }
 
-async function applyNativeWindowGlass(label: string): Promise<void> {
-  await invoke("apply_native_window_glass", { label });
+async function applyNativeWindowGlass(label: string): Promise<NativeWindowGlassStatus> {
+  return invoke<NativeWindowGlassStatus>("apply_native_window_glass", { label });
 }
 
 async function appendDialogGlassWarning(label: string, error: unknown): Promise<void> {

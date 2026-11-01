@@ -82,7 +82,6 @@ function ManualMoveDestination({
           <ManualMoveDialogContent
             canAdvance={canAdvance}
             canSubmit={canSubmit}
-            speechBusy={speechBusy}
             choices={choices}
             onCancel={onCancel}
             onSelect={(value) => {
@@ -108,7 +107,6 @@ function ManualMoveDestination({
 }
 
 function ManualMoveDialogContent({
-  speechBusy,
   canAdvance,
   canSubmit,
   choices,
@@ -123,7 +121,6 @@ function ManualMoveDialogContent({
   setPhase,
   values,
 }: Readonly<{
-  speechBusy: boolean;
   canAdvance: boolean;
   canSubmit: boolean;
   choices: readonly TaskMovePreviewChoice[];
@@ -191,7 +188,7 @@ function ManualMoveDialogContent({
             {t("app.continue")}
           </Button>
         ) : (
-          <ControlTooltip label={speechBusy ? t("speech.busy") : t("board.manualMoveConfirm")}>
+          <ControlTooltip label={t("board.manualMoveConfirm")}>
             <Button disabled={!canSubmit} type="submit" variant="primary">
               {t("board.manualMoveConfirm")}
             </Button>
