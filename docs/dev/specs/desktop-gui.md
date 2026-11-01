@@ -53,6 +53,8 @@
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
+- Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Busy actions must keep their ordinary action labels with a spinner. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
+
 ## Transcript configuration notices
 
 - Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.
@@ -87,8 +89,9 @@
 ## Desktop settings
 
 - Desktop settings must contain only Desktop-local preferences. The server owns context, Agent, model, and Workflow configuration.
-- Selecting Settings must replace Home's detail pane and replace the sidebar catalog with a table of contents. The Projects, Workflows, and Settings destination rows must be above it. The table of contents must contain only category heading titles. Selecting a title must smoothly scroll the single Settings page to that section, respecting reduced-motion preference. When the page fits without overflow, selecting a title must not scroll.
-- Settings must use one scrollable page. Appearance must group Theme, Low-power mode, Transparency, and Reduced motion. Categories with fewer than three options must not have headings.
+- Selecting Settings must replace Home's detail pane and replace the sidebar catalog with a table of contents. The Projects, Workflows, and Settings destination rows must be above it. The table of contents must contain only category heading titles. Selecting a title must smoothly scroll the single Settings page to that section, respecting reduced-motion preference. When the page fits without overflow, selecting a title must not scroll. The highlighted title must follow the visible section as the page scrolls.
+- Settings must use one scrollable page. General must group Server connection, Notifications, and Project opening. The server-config notice must accompany Server connection. General must contain options without a separate category. Appearance must group Theme, Low-power mode, Transparency, and Reduced motion. Categories with fewer than three options must not have headings.
+- Settings must not show dividers between options. Non-evident settings must explain their behavior in hover tooltips.
 - The connection field must have an explicit save action. Other preferences must save on change. A failed save must not change the effective setting and must show failure feedback.
 - Every startup blocker, including protocol mismatch and authentication or setup failure, must provide the connection form, its failure explanation, and Retry. An unreachable server must show server-start guidance. During the main window's initial startup, Connect must validate and save the address even when unreachable, then make one connection attempt without restarting or automatically retrying.
 - A connection change from a secondary window's startup blocker must require whole-app restart. Secondary windows must use the main window's active server even when another address is saved for the next restart.
@@ -497,5 +500,5 @@
 
 ## Logs
 
-- The desktop log is stored under the Kent persistence root and is limited to 10 MB.
+- The Desktop log must use the fixed path `~/.kent/gui/desktop.log`, independent of KENT_PERSISTENCE_ROOT, and be limited to 10 MB.
 - By default, logs redact authentication headers, tokens, environment values, and request bodies.
