@@ -18,6 +18,7 @@ import (
 	"core/server/sessionstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/invariant"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -2248,23 +2249,33 @@ func (s *Store) reconcileSessionEventLog(ctx context.Context, reconciliation ses
 
 func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot, projectID *string) error {
 	if s == nil || s.queries == nil {
-		return errors.New("metadata store is required")
+		return session.DefinitelyUncommittedMutation(errors.New("metadata store is required"))
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin session snapshot import tx: %w", err)
+		return session.DefinitelyUncommittedMutation(fmt.Errorf("begin session snapshot import tx: %w", err))
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := s.upsertSessionSnapshotWithQueries(
+	expected, err := s.upsertSessionSnapshotWithQueries(
 		ctx,
 		s.queries.WithTx(tx),
 		snapshot,
 		projectID,
-	); err != nil {
-		return err
+	)
+	if err != nil {
+		return session.DefinitelyUncommittedMutation(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit session snapshot import tx: %w", err)
+		invariant.NewPolicy(invariant.WithSink(invariant.SinkFunc(func(diagnostic invariant.Diagnostic) {
+			log.Printf("Session commit failed; checking the database outcome: %+v", diagnostic)
+		}))).Check(false, invariant.FailureDiagnostic(invariant.ScopeSessionPersistence, "commit_metadata_snapshot", err))
+		receipt, resolveErr := s.resolveSessionCommit(ctx, expected)
+		if resolveErr != nil {
+			panic(errors.Join(err, resolveErr))
+		}
+		if !receipt.Committed {
+			return session.DefinitelyUncommittedMutation(err)
+		}
 	}
 	return nil
 }
@@ -2274,30 +2285,30 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	q *sqlitegen.Queries,
 	snapshot session.PersistedStoreSnapshot,
 	projectID *string,
-) error {
+) (sqlitegen.UpsertSessionParams, error) {
 	if _, err := q.AcquireWorkspaceRegistrationLock(ctx); err != nil {
-		return fmt.Errorf("lock session snapshot import: %w", err)
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("lock session snapshot import: %w", err)
 	}
 	existingTarget, targetErr := q.GetSessionExecutionTargetByID(ctx, strings.TrimSpace(snapshot.Meta.SessionID))
 	if targetErr != nil && !errors.Is(targetErr, sql.ErrNoRows) {
-		return fmt.Errorf("get existing session execution target: %w", targetErr)
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("get existing session execution target: %w", targetErr)
 	}
 	binding := Binding{}
 	worktreeID := sql.NullString{}
 	cwdRelpath := "."
 	if targetErr == nil {
 		if projectID != nil && existingTarget.ProjectID != *projectID {
-			return fmt.Errorf("Session %q does not belong to Project %q", snapshot.Meta.SessionID, *projectID)
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("Session %q does not belong to Project %q", snapshot.Meta.SessionID, *projectID)
 		}
 		binding.ProjectID = existingTarget.ProjectID
 		binding.WorkspaceID = existingTarget.WorkspaceID
 		authoritativeRoot := strings.TrimSpace(existingTarget.WorkspaceRoot)
 		if authoritativeRoot == "" {
-			return fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceRootRequired)
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceRootRequired)
 		}
 		sameRoot, err := canonicalWorkspaceRootsEqual(snapshot.Meta.WorkspaceRoot, authoritativeRoot)
 		if err != nil {
-			return err
+			return sqlitegen.UpsertSessionParams{}, err
 		}
 		if !sameRoot {
 			snapshot.Meta.WorktreeReminder = nil
@@ -2305,7 +2316,7 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		snapshot.Meta.WorkspaceRoot = authoritativeRoot
 		snapshot.Meta.WorkspaceContainer = strings.TrimSpace(existingTarget.WorkspaceSnapshotName)
 		if snapshot.Meta.WorkspaceContainer == "" {
-			return fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceContainerRequired)
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceContainerRequired)
 		}
 		worktreeID = existingTarget.WorktreeID
 		cwdRelpath = normalizeSessionCwdRelpath(existingTarget.CwdRelpath)
@@ -2316,29 +2327,30 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		} else {
 			canonicalRoot, canonicalErr := config.CanonicalWorkspaceRoot(snapshot.Meta.WorkspaceRoot)
 			if canonicalErr != nil {
-				return canonicalErr
+				return sqlitegen.UpsertSessionParams{}, canonicalErr
 			}
 			binding, err = lookupProjectWorkspaceBindingWithQueries(ctx, q, *projectID, canonicalRoot)
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			return serverapi.ErrWorkspaceNotRegistered
+			return sqlitegen.UpsertSessionParams{}, serverapi.ErrWorkspaceNotRegistered
 		}
 		if err != nil {
-			return err
+			return sqlitegen.UpsertSessionParams{}, err
 		}
 	}
 	params, err := s.serializeSessionSnapshot(snapshot)
 	if err != nil {
-		return err
+		return sqlitegen.UpsertSessionParams{}, err
 	}
+	expected := params
 	params.ProjectID = binding.ProjectID
 	params.WorkspaceID = sql.NullString{String: binding.WorkspaceID, Valid: binding.WorkspaceID != ""}
 	params.WorktreeID = worktreeID
 	params.CwdRelpath = cwdRelpath
 	if err := persistSessionWithShortID(ctx, q, params); err != nil {
-		return fmt.Errorf("upsert session snapshot: %w", err)
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("upsert session snapshot: %w", err)
 	}
-	return nil
+	return expected, nil
 }
 
 func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot) (sqlitegen.UpsertSessionParams, error) {
@@ -2922,20 +2934,37 @@ type sessionObserver struct {
 	projectID *string
 }
 
-func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if o.store == nil {
-		return nil
+		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(errors.New("metadata store is required"))
 	}
 	if err := o.store.upsertSessionSnapshot(ctx, snapshot, o.projectID); err != nil {
-		return err
+		return session.CommitReceipt{}, err
 	}
 	status, err := goalProjection(&snapshot.Meta)
 	if err != nil {
 		log.Printf("publish Goal observation for Session %q: %v", snapshot.Meta.SessionID, err)
-		return nil
+		return session.CommitReceipt{Committed: true}, nil
 	}
 	o.store.goalObservations.publish(snapshot.Meta.SessionID, status)
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
+}
+
+func (s *Store) resolveSessionCommit(ctx context.Context, expected sqlitegen.UpsertSessionParams) (session.CommitReceipt, error) {
+	record, err := s.ResolvePersistedSession(ctx, expected.ID)
+	if errors.Is(err, session.ErrSessionNotFound) {
+		return session.CommitReceipt{}, nil
+	}
+	if err != nil {
+		return session.CommitReceipt{}, err
+	}
+	persisted, err := s.serializeSessionSnapshot(session.PersistedStoreSnapshot{
+		SessionDir: record.SessionDir, Meta: *record.Meta, ContextFacts: record.ContextFacts,
+	})
+	if err != nil {
+		return session.CommitReceipt{}, err
+	}
+	return session.CommitReceipt{Committed: persisted == expected}, nil
 }
 
 func (o sessionObserver) ObserveEventLogReconciliation(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {

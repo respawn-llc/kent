@@ -19,7 +19,7 @@ type testSessionMetadata struct {
 
 var sessionTestPersistence = &testSessionMetadata{records: map[string]PersistedSessionRecord{}}
 
-func (p *testSessionMetadata) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) error {
+func (p *testSessionMetadata) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
 	contextFacts := snapshot.ContextFacts.Clone()
 	if existing, ok := p.sharedStore().Get(snapshot.Meta.SessionID); ok {
 		contextFacts = existing.ContextFacts.Clone()
@@ -29,7 +29,7 @@ func (p *testSessionMetadata) ObservePersistedStore(_ context.Context, snapshot 
 		Meta:         cloneTestMeta(&snapshot.Meta),
 		ContextFacts: contextFacts,
 	})
-	return nil
+	return CommitReceipt{Committed: true}, nil
 }
 
 func (p *testSessionMetadata) WriteSessionContextFacts(

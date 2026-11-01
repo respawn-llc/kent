@@ -81,7 +81,7 @@ func (p *Persistence) Options() []session.StoreOption {
 	}
 }
 
-func (p *Persistence) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (p *Persistence) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	contextFacts := snapshot.ContextFacts.Clone()
 	if existing, ok := p.records.Get(snapshot.Meta.SessionID); ok {
 		contextFacts = existing.ContextFacts.Clone()
@@ -91,7 +91,7 @@ func (p *Persistence) ObservePersistedStore(_ context.Context, snapshot session.
 		Meta:         cloneMeta(&snapshot.Meta),
 		ContextFacts: contextFacts,
 	})
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 func (p *Persistence) WriteSessionContextFacts(

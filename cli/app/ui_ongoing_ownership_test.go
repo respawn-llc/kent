@@ -136,7 +136,7 @@ func TestScratchResetWhileDetailActiveDefersRawSurfaceWriteUntilOngoingOwnsTermi
 		t.Fatalf("prime native surface: %v", err)
 	}
 	raw.Reset()
-	controller := newNoopOngoingTranscriptController(&ongoingSurfaceSpy{}, ongoingTestFrameProvider)
+	controller := newNoopOngoingTranscriptController(nativeSurface, ongoingTestFrameProvider)
 	if _, _, err := controller.Accept(ongoingHydrationMessage(1)); err != nil {
 		t.Fatalf("accept hydration: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestScratchResetWhileDetailActiveDefersRawSurfaceWriteUntilOngoingOwnsTermi
 	m := newProjectedStaticUIModel(
 		WithUIOngoingSurface(nativeSurface),
 		withUIOngoingTranscriptController(controller),
-		WithUIOngoingTranscriptReopen(func() { reopenCount++ }))
+		WithUIOngoingTranscriptReopen(func(ongoing.RehydrateReason) { reopenCount++ }))
 
 	if cmd := m.activateSurface(uiSurfaceTranscriptDetail); cmd == nil {
 		t.Fatal("expected detail activation command")
@@ -158,6 +158,13 @@ func TestScratchResetWhileDetailActiveDefersRawSurfaceWriteUntilOngoingOwnsTermi
 	}
 	if reopenCount != 1 {
 		t.Fatalf("reopen count = %d, want 1", reopenCount)
+	}
+	reason := ongoing.RehydrateReasonSequenceGap
+	if cmd := m.handleOngoingTranscriptEvent(ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: &reason}); cmd != nil {
+		t.Fatal("off-surface cutover returned error")
+	}
+	if raw.Len() != 0 {
+		t.Fatal("ordered cutover wrote while unowned")
 	}
 
 	if cmd := m.activateSurface(uiSurfaceOngoingTranscript); cmd == nil {

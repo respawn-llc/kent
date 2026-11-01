@@ -19,6 +19,7 @@ type ongoingTranscriptSurface interface {
 	ApplyTerminalMessage(*transcriptpb.Message, ongoing.FrameInput) (ongoing.Result, error)
 	Render(ongoing.FrameInput) (ongoing.Result, error)
 	Resize(ongoing.Size, ongoing.FrameInput) (ongoing.Result, error)
+	ResetForScratchHydration(ongoing.RehydrateReason, ongoing.FrameInput) (ongoing.Result, error)
 }
 
 type ongoingFrameProvider func() ongoing.FrameInput
@@ -35,7 +36,7 @@ type ongoingTranscriptController struct {
 	normalOwned      bool
 	hydrated         bool
 	lastSequence     uint64
-	queue            []*transcriptpb.Message
+	queue            []ongoing.TerminalWork
 	queueOverflowed  bool
 	renderPending    bool
 	liveReadModel    ongoingTranscriptReadModel
@@ -80,7 +81,7 @@ func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ong
 	stateCmd := c.stateObserver(message, admission)
 	if !c.normalOwned {
 		if !isAppOwnedOngoingMessage(message.Event) {
-			c.enqueue(message)
+			c.enqueue(ongoing.TerminalMessage{Message: message})
 		}
 		c.renderPending = c.renderPending || stateChanged
 		return ongoing.Result{}, stateCmd, nil
@@ -100,7 +101,6 @@ func (c *ongoingTranscriptController) diagnoseRuntimeAdmissionError(
 	frame := c.frameProvider()
 	facts := conflict.facts()
 	facts["terminal_size"] = frame.Size
-	facts["terminal_cursor"] = frame.Cursor
 	hydration := message.Event.GetHydration()
 	facts["quoted_payload"] = strconv.Quote(fmt.Sprintf("%+v", hydration))
 	return ongoing.NewDeveloperError(
@@ -119,10 +119,11 @@ func (c *ongoingTranscriptController) SetNormalBufferOwned(owned bool) (ongoing.
 		return ongoing.Result{}, nil
 	}
 	if c.queueOverflowed {
-		c.queue = nil
-		c.queueOverflowed = false
-		c.renderPending = false
+		c.ResetForScratchHydration()
 		return ongoing.Result{Action: ongoing.ResultRequestScratchRehydration, Reason: ongoing.RehydrateReasonQueueOverflow}, nil
+	}
+	if len(c.queue) == 0 {
+		c.renderPending = true
 	}
 	return c.drainQueued()
 }
@@ -130,10 +131,47 @@ func (c *ongoingTranscriptController) SetNormalBufferOwned(owned bool) (ongoing.
 func (c *ongoingTranscriptController) ResetForScratchHydration() {
 	c.queue = nil
 	c.queueOverflowed = false
+	c.resetAdmission()
+}
+
+func (c *ongoingTranscriptController) resetAdmission() {
 	c.hydrated = false
 	c.lastSequence = 0
 	c.renderPending = false
 	c.liveReadModel.reset()
+}
+
+func (c *ongoingTranscriptController) AcceptCutover(reason ongoing.RehydrateReason) (ongoing.Result, error) {
+	if reason == ongoing.RehydrateReasonResize && !c.queueOverflowed {
+		c.resetAdmission()
+	} else {
+		c.ResetForScratchHydration()
+	}
+	work := ongoing.TerminalReset{Reason: reason}
+	if !c.normalOwned {
+		c.enqueue(work)
+		return ongoing.Result{}, nil
+	}
+	return c.applyTerminalWork(work)
+}
+
+func (c *ongoingTranscriptController) applyTerminalWork(work ongoing.TerminalWork) (ongoing.Result, error) {
+	switch work := work.(type) {
+	case ongoing.TerminalMessage:
+		return c.surface.ApplyTerminalMessage(work.Message, c.frameInput())
+	case ongoing.TerminalReset:
+		return c.surface.ResetForScratchHydration(work.Reason, c.frameInput())
+	default:
+		frame := c.frameInput()
+		ongoing.PanicDeveloperError(ongoing.NewDeveloperError(
+			"apply_terminal_work", "invalid ongoing terminal work", map[string]any{
+				"terminal_size":  frame.Size,
+				"quoted_payload": strconv.Quote(fmt.Sprintf("%#v", work)),
+				"quoted_frame":   strconv.Quote(fmt.Sprintf("%+v", frame)),
+			},
+		))
+		return ongoing.Result{}, nil
+	}
 }
 
 func (c *ongoingTranscriptController) Render() (ongoing.Result, error) {
@@ -187,13 +225,10 @@ func (c *ongoingTranscriptController) acceptedHydration(message *transcriptpb.Me
 func (c *ongoingTranscriptController) requestScratchRehydration() {
 	c.queue = nil
 	c.queueOverflowed = true
-	c.hydrated = false
-	c.lastSequence = 0
-	c.renderPending = false
-	c.liveReadModel.reset()
+	c.resetAdmission()
 }
 
-func (c *ongoingTranscriptController) enqueue(message *transcriptpb.Message) {
+func (c *ongoingTranscriptController) enqueue(work ongoing.TerminalWork) {
 	if c.queueOverflowed {
 		return
 	}
@@ -202,7 +237,7 @@ func (c *ongoingTranscriptController) enqueue(message *transcriptpb.Message) {
 		c.queueOverflowed = true
 		return
 	}
-	c.queue = append(c.queue, message)
+	c.queue = append(c.queue, work)
 }
 
 func (c *ongoingTranscriptController) drainQueued() (ongoing.Result, error) {
@@ -210,8 +245,8 @@ func (c *ongoingTranscriptController) drainQueued() (ongoing.Result, error) {
 	c.queue = nil
 	needsRender := c.renderPending
 	c.renderPending = false
-	for _, message := range queued {
-		if _, err := c.surface.ApplyTerminalMessage(message, c.frameInput()); err != nil {
+	for _, work := range queued {
+		if _, err := c.applyTerminalWork(work); err != nil {
 			return ongoing.Result{}, err
 		}
 	}
@@ -230,7 +265,7 @@ func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, st
 	}
 	if message.Event.GetHydration() != nil {
 		hydration := message.Event.GetHydration()
-		result, err := c.surface.ApplyTerminalMessage(message, c.frameInput())
+		result, err := c.applyTerminalWork(ongoing.TerminalMessage{Message: message})
 		if err != nil {
 			return ongoing.Result{}, err
 		}
@@ -239,7 +274,7 @@ func (c *ongoingTranscriptController) applyNow(message *transcriptpb.Message, st
 		}
 		return result, nil
 	}
-	return c.surface.ApplyTerminalMessage(message, c.frameInput())
+	return c.applyTerminalWork(ongoing.TerminalMessage{Message: message})
 }
 
 func (c *ongoingTranscriptController) applyState(message *transcriptpb.Message) bool {
@@ -346,15 +381,11 @@ func (c *ongoingTranscriptController) frameInput() ongoing.FrameInput {
 func (c *ongoingTranscriptController) composeFrame(frame ongoing.FrameInput) ongoing.FrameInput {
 	c.liveReadModel.refreshPendingToolSection(frame.Size.Width, frame.SpinnerFrame, frame.Theme)
 	c.liveReadModel.refreshPendingPromptSection(frame.Size.Width)
-	cursorSectionRow, cursorTargetsInput := ongoingFrameInputCursorSectionRow(frame)
 	sections := make([]ongoing.FrameSection, 0, len(c.liveReadModel.sectionOrder))
 	for _, kind := range c.liveReadModel.sectionOrder {
 		sections = append(sections, c.liveReadModel.sections[kind])
 	}
 	frame.Sections = append(sections, frame.Sections...)
-	if cursorTargetsInput {
-		frame.Cursor.Row = ongoingFrameInputCursorTerminalRow(frame, cursorSectionRow)
-	}
 	return frame
 }
 

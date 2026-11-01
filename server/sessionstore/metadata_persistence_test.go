@@ -32,10 +32,10 @@ type recordingPersistenceObserver struct {
 	err            error
 }
 
-func (r *recordingPersistenceObserver) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) error {
+func (r *recordingPersistenceObserver) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
 	r.called = true
 	r.snapshot = snapshot
-	return r.err
+	return CommitReceipt{Committed: true}, r.err
 }
 
 func (r *recordingPersistenceObserver) ResolvePersistedSession(_ context.Context, id string) (PersistedSessionRecord, error) {
@@ -57,14 +57,14 @@ type flakyPersistenceObserver struct {
 	lastSnapshot      PersistedStoreSnapshot
 }
 
-func (o *flakyPersistenceObserver) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) error {
+func (o *flakyPersistenceObserver) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
 	o.callCount++
 	o.lastSnapshot = snapshot
 	if o.failuresRemaining > 0 {
 		o.failuresRemaining--
-		return context.DeadlineExceeded
+		return CommitReceipt{}, DefinitelyUncommittedMutation(context.DeadlineExceeded)
 	}
-	return nil
+	return CommitReceipt{Committed: true}, nil
 }
 
 type reentrantPersistenceObserver struct {
@@ -72,9 +72,9 @@ type reentrantPersistenceObserver struct {
 	ch    chan Meta
 }
 
-func (o *reentrantPersistenceObserver) ObservePersistedStore(_ context.Context, _ PersistedStoreSnapshot) error {
+func (o *reentrantPersistenceObserver) ObservePersistedStore(_ context.Context, _ PersistedStoreSnapshot) (CommitReceipt, error) {
 	o.ch <- storeTestMeta(o.store)
-	return nil
+	return CommitReceipt{Committed: true}, nil
 }
 
 type blockingFailingPersistenceObserver struct {
@@ -99,7 +99,7 @@ func (o *blockingFailingPersistenceObserver) Arm() {
 	o.failNext = true
 }
 
-func (o *blockingFailingPersistenceObserver) ObservePersistedStore(ctx context.Context, snapshot PersistedStoreSnapshot) error {
+func (o *blockingFailingPersistenceObserver) ObservePersistedStore(ctx context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
 	o.mu.Lock()
 	fail := o.failNext
 	o.failNext = false
@@ -108,9 +108,9 @@ func (o *blockingFailingPersistenceObserver) ObservePersistedStore(ctx context.C
 		close(o.blocked)
 		select {
 		case <-o.release:
-			return os.ErrPermission
+			return CommitReceipt{}, DefinitelyUncommittedMutation(os.ErrPermission)
 		case <-ctx.Done():
-			return ctx.Err()
+			return CommitReceipt{}, DefinitelyUncommittedMutation(ctx.Err())
 		}
 	}
 	return o.downstream.ObservePersistedStore(ctx, snapshot)
@@ -139,10 +139,10 @@ func (o *deadlineRejectingPersistenceObserver) takeCheck() bool {
 func (o *deadlineRejectingPersistenceObserver) ObservePersistedStore(
 	ctx context.Context,
 	snapshot PersistedStoreSnapshot,
-) error {
+) (CommitReceipt, error) {
 	if o.takeCheck() {
 		if deadline, ok := ctx.Deadline(); ok {
-			return fmt.Errorf("metadata durability has synthetic deadline %s", deadline)
+			return CommitReceipt{}, DefinitelyUncommittedMutation(fmt.Errorf("metadata durability has synthetic deadline %s", deadline))
 		}
 	}
 	return o.downstream.ObservePersistedStore(ctx, snapshot)
@@ -503,7 +503,7 @@ func TestMetadataPersistenceRetriesSameValueUntilObserverSucceeds(t *testing.T) 
 	}
 }
 
-func TestSetUsageStateReportsCommittedObserverFailureAndRetries(t *testing.T) {
+func TestSetUsageStateRejectsFailedCommitAndAllowsExplicitRetry(t *testing.T) {
 	observer := &flakyPersistenceObserver{failuresRemaining: 1}
 	store, err := NewLazy(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
 	if err != nil {
@@ -512,11 +512,11 @@ func TestSetUsageStateReportsCommittedObserverFailureAndRetries(t *testing.T) {
 	usage := &UsageState{InputTokens: textutil.Value(900), WindowTokens: 200_000, ReportedContextTokens: textutil.Value(900)}
 
 	receipt, err := store.SetUsageState(usage)
-	if err == nil || !receipt.Committed {
-		t.Fatalf("first SetUsageState receipt=%+v error=%v, want committed observer failure", receipt, err)
+	if err == nil || receipt.Committed {
+		t.Fatalf("first SetUsageState receipt=%+v error=%v, want uncommitted failure", receipt, err)
 	}
-	if stored := store.Meta().UsageState; stored == nil || !textutil.EqualOptional(stored.InputTokens, usage.InputTokens) {
-		t.Fatalf("committed usage state = %+v, want %+v", stored, usage)
+	if stored := store.Meta().UsageState; stored != nil {
+		t.Fatalf("failed commit published usage state: %+v", stored)
 	}
 
 	receipt, err = store.SetUsageState(usage)
@@ -543,8 +543,8 @@ func TestPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
 
 	select {
 	case meta := <-observer.ch:
-		if meta.Name == nil || *meta.Name != "incident triage" {
-			t.Fatalf("observer reentrant read name = %v, want incident triage", meta.Name)
+		if meta.Name != nil {
+			t.Fatalf("observer reentrant read exposed an uncommitted name: %v", meta.Name)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("observer did not complete; possible store lock reentrancy deadlock")
@@ -591,7 +591,7 @@ func TestPersistenceSnapshotsAreImmutable(t *testing.T) {
 	}
 }
 
-func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
+func TestFailedCommitDoesNotLeakIntoLaterMutation(t *testing.T) {
 	observer := newBlockingFailingPersistenceObserver(sessionTestPersistence)
 	root := t.TempDir()
 	store, err := Create(
@@ -634,8 +634,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	close(observer.release)
 
 	first := <-firstDone
-	if first.err == nil || !first.result.Committed {
-		t.Fatalf("first mutation result = %+v, error = %v, want committed observer failure", first.result, first.err)
+	if first.err == nil || first.result.Committed {
+		t.Fatalf("first mutation result = %+v, error = %v, want uncommitted failure", first.result, first.err)
 	}
 	if err := <-secondDone; err != nil {
 		t.Fatalf("SetName: %v", err)
@@ -643,8 +643,8 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if store.Meta().Name == nil || *store.Meta().Name != "later mutation" {
 		t.Fatalf("session name = %v, want later mutation", store.Meta().Name)
 	}
-	if locked := store.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
-		t.Fatalf("committed reviewer snapshot = %+v, want present", locked)
+	if locked := store.Meta().Locked; locked == nil || locked.HasReviewerPrompt {
+		t.Fatalf("failed reviewer snapshot leaked into later mutation: %+v", locked)
 	}
 
 	reopened, err := OpenByID(root, store.Meta().SessionID, sessionTestPersistence.options()...)
@@ -654,7 +654,7 @@ func TestCommittedObservationFailurePrecedesLaterMutation(t *testing.T) {
 	if reopened.Meta().Name == nil || *reopened.Meta().Name != "later mutation" {
 		t.Fatalf("reopened name = %v, want later mutation", reopened.Meta().Name)
 	}
-	if locked := reopened.Meta().Locked; locked == nil || !locked.HasReviewerPrompt {
-		t.Fatalf("reopened reviewer snapshot = %+v, want present", locked)
+	if locked := reopened.Meta().Locked; locked == nil || locked.HasReviewerPrompt {
+		t.Fatalf("failed reviewer snapshot was persisted by later mutation: %+v", locked)
 	}
 }

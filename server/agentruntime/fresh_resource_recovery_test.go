@@ -210,7 +210,7 @@ func TestFreshResourceRepairCommitsAllCompletionsWithAggregateWarning(t *testing
 	steerDanglingToolCall(t, engine, secondStepID, llm.ToolCall{
 		ID: "second", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
 	})
-	gate.FailNext(observerErr)
+	gate.FailAfterCommit(observerErr)
 
 	repaired, err := engine.repairMissingToolOutputsByAppending(
 		textutil.Value(recoveryStepID),

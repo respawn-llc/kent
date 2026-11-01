@@ -99,7 +99,7 @@ func TestPlannerSelectedSessionUsesAuthoritativeMetadata(t *testing.T) {
 	authoritative.WorkspaceRoot = "/tmp/workspace-new"
 	authoritative.WorkspaceContainer = "workspace-new"
 	authoritative.UpdatedAt = authoritative.UpdatedAt.Add(time.Second)
-	if err := persistence.ObservePersistedStore(context.Background(), session.PersistedStoreSnapshot{
+	if _, err := persistence.ObservePersistedStore(context.Background(), session.PersistedStoreSnapshot{
 		SessionDir: selected.Dir(),
 		Meta: session.Meta{
 			SessionID:          authoritative.SessionID,

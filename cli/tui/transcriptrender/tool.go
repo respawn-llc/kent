@@ -111,19 +111,23 @@ func renderAnsweredQuestion(
 
 func RenderPendingTool(tool *transcriptpb.ToolStart, width int, themeName string, spinner string) Line {
 	syntax := newSyntaxProjector(themeName)
-	lines := pendingToolLines(tool, width, &syntax)
+	var symbol *string
+	if spinner != "" {
+		symbol = &spinner
+	}
+	lines := pendingToolLines(tool, width, &syntax, symbol)
 	if len(lines) == 0 {
 		return Line{}
 	}
-	if spinner == "" {
-		return lines[0]
-	}
-	return lines[0].WithLeadingSymbolText(spinner)
+	return lines[0]
 }
 
-func pendingToolLines(tool *transcriptpb.ToolStart, width int, syntax *syntaxProjector) []Line {
+func pendingToolLines(tool *transcriptpb.ToolStart, width int, syntax *syntaxProjector, symbol *string) []Line {
 	meta := projectedToolMeta(tool.ToolName, tool.Presentation)
 	meta.syntax = syntax
+	if symbol != nil {
+		meta.SymbolText = symbol
+	}
 	role := toolRole(meta)
 	text := compactToolText(meta, tool.ToolName)
 	inlineMeta := ""

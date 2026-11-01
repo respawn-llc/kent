@@ -44,13 +44,13 @@ func TestCommittedAssistantCommentaryUsesFullStableOutput(t *testing.T) {
 		{
 			name: "ordinary emission",
 			render: func(surface *Surface) []string {
-				return surface.renderCommittedRow(row, 32, "dark")
+				return surface.source.renderCommittedRow(row, 32, "dark")
 			},
 		},
 		{
 			name: "hydration",
 			render: func(surface *Surface) []string {
-				return surface.renderHydratedCommittedRow(row, 32, "dark")
+				return surface.source.renderHydratedCommittedRow(row, 32, "dark")
 			},
 		},
 	} {

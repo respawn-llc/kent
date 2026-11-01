@@ -17,7 +17,7 @@ import (
 	"testing"
 )
 
-func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
+func TestForkedSessionAfterTriggerHandoffDoesNotRequeuePendingHandoff(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
 
@@ -52,11 +52,8 @@ func TestForkedSessionAfterTriggerHandoffRequeuesPendingHandoff(t *testing.T) {
 		t.Fatalf("fork session: %v", err)
 	}
 	forked := mustNewHandoffTestEngine(t, forkedStore, &fakeClient{}, Config{})
-	if forked.handoffRuntimeState().RequestSnapshot() == nil {
-		t.Fatal("expected forked session to recover pending handoff request")
-	}
-	if got, want := forked.handoffRuntimeState().RequestSnapshot().futureAgentMessage, "resume after fork"; got != want {
-		t.Fatalf("forked pending future_agent_message = %q, want %q", got, want)
+	if forked.handoffRuntimeState().RequestSnapshot() != nil {
+		t.Fatal("fork resumed an unfinished handoff")
 	}
 }
 

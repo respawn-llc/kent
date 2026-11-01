@@ -20,7 +20,7 @@ type FrameInput struct {
 	Theme        string
 	SpinnerFrame int
 	Sections     []FrameSection
-	Cursor       Cursor
+	Overlay      *FrameDemand
 }
 
 type Cursor struct {
@@ -39,6 +39,7 @@ type FrameSection struct {
 	Kind          FrameSectionKind
 	Lines         []string
 	StyledLines   []transcriptrender.Line
+	Demand        *FrameDemand
 	OutputIndexes []*int64
 }
 
@@ -47,6 +48,20 @@ func (s FrameSection) outputIndex(row int) *int64 {
 		return nil
 	}
 	return s.OutputIndexes[row]
+}
+
+// FrameDemand projects frame-local content only after the whole band's budget
+// is known. Editor and selection state remain owned by the caller.
+type FrameDemand struct {
+	PreferredHeight int
+	MinimumHeight   int
+	Project         func(height int) SectionProjection
+}
+
+type SectionProjection struct {
+	Lines       []string
+	StyledLines []transcriptrender.Line
+	Cursor      Cursor
 }
 
 type liveBandLine struct {
@@ -66,9 +81,6 @@ const (
 	FrameSectionGoal            FrameSectionKind = "goal"
 	FrameSectionStatus          FrameSectionKind = "status"
 	FrameSectionInput           FrameSectionKind = "input"
-	FrameSectionPicker          FrameSectionKind = "picker"
-	FrameSectionHelp            FrameSectionKind = "help"
-	FrameSectionPromptHistory   FrameSectionKind = "prompt_history"
 	FrameSectionPendingTools    FrameSectionKind = "pending_tools"
 	FrameSectionRunState        FrameSectionKind = "run_state"
 	FrameSectionSessionStatus   FrameSectionKind = "session_status"
@@ -86,7 +98,7 @@ type ResultAction string
 const (
 	ResultNoop                      ResultAction = ""
 	ResultRequestScratchRehydration ResultAction = "request_scratch_rehydration"
-	ResultScheduleWidthRehydration  ResultAction = "schedule_width_rehydration"
+	ResultScheduleResizeRehydration ResultAction = "schedule_resize_rehydration"
 )
 
 type RehydrateReason string
@@ -94,7 +106,7 @@ type RehydrateReason string
 const (
 	RehydrateReasonSequenceGap   RehydrateReason = "sequence_gap"
 	RehydrateReasonQueueOverflow RehydrateReason = "queue_overflow"
-	RehydrateReasonWidthChange   RehydrateReason = "width_change"
+	RehydrateReasonResize        RehydrateReason = "resize"
 	RehydrateReasonMissingPrompt RehydrateReason = "missing_prompt"
 )
 
@@ -102,26 +114,14 @@ type TerminalResizePolicy uint8
 
 const (
 	TerminalResizeSemanticPrompt TerminalResizePolicy = iota + 1
-	TerminalResizeWidthRehydration
-	TerminalResizeTmuxWidthRehydration
+	TerminalResizeRehydration
 )
 
-func (p TerminalResizePolicy) usesWidthRehydration() bool {
+func (p TerminalResizePolicy) usesResizeRehydration() bool {
 	switch p {
-	case TerminalResizeWidthRehydration, TerminalResizeTmuxWidthRehydration:
+	case TerminalResizeRehydration:
 		return true
 	case TerminalResizeSemanticPrompt:
-		return false
-	default:
-		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", p))
-	}
-}
-
-func (p TerminalResizePolicy) bottomAnchorsVerticalExpansion() bool {
-	switch p {
-	case TerminalResizeTmuxWidthRehydration:
-		return true
-	case TerminalResizeSemanticPrompt, TerminalResizeWidthRehydration:
 		return false
 	default:
 		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", p))
@@ -131,13 +131,23 @@ func (p TerminalResizePolicy) bottomAnchorsVerticalExpansion() bool {
 type Surface struct {
 	writer             io.Writer
 	retainedBandHeight int
-	groupRegister      *transcriptrender.Group
-	activeAssistant    activeAssistantState
-	pendingAssistants  []activeAssistantState
-	pendingTools       []*transcriptpb.CommittedRow
+	source             sourceFormatter
 	terminalResize     TerminalResizePolicy
-	markdownLinks      transcriptrender.MarkdownLinkPresentation
 	lastPaintedSize    *Size
+	lastObservedSize   *Size
+	viewportInvalid    bool
+}
+
+type sourceFormatter struct {
+	groupRegister     *transcriptrender.Group
+	activeAssistant   activeAssistantState
+	pendingAssistants []activeAssistantState
+	pendingTools      []*transcriptpb.CommittedRow
+	markdownLinks     transcriptrender.MarkdownLinkPresentation
+}
+
+func (s *sourceFormatter) reset() {
+	*s = sourceFormatter{markdownLinks: s.markdownLinks}
 }
 
 type activeAssistantState struct {
@@ -179,7 +189,7 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 		writer = io.Discard
 	}
 	switch options.TerminalResize {
-	case TerminalResizeSemanticPrompt, TerminalResizeWidthRehydration, TerminalResizeTmuxWidthRehydration:
+	case TerminalResizeSemanticPrompt, TerminalResizeRehydration:
 	default:
 		panic(fmt.Sprintf("ongoing surface received invalid terminal resize policy %d", options.TerminalResize))
 	}
@@ -189,24 +199,25 @@ func NewSurfaceWithOptions(writer io.Writer, options SurfaceOptions) *Surface {
 	return &Surface{
 		writer:         writer,
 		terminalResize: options.TerminalResize,
-		markdownLinks:  options.MarkdownLinks,
+		source:         sourceFormatter{markdownLinks: options.MarkdownLinks},
 	}
 }
 
 func (s *Surface) ApplyTerminalMessage(message *transcriptpb.Message, frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "apply_terminal_message")
-	content := s.prepareTerminalMessage(message, frame)
+	content := s.source.prepareTerminalMessage(message, frame)
 	if content == nil {
 		return Result{}, nil
 	}
-	return s.writeFrameTransaction(frame, content.immutableRows)
+	s.observeResize(frame.Size)
+	return s.writeFrameTransaction(frame, s.AllocateFrame(frame), content.immutableRows)
 }
 
 type preparedSurfaceContent struct {
 	immutableRows []string
 }
 
-func (s *Surface) prepareTerminalMessage(message *transcriptpb.Message, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareTerminalMessage(message *transcriptpb.Message, frame FrameInput) *preparedSurfaceContent {
 	switch payload := message.GetEvent().GetPayload().(type) {
 	case *transcriptpb.Event_Hydration:
 		return s.prepareHydration(payload.Hydration, frame)
@@ -245,7 +256,7 @@ func (s *Surface) prepareTerminalMessage(message *transcriptpb.Message, frame Fr
 	return &preparedSurfaceContent{immutableRows: lines}
 }
 
-func (s *Surface) prepareHydration(hydration *transcriptpb.Hydration, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareHydration(hydration *transcriptpb.Hydration, frame FrameInput) *preparedSurfaceContent {
 	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
 	s.pendingTools = nil
 	s.pendingAssistants = nil
@@ -288,7 +299,7 @@ func (s *Surface) prepareHydration(hydration *transcriptpb.Hydration, frame Fram
 	return &preparedSurfaceContent{immutableRows: lines}
 }
 
-func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStream) bool {
+func (s *sourceFormatter) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStream) bool {
 	if stream == nil {
 		s.activeAssistant = activeAssistantState{}
 		return false
@@ -305,7 +316,7 @@ func (s *Surface) hydrateActiveAssistantStream(stream *transcriptpb.AssistantStr
 	return stream.Text != ""
 }
 
-func (s *Surface) prepareAssistantSourceComplete(source *transcriptpb.AssistantStream, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareAssistantSourceComplete(source *transcriptpb.AssistantStream, frame FrameInput) *preparedSurfaceContent {
 	for index := range s.pendingAssistants {
 		pending := &s.pendingAssistants[index]
 		if *pending.streamID != source.StreamId {
@@ -321,7 +332,7 @@ func (s *Surface) prepareAssistantSourceComplete(source *transcriptpb.AssistantS
 	return s.prepareAssistantFinal(source.StreamId, source.Text, frame)
 }
 
-func (s *Surface) prepareNextAssistant(frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareNextAssistant(frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		return &preparedSurfaceContent{}
 	}
@@ -331,7 +342,7 @@ func (s *Surface) prepareNextAssistant(frame FrameInput) *preparedSurfaceContent
 	return s.prepareAssistantDelta(*s.activeAssistant.streamID, "", s.activeAssistant.phase, s.activeAssistant.outputIndex, frame)
 }
 
-func (s *Surface) prepareAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareAssistantDelta(streamID string, delta string, phase transcriptpb.AssistantPhase, outputIndex *int64, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		streamIDCopy := streamID
 		s.activeAssistant.streamID = &streamIDCopy
@@ -383,7 +394,7 @@ func (s *Surface) prepareAssistantDelta(streamID string, delta string, phase tra
 	return &preparedSurfaceContent{immutableRows: promotedRows}
 }
 
-func (s *Surface) activeAssistantPromotionDeferred() bool {
+func (s *sourceFormatter) activeAssistantPromotionDeferred() bool {
 	if s.activeAssistant.phase != transcriptpb.AssistantPhase_ASSISTANT_PHASE_FINAL {
 		return false
 	}
@@ -395,7 +406,7 @@ func (s *Surface) activeAssistantPromotionDeferred() bool {
 	})
 }
 
-func (s *Surface) prepareAssistantAbort(streamID string, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareAssistantAbort(streamID string, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		panicOngoingDeveloperError("assistant_abort", "stream id has no unfinished source", nil)
 	}
@@ -418,7 +429,7 @@ func (s *Surface) prepareAssistantAbort(streamID string, frame FrameInput) *prep
 	return &preparedSurfaceContent{immutableRows: append(rows, s.prepareNextAssistant(frame).immutableRows...)}
 }
 
-func (s *Surface) advanceAssistantStream() {
+func (s *sourceFormatter) advanceAssistantStream() {
 	s.activeAssistant = activeAssistantState{}
 	if len(s.pendingAssistants) > 0 {
 		s.activeAssistant = s.pendingAssistants[0]
@@ -426,7 +437,7 @@ func (s *Surface) advanceAssistantStream() {
 	}
 }
 
-func (s *Surface) prepareAssistantFinal(streamID string, text string, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareAssistantFinal(streamID string, text string, frame FrameInput) *preparedSurfaceContent {
 	if s.activeAssistant.streamID == nil {
 		return s.prepareAssistantFinalWithoutActiveStream(text, frame)
 	}
@@ -463,7 +474,7 @@ func (s *Surface) prepareAssistantFinal(streamID string, text string, frame Fram
 	return &preparedSurfaceContent{immutableRows: append(promotedRows, s.prepareNextAssistant(frame).immutableRows...)}
 }
 
-func (s *Surface) drainFinishedTools(frame FrameInput) []string {
+func (s *sourceFormatter) drainFinishedTools(frame FrameInput) []string {
 	var rows []string
 	for _, row := range s.pendingTools {
 		rows = append(rows, s.renderCommittedRow(row, frame.Size.Width, frame.Theme)...)
@@ -472,7 +483,7 @@ func (s *Surface) drainFinishedTools(frame FrameInput) []string {
 	return rows
 }
 
-func (s *Surface) prepareAssistantFinalWithoutActiveStream(text string, frame FrameInput) *preparedSurfaceContent {
+func (s *sourceFormatter) prepareAssistantFinalWithoutActiveStream(text string, frame FrameInput) *preparedSurfaceContent {
 	if transcript.IsBlankAssistantFinal(transcript.AssistantFinalCandidate{
 		IsAssistant: true,
 		IsFinal:     true,
@@ -490,7 +501,8 @@ func (s *Surface) prepareAssistantFinalWithoutActiveStream(text string, frame Fr
 
 func (s *Surface) Render(frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "render")
-	return s.writeFrameTransaction(frame, nil)
+	s.observeResize(frame.Size)
+	return s.writeFrameTransaction(frame, s.AllocateFrame(frame), nil)
 }
 
 func (s *Surface) SetNormalBufferOwned(_ bool, _ FrameInput) (Result, error) {
@@ -498,11 +510,12 @@ func (s *Surface) SetNormalBufferOwned(_ bool, _ FrameInput) (Result, error) {
 }
 
 func (s *Surface) Resize(size Size, frame FrameInput) (Result, error) {
-	if result := s.observeResize(size); result.Action != ResultNoop {
-		return result, nil
-	}
+	result := s.observeResize(size)
 	frame.Size = size
-	return s.Render(frame)
+	if _, err := s.Render(frame); err != nil {
+		return Result{}, err
+	}
+	return result, nil
 }
 
 func (s *Surface) ObserveResize(size Size) Result {
@@ -510,49 +523,49 @@ func (s *Surface) ObserveResize(size Size) Result {
 }
 
 func (s *Surface) observeResize(size Size) Result {
-	if !s.terminalResize.usesWidthRehydration() {
+	previous := s.lastObservedSize
+	if size.Width <= 0 || size.Height <= 0 {
+		s.lastObservedSize = nil
+		if s.terminalResize.usesResizeRehydration() && s.lastPaintedSize != nil {
+			s.viewportInvalid = true
+		}
 		return Result{}
 	}
-	if s.lastPaintedSize != nil &&
-		size.Width > 0 &&
-		size.Width != s.lastPaintedSize.Width &&
-		s.immutableScrollbackProduced() {
-		return Result{Action: ResultScheduleWidthRehydration, Reason: RehydrateReasonWidthChange}
+	s.lastObservedSize = &size
+	if s.terminalResize.usesResizeRehydration() &&
+		((previous != nil && *previous != size) || (previous == nil && s.viewportInvalid)) {
+		if s.lastPaintedSize != nil {
+			s.viewportInvalid = true
+		}
+		return Result{Action: ResultScheduleResizeRehydration, Reason: RehydrateReasonResize}
 	}
 	return Result{}
 }
 
-func (s *Surface) immutableScrollbackProduced() bool {
-	return s.groupRegister != nil || s.activeAssistant.promotedSourceBoundary > 0
-}
-
 func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameInput) (Result, error) {
 	s.validateRenderFrame(frame, "reset_for_scratch_hydration")
-	previousMutableBand := s.visiblePreviousMutableBand(frame.Size)
-	linesToErase := s.previousMutableBandHeightAtBottom(frame.Size)
+	s.observeResize(frame.Size)
+	s.source.reset()
 	var transaction strings.Builder
-	transaction.WriteString(resetScrollRegionAndOriginMode())
-	if s.terminalResize.usesWidthRehydration() &&
-		s.terminalHeightExpanded(frame.Size) &&
-		previousMutableBand != nil {
-		writeMutableRowsErase(&transaction, previousMutableBand.start, previousMutableBand.end)
+	if s.viewportInvalid || reason == RehydrateReasonResize {
+		writeFreshViewport(&transaction, frame.Size.Height)
+	} else {
+		transaction.WriteString(resetScrollRegionAndOriginMode())
+		transaction.WriteString(semanticOutputSequence())
+		writeMutableBandErase(&transaction, frame.Size.Height, s.previousMutableBandHeight(frame.Size))
 	}
-	writeMutableBandErase(&transaction, frame.Size.Height, linesToErase)
 	writeCursor(&transaction, Cursor{})
 	if err := s.writeTerminalFrame(transaction.String()); err != nil {
 		return Result{}, err
 	}
 	s.retainedBandHeight = 0
-	s.activeAssistant = activeAssistantState{}
-	s.pendingAssistants = nil
-	s.pendingTools = nil
-	s.groupRegister = nil
+	s.viewportInvalid = false
 	paintedSize := frame.Size
 	s.lastPaintedSize = &paintedSize
 	return Result{Action: ResultRequestScratchRehydration, Reason: reason}, nil
 }
 
-func (s *Surface) immutableLines(message *transcriptpb.Message, width int, themeName string) []string {
+func (s *sourceFormatter) immutableLines(message *transcriptpb.Message, width int, themeName string) []string {
 	switch payload := message.GetEvent().GetPayload().(type) {
 	case *transcriptpb.Event_Hydration:
 		return s.hydrationImmutableLines(payload.Hydration, width, themeName)
@@ -567,7 +580,7 @@ func (s *Surface) immutableLines(message *transcriptpb.Message, width int, theme
 	}
 }
 
-func (s *Surface) hydrationImmutableLines(hydration *transcriptpb.Hydration, width int, themeName string) []string {
+func (s *sourceFormatter) hydrationImmutableLines(hydration *transcriptpb.Hydration, width int, themeName string) []string {
 	lines := make([]string, 0, len(hydration.TailSegment.Entries))
 	for _, row := range hydration.TailSegment.Entries {
 		if !committedRowVisibleInOngoing(row) {
@@ -589,15 +602,15 @@ func committedRowVisibleInOngoing(row *transcriptpb.CommittedRow) bool {
 	}
 }
 
-func (s *Surface) renderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string) []string {
+func (s *sourceFormatter) renderCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string) []string {
 	return s.renderCommittedRowWithMode(row, width, themeName, committedRowRenderMode(row))
 }
 
-func (s *Surface) renderHydratedCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string) []string {
+func (s *sourceFormatter) renderHydratedCommittedRow(row *transcriptpb.CommittedRow, width int, themeName string) []string {
 	return s.renderCommittedRowWithMode(row, width, themeName, committedRowRenderMode(row))
 }
 
-func (s *Surface) renderCommittedRowWithMode(row *transcriptpb.CommittedRow, width int, themeName string, mode transcriptrender.Mode) []string {
+func (s *sourceFormatter) renderCommittedRowWithMode(row *transcriptpb.CommittedRow, width int, themeName string, mode transcriptrender.Mode) []string {
 	group, lines := committedRowLines(row, width, themeName, mode, s.markdownLinks)
 	return s.renderGroupedRows(group, lines, false)
 }
@@ -651,7 +664,7 @@ func committedRowRenderMode(row *transcriptpb.CommittedRow) transcriptrender.Mod
 	}
 }
 
-func (s *Surface) renderAssistantPromotedRows(rows []string, themeName string) []string {
+func (s *sourceFormatter) renderAssistantPromotedRows(rows []string, themeName string) []string {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -670,7 +683,7 @@ func (s *Surface) renderAssistantPromotedRows(rows []string, themeName string) [
 	return s.renderGroupedRows(transcriptrender.GroupAssistant, decorated, true)
 }
 
-func (s *Surface) renderGroupedRows(group transcriptrender.Group, rows []string, separatorWhenRegisterUnset bool) []string {
+func (s *sourceFormatter) renderGroupedRows(group transcriptrender.Group, rows []string, separatorWhenRegisterUnset bool) []string {
 	if len(rows) == 0 {
 		return nil
 	}

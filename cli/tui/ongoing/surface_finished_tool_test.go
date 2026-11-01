@@ -178,7 +178,7 @@ func TestHydrationReplacesDeferredFinishedTools(t *testing.T) {
 			}
 			apply(&transcriptpb.Event{Payload: &transcriptpb.Event_CommittedRow{CommittedRow: row}})
 			if reset {
-				if _, err := surface.ResetForScratchHydration(RehydrateReasonWidthChange, frame); err != nil {
+				if _, err := surface.ResetForScratchHydration(RehydrateReasonResize, frame); err != nil {
 					t.Fatal(err)
 				}
 			}

@@ -179,6 +179,7 @@ type Engine struct {
 	queuedUserWorkMu         sync.Mutex
 	queuedUserWorkScheduled  bool
 	queuedUserWorkCompletion runtimeDeferred[struct{}]
+	queuedUserWorkCancel     context.CancelFunc
 	queuedUserWorkPauseCount int
 	liveRun                  *liveRunCoordinator
 	// Goal commits and notice admission share an order, independently of EIQ execution.

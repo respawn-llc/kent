@@ -212,7 +212,7 @@ func publishCreationMetadata(ctx context.Context, plan CreationPlan, options ...
 		}
 		return err
 	}
-	if err := opts.observer.ObservePersistedStore(ctx, plan.Snapshot()); err != nil {
+	if _, err := opts.observer.ObservePersistedStore(ctx, plan.Snapshot()); err != nil {
 		return err
 	}
 	return nil
@@ -361,12 +361,15 @@ func materializeCreationArtifacts(ctx context.Context, plan CreationPlan, record
 		if info.Size() == 0 {
 			return errors.New("created Session event log is empty")
 		}
-		log, err := openCurrentEventLog(eventsPath, currentEventLogPersistedSnapshot)
+		log, err := openCommittedEventLog(eventsPath, currentEventLogPersistedSnapshot, record.Meta.LastSequence)
 		if err != nil {
 			return err
 		}
 		if log.boundaryIncomplete || log.lastSequence != record.Meta.LastSequence {
 			return errors.New("created Session event log does not match committed metadata")
+		}
+		if source != nil && record.Meta.LastSequence == 0 && info.Size() > log.lastCompleteOffset {
+			return errors.New("clone metadata was not committed; discard the incomplete clone before trying again")
 		}
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -426,7 +429,8 @@ func materializeCreationArtifacts(ctx context.Context, plan CreationPlan, record
 		return fmt.Errorf("publish created Session event log: %w", err)
 	}
 	if cloneSnapshot != nil {
-		return opts.observer.ObservePersistedStore(ctx, *cloneSnapshot)
+		_, err := opts.observer.ObservePersistedStore(ctx, *cloneSnapshot)
+		return err
 	}
 	return nil
 }

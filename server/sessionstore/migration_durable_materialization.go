@@ -75,7 +75,7 @@ func (s *Store) issueCurrentEventLogCapabilityWithMutationHeld() (
 	}
 	s.mu.Unlock()
 
-	log, err := openCurrentEventLog(path, currentEventLogAuthoritative)
+	log, err := openCommittedEventLog(path, currentEventLogAuthoritative, expectedRevision)
 	if err != nil {
 		return MaterializedEventLog{}, wrapEventLogMaterializationError(
 			EventLogMaterializationStageReconciliation,

@@ -27,12 +27,6 @@ type fixedPersistedSessionResolver struct {
 	record session.PersistedSessionRecord
 }
 
-type reconciliationInterleavingObserver struct {
-	delegate   session.PersistenceObserver
-	reconciler session.EventLogReconciliationObserver
-	before     func() error
-}
-
 func persistedMetaFromMetadata(metadata session.Meta) session.Meta {
 	return session.Meta{
 		SessionID:                       metadata.SessionID,
@@ -72,20 +66,6 @@ func (r fixedPersistedSessionResolver) ResolvePersistedSession(context.Context, 
 	return r.record, nil
 }
 
-func (o *reconciliationInterleavingObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
-	return o.delegate.ObservePersistedStore(ctx, snapshot)
-}
-
-func (o *reconciliationInterleavingObserver) ObserveEventLogReconciliation(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {
-	if before := o.before; before != nil {
-		o.before = nil
-		if err := before(); err != nil {
-			return err
-		}
-	}
-	return o.reconciler.ObserveEventLogReconciliation(ctx, reconciliation)
-}
-
 func newBlockingOrderedSessionObserver(store *Store) *blockingOrderedSessionObserver {
 	return &blockingOrderedSessionObserver{
 		store:     store,
@@ -101,7 +81,7 @@ func (o *blockingOrderedSessionObserver) Arm() {
 	o.blockNext = true
 }
 
-func (o *blockingOrderedSessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o *blockingOrderedSessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	o.mu.Lock()
 	block := o.blockNext
 	o.blockNext = false
@@ -111,14 +91,14 @@ func (o *blockingOrderedSessionObserver) ObservePersistedStore(ctx context.Conte
 		select {
 		case <-o.release:
 		case <-ctx.Done():
-			return ctx.Err()
+			return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(ctx.Err())
 		}
 	}
 	if err := o.store.ImportSessionSnapshot(ctx, snapshot); err != nil {
-		return err
+		return session.CommitReceipt{}, err
 	}
 	o.persisted <- snapshot.Meta.Name
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 func TestSessionPersistenceRejectsMissingAuthoritativeExecutionTarget(t *testing.T) {
@@ -203,7 +183,7 @@ func TestReadOnlyOpenDoesNotRepublishResolvedSnapshot(t *testing.T) {
 	}
 }
 
-func TestEventUseReconciliationUpdatesOnlyEventLogState(t *testing.T) {
+func TestEventUseDoesNotPromoteUncommittedLogState(t *testing.T) {
 	t.Parallel()
 	metadataStore, cfg, binding := newMetadataTestStore(t)
 	sessionStore := createMetadataTestSession(t, metadataStore, cfg, binding)
@@ -245,17 +225,17 @@ func TestEventUseReconciliationUpdatesOnlyEventLogState(t *testing.T) {
 	if record.Meta.Name == nil || *record.Meta.Name != "authoritative name" || record.Meta.FirstPromptPreview != "authoritative preview" {
 		t.Fatalf("persisted listing metadata = %+v, want authoritative values", record.Meta)
 	}
-	if mustEventLogRevision(eventLog) != 1 {
-		t.Fatalf("persisted last sequence = %d, want reconciled 1", record.Meta.LastSequence)
+	if mustEventLogRevision(eventLog) != staleRevision || record.Meta.LastSequence != staleRevision {
+		t.Fatalf("uncommitted file content advanced the database boundary to %d", record.Meta.LastSequence)
 	}
 }
 
-func TestEventUseReconciliationAppliesHistoryReplacementUsageSemantics(t *testing.T) {
+func TestEventUseDoesNotApplyUncommittedHistoryReplacement(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
 	}{
-		{name: "compaction invalidates usage"},
+		{name: "uncommitted compaction preserves usage"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -304,24 +284,24 @@ func TestEventUseReconciliationAppliesHistoryReplacementUsageSemantics(t *testin
 			if _, err := reopenedEventLog.ReadRecentRecords(1); err != nil {
 				t.Fatalf("read materialized event log: %v", err)
 			}
-			if got := mustEventLogRevision(reopenedEventLog); got != staleRevision+1 {
-				t.Fatalf("reconciled last sequence = %d, want %d", got, staleRevision+1)
+			if got := mustEventLogRevision(reopenedEventLog); got != staleRevision {
+				t.Fatalf("committed last sequence = %d, want %d", got, staleRevision)
 			}
-			if gotUsage := reopened.Meta().UsageState; gotUsage != nil {
-				t.Fatalf("compaction replacement retained stale usage: %+v", gotUsage)
+			if gotUsage := reopened.Meta().UsageState; gotUsage == nil || !textutil.EqualOptional(gotUsage.InputTokens, usage.InputTokens) {
+				t.Fatalf("uncommitted compaction changed usage: %+v", gotUsage)
 			}
 			record, err := metadataStore.ResolvePersistedSession(t.Context(), sessionStore.Meta().SessionID)
 			if err != nil {
 				t.Fatalf("ResolvePersistedSession: %v", err)
 			}
-			if record.Meta.UsageState != nil {
-				t.Fatalf("persisted reconciled usage = %+v, want nil", record.Meta.UsageState)
+			if record.Meta.UsageState == nil || !textutil.EqualOptional(record.Meta.UsageState.InputTokens, usage.InputTokens) {
+				t.Fatalf("uncommitted compaction changed persisted usage: %+v", record.Meta.UsageState)
 			}
 		})
 	}
 }
 
-func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t *testing.T) {
+func TestStaleEventViewDoesNotEraseNewerCommittedUsage(t *testing.T) {
 	t.Parallel()
 	metadataStore, cfg, binding := newMetadataTestStore(t)
 	sessionStore := createMetadataTestSession(t, metadataStore, cfg, binding)
@@ -348,30 +328,14 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	); err != nil || !receipt.Committed {
 		t.Fatalf("append history replacement: receipt=%+v error=%v", receipt, err)
 	}
-	if err := metadataStore.ImportSessionSnapshot(t.Context(), session.PersistedStoreSnapshot{
-		SessionDir: sessionStore.Dir(),
-		Meta:       staleMeta,
-	}); err != nil {
-		t.Fatalf("restore stale metadata snapshot: %v", err)
-	}
-
 	compactedUsage := &session.UsageState{InputTokens: textutil.Value(2_000), WindowTokens: oldUsage.WindowTokens, ReportedContextTokens: textutil.Value(2_000)}
-	authoritativeObserver := sessionObserver{store: metadataStore}
-	observer := &reconciliationInterleavingObserver{
-		delegate:   authoritativeObserver,
-		reconciler: authoritativeObserver,
-		before: func() error {
-			receipt, err := sessionStore.SetUsageState(compactedUsage)
-			if err != nil {
-				return err
-			}
-			if !receipt.Committed {
-				return errors.New("compacted usage persistence returned an uncommitted success")
-			}
-			return nil
-		},
+	if receipt, err := sessionStore.SetUsageState(compactedUsage); err != nil || !receipt.Committed {
+		t.Fatalf("persist newer usage: receipt=%+v error=%v", receipt, err)
 	}
-	options := append(metadataStore.AuthoritativeSessionStoreOptions(), session.WithPersistenceObserver(observer))
+	options := append(metadataStore.AuthoritativeSessionStoreOptions(), session.WithPersistedSessionResolver(fixedPersistedSessionResolver{record: session.PersistedSessionRecord{
+		SessionDir: sessionStore.Dir(),
+		Meta:       &staleMeta,
+	}}))
 	reconciledStore, err := session.Open(sessionStore.Dir(), options...)
 	if err != nil {
 		t.Fatalf("session.Open: %v", err)
@@ -383,10 +347,6 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	if _, err := eventLog.ReadRecentRecords(1); err != nil {
 		t.Fatalf("read materialized event log: %v", err)
 	}
-	if err := reconciledStore.SetName(metadataStringPointer("post-reconciliation metadata write")); err != nil {
-		t.Fatalf("SetName through reconciled store: %v", err)
-	}
-
 	record, err := metadataStore.ResolvePersistedSession(t.Context(), sessionStore.Meta().SessionID)
 	if err != nil {
 		t.Fatalf("ResolvePersistedSession: %v", err)
@@ -394,8 +354,8 @@ func TestEventUseReconciliationDoesNotEraseConcurrentlyPersistedCompactedUsage(t
 	if record.Meta.UsageState == nil || !textutil.EqualOptional(record.Meta.UsageState.InputTokens, compactedUsage.InputTokens) {
 		t.Fatalf("stale reconciliation erased newer compacted usage: %+v", record.Meta.UsageState)
 	}
-	if mustEventLogRevision(eventLog) != staleRevision+1 {
-		t.Fatalf("persisted last sequence = %d, want %d", record.Meta.LastSequence, staleRevision+1)
+	if mustEventLogRevision(eventLog) != staleRevision || record.Meta.LastSequence != staleRevision+1 {
+		t.Fatalf("stale view changed committed sequence: view=%d database=%d", mustEventLogRevision(eventLog), record.Meta.LastSequence)
 	}
 	reopened, err := session.Open(sessionStore.Dir(), metadataStore.AuthoritativeSessionStoreOptions()...)
 	if err != nil {

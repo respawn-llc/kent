@@ -15,6 +15,23 @@ func TestTerminalPolicyDesiredOwnership(t *testing.T) {
 		wantOwned   bool
 	}{
 		{
+			name:        "ongoing below absolute floor",
+			geometry:    terminalGeometryKnown(40, 3),
+			destination: terminalDestinationOngoing,
+		},
+		{
+			name:        "ongoing at absolute floor",
+			geometry:    terminalGeometryKnown(40, 4),
+			destination: terminalDestinationOngoing,
+			wantOwned:   true,
+		},
+		{
+			name:        "ongoing below mixed-content minimum",
+			geometry:    terminalGeometryKnown(40, 7),
+			destination: terminalDestinationOngoing,
+			wantOwned:   true,
+		},
+		{
 			name:        "unknown ongoing",
 			geometry:    terminalGeometryUnknown(),
 			destination: terminalDestinationOngoing,
