@@ -46,6 +46,7 @@ This repository contains Kent - a coding agent focused on output quality, built 
 ## Product Principles 
 These should guide default architectural choices in addition to user preferences.
 
+- Reduced motion is a supported GUI mode, including when enabled through Low Power. Transitions must settle immediately with outgoing content removed and incoming content visible. Handle preference changes during active transitions. Verify navigation, chat handoffs, queue popups, and drag completion.
 - General system concurrency model - maximum 100 concurrent agent runs, with only 3-10 realistically in the same filesystem dir. Which means using mutexes/locks to cover large scopes when that simplifies the architecture a lot is okay even if agents can wait for 1-10 seconds for another operation to finish.
 - General amount of concurrent clients - maximum 3: one desktop, one TUI, and one CLI, with only ONE HUMAN driving the full set at any time. This isn't a high load system that needs tight locking scopes or complicated concurrency scheduling. This makes a lot of concurrency guarantees redundant.
 - CLI operations may wait/block for up to 15 seconds, that is fine for all commands.

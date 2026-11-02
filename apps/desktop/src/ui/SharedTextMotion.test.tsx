@@ -4,11 +4,30 @@ import { SharedTextMotion } from "./SharedTextMotion";
 let restoreMatchMedia: (() => void) | undefined;
 
 afterEach(() => {
+  delete document.documentElement.dataset.reducedMotion;
   document.body.replaceChildren();
   document.documentElement.style.removeProperty("--motion-text-handoff");
   restoreMatchMedia?.();
   restoreMatchMedia = undefined;
   vi.useRealTimers();
+});
+
+it("restores message destinations when reduced motion is enabled during a flight", async () => {
+  const motion = new SharedTextMotion();
+  try {
+    const source = textElement(300);
+    const target = textElement(100);
+    motion.capture("first", source);
+    source.remove();
+    expect(motion.arrive(["first"], target)).toBe(true);
+    expect(target).not.toBeVisible();
+    document.documentElement.dataset.reducedMotion = "true";
+    await layoutSettled();
+    expect(target).toBeVisible();
+    expect(document.body.children).toHaveLength(1);
+  } finally {
+    motion.dispose();
+  }
 });
 
 function textElement(top: number) {
