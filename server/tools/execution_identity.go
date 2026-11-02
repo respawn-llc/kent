@@ -19,12 +19,25 @@ type executionIdentityContextKey struct{}
 type approvalLifecycleContextKey struct{}
 
 type ApprovalLifecycle struct {
-	mu       sync.Mutex
-	consumed bool
+	mu         sync.Mutex
+	consumed   bool
+	resolution *AskQuestionApprovalDecision
 }
 
 func NewApprovalLifecycle() *ApprovalLifecycle {
 	return &ApprovalLifecycle{}
+}
+
+func (l *ApprovalLifecycle) CountsAsToolActivity() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return !l.consumed || l.resolution != nil && *l.resolution != AskQuestionApprovalDecisionDeny
+}
+
+func (l *ApprovalLifecycle) resolve(decision AskQuestionApprovalDecision) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.resolution = &decision
 }
 
 func WithExecutionIdentity(ctx context.Context, identity ExecutionIdentity) context.Context {

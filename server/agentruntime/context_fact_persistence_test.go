@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -17,6 +18,14 @@ type failingContextFactWriter struct {
 	failuresRemaining int
 	countWrites       int
 	eligibilityWrites int
+	activityErr       error
+}
+
+func (w *failingContextFactWriter) WriteModelToolActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+	if w.activityErr != nil {
+		return time.Time{}, w.activityErr
+	}
+	return w.delegate.WriteModelToolActivity(ctx, sessionID, completedAt)
 }
 
 func (w *failingContextFactWriter) WriteSessionContextFacts(
@@ -190,6 +199,9 @@ func TestSuccessfulCompactionEstablishesBothAbsentContextFacts(t *testing.T) {
 
 	scheduleManualCompactionAndWait(t, engine)
 	facts := reopened.ContextFacts()
+	if facts.LastModelToolActivityAt == nil {
+		t.Fatal("successful compaction has no activity")
+	}
 	if facts.CompletedCompactionCount == nil || *facts.CompletedCompactionCount != 1 ||
 		facts.ManualCompactEligible == nil || *facts.ManualCompactEligible {
 		t.Fatalf("compaction Context facts = %+v, want present 1/false", facts)

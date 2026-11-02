@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
@@ -26,6 +27,65 @@ import (
 	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestIdleReminderProjectsTypedNoticeBeforeHumanInput(t *testing.T) {
+	store := newRuntimeViewStore(t)
+	log, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := log.AppendRecord(textutil.Value(projectionStepID), session.MessageRecord{
+		Role: session.MessageRoleAssistant, Content: textutil.Value("prior work"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordModelToolActivity(time.Now().Add(-2 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	threshold := 3600
+	var events []runtime.Event
+	engine := newRuntimeViewEngine(t, store, scriptedllm.NewClient(scriptedllm.Script{
+		Steps: []scriptedllm.Step{scriptedllm.FinalAnswer("done")},
+	}), runtime.Config{Model: "gpt-6-sol", IdleResumeReminderSeconds: &threshold, OnEvent: func(event runtime.Event) {
+		if event.CommittedTranscriptChanged {
+			events = append(events, event)
+		}
+	}})
+	if _, err := engine.SubmitUserMessage(t.Context(), "resume"); err != nil {
+		t.Fatal(err)
+	}
+	var rows []*transcriptpb.CommittedRow
+	for _, event := range events {
+		messages, err := TranscriptMessagesFromRuntimeEventChecked(event, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, message := range messages {
+			if row := message.GetCommittedRow(); row != nil {
+				if err := protoapi.Validate(row); err != nil {
+					t.Fatal(err)
+				}
+				rows = append(rows, row)
+			}
+		}
+	}
+	found := false
+	for index, row := range rows {
+		if notice := row.GetNotice(); notice != nil && notice.GetMessageType() == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_IDLE_RESUME_REMINDER {
+			found = true
+			if index+1 >= len(rows) || rows[index+1].GetUser() == nil {
+				t.Fatal("idle notice does not precede human input")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("normal transcript projection has no idle notice")
+	}
+	page, _ := mustProjectNewestPersistedTranscript(t, store, log)
+	if overlap := assertTranscriptRowOverlap(t, page.Entries, rows); overlap != len(rows) {
+		t.Fatalf("persisted/live overlapping rows = %d, want %d", overlap, len(rows))
+	}
+}
 
 func durableParityRow(row *transcriptpb.CommittedRow) *transcriptpb.CommittedRow {
 	// Live correlation IDs reconcile provisional items, not persisted facts.

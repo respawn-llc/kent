@@ -84,14 +84,22 @@ func (b *defaultBackgroundNoticeScheduler) HandleBackgroundShellUpdate(evt Backg
 }
 
 func (b *defaultBackgroundNoticeScheduler) RecordBackgroundShellUpdate(evt BackgroundShellEvent) error {
-	return b.engine.steerRuntime(steerEventIntent(Event{Kind: EventBackgroundUpdated, Background: &evt}))
+	return b.engine.steerRuntime(backgroundShellUpdateIntent(evt))
 }
 
 func (b *defaultBackgroundNoticeScheduler) recordBackgroundShellUpdateRaw(evt BackgroundShellEvent) error {
 	return b.engine.steerOrderedRaw(
 		sessionSteeringProvenance(),
-		steerEventIntent(Event{Kind: EventBackgroundUpdated, Background: &evt}),
+		backgroundShellUpdateIntent(evt),
 	)
+}
+
+func backgroundShellUpdateIntent(evt BackgroundShellEvent) steeringIntent {
+	intent := steerEventIntent(Event{Kind: EventBackgroundUpdated, Background: &evt})
+	if evt.Type.IsTerminal() && evt.FinishedAt != nil {
+		intent.items = append([]steeringItem{{modelToolActivity: evt.FinishedAt}}, intent.items...)
+	}
+	return intent
 }
 
 func (b *defaultBackgroundNoticeScheduler) QueueBackgroundShellContinuation(evt BackgroundShellEvent) {

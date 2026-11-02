@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"core/server/sessionstore"
 	"core/shared/serverapi"
@@ -106,7 +107,8 @@ func (p *Persistence) WriteSessionContextFacts(
 	if !ok {
 		return session.ErrSessionNotFound
 	}
-	record.ContextFacts = facts.Clone()
+	record.ContextFacts.CompletedCompactionCount = facts.Clone().CompletedCompactionCount
+	record.ContextFacts.ManualCompactEligible = facts.Clone().ManualCompactEligible
 	p.records.Put(sessionID, record)
 	return nil
 }
@@ -126,6 +128,22 @@ func (p *Persistence) WriteManualCompactEligibility(
 	record.ContextFacts.ManualCompactEligible = &eligible
 	p.records.Put(sessionID, record)
 	return nil
+}
+
+func (p *Persistence) WriteModelToolActivity(_ context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+	if p.contextWriteErr != nil {
+		return time.Time{}, p.contextWriteErr
+	}
+	record, ok := p.records.Get(sessionID)
+	if !ok {
+		return time.Time{}, session.ErrSessionNotFound
+	}
+	if previous := record.ContextFacts.LastModelToolActivityAt; previous != nil && previous.After(completedAt) {
+		completedAt = *previous
+	}
+	record.ContextFacts.LastModelToolActivityAt = &completedAt
+	p.records.Put(sessionID, record)
+	return completedAt, nil
 }
 
 func (p *Persistence) ObserveEventLogReconciliation(_ context.Context, reconciliation session.PersistedEventLogReconciliation) error {

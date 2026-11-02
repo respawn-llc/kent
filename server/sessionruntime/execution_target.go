@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"core/server/agentruntime"
 	"core/server/runtimeactivity"
@@ -595,7 +596,13 @@ func runtimeBackgroundShellEvent(resource *agentResource, event shelltool.Event)
 		eventType = runtime.BackgroundShellEventKilled
 	}
 	preview, previewRemoved := summary.RuntimePreview()
+	var finishedAt *time.Time
+	if eventType.IsTerminal() {
+		finished := event.Snapshot.FinishedAt
+		finishedAt = &finished
+	}
 	return runtime.BackgroundShellEvent{
+		FinishedAt:        finishedAt,
 		Type:              eventType,
 		ID:                event.Snapshot.ID,
 		ActivityID:        event.Snapshot.ActivityID,

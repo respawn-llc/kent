@@ -239,6 +239,12 @@ type preparedUserInjections struct {
 	claim  *queuedUserMessageClaim
 	items  []llm.ResponseItem
 	groups []queuedUserMessageFlushGroup
+	prefix []llm.Message
+}
+
+func (p *preparedUserInjections) prependRuntimeMessages(messages []llm.Message) {
+	p.prefix = append(messages, p.prefix...)
+	p.items = append(llm.ItemsFromMessages(messages), p.items...)
 }
 
 func (m *defaultMessageLifecycle) ConsumeShellPrefix(ctx context.Context, stepID string) (bool, error) {

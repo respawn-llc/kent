@@ -629,14 +629,22 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 	if input.prepared.queue.ClaimStopped(input.prepared.claim) {
 		return session.CommitReceipt{}, context.Canceled
 	}
-	projections := make([]preparedMessageProjection, 0, len(input.prepared.groups))
-	payloads := make([]session.EventRecordPayload, 0, len(input.prepared.groups)+1)
+	projections := make([]preparedMessageProjection, 0, len(input.prepared.prefix)+len(input.prepared.groups))
+	payloads := make([]session.EventRecordPayload, 0, len(input.prepared.prefix)+len(input.prepared.groups)+1)
 	if input.thinking.update != nil {
 		item, err := sessionProviderHistoryItemFromLLM(0, *input.thinking.update)
 		if err != nil {
 			return session.CommitReceipt{}, err
 		}
 		payloads = append(payloads, session.ConfigurationUpdateRecord{Item: item})
+	}
+	for _, message := range input.prepared.prefix {
+		prepared, err := e.prepareMessageProjection(stepID, message)
+		if err != nil {
+			return session.CommitReceipt{}, err
+		}
+		projections = append(projections, prepared)
+		payloads = append(payloads, prepared.record)
 	}
 	for _, group := range input.prepared.groups {
 		prepared, err := e.prepareMessageProjection(stepID, group.message)
@@ -689,8 +697,12 @@ func (e *Engine) appendPreparedModelInput(stepID *string, input steeringPrepared
 		if err := e.applyPreparedMessageProjection(stepID, projection); err != nil {
 			return appended.CommitReceipt, errors.Join(appendErr, err)
 		}
-		group := input.prepared.groups[i]
-		e.publishQueuedInput(stepID, projection, group.batch, group.queueItems, provenance)
+		if i < len(input.prepared.prefix) {
+			e.publishQueuedInput(stepID, projection, nil, nil, provenance)
+		} else {
+			group := input.prepared.groups[i-len(input.prepared.prefix)]
+			e.publishQueuedInput(stepID, projection, group.batch, group.queueItems, provenance)
+		}
 	}
 	return appended.CommitReceipt, appendErr
 }

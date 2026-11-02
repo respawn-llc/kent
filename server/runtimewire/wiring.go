@@ -260,6 +260,7 @@ func NewRuntimeWiringWithBackground(
 		EffectiveContextWindowPercent:   95,
 		LocalCompactionCarryoverLimit:   20_000,
 		CompactionMode:                  string(active.CompactionMode),
+		IdleResumeReminderSeconds:       config.ResolveIdleResumeReminderSeconds(active),
 		CacheWarningMode:                active.CacheWarningMode,
 		AutoCompactionEnabled:           textutil.Pointer(opts.AutoCompactionEnabled),
 		QuestionsEnabled:                textutil.Pointer(opts.QuestionsEnabled),

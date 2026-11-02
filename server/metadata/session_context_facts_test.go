@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"core/server/sessionstore"
 	"core/shared/sessioncontract"
@@ -35,6 +36,22 @@ func TestSessionContextFactsPersistIndependentlyFromFullSnapshots(t *testing.T) 
 		t.Fatalf("Create: %v", err)
 	}
 
+	if sessionStore.ContextFacts().LastModelToolActivityAt != nil {
+		t.Fatal("new Session has activity")
+	}
+	completedAt := time.UnixMilli(1_800_000_000_123)
+	if err := sessionStore.RecordModelToolActivity(completedAt); err != nil {
+		t.Fatalf("RecordModelToolActivity: %v", err)
+	}
+	if err := sessionStore.RecordModelToolActivity(completedAt.Add(-time.Hour)); err != nil {
+		t.Fatalf("late completion: %v", err)
+	}
+	if err := sessionStore.SetInputDraft("unsent", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionStore.SetThinkingOverride(metadataStringPointer("low")); err != nil {
+		t.Fatal(err)
+	}
 	if err := sessionStore.SetSessionContextFacts(4, true); err != nil {
 		t.Fatalf("SetSessionContextFacts: %v", err)
 	}
@@ -46,6 +63,9 @@ func TestSessionContextFactsPersistIndependentlyFromFullSnapshots(t *testing.T) 
 		t.Fatalf("OpenByID: %v", err)
 	}
 	facts := reopened.ContextFacts()
+	if facts.LastModelToolActivityAt == nil || !facts.LastModelToolActivityAt.Equal(completedAt) {
+		t.Fatalf("reopened activity = %v, want %v", facts.LastModelToolActivityAt, completedAt)
+	}
 	if facts.CompletedCompactionCount == nil || *facts.CompletedCompactionCount != 4 ||
 		facts.ManualCompactEligible == nil || !*facts.ManualCompactEligible {
 		t.Fatalf("reopened Context facts = %+v", facts)
@@ -114,6 +134,71 @@ func TestSessionContextFactWriterRejectsMissingSession(t *testing.T) {
 	})
 	if !errors.Is(err, session.ErrSessionNotFound) {
 		t.Fatalf("WriteSessionContextFacts error = %v, want Session not found", err)
+	}
+	if _, err := store.WriteModelToolActivity(t.Context(), "missing", time.Now()); !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("WriteModelToolActivity error = %v, want Session not found", err)
+	}
+}
+
+func TestFailedActivityWriteIsNotPublishedByLaterSnapshot(t *testing.T) {
+	root := t.TempDir()
+	store := openInMemoryMetadataTestStore(t, root)
+	workspaceRoot := root + "/workspace"
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := store.RegisterWorkspaceBinding(t.Context(), workspaceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := store.AuthoritativeSessionStoreOptions()
+	conversation, err := session.Create(workspace.CanonicalRoot, "workspace", workspace.CanonicalRoot,
+		sessioncontract.SessionCategoryMain, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(t.Context(), `
+CREATE TRIGGER fail_activity_write BEFORE UPDATE OF last_model_tool_activity_at_unix_ms ON sessions
+BEGIN SELECT RAISE(FAIL, 'forced activity write failure'); END;`); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversation.RecordModelToolActivity(time.Now()); err == nil {
+		t.Fatal("activity write succeeded despite trigger")
+	}
+	if conversation.ContextFacts().LastModelToolActivityAt != nil {
+		t.Fatal("failed activity was published")
+	}
+	if _, err := store.DB().ExecContext(t.Context(), `DROP TRIGGER fail_activity_write`); err != nil {
+		t.Fatal(err)
+	}
+	if err := conversation.SetName(metadataStringPointer("later snapshot")); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := session.OpenByID(root, conversation.Meta().SessionID, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.ContextFacts().LastModelToolActivityAt != nil {
+		t.Fatal("snapshot persisted failed activity")
+	}
+}
+
+func TestActivityMigrationLeavesExistingSessionAbsent(t *testing.T) {
+	db, err := openDatabaseAtVersionForTest(t, 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execSeed(t, db, "project", `INSERT INTO projects (id, display_name, created_at_unix_ms, updated_at_unix_ms)
+VALUES ('activity-project', 'Project', 1000, 1000)`)
+	execSeed(t, db, "session", `INSERT INTO sessions (id, project_id, artifact_relpath, short_id, created_at_unix_ms, updated_at_unix_ms)
+VALUES ('activity-session', 'activity-project', 'sessions/activity-session', 1, 1000, 2000)`)
+	store := migrateMetadataTestStore(t, t.TempDir(), db)
+	record, err := store.ResolvePersistedSession(t.Context(), "activity-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ContextFacts.LastModelToolActivityAt != nil {
+		t.Fatal("migration backfilled activity")
 	}
 }
 

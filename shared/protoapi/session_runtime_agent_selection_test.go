@@ -17,6 +17,45 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+func TestIdleResumePolicySurvivesRuntimeSettingsTransport(t *testing.T) {
+	root, workspace := t.TempDir(), t.TempDir()
+	app, err := config.Load(workspace, workspace, config.LoadOptions{ConfigRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, seconds := range []int{3600, 2, 0, 9_007_199_254_740_991} {
+		settings := app.Settings
+		settings.IdleResumeReminderSeconds = seconds
+		wire, err := protoapi.SessionSettingsToProto(settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := proto.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		received := &configurationpb.Settings{}
+		if err := proto.Unmarshal(data, received); err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := protoapi.SessionSettingsFromProto(received)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if decoded.IdleResumeReminderSeconds != seconds {
+			t.Fatalf("runtime threshold after transport = %d, want %d", decoded.IdleResumeReminderSeconds, seconds)
+		}
+	}
+}
+
+func TestIdleResumeSettingsTransportRejectsUnsafeThreshold(t *testing.T) {
+	wire := testSessionSettings(t)
+	wire.IdleResumeReminderSeconds = 9_007_199_254_740_992
+	if err := protoapi.Validate(wire); err == nil {
+		t.Fatal("unsafe idle threshold accepted by Settings contract")
+	}
+}
+
 func TestRoleDeclarationsSurviveSettingsTransportUnderEnvironmentOverride(t *testing.T) {
 	root, workspace := t.TempDir(), t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("[subagents.worker]\nmodel = \"declared-model\"\nconnection = [\"a\", \"b\"]\n"), 0o600); err != nil {

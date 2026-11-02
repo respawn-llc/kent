@@ -2113,8 +2113,37 @@ func (s *Store) ResolvePersistedSession(ctx context.Context, sessionID string) (
 		ContextFacts: session.SessionContextFacts{
 			CompletedCompactionCount: optionalContextFactInt(row.CompletedCompactionCount),
 			ManualCompactEligible:    optionalContextFactBool(row.ManualCompactEligible),
+			LastModelToolActivityAt:  optionalActivityTime(row.LastModelToolActivityAtUnixMs),
 		},
 	}, nil
+}
+
+func optionalActivityTime(value sql.NullInt64) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	resolved := time.UnixMilli(value.Int64)
+	return &resolved
+}
+
+func (s *Store) WriteModelToolActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+	if s == nil || s.queries == nil {
+		return time.Time{}, errors.New("metadata store is required")
+	}
+	value, err := s.queries.UpdateSessionModelToolActivity(ctx, sqlitegen.UpdateSessionModelToolActivityParams{
+		SessionID:         sessionID,
+		CompletedAtUnixMs: completedAt.UnixMilli(),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, session.ErrSessionNotFound
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("update Session model/tool activity: %w", err)
+	}
+	if !value.Valid {
+		return time.Time{}, errors.New("persisted Session model/tool activity is absent after update")
+	}
+	return time.UnixMilli(value.Int64), nil
 }
 
 func (s *Store) WriteSessionContextFacts(

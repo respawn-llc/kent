@@ -201,6 +201,13 @@ func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (As
 	if err := ValidateAskQuestionResolution(req, resolution); err != nil {
 		return nil, err
 	}
+	if internalApproval {
+		lifecycle, err := approvalLifecycleFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		lifecycle.resolve(resolution.(AskQuestionApproval).Decision)
+	}
 	return resolution, nil
 }
 

@@ -273,7 +273,8 @@ func (e *Engine) executePreparedToolCall(
 	ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
 		StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
 	})
-	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
+	approvalLifecycle := tools.NewApprovalLifecycle()
+	ctx = tools.WithApprovalLifecycle(ctx, approvalLifecycle)
 	toolCall := tools.Call{
 		ID: call.ID, Name: toolID, Input: call.Input, StepID: stepID,
 		AskQuestionBatch: askBatch, OnAskQuestionBatchSkipped: e.cfg.AskQuestionBatchSkipped,
@@ -283,6 +284,7 @@ func (e *Engine) executePreparedToolCall(
 	}
 	if toolID == toolspec.ToolCompleteNode {
 		result, err := e.executeCompleteNodeTool(ctx, stepID, call)
+		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
 		return result, true, err
 	}
 	if inputErr != nil {
@@ -301,6 +303,9 @@ func (e *Engine) executePreparedToolCall(
 		ctx,
 		toolCall,
 	)
+	if toolID != toolspec.ToolAskQuestion && approvalLifecycle.CountsAsToolActivity() {
+		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) &&
 			ctx.Err() != nil &&

@@ -157,6 +157,9 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 			return llm.CompactionResponse{}, ctx.Err()
 		}
 		if err == nil {
+			if ctx.Err() == nil {
+				e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+			}
 			return resp, nil
 		}
 		var observationErr *cacheObservationDispatchError

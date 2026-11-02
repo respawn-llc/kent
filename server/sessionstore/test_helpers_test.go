@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"core/internal/testharness/recordstore"
 	"core/shared/sessioncontract"
@@ -41,7 +42,8 @@ func (p *testSessionMetadata) WriteSessionContextFacts(
 	if !ok {
 		return ErrSessionNotFound
 	}
-	record.ContextFacts = facts.Clone()
+	record.ContextFacts.CompletedCompactionCount = facts.Clone().CompletedCompactionCount
+	record.ContextFacts.ManualCompactEligible = facts.Clone().ManualCompactEligible
 	p.sharedStore().Put(sessionID, record)
 	return nil
 }
@@ -58,6 +60,19 @@ func (p *testSessionMetadata) WriteManualCompactEligibility(
 	record.ContextFacts.ManualCompactEligible = &eligible
 	p.sharedStore().Put(sessionID, record)
 	return nil
+}
+
+func (p *testSessionMetadata) WriteModelToolActivity(_ context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+	record, ok := p.sharedStore().Get(sessionID)
+	if !ok {
+		return time.Time{}, ErrSessionNotFound
+	}
+	if previous := record.ContextFacts.LastModelToolActivityAt; previous != nil && previous.After(completedAt) {
+		completedAt = *previous
+	}
+	record.ContextFacts.LastModelToolActivityAt = &completedAt
+	p.sharedStore().Put(sessionID, record)
+	return completedAt, nil
 }
 
 func (p *testSessionMetadata) ObserveEventLogReconciliation(_ context.Context, reconciliation PersistedEventLogReconciliation) error {

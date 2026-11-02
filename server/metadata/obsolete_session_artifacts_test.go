@@ -11,8 +11,8 @@ import (
 
 func TestMetadataMigrationIgnoresObsoleteSessionJournal(t *testing.T) {
 	cfg := loadMetadataTestConfig(t, t.TempDir(), filepath.Join(t.TempDir(), "persistence"))
-	db, err := openDatabaseAtVersionForTest(t, 101)
-	if err != nil {
+	db := openEmptyMetadataTestDatabase(t)
+	if err := runMigrations(db); err != nil {
 		t.Fatal(err)
 	}
 	store, err := NewStore(cfg.PersistenceRoot, db)
