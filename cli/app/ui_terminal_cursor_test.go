@@ -8,11 +8,75 @@ import (
 
 	"core/cli/tui"
 	tuiinput "core/cli/tui/input"
+	"core/internal/testharness/pty/analyzer"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 )
+
+func TestDedicatedQuestionCursorOccupiesSelectedOptionRow(t *testing.T) {
+	state := newUITerminalCursorState()
+	model, _ := newProjectedPromptTestUIModel(t, WithUITerminalCursorState(state))
+	model = sizedTestUIModel(model, 80, 10)
+	event := testQuestionAskEvent("cursor-row", "Question", "first choice", "second choice", "third choice")
+	testSetActiveAsk(model, &event)
+	model.ask.activeProjection.rows = make([]string, 12)
+	model = updateUIModel(t, model, tea.WindowSizeMsg{Width: 80, Height: 10})
+	for range len(model.layout().askDocument(80).lines) {
+		if model.ask.selectedOption != nil && *model.ask.selectedOption == 1 {
+			break
+		}
+		model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if model.ask.selectedOption == nil || *model.ask.selectedOption != 1 {
+		t.Fatal("could not navigate to second option")
+	}
+	var selected string
+	for _, line := range model.askController().renderPriorityPromptLines() {
+		if line.Selected {
+			selected = line.Text
+		}
+	}
+	if selected == "" {
+		t.Fatal("no selected option")
+	}
+	stream, err := analyzer.NewStream(analyzer.Dimensions{Rows: 10, Cols: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := model.View()
+	placement, visible := state.Snapshot()
+	if !visible {
+		t.Fatal("question cursor is hidden")
+	}
+	payload := xansi.SetModeAltScreenSaveCursor + xansi.CursorHomePosition +
+		strings.ReplaceAll(view, "\n", "\r\n") + terminalCursorPlaceSequence(placement)
+	if err := stream.Feed([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	screen, err := stream.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := screen.TextInRegion(analyzer.Region{
+		Top: screen.Cursor.Row, Bottom: screen.Cursor.Row + 1, Left: 0, Right: 80,
+	})
+	expectedStream, err := analyzer.NewStream(analyzer.Dimensions{Rows: 1, Cols: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := expectedStream.Feed([]byte(selected)); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := expectedStream.ScreenSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(row) != strings.TrimSpace(expected.RenderText()) {
+		t.Fatalf("cursor row %d = %q, want selected option %q", screen.Cursor.Row, row, selected)
+	}
+}
 
 func TestTerminalCursorSequencesUseExplicitPlacement(t *testing.T) {
 	normal := uiTerminalCursorPlacement{Visible: true, CursorRow: 3, CursorCol: 5, AnchorRow: 9}
