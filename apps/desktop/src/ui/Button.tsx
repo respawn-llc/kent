@@ -29,7 +29,7 @@ export function Button({
   return (
     <button
       className={cx(
-        "border border-[var(--button-border)] bg-[var(--button-bg)] text-[var(--button-color)] disabled:cursor-not-allowed disabled:opacity-55",
+        "border border-[var(--button-border)] bg-[var(--button-bg)] text-[var(--button-color)] disabled:cursor-not-allowed disabled:opacity-55 [&_[data-slot=spinner]]:text-current",
         buttonSizeClassNames[size],
         size === "default" && variant === "primary" && "min-w-[var(--button-primary-min-width)]",
         className,
