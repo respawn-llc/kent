@@ -511,7 +511,7 @@ func nativeBytes(items []json.RawMessage) [][]byte {
 	return result
 }
 
-func TestNativeCustomPatchExecutesOnceAndContinuesWithOneResult(t *testing.T) {
+func TestNativeCustomPatchExecutesOnceAndReplaysToGrokAfterReload(t *testing.T) {
 	t.Parallel()
 	workspace := t.TempDir()
 	patch, err := patchtool.New(runtimewirefixture.FilesystemContext(t, workspace))
@@ -546,7 +546,8 @@ func TestNativeCustomPatchExecutesOnceAndContinuesWithOneResult(t *testing.T) {
 		}
 		return runtimeFinalAnswerEvents("done")
 	}))
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client,
+	store := mustCreateTestSession(t)
+	engine := mustNewTestEngine(t, store, client,
 		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolPatch, Handler: patch}),
 		Config{Model: "gpt-6-sol", TranscriptWorkingDir: workspace, EnabledTools: []toolspec.ID{toolspec.ToolPatch}, OnEvent: func(event Event) {
 			if event.Kind == EventToolCallStarted && event.ToolCall != nil && event.ToolCall.ID == "patch_call" {
@@ -562,6 +563,77 @@ func TestNativeCustomPatchExecutesOnceAndContinuesWithOneResult(t *testing.T) {
 	marker, err := os.ReadFile(filepath.Join(workspace, "marker.txt"))
 	if err != nil || string(marker) != "marker\n" {
 		t.Fatalf("custom patch effect=%q err=%v", marker, err)
+	}
+	if err := engine.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var grokCalls atomic.Int32
+	grok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grokCalls.Add(1)
+		var request struct {
+			Input []json.RawMessage `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var foundCall, foundOutput bool
+		for _, input := range request.Input {
+			var item struct {
+				Type   string `json:"type"`
+				ID     string `json:"id"`
+				CallID string `json:"call_id"`
+				Input  string `json:"input"`
+			}
+			if err := json.Unmarshal(input, &item); err != nil {
+				t.Error(err)
+				continue
+			}
+			if item.CallID != "patch_call" {
+				continue
+			}
+			switch item.Type {
+			case "custom_tool_call":
+				foundCall = item.ID == "patch_item" && item.Input == patchInput && bytes.Equal(input, raw)
+			case "custom_tool_call_output":
+				foundOutput = true
+			}
+		}
+		if !foundCall || !foundOutput {
+			t.Errorf("Grok replay lost native custom call identity or result: %s", request.Input)
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, event := range runtimeFinalAnswerEvents("continued") {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", event)
+		}
+	}))
+	t.Cleanup(grok.Close)
+	target, err := url.Parse(grok.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registration, err := llm.ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grokClient, err := llm.NewProviderClient(llm.ProviderClientOptions{
+		Registration: registration, Auth: transportStaticAuth{},
+		HTTPClient:          &http.Client{Transport: httpclient.NewURLRewriteTransport(target, grok.Client().Transport, "")},
+		ContextWindowTokens: 256_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened := mustNewTestEngine(t, mustOpenTestSession(t, store.Dir()), grokClient, newTestToolRegistry(t),
+		Config{Model: "grok-4.7", TranscriptWorkingDir: workspace, EnabledTools: []toolspec.ID{toolspec.ToolPatch}})
+	if _, err := reopened.SubmitUserMessage(t.Context(), "continue on Grok"); err != nil {
+		t.Fatal(err)
+	}
+	if grokCalls.Load() != 1 {
+		t.Fatalf("Grok requests = %d, want 1", grokCalls.Load())
 	}
 }
 
