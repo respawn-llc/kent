@@ -92,6 +92,45 @@ it("requires native double-click to answer a multi-prompt choice with commentary
   expect(view.answer).not.toHaveBeenCalled();
 });
 
+it("quick-answers a multi-prompt batch with each empty-commentary option click", async () => {
+  const view = sessionWithPrompts();
+  onTestFinished(() => {
+    view.unmount();
+  });
+  const toolCallIDs = ["first", "second", "third"];
+  const batch = { toolCallIDs, unmaterializedCount: 0 };
+  const prompts = toolCallIDs.map((id) => question(id, { batch }));
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: prompts.map((prompt) => ({ state: "pending", prompt })) },
+    });
+  });
+
+  const user = userEvent.setup({ delay: null });
+  await user.click(await screen.findByText("two"));
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 2, count: 3 }))).toBeInTheDocument();
+  expect(view.answer).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("radio", { name: "two" }));
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 3, count: 3 }))).toBeInTheDocument();
+  expect(view.answer).not.toHaveBeenCalled();
+
+  await user.click(screen.getByText("two"));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledTimes(1);
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+    { toolCallID: "first", kind: "question", selectedOptionNumber: 2, freeform: null },
+    { toolCallID: "second", kind: "question", selectedOptionNumber: 2, freeform: null },
+    { toolCallID: "third", kind: "question", selectedOptionNumber: 2, freeform: null },
+  ]);
+});
+
 it("keeps keyboard navigation in the picker when prompt navigation removes the focused option", async () => {
   const view = sessionWithPrompts();
   onTestFinished(() => {

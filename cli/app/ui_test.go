@@ -200,27 +200,50 @@ func TestAskQuestionTabFreeformFlow(t *testing.T) {
 	}
 }
 
-func TestAskQuestionRecommendedOptionStartsUnselectedAndEnterDoesNothing(t *testing.T) {
-	m, control := newProjectedPromptTestUIModel(t)
-	event := testQuestionAskEvent("ask-1", "Pick one", "first", "second")
+func TestAskQuestionStartsUnselectedAndEnterDoesNothing(t *testing.T) {
 	recommended := int32(2)
-	event.prompt.GetQuestion().RecommendedOptionIndex = &recommended
+	for _, test := range []struct {
+		name                   string
+		recommendedOptionIndex *int32
+	}{
+		{name: "without recommendation"},
+		{name: "with recommendation", recommendedOptionIndex: &recommended},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m, control := newProjectedPromptTestUIModel(t)
+			m = sizedTestUIModel(m, 80, 24)
+			event := testQuestionAskEvent("ask-1", "Pick one", "first", "second")
+			if test.recommendedOptionIndex != nil {
+				event.prompt.GetQuestion().RecommendedOptionIndex = test.recommendedOptionIndex
+			}
 
-	updated := updateUIModel(t, m, askEventMsg{event: event})
-	recommendedUnselected := false
-	for _, line := range updated.askController().renderPriorityPromptLines() {
-		if line.Kind == askPromptLineKindOption && line.Recommended {
-			recommendedUnselected = !line.Selected
-		}
-	}
-	if !recommendedUnselected {
-		t.Fatal("recommended option did not remain visibly unselected")
-	}
+			updated := updateUIModel(t, m, askEventMsg{event: event})
+			if updated.ask.dedicated != nil {
+				t.Fatal("short Question unexpectedly left inline mode")
+			}
+			recommendedUnselected := test.recommendedOptionIndex == nil
+			for _, line := range updated.askController().renderPriorityPromptLines() {
+				if line.Kind != askPromptLineKindOption {
+					continue
+				}
+				if line.Selected {
+					t.Fatal("Question option started selected")
+				}
+				if line.Recommended {
+					recommendedUnselected = !line.Selected
+				}
+			}
+			if !recommendedUnselected {
+				t.Fatal("recommended option did not remain visibly unselected")
+			}
 
-	next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	if command != nil || len(control.batchRequests) != 0 || testActiveAsk(updated) == nil || updated.ask.freeform {
-		t.Fatal("Enter without a selected Question option changed or submitted the prompt")
+			next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated = next.(*uiModel)
+			if command != nil || len(control.batchRequests) != 0 ||
+				testActiveAsk(updated) == nil || updated.ask.freeform {
+				t.Fatal("Enter without a selected Question option changed or submitted the prompt")
+			}
+		})
 	}
 }
 
