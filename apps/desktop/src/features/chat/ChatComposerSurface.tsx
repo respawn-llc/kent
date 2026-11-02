@@ -33,6 +33,7 @@ export function ChatComposerSurface({ composer: original, children, enabled = tr
     owner.current = { original, promptPicker };
   });
   const speechField = useSpeechField({
+    shortcutScope: "destination",
     value: original.text,
     onChange: original.edit,
     editorRef: editor,

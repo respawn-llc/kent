@@ -11,7 +11,7 @@ Kent ships built-in multi-account with load balancing and sticky sessions. Suppo
 - Local model servers
 - GLM Coding plan
 
-Anthropic and Gemini will not be supported as they forbid usage of third party harnesses.
+Anthropic and Gemini subscriptions will not be supported as they forbid usage of third party harnesses.
 
 - Each sign-in is called a connection.
 - Use `/login` in TUI to add connections (sign in on Desktop is in development). Call it multiple time to populate account credentials.
@@ -34,6 +34,26 @@ When using a custom persistence root, place `.env` in that root. For a remote se
 A background service reads this file independently of your terminal shell. A variable already present in the server's launch environment takes precedence, including an empty value. Restart the server after changing either source.
 
 The OpenAI and Grok API-key choices use their official endpoints. Choose Generic to supply a different Responses endpoint.
+
+## OpenRouter
+
+Set `OPENROUTER_API_KEY` in the server environment or `.env`, then configure `config.toml`:
+
+```toml
+model = "z-ai/glm-5.3-flash"
+connection = "openrouter"
+thinking_level = "low"
+compaction_mode = "local" # OpenRouter does not support server-side compaction.
+web_search = "off" # Native web search is unsupported on this connection.
+store = false # OpenRouter requires stateless requests with full history.
+
+[connections.openrouter]
+protocol = "responses"
+endpoint = "https://openrouter.ai/api/v1"
+environment_variable = "OPENROUTER_API_KEY"
+```
+
+Supported model IDs include `z-ai/glm-5.3-flash`, `deepseek/deepseek-v4-flash`, `x-ai/grok-build-0.1`, and `anthropic/claude-haiku-5.5`.
 
 ## Grok support
 

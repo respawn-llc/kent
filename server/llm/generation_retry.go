@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -62,7 +61,7 @@ func GenerateWithRetry(ctx context.Context, attempt GenerationAttempt, options G
 		}
 		if options.Callbacks.OnReasoningSummaryDelta != nil {
 			callbacks.OnReasoningSummaryDelta = func(delta ReasoningSummaryDelta) {
-				if done.Load() || strings.TrimSpace(delta.Text) == "" {
+				if done.Load() {
 					return
 				}
 				reasoningEmitted = true

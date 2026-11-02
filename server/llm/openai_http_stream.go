@@ -403,7 +403,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	}
 	var native *NativeResponse
 	if len(body.Items) > 0 {
-		native, err = newNativeResponse(body, parsedItems)
+		native, err = newNativeResponse(body, parsedItems, a.policy)
 		if err != nil {
 			return ResponsesResponse{}, err
 		}

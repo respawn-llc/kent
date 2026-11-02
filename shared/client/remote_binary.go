@@ -205,9 +205,6 @@ func (c *remoteControlConn) callBinary(
 	case <-ctx.Done():
 		c.removePending(id)
 		return ctx.Err()
-	case <-c.done:
-		c.removePending(id)
-		return c.currentErr()
 	}
 }
 

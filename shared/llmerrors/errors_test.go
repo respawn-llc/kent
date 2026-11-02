@@ -50,6 +50,23 @@ func TestHasHTTPStatus(t *testing.T) {
 	}
 }
 
+func TestExpiredResponsesConnectionIsRetryableWithoutRetryingOtherBadRequests(t *testing.T) {
+	for _, test := range []struct {
+		code string
+		want bool
+	}{
+		{code: "websocket_connection_limit_reached", want: false},
+		{code: "missing_required_parameter", want: true},
+	} {
+		err := fmt.Errorf("generation failed: %w", &ProviderAPIError{
+			ProviderID: "chatgpt-codex", StatusCode: textutil.Value(400), ProviderCode: test.code,
+		})
+		if got := IsNonRetriableModelError(err); got != test.want {
+			t.Fatalf("code %s nonretryable=%t, want %t", test.code, got, test.want)
+		}
+	}
+}
+
 func TestUserFacingAuthenticationErrorIncludesProviderDiagnosticsWhenPresent(t *testing.T) {
 	tests := []struct {
 		name       string
