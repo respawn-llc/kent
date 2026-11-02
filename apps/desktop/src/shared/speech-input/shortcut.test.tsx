@@ -5,6 +5,7 @@ import { createTestServices, TestAppProviders } from "@/test-support/app-service
 import { installTestMicrophone } from "@/test-support/microphone";
 import { getI18n } from "react-i18next";
 import { SpeechDestinationProvider, useSpeechField } from "./useSpeechField";
+import { Dialog } from "@/ui";
 
 let microphone: ReturnType<typeof installTestMicrophone> | undefined;
 
@@ -13,9 +14,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function Field({ label, readOnly = false }: Readonly<{ label: string; readOnly?: boolean }>) {
+function Field({
+  label,
+  readOnly = false,
+  shortcutScope = "field",
+}: Readonly<{
+  label: string;
+  readOnly?: boolean;
+  shortcutScope?: "field" | "destination";
+}>) {
   const [value, onChange] = useState("");
-  const { editorRef, control } = useSpeechField({ value, onChange, readOnly });
+  const { editorRef, control } = useSpeechField({ value, onChange, readOnly, shortcutScope });
   return (
     <>
       <textarea
@@ -32,7 +41,7 @@ function Field({ label, readOnly = false }: Readonly<{ label: string; readOnly?:
   );
 }
 
-async function setup() {
+async function setup(destination = false, modal = false) {
   microphone = installTestMicrophone();
   const services = createTestServices([]);
   vi.spyOn(services.api, "speechAvailability").mockResolvedValue({
@@ -55,15 +64,39 @@ async function setup() {
   render(
     <TestAppProviders services={services} skipAnimations>
       <SpeechDestinationProvider>
-        <Field label="first" />
+        <Field label="first" shortcutScope={destination ? "destination" : "field"} />
         <Field label="second" />
         <Field label="readonly" readOnly />
         <input aria-label="unsupported" />
+        <button type="button">destination action</button>
+        <Dialog title="confirmation" closeLabel="close" open={modal} onClose={() => undefined}>
+          <button type="button">cancel</button>
+        </Dialog>
       </SpeechDestinationProvider>
     </TestAppProviders>,
   );
   await screen.findAllByRole("button", { name: getI18n().t("speech.record") });
 }
+
+it.each(["altKey", "ctrlKey"] as const)(
+  "%s+Space leaves a modal's focused button alone",
+  async (modifier) => {
+    await setup(true, true);
+    const button = screen.getByRole("button", { name: "cancel" });
+    button.focus();
+    expect(fireEvent.keyDown(button, { code: "Space", key: " ", [modifier]: true })).toBe(true);
+    expect(microphone?.startRequested).not.toHaveBeenCalled();
+  },
+);
+
+it("starts destination dictation from non-text focus without a modal", async () => {
+  await setup(true);
+  const button = screen.getByRole("button", { name: "destination action" });
+  button.focus();
+  expect(fireEvent.keyDown(button, { code: "Space", key: " ", altKey: true })).toBe(false);
+  await screen.findByRole("button", { name: getI18n().t("speech.stop") });
+  expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
+});
 
 it.each(["altKey", "ctrlKey"] as const)(
   "%s+Space starts dictation only in the focused field, ahead of global search",

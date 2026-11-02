@@ -144,11 +144,7 @@ export function useSpeechField(binding: FieldBinding) {
     if (editor === null || binding.readOnly === true || state.available === null) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (
-        (document.activeElement !== editor &&
-          (binding.shortcutScope !== "destination" ||
-            document.activeElement instanceof HTMLInputElement ||
-            document.activeElement instanceof HTMLTextAreaElement ||
-            (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable))) ||
+        !ownsShortcutFocus(editor, binding.shortcutScope) ||
         editor.readOnly ||
         editor.disabled ||
         !isDictationShortcut(event)
@@ -176,6 +172,18 @@ export function useSpeechField(binding: FieldBinding) {
 }
 
 type DestinationState = ReturnType<ReturnType<typeof createSpeechDestination>["state"]["read"]>;
+
+function ownsShortcutFocus(editor: HTMLTextAreaElement, scope: FieldBinding["shortcutScope"]) {
+  const focused = document.activeElement;
+  if (focused === editor) return true;
+  if (scope !== "destination") return false;
+  return (
+    !(focused instanceof HTMLInputElement) &&
+    !(focused instanceof HTMLTextAreaElement) &&
+    !(focused instanceof HTMLElement && focused.isContentEditable) &&
+    focused?.closest('[aria-modal="true"]') === editor.closest('[aria-modal="true"]')
+  );
+}
 
 function isDictationShortcut(event: KeyboardEvent) {
   return (
