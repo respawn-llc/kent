@@ -36,6 +36,37 @@ Install the service once, then restart it after updates.
 
 See [API keys and background services](../authentication/#api-keys-and-background-services) for provider credentials and the server's `.env` file.
 
+## HTTP proxies
+
+For server requests, set `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` in the server's environment or its persistence-root `.env` file:
+
+```dotenv
+HTTP_PROXY=http://proxy.example.com:8080
+HTTPS_PROXY=http://proxy.example.com:8080
+NO_PROXY=internal.example.com,10.0.0.0/8
+```
+
+Alternatively, configure the global `config.toml`:
+
+```toml
+[proxy]
+http = "http://proxy.example.com:8080"
+https = "http://proxy.example.com:8080"
+no_proxy = "internal.example.com,10.0.0.0/8"
+```
+
+The server resolves each value independently: process environment, persistence-root `.env`, then global configuration; workspace configuration does not apply.
+
+CLI/TUI connections use their own proxy configuration: process environment, `.kent/config.local.toml` in the current directory, `.kent/config.toml` in that directory, then global configuration.
+
+Restart each affected process after changing its proxy configuration.
+
+Set `HTTPS_PROXY` explicitly for HTTPS connections; it does not inherit `HTTP_PROXY`.
+
+Localhost and loopback connections bypass proxies; use `NO_PROXY` for additional hosts, domains, IP addresses, or CIDR ranges, or `*` to bypass all proxies.
+
+Kent's proxy configuration does not propagate to the shell commands the agent runs.
+
 ## Backends
 
 | OS           | Service          |
