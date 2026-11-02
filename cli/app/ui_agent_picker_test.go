@@ -5,10 +5,12 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"core/shared/apicontract"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
@@ -16,6 +18,68 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 )
+
+type agentPickerHistoryClient struct {
+	runtimeControlFakeClient
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *agentPickerHistoryClient) RecordPromptHistory(ctx context.Context, _ *promptpb.RecordHistoryRequest) error {
+	close(c.started)
+	select {
+	case <-c.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestAgentAliasesEnterWhileHistoryPending(t *testing.T) {
+	for _, alias := range []string{"/agent", "/model"} {
+		t.Run(alias, func(t *testing.T) {
+			model := busyCommandTestModel()
+			model.applyChatSettingsProjection(runtimeControlFakeChatSettings())
+			client := &agentPickerHistoryClient{started: make(chan struct{}), release: make(chan struct{})}
+			model.sessionControls = client
+			testSetMainInput(model, alias)
+			_, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			entered := make(chan struct{}, 1)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			program := tea.NewProgram(busyWorktreeCommandHarness{command: command},
+				tea.WithContext(ctx), tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithoutRenderer(),
+				tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+					if msg == tea.EnterAltScreen() {
+						entered <- struct{}{}
+					}
+					return msg
+				}))
+			finished := make(chan error, 1)
+			go func() {
+				_, err := program.Run()
+				finished <- err
+			}()
+			defer func() {
+				close(client.release)
+				program.Quit()
+				if err := <-finished; err != nil {
+					t.Error(err)
+				}
+			}()
+			select {
+			case <-client.started:
+			case <-ctx.Done():
+				t.Fatal("prompt-history persistence did not start")
+			}
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("Alternate Screen entry waited for pending prompt-history persistence")
+			}
+		})
+	}
+}
 
 func TestAgentAliasesOpenImmediatelyWhileBusy(t *testing.T) {
 	for _, alias := range []string{"/agent", "/model"} {
@@ -104,6 +168,64 @@ func TestAgentPickerNewChatFailureRetry(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAgentPickerAdoptedSessionLoadFailureRetry(t *testing.T) {
+	disableTransientStatusClearForTest(t)
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeyRunes, Runes: []rune{'r'}}} {
+		t.Run(key.String(), func(t *testing.T) {
+			request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			composition, err := composeUIProgram(request, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer composition.close()
+			model := composition.model
+			model.Update(newSessionSettingsReadResult(t, model.loadNewSessionSettingsCmd(nil)))
+			loadErr := errors.New("Session settings load failed")
+			model.observeSession = func(ctx context.Context, id runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error) {
+				if loadErr != nil {
+					return sessionLaunchPlan{}, nil, loadErr
+				}
+				return request.observeSession(ctx, id)
+			}
+			created := model.newSessionInputCmd("$ true", runtimeinput.Shell("true"), newSessionInputEnter)().(newSessionActionDoneMsg)
+			if created.err != nil {
+				t.Fatal(created.err)
+			}
+			_, loading := model.Update(created)
+			testSetMainInput(model, "/agent")
+			model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			for _, msg := range collectCmdMessages(t, loading) {
+				model.Update(msg)
+			}
+			if model.surface() != uiSurfaceAgent || model.surfaceHasPendingOperation() || model.agentPickerError() == nil {
+				t.Fatal("adopted Session load failure did not leave a retryable picker")
+			}
+			loadErr = nil
+			_, retry := model.Update(key)
+			for _, msg := range collectCmdMessages(t, retry) {
+				model.Update(msg)
+			}
+			if model.sessionSettings == nil || model.sessionObservationLoading() || model.surface() != uiSurfaceAgent {
+				t.Fatal("retry did not finish loading the adopted Session")
+			}
+			model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if !model.surface().isTranscript() {
+				t.Fatal("loaded current Agent was not selectable")
+			}
+		})
 	}
 }
 

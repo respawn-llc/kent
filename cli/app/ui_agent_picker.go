@@ -92,7 +92,7 @@ func (m *uiModel) agentPickerLoading() bool {
 		_, loading := target.settingsLoad.(uiNewSettingsLoading)
 		return loading || target.settingsLoad == nil
 	}
-	return m.agentPicker.pending || m.sessionSettings == nil
+	return m.agentPicker.pending || (m.sessionSettings == nil && m.sessionObservationErr == nil)
 }
 
 func (m *uiModel) agentPickerError() error {
@@ -102,12 +102,18 @@ func (m *uiModel) agentPickerError() error {
 		}
 		return nil
 	}
+	if m.agentPicker.request == uiAgentPickerLoad {
+		return m.sessionObservationErr
+	}
 	return m.agentPicker.err
 }
 
 func (m *uiModel) retryAgentPicker() tea.Cmd {
 	if m.newSessionTarget() != nil {
 		return m.loadNewSessionSettingsCmd(nil)
+	}
+	if m.agentPicker.request == uiAgentPickerLoad {
+		return tea.Batch(m.observeAdoptedSessionCmd(), m.reconcileSpinnerTicking(false))
 	}
 	return m.applyAgentSelection()
 }
@@ -118,14 +124,14 @@ func (m *uiModel) reconcileNewChatAgentPicker(msg newSessionSettingsLoadedMsg) t
 	if target == nil || target.creation != msg.target || picker == nil {
 		return nil
 	}
-	if msg.picker != picker && !(msg.picker == nil && picker.request == uiAgentPickerLoad) {
-		return nil
-	}
+	// Catalog readiness belongs to New Chat; apply completion belongs to its picker.
 	if _, ready := target.settingsLoad.(uiNewSettingsReady); ready {
-		if picker.request == uiAgentPickerApply {
+		if msg.picker == picker && picker.request == uiAgentPickerApply {
 			return m.closeAgentPicker()
 		}
-		m.focusCurrentAgent()
+		if picker.selectedRole == nil {
+			m.focusCurrentAgent()
+		}
 	}
 	return m.reconcileSpinnerTicking(false)
 }

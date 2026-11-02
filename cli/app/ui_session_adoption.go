@@ -46,6 +46,7 @@ func (m *uiModel) applyNewSessionActionDone(msg newSessionActionDoneMsg) tea.Cmd
 		m.stopSessionObservation()
 		m.setKnownSessionTarget(msg.session.SessionId)
 		m.sessionSettings = nil
+		m.sessionObservationErr = nil
 		m.resetPendingWorkRefreshScope(m.presentationTarget.(uiKnownSessionTarget).id)
 		m.reconcileMissingPromptRecoveryScope()
 		m.engine = nil
@@ -87,6 +88,7 @@ func (m *uiModel) observeAdoptedSessionCmd() tea.Cmd {
 	if m.observeSession == nil {
 		return nil
 	}
+	m.sessionObservationErr = nil
 	id := m.presentationTarget.(uiKnownSessionTarget).id
 	parent := m.observationContext
 	if parent == nil {
@@ -116,9 +118,14 @@ func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg)
 	if msg.err != nil {
 		msg.observation.Close()
 		m.stopSessionObservation()
+		m.sessionObservationErr = msg.err
 		m.observeRuntimeRequestResult(msg.err)
-		return m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		return tea.Batch(
+			m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
+			m.reconcileSpinnerTicking(false),
+		)
 	}
+	m.sessionObservationErr = nil
 	m.sessionObservation = msg.observation
 	m.observeRuntimeRequestResult(nil)
 	return m.installSessionObservation(msg.observation.Wiring, msg.plan)
