@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/textutil"
+	"core/shared/toolspec"
 )
 
 func assertOversizedOutputFailure(t *testing.T, result tools.Result, logPath string) {
@@ -41,15 +44,28 @@ func TestExecCommandGuardPreservesOutputPathPresentationAndLog(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	tool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 20, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 	const output = "123456789012345678901234567890123456789012345678"
-	result := callExecCommand(t, tool, "guarded", map[string]any{
+	input, err := json.Marshal(map[string]any{
 		"cmd": "printf '" + output + "'; exit 7", "shell": "/bin/sh", "login": false,
 		"raw": true, "yield_time_ms": 1_000, "max_output_tokens": 11,
 	})
-	entries, err := os.ReadDir(manager.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := shellTestExecutionContext(t, context.Background(), "guarded")
+	identity, err := tools.ExecutionIdentityFromContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := tool.Call(ctx, tools.Call{ID: "guarded", Name: toolspec.ToolExecCommand, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join("/tmp/kent", identity.SessionShortID.String())
+	entries, err := os.ReadDir(directory)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("retained log entries = %v, error=%v", entries, err)
 	}
-	logPath := filepath.Join(manager.TempDir(), entries[0].Name())
+	logPath := filepath.Join(directory, entries[0].Name())
 	assertOversizedOutputFailure(t, result, logPath)
 	if log, err := os.ReadFile(logPath); err != nil || string(log) != output {
 		t.Fatalf("retained output = %q, error=%v", log, err)

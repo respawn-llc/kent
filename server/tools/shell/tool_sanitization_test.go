@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"os"
 	"path/filepath"
@@ -19,9 +20,10 @@ func TestManagerRejectsMissingPostprocessorBeforeLaunch(t *testing.T) {
 	workdir := t.TempDir()
 	for _, raw := range []bool{false, true} {
 		_, err := manager.Start(context.Background(), ExecRequest{
-			Command: []string{"/bin/sh", "-c", "touch launched"},
-			Workdir: workdir,
-			Raw:     raw,
+			OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+			Command:             []string{"/bin/sh", "-c", "touch launched"},
+			Workdir:             workdir,
+			Raw:                 raw,
 		})
 		if err == nil {
 			t.Fatal("expected missing shell postprocessor to fail command launch")
@@ -159,12 +161,13 @@ func TestShellCompletionPathsLimitCommandOutputLines(t *testing.T) {
 	})
 	start := func(command string, yield time.Duration, stdin bool) (ExecResult, error) {
 		return manager.Start(context.Background(), ExecRequest{
-			Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-			Command:        []string{"/bin/sh", "-c", command},
-			Workdir:        t.TempDir(),
-			YieldTime:      yield,
-			MaxOutputChars: 16_000,
-			KeepStdinOpen:  stdin,
+			OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+			Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+			Command:             []string{"/bin/sh", "-c", command},
+			Workdir:             t.TempDir(),
+			YieldTime:           yield,
+			MaxOutputChars:      16_000,
+			KeepStdinOpen:       stdin,
 		})
 	}
 	foreground, _ := start("sleep .1; "+command, 5*time.Second, false)

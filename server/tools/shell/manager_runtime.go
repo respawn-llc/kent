@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"core/server/tools/shell/postprocess"
+	"core/shared/runtimeids"
 )
 
 func (m *Manager) List() []Snapshot {
@@ -518,22 +519,35 @@ func (m *Manager) collectUntil(ctx context.Context, entry *processEntry, deadlin
 	}
 }
 
-func (m *Manager) allocateProcessSlot() (string, string, error) {
+func (m *Manager) allocateProcessSlot(shortID runtimeids.SessionShortID) (string, *os.File, error) {
+	if _, err := runtimeids.NewSessionShortID(shortID.Int64()); err != nil {
+		return "", nil, fmt.Errorf("shell log Session identity: %w", err)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return "", "", errors.New("background shell manager is closed")
+		return "", nil, errors.New("background shell manager is closed")
 	}
 	if m.occupiedSlots >= m.maxConcurrent {
-		return "", "", &ConcurrentShellLimitError{Limit: m.maxConcurrent}
+		return "", nil, &ConcurrentShellLimitError{Limit: m.maxConcurrent}
 	}
-	if err := os.MkdirAll(m.tempDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("prepare background shell temp dir: %w", err)
+	directory := filepath.Join("/tmp", "kent", shortID.String())
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", nil, fmt.Errorf("prepare background shell log directory: %w", err)
 	}
-	id := strconv.Itoa(m.nextID)
-	m.nextID++
-	m.occupiedSlots++
-	return id, filepath.Join(m.tempDir, id+".log"), nil
+	for {
+		id := strconv.Itoa(m.nextID)
+		m.nextID++
+		log, err := os.OpenFile(filepath.Join(directory, id+".log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", nil, fmt.Errorf("create background shell log: %w", err)
+		}
+		m.occupiedSlots++
+		return id, log, nil
+	}
 }
 
 func (m *Manager) releaseProcessSlot() {

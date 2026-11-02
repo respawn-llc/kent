@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"testing"
 	"time"
@@ -29,12 +30,13 @@ func TestBackgroundTransitionRegistersBeforePresentationFailureAndTerminalExit(t
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	_, err := manager.Start(ctx, ExecRequest{
-		Postprocessor:  runner,
-		Command:        []string{"/bin/sh", "-c", "sleep 0.1"},
-		DisplayCommand: "sleep briefly",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		MaxOutputChars: 1_000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       runner,
+		Command:             []string{"/bin/sh", "-c", "sleep 0.1"},
+		DisplayCommand:      "sleep briefly",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		MaxOutputChars:      1_000,
 	})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("transition presentation error = %v, want context deadline exceeded", err)

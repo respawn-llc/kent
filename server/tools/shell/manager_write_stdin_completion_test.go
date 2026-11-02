@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"errors"
@@ -30,12 +31,13 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
-		DisplayCommand: "sleep briefly",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		MaxOutputChars: 16_000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
+		DisplayCommand:      "sleep briefly",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		MaxOutputChars:      16_000,
 	})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)
@@ -98,12 +100,13 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
-		DisplayCommand: "sleep briefly",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		MaxOutputChars: 16_000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
+		DisplayCommand:      "sleep briefly",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		MaxOutputChars:      16_000,
 	})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)

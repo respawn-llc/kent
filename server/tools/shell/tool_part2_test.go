@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"encoding/json"
@@ -89,13 +90,14 @@ func TestSharedManagerWriteStdinHarvestLeavesProcessOwnerNoticeUnsuppressed(t *t
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf owner"},
-		DisplayCommand: "sleep briefly",
-		OwnerSessionID: "process-owner",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		MaxOutputChars: 16_000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "sleep 0.15; printf owner"},
+		DisplayCommand:      "sleep briefly",
+		OwnerSessionID:      "process-owner",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		MaxOutputChars:      16_000,
 	})
 	if err != nil {
 		t.Fatalf("start owner process: %v", err)
@@ -243,7 +245,8 @@ func TestManagerCloseKillsRunningProcesses(t *testing.T) {
 	})
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		// Keep the signal-resistant process as the root: a waiting shell can exit
 		// normally when its child is killed, yielding a completed event instead.
 		Command:        []string{"/bin/sh", "-c", "trap '' TERM INT; exec sleep 30"},

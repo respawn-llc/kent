@@ -51,7 +51,7 @@ type shellToolCaller interface {
 func callShellTestTool(t *testing.T, tool shellToolCaller, id string, name toolspec.ID, input map[string]any) tools.Result {
 	t.Helper()
 	rawInput, _ := json.Marshal(input)
-	result, err := tool.Call(context.Background(), tools.Call{ID: id, Name: name, Input: rawInput})
+	result, err := tool.Call(shellTestExecutionContext(t, context.Background(), id), tools.Call{ID: id, Name: name, Input: rawInput})
 	if err != nil {
 		t.Fatalf("%s call error: %v", name, err)
 	}
@@ -163,14 +163,15 @@ func TestExecCommandEmptyDefaultWorkdirReturnsManagerErrorWithoutExecuting(t *te
 	call.Input = input
 
 	_, managerErr := manager.Start(context.Background(), ExecRequest{
-		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:       []string{"/bin/sh", "-c", "touch exec-command-empty-default-side-effect"},
-		Workdir:       "",
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "touch exec-command-empty-default-side-effect"},
+		Workdir:             "",
 	})
 	if managerErr == nil {
 		t.Fatal("expected empty workdir manager error")
 	}
-	got, err := execTool.Call(context.Background(), call)
+	got, err := execTool.Call(shellTestExecutionContext(t, context.Background(), call.ID), call)
 	if err != nil {
 		t.Fatalf("exec_command call returned transport error: %v", err)
 	}
@@ -241,7 +242,7 @@ func TestExecCommandWorkdirValidationErrors(t *testing.T) {
 			}
 			call := tools.Call{ID: tt.id, Name: toolspec.ToolExecCommand, Input: rawInput}
 			manager := newBackgroundTestManager(t)
-			got, err := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})).Call(context.Background(), call)
+			got, err := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})).Call(shellTestExecutionContext(t, context.Background(), call.ID), call)
 			if err != nil {
 				t.Fatalf("exec_command call returned transport error: %v", err)
 			}
@@ -274,13 +275,14 @@ func envSliceToMap(t *testing.T, in []string) map[string]string {
 func TestManagerStartEmbedsOwnerSessionIDInProcessEnv(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "printf %s \"$" + sessionenv.SessionIDEnv + "\""},
-		DisplayCommand: "print kent session id",
-		OwnerSessionID: "session-env-123",
-		Workdir:        t.TempDir(),
-		YieldTime:      time.Second,
-		MaxOutputChars: 1000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "printf %s \"$" + sessionenv.SessionIDEnv + "\""},
+		DisplayCommand:      "print kent session id",
+		OwnerSessionID:      "session-env-123",
+		Workdir:             t.TempDir(),
+		YieldTime:           time.Second,
+		MaxOutputChars:      1000,
 	})
 	if err != nil {
 		t.Fatalf("start command: %v", err)
@@ -325,11 +327,12 @@ func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf 'hello\\n'; sleep 0.3; printf 'world\\n'"},
-		DisplayCommand: "tail-test",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf 'hello\\n'; sleep 0.3; printf 'world\\n'"},
+		DisplayCommand:      "tail-test",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -379,11 +382,12 @@ func TestManagerSubscribeOutputReceivesSingleLineWhileProcessKeepsRunning(t *tes
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf 'ready\\n'; sleep 1"},
-		DisplayCommand: "single-line-running",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf 'ready\\n'; sleep 1"},
+		DisplayCommand:      "single-line-running",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -422,11 +426,12 @@ func TestManagerInlineOutputUsesRecentOutputBeforeLogFlush(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf 'inline-ready\\n'; sleep 1"},
-		DisplayCommand: "inline-recent",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf 'inline-ready\\n'; sleep 1"},
+		DisplayCommand:      "inline-recent",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -450,11 +455,12 @@ func TestManagerInlineOutputTruncatesRecentOutputFallback(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf '%0500d\\n' 1; sleep 1"},
-		DisplayCommand: "inline-recent-truncated",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf '%0500d\\n' 1; sleep 1"},
+		DisplayCommand:      "inline-recent-truncated",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -492,11 +498,12 @@ func TestManagerSubscribeOutputCloseUnblocksNext(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "sleep 1"},
-		DisplayCommand: "tail-close-test",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "sleep 1"},
+		DisplayCommand:      "tail-close-test",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -740,11 +747,12 @@ func TestWriteStdinCancellationReportsActiveProcess(t *testing.T) {
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "sleep 2"},
-		DisplayCommand: "sleep 2",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "sleep 2"},
+		DisplayCommand:      "sleep 2",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)
@@ -817,6 +825,7 @@ func TestExecCommandCancellationReturnsUndecoratedBaseError(t *testing.T) {
 		err    error
 	}
 	done := make(chan callResult, 1)
+	ctx = shellTestExecutionContext(t, ctx, call.ID)
 	go func() {
 		result, err := execTool.Call(ctx, call)
 		done <- callResult{result: result, err: err}
@@ -862,14 +871,15 @@ func TestExecCommandReturnsClosedManagerErrorUnchanged(t *testing.T) {
 	}
 	call.Input = input
 	_, managerErr := manager.Start(context.Background(), ExecRequest{
-		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:       []string{"/bin/sh", "-c", "true"},
-		Workdir:       workspace,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "true"},
+		Workdir:             workspace,
 	})
 	if managerErr == nil {
 		t.Fatal("expected closed manager error")
 	}
-	got, err := execTool.Call(context.Background(), call)
+	got, err := execTool.Call(shellTestExecutionContext(t, context.Background(), call.ID), call)
 	if err != nil {
 		t.Fatalf("exec_command call returned transport error: %v", err)
 	}
@@ -881,11 +891,12 @@ func TestManagerWriteStdinCancellationPreservesContextCanceled(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "sleep 2"},
-		DisplayCommand: "sleep 2",
-		Workdir:        workspace,
-		YieldTime:      250 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "sleep 2"},
+		DisplayCommand:      "sleep 2",
+		Workdir:             workspace,
+		YieldTime:           250 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)
@@ -943,11 +954,12 @@ func TestWriteStdinWarnsAndRetriesWhenFullLogReadFails(t *testing.T) {
 	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "sleep 0.15; printf done"},
-		DisplayCommand: "delayed-done",
-		Workdir:        workspace,
-		YieldTime:      50 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "sleep 0.15; printf done"},
+		DisplayCommand:      "delayed-done",
+		Workdir:             workspace,
+		YieldTime:           50 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"fmt"
 	"testing"
@@ -120,14 +121,15 @@ func startRetainedShell(
 ) ExecResult {
 	t.Helper()
 	result, err := manager.Start(context.Background(), ExecRequest{
-		OwnerSessionID: fmt.Sprintf("session-%d", index),
-		Postprocessor:  runner,
-		Command:        []string{"/bin/sh", "-c", "read -r release"},
-		DisplayCommand: "wait for release",
-		Workdir:        workdir,
-		YieldTime:      time.Millisecond,
-		MaxOutputChars: 1_000,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		OwnerSessionID:      fmt.Sprintf("session-%d", index),
+		Postprocessor:       runner,
+		Command:             []string{"/bin/sh", "-c", "read -r release"},
+		DisplayCommand:      "wait for release",
+		Workdir:             workdir,
+		YieldTime:           time.Millisecond,
+		MaxOutputChars:      1_000,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start retained shell %d: %v", index, err)

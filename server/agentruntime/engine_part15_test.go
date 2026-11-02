@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -123,13 +124,14 @@ func TestCompactionDispatchPreparationEmbedsBaseMetaAndPreservedUserMessageAtomi
 	startShell := func(ownerSessionID, displayCommand string) shelltool.ExecResult {
 		t.Helper()
 		result, startErr := manager.Start(context.Background(), shelltool.ExecRequest{
-			Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-			Command:        []string{"/bin/sh", "-c", "read line"},
-			DisplayCommand: displayCommand,
-			OwnerSessionID: ownerSessionID,
-			Workdir:        store.Meta().WorkspaceRoot,
-			YieldTime:      time.Millisecond,
-			KeepStdinOpen:  true,
+			OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+			Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+			Command:             []string{"/bin/sh", "-c", "read line"},
+			DisplayCommand:      displayCommand,
+			OwnerSessionID:      ownerSessionID,
+			Workdir:             store.Meta().WorkspaceRoot,
+			YieldTime:           time.Millisecond,
+			KeepStdinOpen:       true,
 		})
 		if startErr != nil {
 			t.Fatalf("start shell %q: %v", displayCommand, startErr)
@@ -267,13 +269,14 @@ func TestCompactionDispatchCapturesShellsStartedAndFinishedDuringIdleInterval(t 
 	})
 
 	finishing, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "read line"},
-		DisplayCommand: "finishing shell",
-		OwnerSessionID: store.Meta().SessionID,
-		Workdir:        store.Meta().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "read line"},
+		DisplayCommand:      "finishing shell",
+		OwnerSessionID:      store.Meta().SessionID,
+		Workdir:             store.Meta().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start finishing shell: %v", err)
@@ -282,13 +285,14 @@ func TestCompactionDispatchCapturesShellsStartedAndFinishedDuringIdleInterval(t 
 		t.Fatalf("finishing shell did not remain running: %+v", finishing)
 	}
 	remaining, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "read line"},
-		DisplayCommand: "remaining shell",
-		OwnerSessionID: store.Meta().SessionID,
-		Workdir:        store.Meta().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "read line"},
+		DisplayCommand:      "remaining shell",
+		OwnerSessionID:      store.Meta().SessionID,
+		Workdir:             store.Meta().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start remaining shell: %v", err)
@@ -392,13 +396,14 @@ func TestCompactionDispatchCapturesShellsStartedAndFinishedDuringIdleInterval(t 
 		t.Fatalf("wait for shell completion during idle interval: result=%+v error=%v", terminated, err)
 	}
 	startedLater, err := manager.Start(t.Context(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "read line"},
-		DisplayCommand: "shell started while dormant",
-		OwnerSessionID: store.Meta().SessionID,
-		Workdir:        store.Meta().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "read line"},
+		DisplayCommand:      "shell started while dormant",
+		OwnerSessionID:      store.Meta().SessionID,
+		Workdir:             store.Meta().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil || !startedLater.Running {
 		t.Fatalf("start shell while dormant: result=%+v error=%v", startedLater, err)
@@ -489,12 +494,13 @@ func TestCompactionReplacementOmitsRunningShellReminderWhenNoOwnedShellsRemain(t
 		}
 	})
 	foreign, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "sleep 30"},
-		DisplayCommand: "foreign running shell",
-		OwnerSessionID: "foreign-session",
-		Workdir:        store.Meta().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "sleep 30"},
+		DisplayCommand:      "foreign running shell",
+		OwnerSessionID:      "foreign-session",
+		Workdir:             store.Meta().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start foreign shell: %v", err)
@@ -571,12 +577,13 @@ func TestCompactionRunningShellReminderNormalizesAndLimitsCommandPreview(t *test
 	longUnicodeArgument := strings.Repeat("界", 150)
 	displayCommand := "kent run \\\n  --workspace /tmp/project \\\n  --message " + longUnicodeArgument
 	shell, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "sleep 30"},
-		DisplayCommand: displayCommand,
-		OwnerSessionID: store.Meta().SessionID,
-		Workdir:        store.Meta().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "sleep 30"},
+		DisplayCommand:      displayCommand,
+		OwnerSessionID:      store.Meta().SessionID,
+		Workdir:             store.Meta().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start shell: %v", err)

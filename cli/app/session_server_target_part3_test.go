@@ -97,13 +97,14 @@ func TestStartSessionServerUsesConfiguredDaemonForProcessFlows(t *testing.T) {
 	}
 
 	result, err := fixture.daemon.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf 'daemon process output\n'; sleep 0.2"},
-		DisplayCommand: "printf 'daemon process output'; sleep 0.2",
-		Workdir:        workspace,
-		YieldTime:      time.Millisecond,
-		OwnerSessionID: plan.SessionID,
-		OwnerStepID:    "step-1",
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "printf 'daemon process output\n'; sleep 0.2"},
+		DisplayCommand:      "printf 'daemon process output'; sleep 0.2",
+		Workdir:             workspace,
+		YieldTime:           time.Millisecond,
+		OwnerSessionID:      plan.SessionID,
+		OwnerStepID:         "step-1",
 	})
 	if err != nil {
 		t.Fatalf("Background().Start: %v", err)

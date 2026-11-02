@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"errors"
@@ -30,11 +31,12 @@ func TestManagerSubscribeOutputWaitsForLogFlushNotification(t *testing.T) {
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "sleep 0.15; printf 'flush-ready\\n'; sleep 1"},
-		DisplayCommand: "flush-notify",
-		Workdir:        workspace,
-		YieldTime:      50 * time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "sleep 0.15; printf 'flush-ready\\n'; sleep 1"},
+		DisplayCommand:      "flush-notify",
+		Workdir:             workspace,
+		YieldTime:           50 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)

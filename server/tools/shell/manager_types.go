@@ -41,7 +41,6 @@ const (
 	shellOutputNotifyInterval      = 50 * time.Millisecond
 	maxFullLogPostprocessBytes     = 2 << 20
 	completedProcessRetentionLimit = 1_000
-	backgroundLogDirPrefix         = "kent-bg-shells-"
 	initialProcessID               = 1000
 )
 
@@ -153,6 +152,7 @@ type Snapshot struct {
 }
 
 type ExecRequest struct {
+	OwnerSessionShortID  runtimeids.SessionShortID
 	Command              []string
 	DisplayCommand       string
 	OwnerSessionID       string

@@ -25,7 +25,6 @@ type Manager struct {
 	nextID                 int
 	entries                sync.Map
 	completedRecency       []string
-	tempDir                string
 	onEvent                func(Event) bool
 	onBackgroundListChange func(string)
 	minimumExecToBgTime    time.Duration
@@ -66,14 +65,9 @@ func NewManager(persistenceRoot string, opts ...ManagerOption) (*Manager, error)
 	if persistenceRoot == "" {
 		return nil, errors.New("server persistence root is required for shell execution")
 	}
-	tempDir, err := os.MkdirTemp("", backgroundLogDirPrefix)
-	if err != nil {
-		return nil, fmt.Errorf("create background shell temp dir: %w", err)
-	}
 	mgr := &Manager{
 		persistenceRoot:     persistenceRoot,
 		nextID:              initialProcessID,
-		tempDir:             tempDir,
 		minimumExecToBgTime: defaultMinimumExecToBgTime,
 		closeGracePeriod:    closeGracePeriod,
 		closeWaitTimeout:    closeWaitTimeout,
@@ -85,19 +79,12 @@ func NewManager(persistenceRoot string, opts ...ManagerOption) (*Manager, error)
 		}
 	}
 	if mgr.maxConcurrent <= 0 {
-		_ = os.RemoveAll(tempDir)
 		return nil, errors.New("maximum concurrent shells must be positive")
 	}
 	if mgr.minimumExecToBgTime <= 0 {
 		mgr.minimumExecToBgTime = defaultMinimumExecToBgTime
 	}
 	return mgr, nil
-}
-
-func (m *Manager) TempDir() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.tempDir
 }
 
 func (m *Manager) SetEventHandler(handler func(Event) bool) {
@@ -159,12 +146,16 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		return ExecResult{}, errors.New("shell process postprocessor is required")
 	}
 
-	id, logPath, err := m.allocateProcessSlot()
+	id, logFile, err := m.allocateProcessSlot(req.OwnerSessionShortID)
 	if err != nil {
 		return ExecResult{}, err
 	}
 	started := false
+	logHandedOff := false
 	defer func() {
+		if !logHandedOff {
+			_ = logFile.Close()
+		}
 		if !started {
 			m.releaseProcessSlot()
 		}
@@ -183,10 +174,6 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	if err != nil {
 		return ExecResult{}, fmt.Errorf("open stdin pipe: %w", err)
 	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return ExecResult{}, fmt.Errorf("open log file: %w", err)
-	}
 	entry := &processEntry{
 		id:                   id,
 		activityID:           uuid.New(),
@@ -201,7 +188,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		startedAt:            time.Now().UTC(),
 		lastUpdatedAt:        time.Now().UTC(),
 		state:                "starting",
-		logPath:              logPath,
+		logPath:              logFile.Name(),
 		cmd:                  cmd,
 		stdin:                stdin,
 		running:              true,
@@ -211,6 +198,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		outputFinalized:      make(chan struct{}),
 	}
 	entry.log = newAsyncLogWriter(logFile, entry.signal)
+	logHandedOff = true
 	if entry.command == "" {
 		entry.command = strings.Join(req.Command, " ")
 	}
@@ -290,7 +278,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	result := ExecResult{
 		SessionID:          id,
 		WallTime:           time.Since(start),
-		OutputPath:         logPath,
+		OutputPath:         logFile.Name(),
 		RawOutputRequested: req.Raw,
 	}
 	entry.interactMu.Lock()

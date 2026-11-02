@@ -4,6 +4,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"testing"
 	"time"
 
@@ -27,11 +28,12 @@ func TestManagerTerminationPublishesKilledAfterCleanShellExit(t *testing.T) {
 				return true
 			})
 			result, err := manager.Start(context.Background(), ExecRequest{
-				Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-				Command:        []string{"/bin/sh", "-c", command},
-				DisplayCommand: command,
-				Workdir:        t.TempDir(),
-				YieldTime:      50 * time.Millisecond,
+				OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+				Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+				Command:             []string{"/bin/sh", "-c", command},
+				DisplayCommand:      command,
+				Workdir:             t.TempDir(),
+				YieldTime:           50 * time.Millisecond,
 			})
 			if err != nil {
 				t.Fatal(err)

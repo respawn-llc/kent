@@ -575,25 +575,27 @@ func TestGatewayScopesProcessListAndAllowsGlobalProcessAccess(t *testing.T) {
 	}
 
 	ownResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
-		DisplayCommand: "printf own; sleep 1",
-		OwnerSessionID: storeA.Meta().SessionID,
-		OwnerStepID:    "step-a",
-		Workdir:        appCore.Config().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
+		DisplayCommand:      "printf own; sleep 1",
+		OwnerSessionID:      storeA.Meta().SessionID,
+		OwnerStepID:         "step-a",
+		Workdir:             appCore.Config().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start own process: %v", err)
 	}
 	foreignResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
-		DisplayCommand: "printf foreign; sleep 1",
-		OwnerSessionID: storeB.Meta().SessionID,
-		OwnerStepID:    "step-b",
-		Workdir:        resolvedB.Config.WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
+		DisplayCommand:      "printf foreign; sleep 1",
+		OwnerSessionID:      storeB.Meta().SessionID,
+		OwnerStepID:         "step-b",
+		Workdir:             resolvedB.Config.WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start foreign process: %v", err)
@@ -655,12 +657,13 @@ func TestGatewayProcessAccessWithoutProviderCredentials(t *testing.T) {
 	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 	store := createGatewayAuthoritativeSession(t, appCore)
 	started, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "sleep 1"},
-		DisplayCommand: "sleep 1",
-		OwnerSessionID: store.Meta().SessionID,
-		Workdir:        appCore.Config().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "sleep 1"},
+		DisplayCommand:      "sleep 1",
+		OwnerSessionID:      store.Meta().SessionID,
+		Workdir:             appCore.Config().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)

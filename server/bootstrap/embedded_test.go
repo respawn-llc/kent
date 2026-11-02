@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"testing"
 	"time"
@@ -61,8 +62,9 @@ func TestBuildShellManagerUsesConfigSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := shelltool.ExecRequest{
-		Command: []string{"/bin/sh", "-c", "read value"},
-		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Command:             []string{"/bin/sh", "-c", "read value"},
+		Workdir:             t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
 		Postprocessor: runner,
 	}
 	if _, err := background.Start(context.Background(), request); err != nil {

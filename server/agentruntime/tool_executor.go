@@ -272,6 +272,7 @@ func (e *Engine) executePreparedToolCall(
 ) (tools.Result, bool, error) {
 	ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
 		StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
+		SessionShortID: e.store.Identity().ShortID,
 	})
 	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
 	toolCall := tools.Call{

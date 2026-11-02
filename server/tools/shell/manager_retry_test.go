@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,13 +40,14 @@ func TestRetryTerminalEventsRedeliversOnlyUndeliveredCompletion(t *testing.T) {
 
 	releasePath := filepath.Join(t.TempDir(), "release")
 	started, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  runner,
-		Command:        []string{"/bin/sh", "-c", fmt.Sprintf("while [ ! -f %q ]; do sleep 0.01; done; printf done", releasePath)},
-		DisplayCommand: "wait for release",
-		OwnerSessionID: "session-retry",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		MaxOutputChars: 16_000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       runner,
+		Command:             []string{"/bin/sh", "-c", fmt.Sprintf("while [ ! -f %q ]; do sleep 0.01; done; printf done", releasePath)},
+		DisplayCommand:      "wait for release",
+		OwnerSessionID:      "session-retry",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		MaxOutputChars:      16_000,
 	})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)

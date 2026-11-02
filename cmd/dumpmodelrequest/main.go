@@ -258,16 +258,10 @@ func captureSessionRequest(
 			)
 		}
 		if wiring.Background != nil {
-			tempDir := wiring.Background.TempDir()
 			if err := wiring.Background.Close(); err != nil {
 				closeErr = errors.Join(
 					closeErr,
 					fmt.Errorf("close diagnostic background shell manager: %w", err),
-				)
-			} else if err := os.RemoveAll(tempDir); err != nil {
-				closeErr = errors.Join(
-					closeErr,
-					fmt.Errorf("remove diagnostic background shell artifacts: %w", err),
 				)
 			}
 		}
