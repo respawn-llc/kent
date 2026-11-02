@@ -101,13 +101,13 @@ jobs:
         shell: bash
         env:
           JUST_VERBOSE: "1"
-        run: just test server -- ./... -json | tee "$RUNNER_TEMP/kent-server-tests.log"
+        run: just test server -- ./... -json 2>&1 | tee "$RUNNER_TEMP/kent-server-tests.log"
 
       - name: Test production binary
         shell: bash
         env:
           JUST_VERBOSE: "1"
-        run: just test integration -- -json | tee "$RUNNER_TEMP/kent-integration-tests.log"
+        run: just test integration -- -json 2>&1 | tee "$RUNNER_TEMP/kent-integration-tests.log"
 
       - name: Upload test output
         if: always()
