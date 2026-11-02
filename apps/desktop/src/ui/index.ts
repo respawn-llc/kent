@@ -22,6 +22,7 @@ export type {
 export { AnimatedChipSummary } from "./AnimatedChipSummary";
 export { AnimatedReveal } from "./AnimatedReveal";
 export { AnimatedSize } from "./AnimatedSize";
+export { AnimatedText } from "./AnimatedText";
 export { ProgressChip, ProgressInteractiveChip } from "./ProgressChip";
 export type { ProgressChipProps, ProgressInteractiveChipProps } from "./ProgressChip";
 export { ActionableListRow } from "./ActionableListRow";

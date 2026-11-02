@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 import type { ThinkingStatusPresentation } from "@/app-facade";
-import { Spinner, motionDurationFromCSSVar, useReducedMotion } from "@/ui";
+import { AnimatedText, Spinner, motionDurationFromCSSVar, useReducedMotion } from "@/ui";
 
 export function TranscriptThinkingStatus({
   presentation,
@@ -31,9 +31,10 @@ export function TranscriptThinkingStatus({
                   : "primary"
             }
           />
-          <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">
-            {presentation.kind === "text" ? presentation.text : t(`chatTranscript.${presentation.kind}`)}
-          </span>
+          <AnimatedText
+            className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]"
+            text={presentation.kind === "text" ? presentation.text : t(`chatTranscript.${presentation.kind}`)}
+          />
         </motion.div>
       )}
     </AnimatePresence>
