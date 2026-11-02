@@ -25,6 +25,21 @@ func TestCanceledReceiveRetainsCancellationWithTransportFailure(t *testing.T) {
 	}
 }
 
+func TestCanceledSendRetainsCancellationWithTransportFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	conn := &completionConn{send: func(rpcwire.Frame) error {
+		cancel()
+		return io.ErrClosedPipe
+	}}
+	method := projectpb.File_kent_api_project_project_proto.Services().
+		ByName("ProjectCatalogService").Methods().ByName("List")
+	err := callBinaryRPC(ctx, conn, "canceled-send", method, &emptypb.Empty{}, &projectpb.ProjectListResult{})
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("canceled send lost cancellation or transport failure: %v", err)
+	}
+}
+
 type completionConn struct {
 	events chan rpcwire.Event
 	closed chan struct{}

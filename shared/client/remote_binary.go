@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"core/shared/protoapi"
@@ -230,7 +231,7 @@ func callPreparedBinaryRPC(
 	operation protoapi.Operation, result proto.Message, establishing bool,
 ) error {
 	if err := conn.Send(ctx, frame); err != nil {
-		return err
+		return errors.Join(err, ctx.Err())
 	}
 	for {
 		received, err := receiveFrame(ctx, conn)
