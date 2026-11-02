@@ -39,7 +39,9 @@ it("does not apply a trailing native double-click to a later batch question", as
   const next = screen.getByRole("button", { name: appI18n.t("chat.picker.next") });
   await user.click(next);
   await user.click(next);
-  await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "third draft");
+  fireEvent.change(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), {
+    target: { value: "third draft" },
+  });
   const previous = screen.getByRole("button", { name: appI18n.t("chat.picker.previous") });
   await user.click(previous);
   await user.click(previous);

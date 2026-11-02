@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ComponentProps, useState } from "react";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it, mock } from "bun:test";
+import { beforeAll, describe, expect, it, mock, onTestFinished, vi } from "bun:test";
 
 import type { PendingAsk, QuestionAnswerInput, QuestionAttentionItem } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -137,6 +137,10 @@ describe("questionPresentation", () => {
   });
 
   it("activates an option but not Streamdown link descendants", async () => {
+    const open = vi.spyOn(shortcutServices.nativeBridge.links, "openExternal").mockResolvedValue();
+    onTestFinished(() => {
+      open.mockRestore();
+    });
     const attention = ordinaryAttention(["ordinary option", "[safe](https://example.com)"], null);
     const presentation = questionPresentation(attention);
     const user = userEvent.setup({ delay: null });
@@ -154,6 +158,7 @@ describe("questionPresentation", () => {
 
     await user.click(screen.getByRole("link", { name: "safe" }));
     expect(screen.getAllByRole("radio")[1]).not.toBeChecked();
+    expect(open).toHaveBeenCalledWith("https://example.com/");
   });
 
   it.each([null])("submits option one when recommendation metadata is %s", async (recommendation) => {
