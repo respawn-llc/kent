@@ -536,10 +536,10 @@ func receiveFrame(ctx context.Context, conn rpcwire.Conn) (rpcwire.Frame, error)
 		return rpcwire.Frame{}, ctx.Err()
 	case event, ok := <-conn.Events():
 		if !ok {
-			return rpcwire.Frame{}, io.EOF
+			return rpcwire.Frame{}, errors.Join(io.EOF, ctx.Err())
 		}
 		if event.Err != nil {
-			return rpcwire.Frame{}, event.Err
+			return rpcwire.Frame{}, errors.Join(event.Err, ctx.Err())
 		}
 		return event.Frame, nil
 	}

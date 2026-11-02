@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -11,6 +12,18 @@ import (
 	"core/shared/rpcwire"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+func TestCanceledReceiveRetainsCancellationWithTransportFailure(t *testing.T) {
+	for range 100 {
+		ctx, cancel := context.WithCancel(t.Context())
+		conn := &completionConn{events: make(chan rpcwire.Event, 1)}
+		conn.events <- rpcwire.Event{Err: io.ErrClosedPipe}
+		cancel()
+		if _, err := receiveFrame(ctx, conn); !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled receive lost cancellation: %v", err)
+		}
+	}
+}
 
 type completionConn struct {
 	events chan rpcwire.Event
