@@ -343,9 +343,9 @@ func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr er
 	for engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning() {
 		waitCtx := e.ctx
 		if context.Cause(e.ctx) != nil {
-			// Queued work runs on the runtime lifecycle, so stopping this
-			// execution must stop and join it before releasing ownership.
-			engine.CancelScheduledQueuedUserWork()
+			// Scheduled model work uses the runtime lifecycle, so stop its
+			// continuations before joining the canceled execution.
+			engine.CancelScheduledModelWork()
 			_, interruptErr := engine.TryInterruptActiveRun()
 			workErr = errors.Join(workErr, interruptErr)
 			waitCtx = context.WithoutCancel(e.ctx)
