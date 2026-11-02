@@ -55,10 +55,11 @@ func TestDedicatedQuestionCursorOccupiesSelectedOptionRow(t *testing.T) {
 	if err := stream.Feed([]byte(payload)); err != nil {
 		t.Fatal(err)
 	}
-	screen, err := stream.ScreenSnapshot()
+	analysis, err := stream.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}
+	screen := analysis.Screen
 	row := screen.TextInRegion(analyzer.Region{
 		Top: screen.Cursor.Row, Bottom: screen.Cursor.Row + 1, Left: 0, Right: 80,
 	})
@@ -69,11 +70,11 @@ func TestDedicatedQuestionCursorOccupiesSelectedOptionRow(t *testing.T) {
 	if err := expectedStream.Feed([]byte(selected)); err != nil {
 		t.Fatal(err)
 	}
-	expected, err := expectedStream.ScreenSnapshot()
+	expected, err := expectedStream.Finish()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(row) != strings.TrimSpace(expected.RenderText()) {
+	if strings.TrimSpace(row) != strings.TrimSpace(expected.Screen.RenderText()) {
 		t.Fatalf("cursor row %d = %q, want selected option %q", screen.Cursor.Row, row, selected)
 	}
 }
