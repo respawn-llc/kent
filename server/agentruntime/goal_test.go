@@ -556,6 +556,29 @@ func TestGoalResumeAllowsQuestionsDisabledWhenAskQuestionToolVisible(t *testing.
 	}
 }
 
+func TestCanceledScheduledGoalDoesNotStartModelAfterStepAdmission(t *testing.T) {
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	var engine *Engine
+	engine = mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+		OnEvent: func(event Event) {
+			if event.RunState != nil && event.RunState.ActiveKind == ActiveKindGoalLoop && event.RunState.Status == RunStatusRunning {
+				engine.CancelScheduledModelWork()
+			}
+		},
+	})
+	if _, err := engine.SetGoal(t.Context(), "continue working", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.StartGoalLoop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.WaitForGoalLoop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	assertModelCallCount(t, client, 0)
+}
+
 func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}

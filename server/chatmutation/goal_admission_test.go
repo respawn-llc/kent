@@ -30,6 +30,7 @@ import (
 type goalAdmissionClient struct {
 	mu         sync.Mutex
 	calls      int
+	lastCtx    context.Context
 	started    chan int
 	first      chan struct{}
 	advance    chan struct{}
@@ -55,10 +56,12 @@ func (c *goalAdmissionClient) ProviderCapabilities(context.Context) (llm.Provide
 func (c *goalAdmissionClient) Generate(ctx context.Context, _ llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	c.mu.Lock()
 	c.calls++
+	c.lastCtx = ctx
 	call := c.calls
+	question := c.questionAt != nil && call == *c.questionAt
 	c.mu.Unlock()
 	c.started <- call
-	if c.questionAt != nil && call == *c.questionAt {
+	if question {
 		return llm.Response{
 			Assistant: llm.Message{Role: llm.RoleAssistant},
 			ToolCalls: []llm.ToolCall{{
@@ -110,9 +113,6 @@ func TestChatAdmissionAcknowledgesInputsDuringContinuingGoal(t *testing.T) {
 			if scenario.question {
 				model.questionAt = textutil.Value(2)
 			}
-			if scenario.stopAtBoundary {
-				model.questionAt = textutil.Value(3)
-			}
 			var authority *sessionruntime.Authority
 			var stopAtBoundary sync.Once
 			stoppedAtBoundary := make(chan struct{})
@@ -151,7 +151,9 @@ func TestChatAdmissionAcknowledgesInputsDuringContinuingGoal(t *testing.T) {
 				ProjectWorkspaceContextReader: testsetup.OpenSessionProjectWorkspaceContextReader(t, store),
 			})
 			t.Cleanup(func() {
-				if err := authority.Close(context.Background()); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := authority.Close(ctx); err != nil {
 					t.Error(err)
 				}
 			})
@@ -307,18 +309,39 @@ func TestChatAdmissionAcknowledgesInputsDuringContinuingGoal(t *testing.T) {
 				waitCall(3)
 			}
 			if scenario.stopAtBoundary {
-				waitCall(3)
 				afterStop, ok := authority.SessionExecution(id)
 				if !ok || afterStop.Scope().ID() == beforeStop.Scope().ID() {
 					t.Fatal("new input reused the canceled execution")
 				}
+				// A model call may already have started when cancellation reaches
+				// the old execution. Ask only after the new inputs are admitted.
+				currentCall := 2
+				for {
+					waitCall(currentCall + 1)
+					currentCall++
+					model.mu.Lock()
+					ready := model.calls == currentCall && model.lastCtx.Err() == nil
+					if ready {
+						model.questionAt = textutil.Value(currentCall + 1)
+					}
+					model.mu.Unlock()
+					if ready {
+						break
+					}
+				}
+				select {
+				case model.advance <- struct{}{}:
+				case <-ctx.Done():
+					t.Fatal(context.Cause(ctx))
+				}
+				waitCall(currentCall + 1)
 				select {
 				case pending := <-prompts:
 					answerQuestion(pending)
 				case <-ctx.Done():
 					t.Fatal(context.Cause(ctx))
 				}
-				waitCall(4)
+				waitCall(currentCall + 2)
 			}
 			if scenario.worktree {
 				select {
