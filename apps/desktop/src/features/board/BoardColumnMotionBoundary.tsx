@@ -115,7 +115,7 @@ export function BoardColumnMotionBoundary({
       cards: [],
       hasNextPage: false,
       hasPreviousPage: false,
-      initialBoundary: { state: "loading", label: t("states.loading") },
+      initialBoundary: { state: "loading" },
       isFetchingNextPage: false,
       isFetchingPreviousPage: false,
       nextBoundary: undefined,

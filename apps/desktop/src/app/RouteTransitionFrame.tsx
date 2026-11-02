@@ -24,6 +24,7 @@ function routeTransitionKey(pathname: string, searchStr: string): string {
   if (pathname === "/") {
     const search = new URLSearchParams(searchStr);
     search.delete("projectId");
+    search.delete("view");
     const remainingSearch = search.toString();
     return remainingSearch.length === 0 ? pathname : `${pathname}?${remainingSearch}`;
   }

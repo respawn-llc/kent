@@ -194,7 +194,6 @@ export function TaskDetailList({
   const previousBoundary = directionalBoundary({
     failed: paging.isFetchPreviousPageError,
     loading: paging.isFetchingPreviousPage,
-    loadingLabel: t("app.loadingMore"),
     message: errorMessage(paging.error),
     onRetry: paging.loadPrevious,
     retryLabel: t("app.retry"),
@@ -202,7 +201,6 @@ export function TaskDetailList({
   const nextBoundary = directionalBoundary({
     failed: paging.isFetchNextPageError,
     loading: paging.isFetchingNextPage,
-    loadingLabel: t("app.loadingMore"),
     message: errorMessage(paging.error),
     onRetry: paging.loadNext,
     retryLabel: t("app.retry"),
@@ -226,7 +224,6 @@ export function TaskDetailList({
       isFetchingPreviousPage={paging.isFetchingPreviousPage}
       items={listItems}
       layoutChangeScrollBehavior="natural"
-      loadingLabel={t("app.loadingMore")}
       loadMoreKey={paging.nextLoadKey}
       nonAdjustingResizeItemKey="body"
       onLoadMore={paging.loadNext}
@@ -253,7 +250,6 @@ export function TaskDetailList({
           errorTitle={t("states.error")}
           initialFocus={initialFocus}
           item={item}
-          loadingTitle={t("states.loading")}
           mutations={mutations}
           commentActions={commentActions}
           newCommentBody={newCommentBody}
@@ -305,7 +301,6 @@ type TaskDetailListRowProps = Readonly<{
   errorTitle: string;
   initialFocus?: TaskDetailInitialFocus | undefined;
   item: TaskDetailListItem;
-  loadingTitle: string;
   mutations: TaskDetailLifecycle;
   newCommentBody: string;
   noActivityTitle: string;
@@ -474,8 +469,8 @@ function CommentComposerRow({
   );
 }
 
-function LoadingRow({ loadingTitle }: TaskDetailListRowProps): ReactNode {
-  return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={loadingTitle} />;
+function LoadingRow(): ReactNode {
+  return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} />;
 }
 
 function ErrorRow({ errorTitle, item }: TaskDetailListRowProps): ReactNode {

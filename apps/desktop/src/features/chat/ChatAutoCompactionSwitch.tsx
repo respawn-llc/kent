@@ -13,13 +13,7 @@ export function ChatAutoCompactionSwitch({
 }: Readonly<{ feature: ChatSettingsFeature | ReadyChatSettings }>) {
   const { t } = useTranslation();
   if (feature.kind === "failed-session" || feature.kind === "failed-new-chat") return null;
-  if (feature.kind !== "ready-session" && feature.kind !== "ready-new-chat")
-    return (
-      <span className="flex items-center gap-[var(--space-1)]">
-        <Spinner size="sm" />
-        {t("chatComposer.loadingSettings")}
-      </span>
-    );
+  if (feature.kind !== "ready-session" && feature.kind !== "ready-new-chat") return <Spinner size="sm" />;
   const { autoCompaction } = settingsPresentation(feature);
   return (
     <SettingsSwitch

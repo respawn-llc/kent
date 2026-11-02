@@ -172,7 +172,7 @@ const { useHomeSessionPages } = await import("./HomeProjectModel");
 beforeAll(async () => initializeI18n());
 
 beforeEach(() => {
-  clearLastProjectRoute("project-1");
+  clearLastProjectRoute(createTestServices([]).storageNamespace, "project-1");
   fixture.projectQuery = {
     data: { displayName: "Kent", projectKey: "KNT" },
     error: null,

@@ -111,7 +111,7 @@ function compaction(value: T.CompactionStatus): Payloads["compaction_status"] {
   };
 }
 
-function tool(value: T.ToolStart): Payloads["tool_start"] {
+function tool(value: T.ToolStartValid): Payloads["tool_start"] {
   return {
     ...(value.outputIndex === undefined ? {} : { OutputIndex: safeNumber(value.outputIndex) }),
     StepID: value.stepId,

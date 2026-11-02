@@ -39,7 +39,6 @@ import {
   FieldShell,
   InfiniteListBoundary,
   SelectField,
-  Spinner,
   TextArea,
   TextInput,
   ControlTooltip,
@@ -440,7 +439,7 @@ function NewTaskFormContent({
       {workspaceItems.length > 0 && workspacePaging.initialBoundary !== undefined ? (
         <InfiniteListBoundary direction="initial" state={workspacePaging.initialBoundary} />
       ) : null}
-      <NewTaskSubmitButton enabled={canSubmit} pending={createTask.isPending} speech={speech} />
+      <NewTaskSubmitButton enabled={canSubmit} pending={createTask.isPending} speechBusy={speech.busy} />
     </form>
   );
 }
@@ -448,20 +447,27 @@ function NewTaskFormContent({
 function NewTaskSubmitButton({
   enabled,
   pending,
-  speech,
+  speechBusy,
 }: Readonly<{
   enabled: boolean;
   pending: boolean;
-  speech: Readonly<{ busy: boolean; busyReason: string }>;
+  speechBusy: boolean;
 }>) {
   const { t } = useTranslation();
   return (
     <ControlTooltip
-      label={speech.busy ? speech.busyReason : t("task.create")}
+      label={t(speechBusy ? "speech.finishBeforeSubmit" : "task.create")}
       className="mx-auto inline-flex w-full max-w-[400px]"
     >
-      <Button className="w-full" disabled={!enabled} aria-busy={pending} type="submit" variant="primary">
-        {pending ? <Spinner /> : t("task.create")}
+      <Button
+        className="w-full"
+        disabled={!enabled}
+        aria-busy={pending}
+        loading={pending}
+        type="submit"
+        variant="primary"
+      >
+        {t("task.create")}
       </Button>
     </ControlTooltip>
   );

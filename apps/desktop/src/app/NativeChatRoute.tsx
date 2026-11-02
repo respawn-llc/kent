@@ -9,7 +9,6 @@ import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { SidebarHost } from "./sidebar";
 import { WindowChromeFrame } from "./WindowChromeFrame";
-import { WindowChromeThemeToggle } from "./WindowChromeThemeToggle";
 
 export function NativeChatRoute({
   projectID,
@@ -72,7 +71,7 @@ export function NativeChatRoute({
 
 function NativeChatFrame({ children, sessionID }: Readonly<{ children: ReactNode; sessionID: string }>) {
   return (
-    <WindowChromeFrame controls={<WindowChromeThemeToggle />} defaultTitle={sessionID}>
+    <WindowChromeFrame defaultTitle={sessionID}>
       <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
       <SidebarHost />
     </WindowChromeFrame>

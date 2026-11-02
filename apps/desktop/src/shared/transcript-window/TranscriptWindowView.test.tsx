@@ -153,7 +153,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={vi.fn()}
         retryLabel="Retry"
         slots={slots}
@@ -182,7 +181,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={vi.fn()}
         retryLabel="Retry"
         slots={slots}
@@ -218,7 +216,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={vi.fn()}
         retryLabel="Retry"
         slots={slots}
@@ -257,7 +254,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         localMessages={local ? [{ inputID, content: <div data-testid="family-user">{text}</div> }] : []}
         onInput={vi.fn()}
         retryLabel="Retry"
@@ -308,7 +304,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 600}
-        loadingLabel="Loading"
         localMessages={ids.map((inputID) => ({ inputID, content: <div /> }))}
         onInput={vi.fn()}
         overlay={(following) => <input type="checkbox" checked={following} readOnly />}
@@ -390,7 +385,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={onInput}
         retryLabel="Retry"
         slots={slots}
@@ -428,7 +422,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={onInput}
         retryLabel="Retry"
         slots={slots}
@@ -468,7 +461,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={boundaryErrorMessage}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={onInput}
         retryLabel="Retry"
         slots={slots}
@@ -483,7 +475,6 @@ describe("TranscriptWindowView", () => {
       <TranscriptWindowView
         boundaryErrorMessage={boundaryErrorMessage}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={onInput}
         retryLabel="Retry"
         slots={slots}

@@ -62,8 +62,8 @@ export function WorkflowCreateForm({
         value={description}
       />
       <div className="flex justify-end gap-[var(--space-2)]">
-        <Button disabled={!canSubmit} type="submit" variant="primary">
-          {create.isPending ? t("workflowLibrary.creating") : t("workflowLibrary.createWorkflow")}
+        <Button disabled={!canSubmit} loading={create.isPending} type="submit" variant="primary">
+          {t("workflowLibrary.createWorkflow")}
         </Button>
       </div>
     </form>

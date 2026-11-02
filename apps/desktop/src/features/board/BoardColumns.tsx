@@ -239,7 +239,6 @@ export function KanbanColumn({
             isFetchingNextPage={isLoadingMoreCards}
             isFetchingPreviousPage={isLoadingPreviousCards}
             items={cards}
-            loadingLabel={t("app.loadingMore")}
             nextBoundary={visibleNextBoundary}
             onLoadMore={onLoadMoreCards}
             onLoadPrevious={onLoadPreviousCards}

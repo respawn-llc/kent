@@ -2,20 +2,23 @@ import type { QueryClient } from "@tanstack/react-query";
 import { clearLastProjectRoute } from "./projectRoutePersistence";
 import { queryKeys } from "./queryKeys";
 import { removeProjectTaskSearches } from "./taskSearchQueries";
+import type { AppStorageNamespace } from "./services";
 
 export async function completeProjectDeletion({
   navigateHome,
   projectID,
   pushDeletedToast,
   queryClient,
+  storageNamespace,
 }: Readonly<{
   navigateHome?: (() => Promise<void>) | undefined;
   projectID: string;
   pushDeletedToast: () => void;
   queryClient: QueryClient;
+  storageNamespace: AppStorageNamespace | null;
 }>): Promise<void> {
   await invalidateProjectDeleteQueries(queryClient, projectID);
-  clearLastProjectRoute(projectID);
+  clearLastProjectRoute(storageNamespace, projectID);
   if (navigateHome !== undefined) await navigateHome();
   pushDeletedToast();
 }

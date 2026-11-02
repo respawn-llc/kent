@@ -206,7 +206,6 @@ function ProjectEditContent({
       {unlinkPending && (
         <div className="flex items-center gap-[var(--space-2)]">
           <Spinner size="sm" />
-          {t("states.loading")}
         </div>
       )}
       <ProjectEditListHeader
@@ -298,9 +297,7 @@ function ProjectEditListHeader({
   return (
     <div className={`mx-auto grid w-full ${projectEditContentMaxWidthClassName} gap-[var(--space-3)]`}>
       <div className="grid min-w-0 gap-[var(--space-3)]">
-        {metadata.state === "pending" ? (
-          <LoadingState body={t("states.loading")} reveal={false} title={t("projectEdit.loadingTitle")} />
-        ) : null}
+        {metadata.state === "pending" ? <LoadingState reveal={false} /> : null}
         {metadata.state === "error" ? (
           <ErrorState
             body={errorMessage(metadata.error)}
@@ -388,7 +385,7 @@ function ProjectWorkspaceList({
       className="h-full min-h-0 overflow-auto px-[var(--space-4)] hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
       empty={
         catalogPending ? (
-          <LoadingState body={t("states.loading")} reveal={false} title={t("projectEdit.workspaces")} />
+          <LoadingState reveal={false} />
         ) : nextBoundary?.state === "error" ? (
           <ErrorState
             body={nextBoundary.message}
@@ -409,7 +406,6 @@ function ProjectWorkspaceList({
       isFetchingNextPage={isFetchingNextPage}
       isFetchingPreviousPage={isFetchingPreviousPage}
       items={workspaceOccurrences}
-      loadingLabel={t("app.loadingMore")}
       nextBoundary={workspaceOccurrences.length === 0 ? undefined : nextBoundary}
       onLoadMore={onLoadMore}
       onLoadPrevious={onLoadPrevious}
@@ -451,7 +447,7 @@ function projectCatalogBoundary(
   t: ReturnType<typeof useTranslation>["t"],
 ): VirtualizedInfiniteListBoundaryState | undefined {
   if (catalog.isFetchingNextPage) {
-    return { state: "loading", label: t("app.loadingMore") };
+    return { state: "loading" };
   }
   if (catalog.isFetchNextPageError || (catalog.isError && catalog.data === undefined)) {
     return {
@@ -476,7 +472,7 @@ function projectCatalogPreviousBoundary(
   t: ReturnType<typeof useTranslation>["t"],
 ): VirtualizedInfiniteListBoundaryState | undefined {
   if (catalog.isFetchingPreviousPage) {
-    return { state: "loading", label: t("app.loadingMore") };
+    return { state: "loading" };
   }
   if (catalog.isFetchPreviousPageError) {
     return {

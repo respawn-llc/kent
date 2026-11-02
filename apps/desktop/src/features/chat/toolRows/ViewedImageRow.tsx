@@ -1,6 +1,6 @@
 import { Image } from "lucide-react";
 import { useState } from "react";
-import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +8,7 @@ import { errorMessage, type ChatSessionTarget } from "@/api";
 import { queryKeys, useAppServices } from "@/app-facade";
 import {
   Button,
+  useReducedMotion,
   motionDurationFromCSSVar,
   Shimmer,
   showStatusToast,

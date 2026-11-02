@@ -1,4 +1,5 @@
 export const speechEnglish = {
+  finishBeforeSubmit: "Finish dictation before submitting.",
   connection: "Connection: {{connection}}",
   providerRejected:
     "The provider rejected this recording (HTTP {{status}}). Check this connection’s access, or retry using another speech-capable global default. You can save your recording.",
@@ -18,9 +19,6 @@ export const speechEnglish = {
   },
   record: "Record speech",
   stop: "Stop recording",
-  preparing: "Preparing microphone…",
-  transcribing: "Transcribing…",
-  busy: "Wait for speech input to finish before submitting.",
   sibling: "Speech input is still running in another field on this page.",
   unavailable: "Select a speech-capable default connection in global configuration.",
   failed: "Speech input failed",
@@ -38,5 +36,4 @@ export const speechEnglish = {
   copied: "The original field is gone. Your transcript was copied to the clipboard.",
   copyFailed: "Clipboard delivery failed. Copy the transcript below before discarding the recording.",
   transcript: "Transcript",
-  working: "Wait for the current recording action to finish.",
 };

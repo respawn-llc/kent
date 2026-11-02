@@ -47,6 +47,7 @@ message Readiness {
   string endpoint = 8;
   repeated SubagentRoleSummary subagent_roles = 9;
   repeated ReadinessCause causes = 10;
+  optional string global_config_path = 11 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
     id: "kent.server.readiness.causes"

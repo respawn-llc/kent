@@ -123,11 +123,7 @@ function ChatDestinationShell({
       target === null || onPopOutCreated === undefined || !nativeBridge.capabilities.dialogWindows ? null : (
         <IconTooltipButton
           label={t("app.popOut")}
-          tooltip={
-            destination.popOutRequest.isPending || editRequest.isPending
-              ? t("states.loading")
-              : t("app.popOut")
-          }
+          tooltip={t("app.popOut")}
           size="icon-sm"
           variant="ghost"
           disabled={destination.popOutRequest.isPending || editRequest.isPending}

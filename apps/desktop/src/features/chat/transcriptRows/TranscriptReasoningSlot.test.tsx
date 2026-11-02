@@ -180,7 +180,6 @@ it("keeps one expanded disclosure when a preceding trace arrives and the live tr
       <TranscriptWindowView
         boundaryErrorMessage={(error) => error.message}
         estimateSize={() => 60}
-        loadingLabel="Loading"
         onInput={() => undefined}
         retryLabel="Retry"
         slots={transcriptSlots}

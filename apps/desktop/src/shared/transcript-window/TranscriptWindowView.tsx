@@ -25,7 +25,6 @@ export type TranscriptWindowViewProps = Readonly<{
   localMessages?: readonly Readonly<{ inputID: string; content: ReactElement }>[] | undefined;
   slots: TranscriptRenderSlots<ReactElement | null>;
   estimateSize: () => number;
-  loadingLabel: string;
   retryLabel: string;
   boundaryErrorMessage: (error: Error) => string;
   onInput: (input: TranscriptWindowViewInput) => void;
@@ -69,7 +68,6 @@ export function TranscriptWindowView({
   localMessages = noLocalMessages,
   slots,
   estimateSize,
-  loadingLabel,
   retryLabel,
   boundaryErrorMessage,
   onInput,
@@ -106,13 +104,13 @@ export function TranscriptWindowView({
   const previousBoundary = transcriptBoundary(
     older,
     "older",
-    { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
+    { retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
   const nextBoundary = transcriptBoundary(
     newer,
     "newer",
-    { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
+    { retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
   const pinnedItemKeys = useMemo(
@@ -141,7 +139,6 @@ export function TranscriptWindowView({
         isFetchingPreviousPage={olderPage.fetching}
         items={items}
         pinnedItemKeys={pinnedItemKeys}
-        loadingLabel={loadingLabel}
         loadMoreKey={newerPage.key}
         nextBoundary={nextBoundary}
         onLoadMore={() => {
@@ -499,7 +496,6 @@ function transcriptBoundary(
   boundary: TranscriptWindowSnapshot[TranscriptDirection] | null,
   direction: TranscriptDirection,
   copy: Readonly<{
-    loadingLabel: string;
     retryLabel: string;
     errorMessage: (error: Error) => string;
     suppressed: boolean;
@@ -511,7 +507,7 @@ function transcriptBoundary(
     case "idle":
       return undefined;
     case "loading":
-      return { state: "loading", label: copy.loadingLabel };
+      return { state: "loading" };
     case "error":
       return {
         state: "error",

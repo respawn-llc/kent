@@ -4,7 +4,6 @@ export const chatComposerEnglish = {
   connectionReplaced: "Provider connection changed",
   connectionReplacedBody: "{{previous}} is unavailable; using {{current}}.",
   commands: {
-    loading: "Loading commands",
     review: "Review changes in a fresh conversation",
     init: "Initialize project guidance in a fresh conversation",
     name: "Set or clear the Session name",
@@ -29,8 +28,6 @@ export const chatComposerEnglish = {
   send: "Send / Steer",
   queue: "Add to queue",
   empty: "Enter a message to send",
-  loadingSettings: "Loading Chat settings",
-  loadingDraft: "Loading saved draft",
   queuePlaceholder: "Ctrl + ⏎ to queue",
   queuePlaceholder_macos: "⌘ + ⏎ to queue",
   diagnostics: {

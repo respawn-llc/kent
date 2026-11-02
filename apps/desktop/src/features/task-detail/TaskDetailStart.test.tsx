@@ -1,6 +1,5 @@
 import { expect, it, vi } from "bun:test";
-import { act, screen, waitFor, within } from "@testing-library/react";
-import { toBeVisible } from "@testing-library/jest-dom/matchers";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { appI18n } from "@/i18n";
@@ -16,7 +15,7 @@ import {
   taskDetailResponse,
 } from "@/test-support/task-detail";
 
-it("replaces Start with a visible loading spinner and restores the action after failure", async () => {
+it("keeps Start pending and restores the action after failure", async () => {
   const services = mountTaskDetailSurface(backlogTaskFixture(taskDetailResponse), {
     routes: [taskStartRoute(taskStartApplied)],
   });
@@ -28,8 +27,6 @@ it("replaces Start with a visible loading spinner and restores the action after 
   await waitFor(() => {
     expect(start.getAttribute("aria-busy")).toBe("true");
   });
-  expect(toBeVisible(within(start).getByText(appI18n.t("task.start"))).pass).toBe(false);
-  expect(toBeVisible(within(start).getByTestId("spinner")).pass).toBe(true);
   const failure = taskStartFailure;
   const error = new RpcError({
     code: failure.code,
@@ -42,9 +39,7 @@ it("replaces Start with a visible loading spinner and restores the action after 
   });
   await waitFor(() => {
     expect(start.getAttribute("aria-busy")).toBe("false");
-    expect(toBeVisible(within(start).getByText(appI18n.t("task.start"))).pass).toBe(true);
   });
-  expect(toBeVisible(within(start).getByTestId("spinner")).pass).toBe(false);
   expect(start).toBeEnabled();
   const diagnostic = log.mock.calls.find(([, , context]) => context?.action === "start");
   expect(diagnostic?.[2]).toMatchObject({

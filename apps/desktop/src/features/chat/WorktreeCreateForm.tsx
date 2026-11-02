@@ -23,10 +23,6 @@ import {
   LoadingState,
   Spinner,
   TextInput,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
 } from "@/ui";
 import { createWorktreeCreate, useWorktreeCreate } from "./WorktreeCreate";
 import type { createWorktreeActions } from "./WorktreeActions";
@@ -153,58 +149,51 @@ function CreateFields({
       />
     );
   return (
-    <TooltipProvider>
-      <Tooltip {...(pending ? {} : { open: false })}>
-        <TooltipTrigger asChild>
-          <form
-            onKeyDown={submitShortcut}
-            className="grid min-w-0 gap-[var(--space-3)]"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!switching) submit(undefined);
-            }}
-          >
-            <FieldShell
-              label={t("chat.worktree.targetLabel")}
-              inputId={id}
-              errorId={`${id}-error`}
-              hintId={`${id}-hint`}
-            >
-              <CreateClassification
-                pending={state.resolving}
-                error={state.targetError}
-                kind={state.classification}
-              />
-              <input
-                id={id}
-                className={fieldInputClassName}
-                autoFocus
-                value={state.target}
-                disabled={pending}
-                onChange={(event) => {
-                  editTarget(event.target.value);
-                }}
-              />
-            </FieldShell>
-            {isNew ? (
-              <TextInput
-                label={t("chat.worktree.baseLabel")}
-                value={state.base}
-                error={state.baseError}
-                disabled={pending}
-                onChange={(event) => {
-                  editBase(event.target.value);
-                }}
-              />
-            ) : null}
-            <Button type="submit" variant="primary" disabled={pending}>
-              {pending ? <Spinner size="sm" /> : t("chat.worktree.createSubmit")}
-            </Button>
-          </form>
-        </TooltipTrigger>
-        <TooltipContent>{t("chat.worktree.requestPending")}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <form
+      onKeyDown={submitShortcut}
+      className="grid min-w-0 gap-[var(--space-3)]"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!switching) submit(undefined);
+      }}
+    >
+      <FieldShell
+        label={t("chat.worktree.targetLabel")}
+        inputId={id}
+        errorId={`${id}-error`}
+        hintId={`${id}-hint`}
+      >
+        <CreateClassification
+          pending={state.resolving}
+          error={state.targetError}
+          kind={state.classification}
+        />
+        <input
+          id={id}
+          className={fieldInputClassName}
+          autoFocus
+          value={state.target}
+          disabled={pending}
+          onChange={(event) => {
+            editTarget(event.target.value);
+          }}
+        />
+      </FieldShell>
+      {isNew ? (
+        <TextInput
+          label={t("chat.worktree.baseLabel")}
+          value={state.base}
+          error={state.baseError}
+          disabled={pending}
+          onChange={(event) => {
+            editBase(event.target.value);
+          }}
+        />
+      ) : null}
+      <Button type="submit" variant="primary" disabled={pending} loading={pending}>
+        {t("chat.worktree.createSubmit")}
+      </Button>
+    </form>
   );
 }
 

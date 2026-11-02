@@ -4,6 +4,7 @@ export {
   openSessionSettingsSubscription,
   emitSessionSettingsSnapshot,
 } from "./sessionSettingsFixtures";
+export { attentionSubscriptionRoute, emitQuestionBatchRevision } from "./attentionFixtures";
 import {
   create,
   decode,
