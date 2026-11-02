@@ -37,6 +37,7 @@ import (
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/protocol"
+	"core/shared/proxyhttp"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -97,8 +98,16 @@ func newMemoryServeTestServer(t *testing.T, request Request, store *metadata.Sto
 	if err := serverbootstrap.ConvertProviderConfiguration(t.Context(), root); err != nil {
 		t.Fatal(err)
 	}
-	req.Environment, err = serverbootstrap.LoadEnvironment(root)
+	environment, err := serverbootstrap.LoadEnvironment(root)
 	if err != nil {
+		t.Fatal(err)
+	}
+	req.Environment = environment.Lookup
+	proxy, err := config.ResolveServerProxy(root, environment.FileLookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proxyhttp.Configure(proxy); err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := serverbootstrap.ResolveConfig(req)
