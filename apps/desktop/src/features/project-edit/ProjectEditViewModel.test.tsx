@@ -201,30 +201,55 @@ it("admits only one directory selection while the picker is pending", async () =
   expect(attach).not.toHaveBeenCalled();
 });
 
-it("sends an already attached directory explicitly and keeps the catalog untouched", async () => {
-  const view = setup();
-  vi.spyOn(view.services.nativeBridge.directories, "selectDirectory").mockResolvedValue({ path: "/buried" });
-  const attach = vi.spyOn(view.services.api, "attachWorkspace").mockResolvedValue({
-    binding: {
-      projectID: project.projectID,
-      workspaceID: "buried",
-      projectKey: project.projectKey,
-      projectName: project.displayName,
-      workspaceName: "Buried",
-      workspaceStatus: "available",
-    },
-    outcome: "already_attached",
-  });
-  const invalidate = vi.spyOn(view.client, "invalidateQueries");
-  await act(async () => {
-    view.result.current.chooseWorkspace(undefined);
-  });
-  expect(attach).toHaveBeenCalledWith(project.projectID, "/buried");
-  expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
-  expect(invalidate).not.toHaveBeenCalledWith(
-    expect.objectContaining({ queryKey: queryKeys.projectWorkspaceCatalog(project.projectID) }),
-  );
-});
+it.each(["attached", "already_attached"] as const)(
+  "refreshes the visible Workspace catalog after linking returns %s",
+  async (outcome) => {
+    const context = fixture();
+    const workspace = { id: "workspace-2", name: "Extra", rootPath: "/extra", isDefault: false };
+    const page = { projectID: project.projectID, offset: 0, nextOffset: null };
+    const list = vi.spyOn(context.services.api, "listWorkspaces").mockResolvedValue({
+      ...page,
+      workspaces: [],
+    });
+    vi.spyOn(context.services.nativeBridge.directories, "selectDirectory").mockResolvedValue({
+      path: workspace.rootPath,
+    });
+    const attach = vi.spyOn(context.services.api, "attachWorkspace").mockImplementation(async () => {
+      list.mockResolvedValue({ ...page, workspaces: [workspace] });
+      return {
+        binding: {
+          projectID: project.projectID,
+          workspaceID: workspace.id,
+          projectKey: project.projectKey,
+          projectName: project.displayName,
+          workspaceName: workspace.name,
+          workspaceStatus: "available",
+        },
+        outcome,
+      };
+    });
+    const view = renderHook(
+      () => ({
+        catalog: useAtomValue(context.model.catalog),
+        workspaces: useAtomValue(context.model.workspaces),
+        ...useProjectEditActions(context.model),
+      }),
+      { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
+    );
+    await waitFor(() => {
+      expect(view.result.current.catalog.isSuccess).toBe(true);
+    });
+    expect(view.result.current.workspaces).toHaveLength(0);
+    act(() => {
+      view.result.current.chooseWorkspace(undefined);
+    });
+    await waitFor(() => {
+      expect(view.result.current.workspaces.map((entry) => entry.workspace)).toEqual([workspace]);
+    });
+    expect(attach).toHaveBeenCalledWith(project.projectID, workspace.rootPath);
+    expect(context.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
+  },
+);
 
 it("admits only one inline Unlink while its request is pending", async () => {
   const view = setup();

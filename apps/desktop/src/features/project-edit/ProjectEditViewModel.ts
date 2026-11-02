@@ -128,7 +128,7 @@ export function createProjectEditViewModel({
     mutationFn: async (path: string) => services.api.attachWorkspace(projectID, path),
     ...explicitRequestOptions,
     onSuccess: async (response) => {
-      await invalidateProjectWorkspaceMetadata(client, projectID);
+      await invalidateProjectWorkspaceOwners(client, projectID);
       push({
         id: "project-edit-workspace-attached",
         tone: "success",
