@@ -125,8 +125,13 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.applyChatSettingsDone(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
+	case agentPickerAppliedMsg:
+		cmd := m.applyAgentPickerResult(msg)
+		m.layout().syncViewport()
+		return handledUIFeatureUpdate(m, cmd)
 	case newSessionSettingsLoadedMsg:
 		cmd := m.applyNewSessionSettingsLoaded(msg)
+		cmd = tea.Batch(cmd, m.reconcileNewChatAgentPicker(msg))
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
 	case newSessionLoginDoneMsg:

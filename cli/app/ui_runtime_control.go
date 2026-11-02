@@ -173,6 +173,9 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 }
 
 func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings) {
+	if m.newSessionTarget() == nil {
+		m.sessionSettings = settings
+	}
 	m.modelName = settings.SelectedAgent.Model
 	m.thinkingLevel = settings.SelectedAgent.Thinking
 	m.fastModeAvailable = settings.Fast != nil
@@ -180,7 +183,7 @@ func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings)
 	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
 	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
 	m.questionsEnabled = settings.Questions.Enabled
-	m.modelContractLocked = settings.AgentLocked
+	m.modelContractLocked = settings.CachingLocked
 	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 }
 

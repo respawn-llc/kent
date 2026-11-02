@@ -45,6 +45,7 @@ func (m *uiModel) applyNewSessionActionDone(msg newSessionActionDoneMsg) tea.Cmd
 		}
 		m.stopSessionObservation()
 		m.setKnownSessionTarget(msg.session.SessionId)
+		m.sessionSettings = nil
 		m.resetPendingWorkRefreshScope(m.presentationTarget.(uiKnownSessionTarget).id)
 		m.reconcileMissingPromptRecoveryScope()
 		m.engine = nil
@@ -124,6 +125,12 @@ func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg)
 }
 
 func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionLaunchPlan) tea.Cmd {
+	if plan.ChatSettings != nil {
+		m.applyChatSettingsProjection(plan.ChatSettings)
+		if m.agentPicker != nil && m.agentPicker.selectedRole == nil {
+			m.focusCurrentAgent()
+		}
+	}
 	m.engine = wiring.runtimeClient
 	m.bindRuntimeConnectionObserver()
 	m.eventDispatcher = wiring.eventDispatcher

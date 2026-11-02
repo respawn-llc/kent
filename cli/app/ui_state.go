@@ -16,6 +16,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -43,6 +44,8 @@ type uiRuntimeFeatureState struct {
 	workspaceContext    uiWorkspaceContext
 	chatMutations       apicontract.ChatMutationService
 	chatSettings        apicontract.ChatSettingsService
+	sessionSettings     *chatsettingspb.Settings
+	agentPicker         *uiAgentPicker
 	sessionControls     apicontract.RuntimeControlService
 	sessionLiveControls apicontract.RuntimeLiveControlService
 	pendingWorkClient   apicontract.RuntimePendingWorkService

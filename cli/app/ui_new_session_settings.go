@@ -31,6 +31,7 @@ func (uiNewSettingsFailed) isNewSettingsLoad()  {}
 func (uiNewSettingsReady) isNewSettingsLoad()   {}
 
 type newSessionSettingsLoadedMsg struct {
+	picker    *uiAgentPicker
 	target    *chatpb.NewChatTarget
 	catalog   *settingspb.NewChatCatalog
 	readiness *authpb.BootstrapStatus
@@ -64,6 +65,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 	target.settingsLoad = uiNewSettingsLoading{}
 	creation := target.creation
 	settings := m.chatSettings
+	picker := m.agentPicker
 	request := &settingspb.ReadRequest{Target: &settingspb.ReadRequest_NewChat{NewChat: &settingspb.NewChatTarget{
 		ProjectId: creation.ProjectId, WorkspaceId: creation.WorkspaceId,
 	}}}
@@ -78,7 +80,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 		request.GetNewChat().Invocation.ThinkingLevel = initial.Thinking
 	}
 	load := func() tea.Msg {
-		result := newSessionSettingsLoadedMsg{target: creation, retry: retry}
+		result := newSessionSettingsLoadedMsg{target: creation, retry: retry, picker: picker}
 		response, err := settings.ReadChatSettings(context.Background(), request)
 		if err != nil {
 			result.err = err
