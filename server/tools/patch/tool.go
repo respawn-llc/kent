@@ -9,8 +9,8 @@ import (
 
 	"core/server/tools"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 type input struct {

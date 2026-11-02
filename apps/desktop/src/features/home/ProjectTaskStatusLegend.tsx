@@ -32,10 +32,7 @@ export function ProjectTaskStatusLegend({
           sideOffset={6}
         >
           {definitions === undefined ? (
-            <span className="inline-flex items-center gap-[var(--space-2)]">
-              <Spinner size="sm" />
-              {t("states.loading")}
-            </span>
+            <Spinner size="sm" />
           ) : (
             definitions.flatMap((definition) =>
               definition.statusKinds.map((status) => (

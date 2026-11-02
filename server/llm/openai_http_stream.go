@@ -8,10 +8,11 @@ import (
 	"time"
 	"unicode"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/llmerrors"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
+	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 )
@@ -25,9 +26,9 @@ type responseStreamAccumulator struct {
 	assistantStartedByOutput map[int64]bool
 	assistantMessages        *assistantMessageAccumulator
 	reasoning                *reasoningAccumulator
-	passthrough              *passthroughOutputAccumulator
 	standardServedModel      *string
 	completed                *responses.Response
+	finalizedOutput          []indexedResponseOutputItem
 	responseError            *responseStreamError
 }
 
@@ -47,7 +48,6 @@ func newResponseStreamAccumulator(callbacks StreamCallbacks, windowTokens int, p
 		windowTokens:      windowTokens,
 		assistantMessages: newAssistantMessageAccumulator(),
 		reasoning:         newReasoningAccumulator(),
-		passthrough:       newPassthroughOutputAccumulator(),
 	}
 }
 
@@ -73,6 +73,9 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 	case "response.output_text.done":
 		a.assistantMessages.SetFinalizedText(evt.OutputIndex, evt.Text)
 	case "response.output_item.added", "response.output_item.done":
+		if evt.Type == "response.output_item.done" {
+			a.finalizedOutput = append(a.finalizedOutput, indexedResponseOutputItem{Item: evt.Item, OutputIndex: evt.OutputIndex})
+		}
 		if err := a.assistantMessages.Upsert(evt.Item, evt.OutputIndex); err != nil {
 			a.responseError = &responseStreamError{
 				ProviderContract: &responseStreamProviderContract{Message: err.Error()},
@@ -81,7 +84,20 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 		}
 		a.reasoning.UpsertReasoningItem(evt.Item, evt.OutputIndex)
 		a.recordReasoningAccumulatorError()
-		a.passthrough.Upsert(evt.Item, evt.OutputIndex, a.policy)
+		if evt.Type == "response.output_item.done" && evt.Item.Type == "message" && a.callbacks.OnAssistantSourceComplete != nil {
+			item := a.assistantMessages.byIndex[evt.OutputIndex].message
+			item.OutputIndex = evt.OutputIndex
+			text, _, err := a.assistantPresentation(item)
+			if err != nil {
+				a.responseError = &responseStreamError{ProviderContract: &responseStreamProviderContract{Message: err.Error()}}
+				return
+			}
+			if text != "" {
+				a.callbacks.OnAssistantSourceComplete(AssistantSource{
+					Text: text, Phase: a.assistantMessages.Phase(evt.OutputIndex), OutputIndex: evt.OutputIndex,
+				})
+			}
+		}
 		if a.callbacks.OnOutputItem != nil && evt.Item.Type != "message" && evt.Item.Type != "reasoning" {
 			items, _, _, _, _, _, _, err := parseOutputItems([]responses.ResponseOutputItemUnion{evt.Item}, a.policy)
 			if err != nil {
@@ -176,6 +192,36 @@ func (a *responseStreamAccumulator) Consume(evt responses.ResponseStreamEventUni
 	}
 }
 
+func (a *responseStreamAccumulator) assistantPresentation(item ResponseItem) (string, *session.NativeAssistantPresentation, error) {
+	text := optionalStringValue(item.Content)
+	streamed := ""
+	if observed, ok := a.assistantMessages.byIndex[item.OutputIndex]; ok && observed.deltaText != nil {
+		streamed = observed.deltaText.String()
+	} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
+		streamed = pending.String()
+	}
+	if a.callbacks.OnAssistantDelta == nil && item.Content != nil && *item.Content != "" {
+		streamed = ""
+	}
+	if streamed == "" {
+		return text, nil, nil
+	}
+	if !completedAssistantTextReconcilesStream(streamed, text) {
+		return "", nil, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
+	}
+	display := reconciledCompletedAssistantText(streamed, text)
+	if display == text {
+		return text, nil, nil
+	}
+	fact := &session.NativeAssistantPresentation{OutputIndex: item.OutputIndex}
+	if display == strings.TrimLeftFunc(text, unicode.IsSpace) {
+		fact.LeadingBytes = len(text) - len(display)
+	} else {
+		fact.TrailingWhitespace = []byte(display[len(text):])
+	}
+	return display, fact, nil
+}
+
 func (a *responseStreamAccumulator) consumeAssistantDelta(outputIndex int64, text string) {
 	phase := a.assistantMessages.Phase(outputIndex)
 	if a.assistantStartedByOutput == nil {
@@ -264,6 +310,9 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if a.completed == nil {
 		return ResponsesResponse{}, fmt.Errorf("Responses output requested before completion")
 	}
+	if len(a.assistantMessages.pendingDeltas) > 0 {
+		return ResponsesResponse{}, fmt.Errorf("completed response has assistant deltas without a matching output item")
+	}
 	usage := Usage{WindowTokens: a.windowTokens}
 	streamText, streamPhase, streamProviderPhase, streamOutputIndex, streamDeltaText, hasResolvedStream := a.assistantMessages.Resolve()
 	rawDeltaText := a.assistantText.String()
@@ -287,42 +336,25 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseOutputItems(a.completed.Output, a.policy)
+	output := a.finalizedOutput
+	parsedItems, parsedText, parsedPhase, parsedProviderPhase, parsedCalls, parsedReasoning, parsedReasoningItems, err := parseIndexedOutputItems(output, a.policy)
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
 	var assistantPresentation []session.NativeAssistantPresentation
 	if responseItemsContainAssistantMessage(parsedItems) {
 		var segments []assistantOutputSegment
-		for _, item := range parsedItems {
+		for itemIndex, item := range parsedItems {
 			if item.Type != ResponseItemTypeMessage {
 				continue
 			}
-			text := optionalStringValue(item.Content)
-			streamed := ""
-			if observed, ok := a.assistantMessages.byIndex[item.OutputIndex]; ok && observed.deltaText != nil {
-				streamed = observed.deltaText.String()
-			} else if pending := a.assistantMessages.pendingDeltas[item.OutputIndex]; pending != nil {
-				streamed = pending.String()
+			text, presentation, err := a.assistantPresentation(item)
+			if err != nil {
+				return ResponsesResponse{}, err
 			}
-			if a.callbacks.OnAssistantDelta == nil && item.Content != nil && *item.Content != "" {
-				streamed = ""
-			}
-			if streamed != "" {
-				if !completedAssistantTextReconcilesStream(streamed, text) {
-					return ResponsesResponse{}, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
-				}
-				display := reconciledCompletedAssistantText(streamed, text)
-				if display != text {
-					fact := session.NativeAssistantPresentation{OutputIndex: item.OutputIndex}
-					if display == strings.TrimLeftFunc(text, unicode.IsSpace) {
-						fact.LeadingBytes = len(text) - len(display)
-					} else {
-						fact.TrailingWhitespace = []byte(display[len(text):])
-					}
-					assistantPresentation = append(assistantPresentation, fact)
-				}
-				text = display
+			if presentation != nil {
+				presentation.OutputIndex = int64(itemIndex)
+				assistantPresentation = append(assistantPresentation, *presentation)
 			}
 			phase, _ := textutil.OptionalValue(item.Phase)
 			content := textutil.Pointer(item.Content)
@@ -344,8 +376,8 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		finalPhase = parsedPhase
 		finalProviderPhase = parsedProviderPhase
 	}
-	// Stream events are previews. The terminal response is the complete output,
-	// so omitted calls must not become accepted executions or replayed history.
+	// Like Codex, accept only output_item.done items. The completed
+	// event supplies completion metadata, not conversation output.
 	finalCalls := parsedCalls
 	mergedReasoning, mergeErr := mergeReasoningEntries(parsedReasoning, finalReasoning)
 	if mergeErr != nil {
@@ -360,14 +392,14 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		return ResponsesResponse{}, evidenceErr
 	}
 
-	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(a.completed.Output))}
+	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(output))}
 	body.AssistantPresentation = assistantPresentation
 	switch a.policy.(type) {
 	case grokResponsesPolicy, grokCLIResponsesPolicy:
 		body.Format = session.NativeResponseGrok
 	}
-	for i, item := range a.completed.Output {
-		body.Items[i] = []byte(item.RawJSON())
+	for i, item := range output {
+		body.Items[i] = []byte(item.Item.RawJSON())
 	}
 	var native *NativeResponse
 	if len(body.Items) > 0 {
@@ -377,8 +409,20 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		}
 		native = native.WithReasoningType(body.ReasoningType)
 	}
+	var endTurn *bool
+	if field, present := a.completed.JSON.ExtraFields["end_turn"]; present {
+		if err := json.Unmarshal([]byte(field.Raw()), &endTurn); err != nil {
+			return ResponsesResponse{}, fmt.Errorf("decode completed response end_turn: %w", err)
+		}
+	}
+	// Codex treats an omitted end_turn as complete unless tool execution or
+	// pending input requires another step. Text and phase are presentation.
+	if endTurn == nil {
+		endTurn = textutil.Value(true)
+	}
 	return ResponsesResponse{
 		NativeResponse:   native,
+		EndTurn:          endTurn,
 		AssistantText:    finalText,
 		ProviderPhase:    finalProviderPhase,
 		ServedModel:      textutil.Pointer(a.standardServedModel),
@@ -423,11 +467,15 @@ func providerUsageEvidenceFromResponse(
 			return nil
 		}
 		webSearch := output.AsWebSearchCall()
-		actionType := strings.TrimSpace(webSearch.Action.Type)
-		switch actionType {
-		case "search", "open_page", "find_in_page":
-		default:
-			return fmt.Errorf("hosted web search output has unsupported action type %q", actionType)
+		var actionKind *string
+		if raw := webSearch.JSON.Action.Raw(); raw != respjson.Omitted && raw != respjson.Null {
+			actionType := strings.TrimSpace(webSearch.Action.Type)
+			switch actionType {
+			case "search", "open_page", "find_in_page":
+				actionKind = textutil.Value(actionType)
+			default:
+				return fmt.Errorf("hosted web search output has unsupported action type %q", actionType)
+			}
 		}
 		if strings.TrimSpace(webSearch.ID) == "" || strings.TrimSpace(string(webSearch.Status)) == "" {
 			return fmt.Errorf("hosted web search output is missing required identity fields")
@@ -437,22 +485,17 @@ func providerUsageEvidenceFromResponse(
 		}
 		seenHostedIDs[webSearch.ID] = struct{}{}
 		tool := modelcontract.HostedToolUsageEvidence{
-			ID:     textutil.Value(webSearch.ID),
-			Type:   textutil.Value(string(webSearch.Type)),
-			Status: textutil.Value(string(webSearch.Status)),
+			ID:         textutil.Value(webSearch.ID),
+			Type:       textutil.Value(string(webSearch.Type)),
+			Status:     textutil.Value(string(webSearch.Status)),
+			ActionKind: actionKind,
 		}
-		tool.ActionKind = textutil.Value(actionType)
 		if field, ok := webSearch.JSON.ExtraFields["usage"]; ok && field.Raw() != "" {
 			raw := json.RawMessage(field.Raw())
 			tool.Usage = &raw
 		}
 		evidence.HostedTools = append(evidence.HostedTools, tool)
 		return nil
-	}
-	for _, item := range response.Output {
-		if err := appendHostedTool(item); err != nil {
-			return modelcontract.ProviderUsageEvidence{}, err
-		}
 	}
 	for _, item := range outputItems {
 		if item.Type != ResponseItemTypeOther || len(item.Raw) == 0 {
@@ -736,73 +779,4 @@ func optionalStringValue(value *string) string {
 		return ""
 	}
 	return *value
-}
-
-type passthroughOutputAccumulator struct {
-	byIndex map[int64]ResponseItem
-	order   []int64
-}
-
-func newPassthroughOutputAccumulator() *passthroughOutputAccumulator {
-	return &passthroughOutputAccumulator{
-		byIndex: make(map[int64]ResponseItem),
-		order:   make([]int64, 0, 4),
-	}
-}
-
-func (a *passthroughOutputAccumulator) Upsert(item responses.ResponseOutputItemUnion, outputIndex int64, policy responsesPolicy) {
-	if a == nil {
-		return
-	}
-	if item.Type == "compaction" {
-		parsed, err := (compactionOutputItemParser{}).Parse(item, nil)
-		if err != nil || len(parsed.CanonicalItems) != 1 {
-			return
-		}
-		checkpoint := parsed.CanonicalItems[0]
-		checkpoint.OutputIndex = outputIndex
-		if _, exists := a.byIndex[outputIndex]; !exists {
-			a.order = append(a.order, outputIndex)
-		}
-		a.byIndex[outputIndex] = checkpoint
-		return
-	}
-	if isKnownResponseOutputItemType(item.Type) && !(item.Type == "custom_tool_call" && policy.isHostedCustomToolCall(item.CallID)) {
-		return
-	}
-	raw := json.RawMessage(item.RawJSON())
-	if len(raw) == 0 || !json.Valid(raw) {
-		return
-	}
-	if _, exists := a.byIndex[outputIndex]; !exists {
-		a.order = append(a.order, outputIndex)
-	}
-	copyRaw := append(json.RawMessage(nil), raw...)
-	a.byIndex[outputIndex] = ResponseItem{Type: ResponseItemTypeOther, ID: textutil.OptionalExactString(item.ID), OutputIndex: outputIndex, Raw: copyRaw}
-}
-
-func (a *passthroughOutputAccumulator) Items() []ResponseItem {
-	if a == nil {
-		return nil
-	}
-	out := make([]ResponseItem, 0, len(a.order))
-	for _, outputIndex := range a.order {
-		item, ok := a.byIndex[outputIndex]
-		if !ok {
-			continue
-		}
-		copyItem := item
-		copyItem.Raw = append(json.RawMessage(nil), item.Raw...)
-		out = append(out, copyItem)
-	}
-	return out
-}
-
-func isKnownResponseOutputItemType(itemType string) bool {
-	switch strings.TrimSpace(itemType) {
-	case "message", "function_call", "custom_tool_call", "reasoning", "compaction":
-		return true
-	default:
-		return false
-	}
 }

@@ -15,6 +15,7 @@ import {
   sessionChatRoutePath,
   newChatRoutePath,
   sessionChatHistoryStateSchema,
+  useDesktopSettings,
 } from "@/app-facade";
 import { useStableCallback } from "@/ui";
 import { createAttentionViewModel } from "./AttentionViewModel";
@@ -35,8 +36,9 @@ function OwnedAttentionController() {
   const roots = useOwnedSidebarRoots();
   const focused = useWindowFocus();
   const picker = useFocusedChatPicker();
+  const settings = useDesktopSettings();
   const navigation = useAppNavigation();
-  const inputs = useStableCallback(() => ({ focused, picker }));
+  const inputs = useStableCallback(() => ({ focused, picker, delivery: settings.saved.notifications }));
   const openSessionChat = useStableCallback(navigation.openSessionChat);
   const description = useMemo(
     () =>

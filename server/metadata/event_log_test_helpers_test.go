@@ -1,6 +1,6 @@
 package metadata
 
-import "core/server/session"
+import "core/server/sessionstore"
 
 func mustEventLogRevision(eventLog session.MaterializedEventLog) int64 {
 	revision, err := eventLog.Revision()

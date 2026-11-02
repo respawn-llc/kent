@@ -3,6 +3,7 @@ package protoapi
 import (
 	"fmt"
 
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -45,6 +46,7 @@ func PendingWorkKindToProto(kind runtimeinput.PendingWorkItemKind) (runtimepb.Pe
 }
 
 var pendingWorkKindValues = map[runtimepb.PendingWorkItemKind]runtimeinput.PendingWorkItemKind{
+	runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_SHELL:               runtimeinput.PendingWorkItemKindShell,
 	runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MESSAGE:             runtimeinput.PendingWorkItemKindMessage,
 	runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MANUAL_COMPACTION:   runtimeinput.PendingWorkItemKindManualCompaction,
 	runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_WORKTREE_TRANSITION: runtimeinput.PendingWorkItemKindWorktreeTransition,
@@ -76,6 +78,8 @@ func PendingWorkToProto(work runtimeinput.PendingWork) (*runtimepb.PendingWork, 
 			return nil, err
 		}
 		switch item.Kind {
+		case runtimeinput.PendingWorkItemKindShell:
+			value.Payload = &runtimepb.PendingWorkItem_Shell{Shell: &chatpb.ShellCommand{Command: item.Shell.Command}}
 		case runtimeinput.PendingWorkItemKindMessage:
 			value.Payload = &runtimepb.PendingWorkItem_Message{Message: &runtimepb.PendingWorkMessage{Text: item.Message.Text}}
 		case runtimeinput.PendingWorkItemKindManualCompaction:
@@ -105,6 +109,8 @@ func PendingWorkFromProto(work *runtimepb.PendingWork) (runtimeinput.PendingWork
 		value := runtimeinput.PendingWorkItem{ID: id, Kind: kind, CanonicalInput: item.CanonicalInput, State: runtimeinput.PendingWorkItemStatePending}
 		value.Lane = pendingWorkLaneValues[item.Lane]
 		switch payload := item.Payload.(type) {
+		case *runtimepb.PendingWorkItem_Shell:
+			value.Shell = &runtimeinput.ShellCommand{Command: payload.Shell.Command}
 		case *runtimepb.PendingWorkItem_Message:
 			value.Message = &runtimeinput.PendingWorkMessage{Text: payload.Message.Text}
 		case *runtimepb.PendingWorkItem_ManualCompaction:

@@ -54,7 +54,7 @@ it.each([
           view.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
         });
       }
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       await user.type(editor, "First message");
       await user.keyboard("{Enter}");
       await waitFor(() => {

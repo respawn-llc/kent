@@ -1,14 +1,12 @@
 package runtimeview
 
 import (
-	"core/server/runtime"
+	"core/server/agentruntime"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 )
-
-const RecentTailEntryLimit = 500
 
 func TranscriptPageFromSegment(sessionID string, sessionName *string, freshness runtimepb.ConversationFreshness, page runtime.TranscriptSegmentPage, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.Page, error) {
 	segment, err := TranscriptTailSegmentFromSegment(page, identities)

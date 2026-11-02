@@ -255,10 +255,7 @@ function TaskSearchResults({
   if (search.request.isFetching && search.results.length === 0) {
     return (
       <div className="grid h-full place-items-center">
-        <InfiniteListBoundary
-          direction="initial"
-          state={{ state: "loading", label: t("taskSearch.searching") }}
-        />
+        <InfiniteListBoundary direction="initial" state={{ state: "loading" }} />
       </div>
     );
   }
@@ -303,7 +300,6 @@ function TaskSearchResultList({
   ) : undefined;
   const boundaryCopy = {
     errorMessage: t("taskSearch.loadMoreFailed"),
-    loadingLabel: t("taskSearch.searching"),
     retryLabel: t("app.retry"),
   };
   const lastPointerPositionRef = useRef<Readonly<{ x: number; y: number }> | null>(null);
@@ -345,7 +341,6 @@ function TaskSearchResultList({
           ? search.request.data?.pages.at(-1)?.response.nextOffset?.toString()
           : undefined
       }
-      loadingLabel={t("taskSearch.searching")}
       nextBoundary={searchBoundaryState(search, boundaryCopy)}
       onLoadMore={() => {
         if (search.paginationUsesVisibleData) {
@@ -426,7 +421,6 @@ function searchBoundaryState(
   search: ReturnType<typeof useTaskSearch>,
   copy: Readonly<{
     errorMessage: string;
-    loadingLabel: string;
     retryLabel: string;
   }>,
 ): VirtualizedInfiniteListBoundaryState | undefined {
@@ -436,7 +430,6 @@ function searchBoundaryState(
   return taskSearchBoundaryState({
     error: search.request.isFetchNextPageError ? search.request.error : null,
     loading: search.request.isFetchingNextPage,
-    loadingLabel: copy.loadingLabel,
     errorMessage: copy.errorMessage,
     retryLabel: copy.retryLabel,
     onRetry: () => {
@@ -448,20 +441,18 @@ function searchBoundaryState(
 function taskSearchBoundaryState({
   error,
   loading,
-  loadingLabel,
   errorMessage: boundaryErrorMessage,
   retryLabel,
   onRetry,
 }: Readonly<{
   error: Error | null;
   loading: boolean;
-  loadingLabel: string;
   errorMessage: string;
   retryLabel: string;
   onRetry(): void;
 }>): VirtualizedInfiniteListBoundaryState | undefined {
   if (loading) {
-    return { state: "loading", label: loadingLabel };
+    return { state: "loading" };
   }
   if (error !== null) {
     return {

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 	"core/shared/llmerrors"
 	"core/shared/modelcontract"
@@ -62,6 +62,7 @@ type HTTPTransport struct {
 	ConnectionID                 *config.ConnectionID
 	Store                        bool
 	ModelVerbosity               string
+	CyberAccess                  bool
 	ContextWindowTokens          int
 	ProviderIdentifier           string
 	ProviderCapabilitiesOverride *ProviderCapabilities
@@ -516,12 +517,7 @@ func (t *HTTPTransport) compactResponsesTriggerV2(ctx context.Context, request R
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	// Compaction's HTTP checkpoint stream retains its existing done-item contract.
-	outputItems := response.OutputItems
-	if len(outputItems) == 0 {
-		outputItems = accumulator.passthrough.Items()
-	}
-	checkpoint, err := requireSingleEncryptedCompactionOutput(outputItems)
+	checkpoint, err := requireSingleEncryptedCompactionOutput(response.OutputItems)
 	if err != nil {
 		return ResponsesCompactionResponse{}, newOpenAIProviderContractError(variant.ProviderID, rawResp, err)
 	}

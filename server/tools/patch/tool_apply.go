@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	patchformat "core/shared/transcript/patchformat"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 func splitLines(s string) []string {

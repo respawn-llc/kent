@@ -19,16 +19,16 @@ import (
 	"core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/launch"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/server/runtimeview"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/llmerrors"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
@@ -52,6 +52,7 @@ func TestUsageFallbackContinuesAfterBareGrokSocketExhaustion(t *testing.T) {
 				event = `{"error":{"code":"429","type":"allowance","message":"[WKE=personal-team-blocked:spending-limit] unavailable"}}`
 			} else {
 				healthyCalls.Add(1)
+				_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"answer","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}}`))
 			}
 			_ = socket.Write(t.Context(), websocket.MessageText, []byte(event))
 			_, _, _ = socket.Read(t.Context())
@@ -223,8 +224,23 @@ func testUsageFallbackReviewer(t *testing.T, explicit, unavailable, preparationF
 		})
 		t.Fatalf("Reviewer replacement = %v, calls %d", got, calls.Load())
 	}
-	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(healthy.Snapshot().Observed) != wantRequests {
-		t.Fatalf("requests = a %d, healthy %+v", calls.Load(), healthy.Snapshot().Observed)
+	snapshot := healthy.Snapshot()
+	if !rotation.CoolingDown("a") || calls.Load() != 2 || len(snapshot.Observed) != wantRequests {
+		for index, observed := range snapshot.Observed {
+			var request struct {
+				Text struct {
+					Format json.RawMessage `json:"format"`
+				} `json:"text"`
+			}
+			if err := json.Unmarshal(observed.Body, &request); err != nil {
+				t.Logf("healthy request %d: decode failed: %v", index, err)
+				continue
+			}
+			t.Logf("healthy request %d: route=%s structured output=%s", index, observed.Route, request.Text.Format)
+		}
+		t.Fatalf("requests: a=%d healthy=%d want=%d; cooling down=%t; fixture progress=%d/%d active=%d failure=%v",
+			calls.Load(), len(snapshot.Observed), wantRequests, rotation.CoolingDown("a"),
+			snapshot.RequiredIndex, snapshot.RequiredTotal, snapshot.ActiveRequests, snapshot.Failure)
 	}
 	if explicit || unavailable || preparationFailure {
 		reopened, err := session.Open(store.Dir(), runtimeWireTestSessionPersistence.Options()...)
@@ -326,7 +342,7 @@ func newUsageFallbackRuntimeWithReviewer(t *testing.T, rotation *launch.Connecti
 			})
 		})
 	}
-	wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store), settings, enabled, nil, nil, nil, options)
+	wiring, err := newTestRuntimeWiringWithBackground(t, store, materializedRuntimeWireEventLog(t, store), settings, enabled, nil, t, nil, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,15 +386,14 @@ func TestUsageFallbackUnavailableIsBoundedAfterCooldownExpires(t *testing.T) {
 		t.Fatalf("attempts = a %d, b %d", aCalls.Load(), bCalls.Load())
 	}
 	var facts *transcript.ConnectionsUnavailableNotice
-	if err := wiring.Engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
-				facts = row.Notice.ConnectionsUnavailable
-			}
-		}
-		return nil
-	}); err != nil {
+	livePage, err := wiring.Engine.TranscriptNewestSegmentPage()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(livePage.Snapshot) {
+		if row.Notice != nil && row.Notice.ConnectionsUnavailable != nil {
+			facts = row.Notice.ConnectionsUnavailable
+		}
 	}
 	if facts == nil || len(facts.Members) != 2 || len(facts.Diagnostics) != 2 {
 		t.Fatalf("unavailable notice facts = %+v", facts)
@@ -459,7 +474,7 @@ func TestUsageFallbackSavesReplacementBeforeOrdinaryFailure(t *testing.T) {
 
 func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	tool, err := blackbox.StartScriptedResponsesStub(scriptedllm.Script{Steps: []scriptedllm.Step{
-		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker"}`)}),
+		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker","shell":"/bin/sh","login":false}`)}),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -477,6 +492,15 @@ func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	wiring, store := newUsageFallbackRuntime(t, launch.NewConnectionRotation(testsetup.OpenStore(t, t.TempDir()), time.Minute), a, b.URL(), config.CompactionModeLocal, toolspec.ToolExecCommand)
 	if _, err := wiring.Engine.SubmitUserMessage(t.Context(), "hello"); err != nil {
 		t.Fatal(err)
+	}
+	page, err := runtime.TranscriptNewestSegmentPageFromEventLog(materializedRuntimeWireEventLog(t, store), config.CacheWarningModeDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.Tool != nil && row.Tool.IsError {
+			t.Fatalf("completed tool failed: %+v", row.Tool)
+		}
 	}
 	marker, err := os.ReadFile(filepath.Join(store.Meta().WorkspaceRoot, "fallback-marker"))
 	if err != nil || len(marker) != 1 {
@@ -558,6 +582,7 @@ func TestUsageFallbackContinuesNativeCompaction(t *testing.T) {
 		if _, _, err := socket.Read(t.Context()); err != nil {
 			return
 		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"seed-message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}}`))
 		_ = socket.Write(t.Context(), websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"seed","output":[{"type":"message","id":"seed-message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}]}}`))
 		_, _, _ = socket.Read(t.Context())
 	}))
@@ -568,6 +593,7 @@ func TestUsageFallbackContinuesNativeCompaction(t *testing.T) {
 			t.Error("compaction must remain HTTP")
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"checkpoint","encrypted_content":"opaque"}}`+"\n\n")
 		_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compact","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"opaque"}]}}`+"\n\n")
 	}))
 	t.Cleanup(b.Close)

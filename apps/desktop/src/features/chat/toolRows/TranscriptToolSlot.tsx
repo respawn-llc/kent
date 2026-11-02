@@ -12,9 +12,9 @@ import {
   showStatusToast,
   safeExternalUrl,
   Spinner,
-  SyntaxHighlightedCode,
   TranscriptDisclosure,
 } from "@/ui";
+import { SyntaxHighlightedCode } from "@/ui/markdown";
 import {
   resolveToolPresentation,
   type PatchChangedFile,
@@ -44,6 +44,9 @@ export function TranscriptToolSlot({
     moreLines: (count) => t("chat.toolRows.moreLines", { count }),
     patchFailed: t("chat.toolRows.patchFailed"),
     searchedWeb: (query) => t("chat.toolRows.searchedWeb", { query }),
+    openedWebPage: (url) => t("chat.toolRows.openedWebPage", { url }),
+    foundInWebPage: (url, pattern) => t("chat.toolRows.foundInWebPage", { url, pattern }),
+    webActivity: t("chat.toolRows.webActivity"),
     viewedImage: (path) => t("chat.toolRows.viewedImage", { path }),
     formatPath,
   });

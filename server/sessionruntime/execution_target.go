@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/runtimeactivity"
 	"core/server/runtimewire"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/clientui"

@@ -251,6 +251,8 @@ More info on the [Subagents page](../headless/).
 
 `[skills]` is a file-only per-skill boolean table in `config.toml`. Disabled skills are hidden from models. Keys are matched case-insensitively.
 
+If multiple paths resolve to the same `SKILL.md`, the first discovered valid entry controls that file. Later aliases are duplicates; enabling another alias does not bypass the first entry's disabled setting.
+
 ```toml
 [skills]
 "<skill name>" = false

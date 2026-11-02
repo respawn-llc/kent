@@ -11,7 +11,7 @@ import (
 	"core/internal/testharness/pty/appfixture"
 	"core/internal/testharness/requestfixture"
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/lifecyclecontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -31,6 +31,7 @@ func runLifecycleHookPTYFixtureProcess(
 		return fmt.Errorf("queue lifecycle scenario-start checkpoint: %w", err)
 	}
 	scenarioState, runtime, sessionID, err := prepareLifecyclePTYFixtureRuntime(
+		t,
 		ctx,
 		terminal,
 		processConfig,
@@ -48,13 +49,6 @@ func runLifecycleHookPTYFixtureProcess(
 		ConfigRoot:            processConfig.PersistenceRoot,
 	}
 	interactor := newInteractiveAuthInteractor()
-	if processConfig.ServerMode == appfixture.LifecycleServerModeLocal {
-		startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
-			t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
-		))
-
-	}
-
 	server, err := startSessionServer(ctx, options, interactor, true)
 	if err != nil {
 		return err
@@ -158,6 +152,7 @@ func startLifecycleHookObservationBarrier(
 }
 
 func prepareLifecyclePTYFixtureRuntime(
+	t *testing.T,
 	ctx context.Context,
 	terminal *ptyCheckpointTerminalFile,
 	processConfig appfixture.LifecycleProcessConfig,
@@ -185,12 +180,7 @@ func prepareLifecyclePTYFixtureRuntime(
 		return nil, nil, "", err
 	}
 	baseURL := runtime.OpenAIBaseURL()
-	if err := appfixture.PrepareConfigAndBindingWithOptions(
-		ctx,
-		processConfig.PersistenceRoot,
-		processConfig.WorkspaceRoot,
-		appfixture.ConfigOptions{LifecycleHookCommand: recorderCommand, OpenAIBaseURL: &baseURL},
-	); err != nil {
+	if err := appfixture.WriteConfigWithOptions(ctx, processConfig.PersistenceRoot, appfixture.ConfigOptions{LifecycleHookCommand: recorderCommand, OpenAIBaseURL: &baseURL}); err != nil {
 		_ = runtime.Close()
 		return nil, nil, "", err
 	}
@@ -202,12 +192,16 @@ func prepareLifecyclePTYFixtureRuntime(
 			runtime.TargetFinalAssistantOrdinal(),
 		)
 	}
-	sessionID, err := runtime.SeedSession(ctx, processConfig.PersistenceRoot, processConfig.WorkspaceRoot)
+	fixture := startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
+		t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
+	), nil)
+	store := fixture.daemon.MetadataStore()
+	sessionID, err := runtime.SeedSession(ctx, store, processConfig.WorkspaceRoot)
 	if err != nil {
 		_ = runtime.Close()
 		return nil, nil, "", err
 	}
-	if err := setLifecycleFixtureSessionName(processConfig.PersistenceRoot, sessionID); err != nil {
+	if err := setLifecycleFixtureSessionName(store, sessionID); err != nil {
 		_ = runtime.Close()
 		return nil, nil, "", err
 	}
@@ -240,14 +234,9 @@ func newCheckpointPTYFixtureRuntime(
 	return state, runtime, nil
 }
 
-func setLifecycleFixtureSessionName(persistenceRoot string, sessionID string) error {
-	metadataStore, err := metadata.Open(persistenceRoot)
-	if err != nil {
-		return fmt.Errorf("open lifecycle fixture metadata: %w", err)
-	}
-	defer func() { _ = metadataStore.Close() }()
+func setLifecycleFixtureSessionName(metadataStore *metadata.Store, sessionID string) error {
 	store, err := session.OpenByID(
-		persistenceRoot,
+		metadataStore.PersistenceRoot(),
 		sessionID,
 		metadataStore.AuthoritativeSessionStoreOptions()...,
 	)
@@ -285,17 +274,12 @@ func runLifecycleHookServerFixtureProcess(
 	}
 	defer func() { runErr = errors.Join(runErr, runtime.Close()) }()
 	baseURL := runtime.OpenAIBaseURL()
-	if err := appfixture.PrepareConfigAndBindingWithOptions(
-		ctx,
-		processConfig.PersistenceRoot,
-		processConfig.WorkspaceRoot,
-		appfixture.ConfigOptions{LifecycleHookCommand: recorderCommand, OpenAIBaseURL: &baseURL},
-	); err != nil {
+	if err := appfixture.WriteConfigWithOptions(ctx, processConfig.PersistenceRoot, appfixture.ConfigOptions{LifecycleHookCommand: recorderCommand, OpenAIBaseURL: &baseURL}); err != nil {
 		return err
 	}
 	startConfiguredDaemonFixture(t, processConfig.WorkspaceRoot, serverStartupRequest(
 		t, processConfig.WorkspaceRoot, processConfig.PersistenceRoot,
-	))
+	), nil)
 
 	if err := appfixture.WriteLifecycleServerProcessReady(
 		processConfig.ReadyPath,

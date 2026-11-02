@@ -98,9 +98,8 @@ func (s *Service) GetFacts(ctx context.Context, req *capabilitypb.GetFactsReques
 			CurrentEffective: providerFact(currentProvider, providerRoleCurrentEffective),
 			Explicit:         explicitProviders,
 		},
-		Imports:         importFacts(imports),
-		Defaults:        defaults,
-		Recommendations: &capabilitypb.RecommendationFacts{},
+		Imports:  importFacts(imports),
+		Defaults: defaults,
 	}, nil
 }
 

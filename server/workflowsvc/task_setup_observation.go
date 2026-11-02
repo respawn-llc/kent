@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"core/server/workflow"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"

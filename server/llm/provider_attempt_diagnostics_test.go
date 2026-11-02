@@ -105,6 +105,9 @@ func TestProviderAttemptDiagnosticsPreserveIdentityAndReportedUsage(t *testing.T
 					return
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
+				if !test.failed {
+					_, _ = fmt.Fprint(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"compaction-1","encrypted_content":"encrypted-checkpoint"}}`+"\n\n")
+				}
 				_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", test.event)
 			}))
 			t.Cleanup(server.Close)

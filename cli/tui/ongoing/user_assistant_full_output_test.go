@@ -44,13 +44,13 @@ func TestCommittedAssistantCommentaryUsesFullStableOutput(t *testing.T) {
 		{
 			name: "ordinary emission",
 			render: func(surface *Surface) []string {
-				return surface.renderCommittedRow(row, 32, "dark")
+				return surface.source.renderCommittedRow(row, 32, "dark")
 			},
 		},
 		{
 			name: "hydration",
 			render: func(surface *Surface) []string {
-				return surface.renderHydratedCommittedRow(row, 32, "dark")
+				return surface.source.renderHydratedCommittedRow(row, 32, "dark")
 			},
 		},
 	} {
@@ -73,9 +73,11 @@ func TestStreamingAssistantCommentaryShowsCompleteReceivedSource(t *testing.T) {
 	streamID := runtimeids.NewAssistantStreamID().String()
 	source := "The complete streamed first paragraph.\n\nThe complete streamed second paragraph."
 
-	if _, err := surface.applyAssistantDelta(
-		streamID,
-		source, transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY, nil, FrameInput{Size: Size{Width: 48, Height: 24}},
+	if _, err := surface.ApplyTerminalMessage(
+		&transcriptpb.Message{Event: &transcriptpb.Event{Payload: &transcriptpb.Event_AssistantDelta{
+			AssistantDelta: &transcriptpb.AssistantDelta{StreamId: streamID, Delta: source, Phase: transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY},
+		}}},
+		FrameInput{Size: Size{Width: 48, Height: 24}},
 	); err != nil {
 		t.Fatalf("apply assistant commentary delta: %v", err)
 	}

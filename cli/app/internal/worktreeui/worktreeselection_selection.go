@@ -30,6 +30,9 @@ func SelectionIdentityForItem(item Item) SelectionIdentity {
 }
 
 func StableMutationSelector(item Item) string {
+	if item.DeletePreview != nil {
+		return item.DeletePreview.DeletionSelector
+	}
 	return SelectionIdentityForItem(item).Value
 }
 

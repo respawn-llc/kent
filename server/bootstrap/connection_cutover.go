@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/config"
 )
 

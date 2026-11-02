@@ -8,7 +8,7 @@ import (
 
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -282,6 +282,41 @@ func allTranscriptModes() []Mode {
 		ModeOngoingFull,
 		ModeOngoingStable,
 		ModeDetailExpanded,
+	}
+}
+
+func TestConnectionSwitchRemainsCompleteInAllModes(t *testing.T) {
+	notice := &transcriptpb.NoticeRow{
+		Reason:   transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK,
+		Severity: transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING,
+		ConnectionFallback: &transcriptpb.ConnectionReplacement{
+			PreviousId: strings.Repeat("previous-", 40),
+			CurrentId:  strings.Repeat("replacement-", 40),
+		},
+	}
+	for _, mode := range allTranscriptModes() {
+		t.Run(transcriptModeName(mode), func(t *testing.T) {
+			rendered := RenderCommittedRow(errorNoticeRow(notice), 28, "dark", mode)
+			fullMode := ModeOngoingFull
+			if mode == ModeDetailCollapsed || mode == ModeDetailExpanded {
+				fullMode = ModeDetailExpanded
+			}
+			full := RenderCommittedRow(errorNoticeRow(notice), 28, "dark", fullMode)
+			visibleText := func(row Row) []string {
+				var lines []string
+				for _, line := range row.Lines {
+					var text strings.Builder
+					for _, span := range line.Spans {
+						text.WriteString(span.Text)
+					}
+					lines = append(lines, strings.TrimSpace(text.String()))
+				}
+				return lines
+			}
+			if !reflect.DeepEqual(visibleText(rendered), visibleText(full)) {
+				t.Fatalf("connection warning differs from full content: got=%q want=%q", visibleText(rendered), visibleText(full))
+			}
+		})
 	}
 }
 

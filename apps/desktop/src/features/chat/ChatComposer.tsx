@@ -200,7 +200,6 @@ function ComposerSuggestions({ composer }: Readonly<{ composer: Composer }>) {
       {composer.catalog?.isFetching === true && (
         <div className="flex items-center gap-[var(--space-2)] text-[var(--color-muted)]">
           <Spinner size="sm" />
-          <span>{t("chatComposer.commands.loading")}</span>
         </div>
       )}
       {composer.catalog?.isError === true && (

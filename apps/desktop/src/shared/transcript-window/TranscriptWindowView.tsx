@@ -9,6 +9,7 @@ import {
 } from "@/ui";
 import type {
   ChatTranscriptPresentationUpdate,
+  TranscriptReasoningDisplayGroup,
   TranscriptDirection,
   TranscriptRenderItem,
   TranscriptRenderSlots,
@@ -24,7 +25,6 @@ export type TranscriptWindowViewProps = Readonly<{
   localMessages?: readonly Readonly<{ inputID: string; content: ReactElement }>[] | undefined;
   slots: TranscriptRenderSlots<ReactElement | null>;
   estimateSize: () => number;
-  loadingLabel: string;
   retryLabel: string;
   boundaryErrorMessage: (error: Error) => string;
   onInput: (input: TranscriptWindowViewInput) => void;
@@ -36,10 +36,23 @@ export type TranscriptWindowViewProps = Readonly<{
 }>;
 
 type ViewItem =
+  | Exclude<TranscriptRenderItem, { kind: "reasoning_trace" }>
+  | TranscriptReasoningDisplayGroup
+  | Readonly<{ kind: "local-message"; key: string; content: ReactElement }>
+  | Readonly<{ kind: "status"; key: "thinking-status-tail" }>
+  | Readonly<{ kind: "failure"; key: "transcript-failure-tail" }>;
+type TranscriptSourceItem =
   | TranscriptRenderItem
   | Readonly<{ kind: "local-message"; key: string; content: ReactElement }>
   | Readonly<{ kind: "status"; key: "thinking-status-tail" }>
   | Readonly<{ kind: "failure"; key: "transcript-failure-tail" }>;
+type ReasoningGroupIdentity = Readonly<{ key: string; memberKeys: readonly string[] }>;
+type ReasoningTraceItem = TranscriptReasoningDisplayGroup["members"][number];
+type ReasoningMembers = Readonly<{
+  kind: "reasoning_members";
+  members: readonly [ReasoningTraceItem, ...ReasoningTraceItem[]];
+}>;
+type GroupableTranscriptItem = Exclude<TranscriptSourceItem, { kind: "reasoning_trace" }> | ReasoningMembers;
 const statusItem = { kind: "status", key: "thinking-status-tail" } as const;
 const failureItem = { kind: "failure", key: "transcript-failure-tail" } as const;
 const transcriptContentClassName = "mx-auto w-full max-w-[var(--chat-content-max-width)]";
@@ -55,7 +68,6 @@ export function TranscriptWindowView({
   localMessages = noLocalMessages,
   slots,
   estimateSize,
-  loadingLabel,
   retryLabel,
   boundaryErrorMessage,
   onInput,
@@ -66,7 +78,8 @@ export function TranscriptWindowView({
   tailFailure,
 }: TranscriptWindowViewProps) {
   const [atEnd, setAtEnd] = useState(false);
-  const items = transcriptViewItems(snapshot, tailFailure !== undefined, localMessages);
+  const sourceItems = transcriptViewItems(snapshot, tailFailure !== undefined, localMessages);
+  const items = useReasoningDisplayGroups(sourceItems);
   const entering = useArrivals(items, presentationUpdate, localMessages);
   const emitInput = useStableCallback(onInput);
   const edges = windowEdges(snapshot);
@@ -91,13 +104,13 @@ export function TranscriptWindowView({
   const previousBoundary = transcriptBoundary(
     older,
     "older",
-    { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
+    { retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
   const nextBoundary = transcriptBoundary(
     newer,
     "newer",
-    { loadingLabel, retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
+    { retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
     emitInput,
   );
   const pinnedItemKeys = useMemo(
@@ -126,7 +139,6 @@ export function TranscriptWindowView({
         isFetchingPreviousPage={olderPage.fetching}
         items={items}
         pinnedItemKeys={pinnedItemKeys}
-        loadingLabel={loadingLabel}
         loadMoreKey={newerPage.key}
         nextBoundary={nextBoundary}
         onLoadMore={() => {
@@ -228,7 +240,7 @@ function ViewItemContent({
     case "tool":
     case "tool_call":
       return slots.tool(item);
-    case "reasoning_trace":
+    case "reasoning_group":
       return slots.reasoning(item);
     case "notice":
     case "reviewer_feedback":
@@ -268,11 +280,11 @@ function transcriptViewItems(
   snapshot: TranscriptWindowSnapshot | null,
   failed: boolean,
   localMessages: NonNullable<TranscriptWindowViewProps["localMessages"]>,
-): readonly ViewItem[] {
+): readonly TranscriptSourceItem[] {
   const committedIDs = new Set(
     snapshot?.items.flatMap((item) => (item.kind === "user" ? item.value.QueueItemIDs : [])) ?? [],
   );
-  const previews: readonly ViewItem[] =
+  const previews: readonly TranscriptSourceItem[] =
     snapshot?.newer.cursor != null
       ? []
       : localMessages
@@ -286,6 +298,156 @@ function transcriptViewItems(
   const items = !snapshot.showsLive ? [...snapshot.items, ...snapshot.activeAssistants] : snapshot.items;
   if (failed) return [...items, ...previews, failureItem];
   return snapshot.showsLive ? [...items, ...previews, statusItem] : [...items, ...previews];
+}
+
+function useReasoningDisplayGroups(items: readonly TranscriptSourceItem[]): readonly ViewItem[] {
+  const [previousGroups, setPreviousGroups] = useState<readonly ReasoningGroupIdentity[]>([]);
+  const projection = projectReasoningDisplayGroups(items, previousGroups);
+  if (!sameReasoningGroupIdentities(previousGroups, projection.groups)) {
+    setPreviousGroups(projection.groups);
+  }
+  return projection.items;
+}
+
+function projectReasoningDisplayGroups(
+  items: readonly TranscriptSourceItem[],
+  previousGroups: readonly ReasoningGroupIdentity[],
+): Readonly<{ items: readonly ViewItem[]; groups: readonly ReasoningGroupIdentity[] }> {
+  const previousGroupByMember = indexPreviousGroupMembers(previousGroups);
+  const groupedItems = groupAdjacentReasoningMembers(items);
+  const currentGroupByMember = indexCurrentReasoningGroups(groupedItems);
+  const previousGroupsByCurrent = indexPreviousGroupOwners(previousGroups, currentGroupByMember);
+  const groups: ReasoningGroupIdentity[] = [];
+  const projected: ViewItem[] = [];
+
+  groupedItems.forEach((item, index) => {
+    if (item.kind !== "reasoning_members") {
+      projected.push(item);
+      return;
+    }
+
+    const { members } = item;
+    const continued = continuingReasoningGroup(
+      members,
+      previousGroupByMember,
+      previousGroupsByCurrent,
+      index,
+    );
+    const key = continued?.key ?? members[0].key;
+    groups.push({ key, memberKeys: members.map((member) => member.key) });
+    projected.push({ kind: "reasoning_group", key, members });
+  });
+
+  return { items: projected, groups };
+}
+
+function groupAdjacentReasoningMembers(
+  items: readonly TranscriptSourceItem[],
+): readonly GroupableTranscriptItem[] {
+  const grouped: GroupableTranscriptItem[] = [];
+  for (let index = 0; index < items.length;) {
+    const item = items[index];
+    if (item === undefined) throw new Error("Transcript view item disappeared during grouping.");
+    if (item.kind !== "reasoning_trace") {
+      grouped.push(item);
+      index += 1;
+      continue;
+    }
+    const members: [ReasoningTraceItem, ...ReasoningTraceItem[]] = [item];
+    let nextIndex = index + 1;
+    while (nextIndex < items.length) {
+      const next = items[nextIndex];
+      if (next === undefined) throw new Error("Transcript view item disappeared during grouping.");
+      if (next.kind !== "reasoning_trace" || next.value.StepID !== item.value.StepID) break;
+      members.push(next);
+      nextIndex += 1;
+    }
+    grouped.push({ kind: "reasoning_members", members });
+    index = nextIndex;
+  }
+  return grouped;
+}
+
+function indexPreviousGroupMembers(
+  groups: readonly ReasoningGroupIdentity[],
+): ReadonlyMap<string, ReasoningGroupIdentity> {
+  const indexed = new Map<string, ReasoningGroupIdentity>();
+  for (const group of groups) {
+    for (const key of group.memberKeys) indexed.set(key, group);
+  }
+  return indexed;
+}
+
+function indexCurrentReasoningGroups(items: readonly GroupableTranscriptItem[]): ReadonlyMap<string, number> {
+  const indexed = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (item.kind !== "reasoning_members") return;
+    for (const member of item.members) indexed.set(member.key, index);
+  });
+  return indexed;
+}
+
+function indexPreviousGroupOwners(
+  previousGroups: readonly ReasoningGroupIdentity[],
+  currentGroupByMember: ReadonlyMap<string, number>,
+): ReadonlyMap<number, readonly ReasoningGroupIdentity[]> {
+  const owners = new Map<number, ReasoningGroupIdentity[]>();
+  for (const group of previousGroups) {
+    const owner =
+      currentGroupByMember.get(group.key) ?? firstCurrentGroup(group.memberKeys, currentGroupByMember);
+    if (owner === undefined) continue;
+    const groups = owners.get(owner) ?? [];
+    groups.push(group);
+    owners.set(owner, groups);
+  }
+  return owners;
+}
+
+function firstCurrentGroup(
+  memberKeys: readonly string[],
+  currentGroupByMember: ReadonlyMap<string, number>,
+): number | undefined {
+  for (const key of memberKeys) {
+    const currentGroup = currentGroupByMember.get(key);
+    if (currentGroup !== undefined) return currentGroup;
+  }
+  return undefined;
+}
+
+function continuingReasoningGroup(
+  members: TranscriptReasoningDisplayGroup["members"],
+  previousGroupByMember: ReadonlyMap<string, ReasoningGroupIdentity>,
+  previousGroupsByCurrent: ReadonlyMap<number, readonly ReasoningGroupIdentity[]>,
+  currentGroupIndex: number,
+): ReasoningGroupIdentity | undefined {
+  const availablePreviousGroups = previousGroupsByCurrent.get(currentGroupIndex) ?? [];
+  for (const member of members) {
+    const previousGroup = previousGroupByMember.get(member.key);
+    if (previousGroup !== undefined && availablePreviousGroups.includes(previousGroup)) return previousGroup;
+  }
+  return undefined;
+}
+
+function sameReasoningGroupIdentities(
+  previous: readonly ReasoningGroupIdentity[],
+  current: readonly ReasoningGroupIdentity[],
+): boolean {
+  if (previous.length !== current.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    const previousGroup = previous[index];
+    const currentGroup = current[index];
+    if (previousGroup === undefined || currentGroup === undefined) return false;
+    if (
+      previousGroup.key !== currentGroup.key ||
+      previousGroup.memberKeys.length !== currentGroup.memberKeys.length
+    ) {
+      return false;
+    }
+    for (let memberIndex = 0; memberIndex < previousGroup.memberKeys.length; memberIndex += 1) {
+      if (previousGroup.memberKeys[memberIndex] !== currentGroup.memberKeys[memberIndex]) return false;
+    }
+  }
+  return true;
 }
 
 function useTranscriptEndRequest(
@@ -334,7 +496,6 @@ function transcriptBoundary(
   boundary: TranscriptWindowSnapshot[TranscriptDirection] | null,
   direction: TranscriptDirection,
   copy: Readonly<{
-    loadingLabel: string;
     retryLabel: string;
     errorMessage: (error: Error) => string;
     suppressed: boolean;
@@ -346,7 +507,7 @@ function transcriptBoundary(
     case "idle":
       return undefined;
     case "loading":
-      return { state: "loading", label: copy.loadingLabel };
+      return { state: "loading" };
     case "error":
       return {
         state: "error",

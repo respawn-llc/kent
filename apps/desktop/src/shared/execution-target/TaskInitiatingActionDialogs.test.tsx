@@ -39,7 +39,7 @@ describe("TaskInitiatingActionDialogs", () => {
           <MoveHarness execute={execute} action={action} />
         </TestAppProviders>,
       );
-      const user = userEvent.setup();
+      const user = userEvent.setup({ delay: null });
       await user.click(screen.getByTestId("initiate-move"));
       const retry = await screen.findByTestId("setup-recovery-retry");
       await user.click(retry);
@@ -75,7 +75,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(screen.getByTestId("initiate-move"));
     await user.type(await screen.findByTestId("execution-target-branch-name"), "task-reopened");
     await user.click(screen.getByTestId("execution-target-submit"));
@@ -100,7 +100,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} action={action} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(screen.getByTestId("initiate-move"));
     await user.click(await screen.findByTestId("setup-recovery-choose"));
     expect(screen.queryByTestId("setup-recovery-retry")).not.toBeInTheDocument();
@@ -127,7 +127,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(screen.getByTestId("initiate-move"));
     await screen.findByTestId("setup-recovery-choose");
     expect(screen.queryByTestId("setup-recovery-retry")).not.toBeInTheDocument();
@@ -164,7 +164,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(screen.getByTestId("initiate-move"));
     const branch = await screen.findByTestId("execution-target-branch-name");
     await user.type(branch, "taken");
@@ -195,7 +195,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(screen.getByTestId("initiate-move"));
     await user.type(await screen.findByTestId("execution-target-branch-name"), "unused-branch");
     await user.click(screen.getByText("Source workspace"));
@@ -224,7 +224,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <Harness execute={execute} onResult={onResult} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(screen.getByTestId("initiate-action"));
     await user.click(await screen.findByTestId("dependency-confirmation-proceed"));
@@ -258,7 +258,7 @@ describe("TaskInitiatingActionDialogs", () => {
         />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(screen.getByTestId("initiate-action"));
     await user.click(await screen.findByTestId("dependency-confirmation-view"));
@@ -281,7 +281,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <Harness execute={execute} onResult={onResult} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(screen.getByTestId("initiate-action"));
     await user.click(await screen.findByTestId("execution-target-submit"));
@@ -312,7 +312,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(screen.getByTestId("initiate-move"));
     expect(await screen.findByText("setup failed twice")).toBeInTheDocument();
@@ -355,7 +355,7 @@ describe("TaskInitiatingActionDialogs", () => {
         <MoveHarness execute={execute} />
       </TestAppProviders>,
     );
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     await user.click(screen.getByTestId("initiate-move"));
     await user.click(await screen.findByTestId("execution-target-submit"));

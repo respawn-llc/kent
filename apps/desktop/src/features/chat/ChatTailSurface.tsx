@@ -7,6 +7,7 @@ import {
   useOptionalChatRuntimeOwner,
   useOptionalChatRuntimeSnapshot,
   useStatusController,
+  useChatTranscriptActions,
 } from "@/app-facade";
 import { TranscriptWindowView, type TranscriptWindowViewProps } from "@/shared/transcript-window";
 import { ErrorState, IconTooltipButton, InfiniteListBoundary, LoadingState, useOpacityExit } from "@/ui";
@@ -26,31 +27,29 @@ export function ChatTranscriptTail({
   const { t } = useTranslation();
   const owner = useOptionalChatRuntimeOwner();
   const snapshot = useOptionalChatRuntimeSnapshot();
+  const actions = useChatTranscriptActions();
   const transcript = snapshot?.transcript ?? null;
   const jumpPending = snapshot?.jumpPending ?? false;
   const { failure, error, showOpening } = useTranscriptFeedback(openingVisible, localMessages);
   const status = useStatusController();
   const motion = useChatMessageMotion();
   const [scrollRequest, setScrollRequest] = useState<symbol | null>(null);
-  const jump = async () => {
+  const jump = () => {
     if (owner === null) return;
     motion.dispose();
-    const outcome = await owner.transcript.jumpToLatest();
-    switch (outcome.kind) {
-      case "tail-ready":
+    actions.jump({
+      onReady: () => {
         setScrollRequest(Symbol("jump to latest"));
-        break;
-      case "failed":
+      },
+      onError: (error) => {
         status.push({
           id: crypto.randomUUID(),
           title: t("chat.tail.failed"),
-          body: errorMessage(outcome.error),
+          body: errorMessage(error),
           tone: "danger",
         });
-        break;
-      case "destination-ended":
-        break;
-    }
+      },
+    });
   };
   if (transcript?.opening.kind === "disposed") return null;
   return (
@@ -82,7 +81,7 @@ export function ChatTranscriptTail({
                   message: errorMessage(failure),
                   retryLabel: t("app.retry"),
                   onRetry: () => {
-                    owner?.retryTranscriptObservation();
+                    actions.retry(undefined);
                   },
                 }}
               />
@@ -95,12 +94,11 @@ export function ChatTranscriptTail({
           scrollRequest={scrollRequest}
           slots={slots}
           estimateSize={estimateSize}
-          loadingLabel={t("chat.tail.loading")}
           retryLabel={t("app.retry")}
           boundaryErrorMessage={errorMessage}
           onInput={(input) => {
             if (owner === null) throw new Error("Transcript pagination requires a Session.");
-            owner.transcript.dispatch(input);
+            actions.dispatch(input);
           }}
           overlay={(following) =>
             owner === null ? null : (
@@ -109,7 +107,7 @@ export function ChatTranscriptTail({
                 visible={!following || jumpPending}
                 pending={jumpPending}
                 onClick={() => {
-                  void jump();
+                  jump();
                 }}
               />
             )
@@ -125,12 +123,12 @@ function useTranscriptFeedback(
   localMessages: TranscriptWindowViewProps["localMessages"],
 ) {
   const { t } = useTranslation();
-  const owner = useOptionalChatRuntimeOwner();
+  const actions = useChatTranscriptActions();
   const snapshot = useOptionalChatRuntimeSnapshot();
   const { transcript, observation } = feedbackSources(snapshot);
   const retry = () => {
-    if (transcript?.opening.kind === "error") owner?.transcript.dispatch({ kind: "opening-retry" });
-    if (observation?.kind === "error") owner?.retryTranscriptObservation();
+    if (transcript?.opening.kind === "error") actions.dispatch({ kind: "opening-retry" });
+    if (observation?.kind === "error") actions.retry(undefined);
   };
   const failure =
     transcript?.opening.kind === "error"
@@ -151,9 +149,7 @@ function useTranscriptFeedback(
     );
   return {
     failure,
-    error:
-      error ??
-      (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null),
+    error: error ?? (openingVisible ? <LoadingState appearanceDelayMs={0} /> : null),
     showOpening: openingNeedsFeedback(transcript, localMessages),
   };
 }
@@ -188,7 +184,7 @@ function JumpToLatest({
       <IconTooltipButton
         className="chat-tail-button island-glass"
         label={t("chat.tail.jump")}
-        tooltip={pending ? t("chat.tail.loadingLatest") : t("chat.tail.jump")}
+        tooltip={t("chat.tail.jump")}
         disabled={pending || !visible}
         onClick={onClick}
       >

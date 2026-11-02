@@ -1,4 +1,3 @@
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -8,22 +7,17 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
-use tauri::Emitter;
-#[cfg(any(target_os = "macos", windows))]
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 mod clipboard;
+mod main_window;
 mod native_glass;
+mod settings;
 mod speech;
 #[cfg(target_os = "linux")]
 mod speech_linux;
 
-const CONFIG_FILE_NAME: &str = "config.toml";
-const DEFAULT_PERSISTENCE_ROOT: &str = "~/.kent";
-const DEFAULT_SERVER_HOST: &str = "127.0.0.1";
-const DEFAULT_SERVER_PORT: u16 = 53082;
-const DEFAULT_THEME: &str = "auto";
 const GUI_LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const GUI_LOG_RETAIN_BYTES: u64 = 5 * 1024 * 1024;
 const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
@@ -32,16 +26,7 @@ const GUI_LOG_MAX_ENTRY_BYTES: usize = 64 * 1024;
 #[serde(rename_all = "camelCase")]
 struct NativeContext {
     server_endpoint: String,
-    persistence_root: String,
-    // persistence_root_id is the id a connected server must report
-    // (HandshakeResponse.identity.persistence_root_id) for the GUI to trust it
-    // serves this root. It is empty for the default root or when
-    // KENT_PERSISTENCE_ROOT was not explicitly set, mirroring the Go client's
-    // config.ExplicitPersistenceRootID so default behavior is unchanged and older
-    // servers (which report an empty id) keep working.
-    persistence_root_id: String,
     platform: String,
-    theme: String,
     home_path: String,
 }
 
@@ -58,7 +43,7 @@ struct AttentionNotificationRequest {
     backend_id: u32,
     id: String,
     title: String,
-    body: String,
+    body: Option<String>,
     target: serde_json::Value,
 }
 
@@ -87,8 +72,18 @@ trait AttentionNotificationCloser: Send {
 }
 
 #[tauri::command]
-fn resolve_native_context() -> Result<NativeContext, String> {
-    native_context()
+fn resolve_native_context(
+    launch: tauri::State<'_, settings::DesktopLaunch>,
+) -> Result<NativeContext, String> {
+    let address = launch.active_address.lock().expect("address lock poisoned");
+    let address = address
+        .as_ref()
+        .ok_or("Desktop settings require recovery and restart.")?;
+    Ok(NativeContext {
+        server_endpoint: address.as_str().to_string(),
+        platform: platform().to_string(),
+        home_path: home_dir()?.to_string_lossy().to_string(),
+    })
 }
 
 #[tauri::command]
@@ -235,8 +230,11 @@ fn send_attention_notification(
     };
     let backend_id = notification.backend_id;
     let token = state.next_token.fetch_add(1, Ordering::Relaxed);
-    let native_notification =
-        attention_native_notification(backend_id, &notification.title, &notification.body);
+    let native_notification = attention_native_notification(
+        backend_id,
+        &notification.title,
+        notification.body.as_deref(),
+    );
     show_attention_notification(
         app,
         state.active.clone(),
@@ -322,10 +320,13 @@ async fn request_attention_native_notification_permission(
 fn attention_native_notification(
     backend_id: u32,
     title: &str,
-    body: &str,
+    body: Option<&str>,
 ) -> notify_rust::Notification {
     let mut notification = notify_rust::Notification::new();
-    notification.appname("Kent").summary(title).body(body);
+    notification.appname("Kent").summary(title);
+    if let Some(body) = body {
+        notification.body(body);
+    }
     configure_attention_notification_identity(&mut notification, backend_id);
     configure_attention_notification_actions(&mut notification);
     configure_attention_notification_sound(&mut notification);
@@ -376,7 +377,7 @@ fn show_attention_notification(
             let was_active =
                 remove_attention_notification_record_without_closing(&active, backend_id, token);
             if action != "__closed" && was_active {
-                let _ = app.emit_to("main", "app://attention-notification-activated", activation);
+                main_window::activate(&app, activation);
             }
         });
     });
@@ -419,8 +420,7 @@ fn show_attention_notification(
                         | notify_rust::NotificationResponse::Reply(_)
                 );
                 if activated && was_active {
-                    let _ =
-                        app.emit_to("main", "app://attention-notification-activated", activation);
+                    main_window::activate(&app, activation);
                 }
             })
             .await;
@@ -454,7 +454,7 @@ fn show_attention_notification(
             let was_active =
                 remove_attention_notification_record_without_closing(&active, backend_id, token);
             if action != "__closed" && was_active {
-                let _ = app.emit_to("main", "app://attention-notification-activated", activation);
+                main_window::activate(&app, activation);
             }
         });
     });
@@ -610,6 +610,9 @@ async fn apply_native_window_glass(
     app: tauri::AppHandle,
     label: String,
 ) -> Result<native_glass::NativeGlassStatus, String> {
+    if !app.state::<settings::DesktopLaunch>().transparent() {
+        return Ok(native_glass::NativeGlassStatus::DisabledByPreferences);
+    }
     native_glass::apply_to_label(app, label).await
 }
 
@@ -619,6 +622,9 @@ async fn set_native_window_glass_tint(
     label: String,
     tint: Option<native_glass::NativeGlassTint>,
 ) -> Result<native_glass::NativeGlassStatus, String> {
+    if !app.state::<settings::DesktopLaunch>().transparent() {
+        return Ok(native_glass::NativeGlassStatus::DisabledByPreferences);
+    }
     native_glass::set_tint_for_label(app, label, tint).await
 }
 
@@ -647,9 +653,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AttentionNotificationState::default())
         .manage(speech::SpeechState::default())
+        .manage(main_window::State::default())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 speech::close_window(window);
+                if window.label() == "main" {
+                    window.state::<main_window::State>().closed();
+                }
             }
         })
         .on_page_load(|webview, payload| {
@@ -657,17 +667,29 @@ pub fn run() {
                 speech::close_window(&webview.window());
             }
         })
-        .setup(|_app| {
-            #[cfg(any(target_os = "macos", windows))]
-            if let Some(window) = _app.get_webview_window("main") {
-                if let Err(error) = native_glass::apply_to_window_now(&window) {
-                    eprintln!("Apply native window glass failed: {error}");
-                }
-            }
+        .setup(|app| {
+            let owner =
+                settings::SettingsOwner::new(app.path().app_data_dir()?.join("settings.json"));
+            let loaded = owner.read(app.handle());
+            let launch = settings::DesktopLaunch::from_settings(&loaded);
+            app.manage(owner);
+            app.manage(launch);
+            main_window::create(app.handle()).map_err(std::io::Error::other)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            settings::read_desktop_settings,
+            settings::change_desktop_setting,
+            settings::desktop_launch_appearance,
+            settings::connect_desktop_server,
+            main_window::open_main_window,
+            main_window::complete_main_startup,
+            main_window::main_window_ready,
             clipboard::paste_clipboard,
+            #[cfg(target_os = "macos")]
+            speech::macos::speech_start_microphone,
+            #[cfg(target_os = "macos")]
+            speech::macos::speech_stop_microphone,
             speech::speech_create,
             speech::speech_append,
             speech::speech_finalize,
@@ -694,65 +716,20 @@ pub fn run() {
             apply_native_window_glass,
             set_native_window_glass_tint,
         ])
-        .run(context)
-        .expect("error while running the desktop application");
-}
-
-fn native_context() -> Result<NativeContext, String> {
-    let settings = load_settings()?;
-    let home_path = home_dir()?.to_string_lossy().to_string();
-    let persistence_root_id = expected_persistence_root_id(&settings.persistence_root)?;
-    Ok(NativeContext {
-        server_endpoint: server_rpc_url(&settings.server_host, settings.server_port),
-        persistence_root: settings.persistence_root.to_string_lossy().to_string(),
-        persistence_root_id,
-        platform: platform().to_string(),
-        theme: settings.theme,
-        home_path,
-    })
-}
-
-// expected_persistence_root_id mirrors Go's config.ExplicitPersistenceRootID: it
-// returns the persistence-root id the GUI should require a connected server to
-// report, or an empty string when validation should be skipped (default root or
-// KENT_PERSISTENCE_ROOT unset). Skipping for the default keeps default-root
-// behavior unchanged and stays compatible with servers that report an empty id.
-fn expected_persistence_root_id(root: &Path) -> Result<String, String> {
-    let explicit =
-        matches!(env::var("KENT_PERSISTENCE_ROOT"), Ok(value) if !value.trim().is_empty());
-    if !explicit {
-        return Ok(String::new());
-    }
-    let default_root = resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?;
-    if canonical_persistence_root(root) == canonical_persistence_root(&default_root) {
-        return Ok(String::new());
-    }
-    Ok(persistence_root_hash(root))
-}
-
-// persistence_root_hash reproduces Go's config.PersistenceRootHash: the SHA-256
-// of the canonicalized root, rendered as the first 8 bytes in hex. The desktop
-// and the server it controls run on the same machine, so the canonical form
-// (and therefore the id) matches the value the Go server stamps.
-fn persistence_root_hash(root: &Path) -> String {
-    let digest = Sha256::digest(canonical_persistence_root(root).as_bytes());
-    digest[..8]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-// canonical_persistence_root mirrors Go's canonicalRootForIdentity: it lexically
-// cleans the path (matching filepath.Clean) and, on case-insensitive default
-// filesystems (macOS, Windows), folds case. Case-sensitive platforms keep the
-// caller's spelling.
-fn canonical_persistence_root(root: &Path) -> String {
-    let cleaned = clean_path(root).to_string_lossy().to_string();
-    if cfg!(any(target_os = "macos", target_os = "windows")) {
-        cleaned.to_lowercase()
-    } else {
-        cleaned
-    }
+        .build(context)
+        .expect("error while building the desktop application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = main_window::open_main_window(app, None).await {
+                        eprintln!("Reopen main window failed: {error}");
+                    }
+                });
+            }
+            let _ = (app, event);
+        });
 }
 
 // clean_path performs the lexical normalization Go's filepath.Clean applies:
@@ -793,141 +770,6 @@ fn platform() -> &'static str {
     }
 }
 
-struct Settings {
-    server_host: String,
-    server_port: u16,
-    persistence_root: PathBuf,
-    theme: String,
-}
-
-fn load_settings() -> Result<Settings, String> {
-    let mut server_host = DEFAULT_SERVER_HOST.to_string();
-    let mut server_port = DEFAULT_SERVER_PORT;
-    let mut theme = DEFAULT_THEME.to_string();
-
-    // The config+data root is set by KENT_PERSISTENCE_ROOT (matching the Go
-    // CLI/server), defaulting to ~/.kent. config.toml is read from that root;
-    // persistence_root is no longer a config.toml key. The value must be absolute
-    // (or ~-rooted); a relative root is rejected because the desktop's working
-    // directory differs from the server's and would silently diverge.
-    let persistence_root = match env::var("KENT_PERSISTENCE_ROOT") {
-        Ok(value) if !value.trim().is_empty() => resolve_configured_path(value.trim())?,
-        _ => resolve_configured_path(DEFAULT_PERSISTENCE_ROOT)?,
-    };
-
-    if let Some(config) = read_config_at(&persistence_root)? {
-        if config.get("persistence_root").is_some() {
-            return Err("persistence_root is no longer a config.toml setting; set the config and data root with KENT_PERSISTENCE_ROOT.".to_string());
-        }
-        if let Some(value) = config.get("server_host").and_then(toml::Value::as_str) {
-            if !value.trim().is_empty() {
-                server_host = value.trim().to_string();
-            }
-        }
-        if let Some(value) = config.get("server_port").and_then(toml::Value::as_integer) {
-            server_port = parse_server_port(value)?;
-        }
-        if let Some(value) = config.get("theme").and_then(toml::Value::as_str) {
-            if !value.trim().is_empty() {
-                theme = parse_theme(value, "theme")?;
-            }
-        }
-    }
-
-    if let Ok(value) = env::var("KENT_SERVER_HOST") {
-        if !value.trim().is_empty() {
-            server_host = value.trim().to_string();
-        }
-    }
-    if let Ok(value) = env::var("KENT_SERVER_PORT") {
-        server_port = parse_server_port_string(&value)?;
-    }
-    if let Ok(value) = env::var("KENT_THEME") {
-        if !value.trim().is_empty() {
-            theme = parse_theme(&value, "KENT_THEME")?;
-        }
-    }
-
-    if server_host.trim().is_empty() {
-        return Err("server_host must not be empty.".to_string());
-    }
-    Ok(Settings {
-        server_host,
-        server_port,
-        persistence_root,
-        theme,
-    })
-}
-
-fn read_config_at(root: &Path) -> Result<Option<toml::Value>, String> {
-    let path = root.join(CONFIG_FILE_NAME);
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("Read config failed: {error}")),
-    };
-    toml::from_str::<toml::Value>(&content)
-        .map(Some)
-        .map_err(|error| format!("Parse config failed: {error}"))
-}
-
-fn parse_server_port(value: i64) -> Result<u16, String> {
-    if value <= 0 || value > u16::MAX as i64 {
-        return Err("server_port must be between 1 and 65535.".to_string());
-    }
-    Ok(value as u16)
-}
-
-fn parse_server_port_string(value: &str) -> Result<u16, String> {
-    let parsed = value
-        .trim()
-        .parse::<i64>()
-        .map_err(|_| "KENT_SERVER_PORT must be between 1 and 65535.".to_string())?;
-    parse_server_port(parsed)
-}
-
-fn parse_theme(value: &str, setting_name: &str) -> Result<String, String> {
-    let normalized = value.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "auto" | "light" | "dark" => Ok(normalized),
-        _ => Err(format!(
-            "{setting_name} must be one of auto, light, or dark."
-        )),
-    }
-}
-
-fn resolve_configured_path(value: &str) -> Result<PathBuf, String> {
-    let trimmed = value.trim();
-    if trimmed == "~" {
-        return home_dir();
-    }
-    // Match the Go loader's expandTildePath, which expands both `~/` and the
-    // Windows `~\` separator form. A server started with
-    // KENT_PERSISTENCE_ROOT=~\kent-root is accepted by the CLI/server, so the
-    // desktop must resolve the same value rather than reject it as relative and
-    // fail to connect to the matching selected-root server.
-    let expanded = if let Some(rest) = trimmed
-        .strip_prefix("~/")
-        .or_else(|| trimmed.strip_prefix("~\\"))
-    {
-        home_dir()?.join(rest)
-    } else {
-        PathBuf::from(trimmed)
-    };
-    if expanded.is_absolute() {
-        return Ok(expanded);
-    }
-    // A relative KENT_PERSISTENCE_ROOT is ambiguous for the desktop app: it would
-    // resolve against the app bundle's working directory (often `/`), which
-    // differs from the directory a `kent serve`/CLI was launched from, so the GUI
-    // would read config and write data under a different root than the server it
-    // controls. Require an absolute (or ~-rooted) path instead of silently
-    // diverging.
-    Err(format!(
-        "KENT_PERSISTENCE_ROOT must be an absolute path (or start with ~); got relative path {trimmed:?}."
-    ))
-}
-
 fn resolve_user_file_path(path: &str, base_path: &str) -> Result<PathBuf, String> {
     let trimmed_path = path.trim();
     if trimmed_path.is_empty() {
@@ -961,30 +803,6 @@ fn home_dir() -> Result<PathBuf, String> {
     }
 }
 
-fn server_rpc_url(host: &str, port: u16) -> String {
-    let parse_host = host
-        .strip_prefix('[')
-        .and_then(|host| host.strip_suffix(']'))
-        .unwrap_or(host);
-    let parsed_host = parse_host.parse::<std::net::IpAddr>().ok();
-    let host = match parsed_host {
-        Some(std::net::IpAddr::V4(address)) if address.is_unspecified() => "127.0.0.1",
-        Some(std::net::IpAddr::V6(address)) if address.is_unspecified() => "::1",
-        _ => host,
-    };
-    let authority_host = match parsed_host {
-        Some(std::net::IpAddr::V6(_)) if host.starts_with('[') && host.ends_with(']') => {
-            host.to_string()
-        }
-        Some(std::net::IpAddr::V6(_)) => format!("[{host}]"),
-        _ if host.contains(':') && !host.starts_with('[') && !host.ends_with(']') => {
-            format!("[{host}]")
-        }
-        _ => host.to_string(),
-    };
-    format!("ws://{authority_host}:{port}/rpc")
-}
-
 fn validate_external_url(url: &str) -> Result<(), String> {
     let (scheme, _) = url
         .split_once(':')
@@ -996,9 +814,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
 }
 
 fn gui_log_path() -> Result<PathBuf, String> {
-    Ok(PathBuf::from(native_context()?.persistence_root)
-        .join("gui")
-        .join("desktop.log"))
+    Ok(home_dir()?.join(".kent").join("gui").join("desktop.log"))
 }
 
 fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
@@ -1025,10 +841,9 @@ fn trim_log_if_needed(path: &Path, append_bytes: u64) -> Result<(), String> {
 mod tests {
     use super::{
         clean_path, close_existing_attention_notification_record,
-        insert_attention_notification_record, parse_theme, persistence_root_hash,
-        remove_attention_notification_backend,
-        remove_attention_notification_record_without_closing, resolve_configured_path,
-        server_rpc_url, AttentionNotificationCloser, AttentionNotificationState,
+        insert_attention_notification_record, remove_attention_notification_backend,
+        remove_attention_notification_record_without_closing, AttentionNotificationCloser,
+        AttentionNotificationState,
     };
     use std::path::{Path, PathBuf};
     use std::sync::{
@@ -1160,87 +975,12 @@ mod tests {
         assert!(state.active.lock().expect("active lock").contains_key(&42));
     }
 
-    #[test]
-    fn persistence_root_hash_matches_go_golden_value() {
-        // Cross-checks the SHA-256/truncation/hex against Go's
-        // config.PersistenceRootHash for an already-canonical path (lowercase,
-        // clean) so both implementations stamp the same id. The Go side asserts
-        // the same constant.
-        assert_eq!(
-            persistence_root_hash(Path::new("/tmp/kent-root")),
-            "eb013faf79dfc249"
-        );
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    #[test]
-    fn persistence_root_hash_folds_case_on_case_insensitive_platforms() {
-        assert_eq!(
-            persistence_root_hash(Path::new("/Tmp/Kent-Root")),
-            persistence_root_hash(Path::new("/tmp/kent-root"))
-        );
-    }
-
     #[cfg(unix)]
     #[test]
     fn clean_path_resolves_dot_and_parent_segments() {
         assert_eq!(
             clean_path(Path::new("/tmp/./kent//root/../root")),
             PathBuf::from("/tmp/kent/root")
-        );
-    }
-
-    #[test]
-    fn resolve_configured_path_rejects_relative_roots() {
-        let err = resolve_configured_path("rel/root").expect_err("relative root must be rejected");
-        assert!(err.contains("absolute"), "unexpected error: {err}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolve_configured_path_accepts_absolute_roots() {
-        let path = resolve_configured_path("/tmp/kent-root").expect("absolute root");
-        assert_eq!(path, std::path::PathBuf::from("/tmp/kent-root"));
-    }
-
-    #[test]
-    fn resolve_configured_path_expands_windows_tilde_separator() {
-        // The Go loader expands `~\` as well as `~/`, so a server started with
-        // KENT_PERSISTENCE_ROOT=~\kent-root must resolve to the home-rooted path
-        // rather than be rejected as a relative root.
-        std::env::set_var("HOME", "/home/kent-user");
-        let path = resolve_configured_path("~\\kent-root").expect("tilde-backslash root");
-        assert_eq!(path, std::path::PathBuf::from("/home/kent-user/kent-root"));
-    }
-
-    #[test]
-    fn server_rpc_url_brackets_ipv6_hosts() {
-        assert_eq!(server_rpc_url("::1", 65432), "ws://[::1]:65432/rpc");
-    }
-
-    #[test]
-    fn server_rpc_url_uses_configured_remote_hosts() {
-        assert_eq!(
-            server_rpc_url("192.0.2.10", 53082),
-            "ws://192.0.2.10:53082/rpc"
-        );
-    }
-
-    #[test]
-    fn parse_theme_accepts_supported_values_case_insensitively() {
-        assert_eq!(parse_theme("auto", "theme").expect("auto theme"), "auto");
-        assert_eq!(
-            parse_theme(" Light ", "theme").expect("light theme"),
-            "light"
-        );
-        assert_eq!(parse_theme("DARK", "theme").expect("dark theme"), "dark");
-    }
-
-    #[test]
-    fn parse_theme_rejects_unknown_values() {
-        assert_eq!(
-            parse_theme("solarized", "KENT_THEME").expect_err("invalid theme"),
-            "KENT_THEME must be one of auto, light, or dark.",
         );
     }
 }

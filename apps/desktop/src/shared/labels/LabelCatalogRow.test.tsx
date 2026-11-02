@@ -42,7 +42,7 @@ it("keeps an edited rename draft when a duplicate Save is ignored and the origin
       </ProjectLabelsProvider>
     </TestAppProviders>,
   );
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const input = screen.getByRole("textbox", { name: "labels.renameField" });
   await user.clear(input);
   await user.type(input, "First");
@@ -107,7 +107,7 @@ it.each(["rename", "delete"] as const)(
       </TestAppProviders>
     );
     const view = render(renderRow("original"));
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     await user.click(screen.getByRole("button", { name: kind }));
     expect(screen.getByRole("button", { name: kind })).toHaveAttribute("aria-busy", "true");
     view.rerender(renderRow("replacement"));

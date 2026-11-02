@@ -10,6 +10,40 @@ import { TranscriptNoticeRow } from "./TranscriptNoticeRow";
 
 beforeAll(initializeI18n);
 
+it("keeps the complete connection-switch warning visible without disclosure", async () => {
+  const previous = "previous-connection-".repeat(50);
+  const current = "replacement-connection-".repeat(50);
+  const row = {
+    Visibility: "ongoing",
+    Integrity: 0,
+    Kind: "notice",
+    Locator: { event_sequence: 1, row_ordinal: 1 },
+    User: null,
+    Assistant: null,
+    ToolCall: null,
+    Tool: null,
+    ReasoningTrace: null,
+    Notice: {
+      Reason: "connection_fallback",
+      Severity: "warning",
+      ConnectionFallback: { previous_id: previous, current_id: current },
+    },
+    ReviewerFeedback: null,
+    ReviewerError: null,
+  } satisfies ChatTranscriptCommittedRow;
+  const view = render(
+    <TestAppProviders skipAnimations services={createTestServices([])}>
+      <TranscriptNoticeRow row={row} />
+    </TestAppProviders>,
+  );
+  await waitFor(() => {
+    expect(view.container.textContent).toBe(
+      appI18n.t("chatTranscript.notice.connectionFallback", { previous, current }),
+    );
+  });
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
 it("collapses structured worktree summaries without touching model-visible details", async () => {
   const user = userEvent.setup();
   const cwd = "/Users/engineer/.kent/worktrees/project/803";

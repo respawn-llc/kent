@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/llm"
 	"core/shared/config"
 )

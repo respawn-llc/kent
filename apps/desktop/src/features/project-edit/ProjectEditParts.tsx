@@ -186,13 +186,11 @@ export function WorkspaceRow({
 
 export function WorkspaceUnlinkDialog({
   disabled,
-  onClose,
-  onConfirm,
+  onResult,
   target,
 }: Readonly<{
   disabled: boolean;
-  onClose: () => void;
-  onConfirm: (target: WorkspaceUnlinkTarget) => void;
+  onResult: (result: "cancel" | "confirm") => void;
   target: WorkspaceUnlinkTarget;
 }>) {
   const { t } = useTranslation();
@@ -200,16 +198,20 @@ export function WorkspaceUnlinkDialog({
     <Dialog
       className="w-[min(var(--workspace-unlink-dialog-width),calc(100vw-32px))]"
       closeLabel={t("app.close")}
-      onClose={onClose}
+      onClose={() => {
+        onResult("cancel");
+      }}
       open
       style={workspaceUnlinkDialogStyle}
       title={t("projectEdit.unlinkTitle")}
     >
       <WorkspaceUnlinkContent
         disabled={disabled}
-        onCancel={onClose}
+        onCancel={() => {
+          onResult("cancel");
+        }}
         onConfirm={() => {
-          onConfirm(target);
+          onResult("confirm");
         }}
         rootPath={target.rootPath}
       />

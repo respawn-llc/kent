@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
@@ -345,6 +345,7 @@ func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr er
 		if context.Cause(e.ctx) != nil {
 			// Queued work runs on the runtime lifecycle, so stopping this
 			// execution must stop and join it before releasing ownership.
+			engine.CancelScheduledQueuedUserWork()
 			_, interruptErr := engine.TryInterruptActiveRun()
 			workErr = errors.Join(workErr, interruptErr)
 			waitCtx = context.WithoutCancel(e.ctx)
@@ -390,7 +391,7 @@ func (e *execution) cleanup() error {
 	}
 	cleanupErr := errors.Join(promptErr, bindingErr, pendingErr)
 	if resource.askBroker != nil {
-		resource.askBroker.SetAskHandler(nil)
+		resource.askBroker.SetLifecycleAskHandler(nil)
 	}
 	if resource.localTools != nil {
 		cleanupErr = errors.Join(cleanupErr, resource.localTools.BindExecutionCorrelation(nil))

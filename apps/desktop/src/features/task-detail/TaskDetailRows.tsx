@@ -19,7 +19,6 @@ import { writeClipboardText } from "@/shared/native-clipboard";
 import { taskStatusTone } from "@/shared/task-status";
 import {
   Button,
-  CollapsibleMarkdownField,
   Island,
   compactExternalUrlLabel,
   safeExternalUrl,
@@ -30,6 +29,7 @@ import {
   PopoverTrigger,
 } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
+import { CollapsibleMarkdownField } from "@/ui/markdown";
 import type { DescriptionPresentationState } from "./TaskDetailDescriptionPresentation";
 import type { TaskDetailSessionChatEntry } from "./taskDetailSessionChat";
 import { TaskExecutionTargetFacts } from "./TaskExecutionTargetFacts";
@@ -220,7 +220,7 @@ export function TaskHeaderIsland({
       {dirty || detail.actions.canDelete ? (
         <span className="relative block h-9 w-9 shrink-0" data-testid="task-detail-title-action-slot">
           <ControlTooltip
-            label={speech.busy ? speech.busyReason : t("task.save")}
+            label={t(speech.busy ? "speech.finishBeforeSubmit" : "task.save")}
             className="absolute inset-0"
           >
             <Button

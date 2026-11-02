@@ -8,7 +8,6 @@ import (
 
 	"core/cli/tui/transcriptrender"
 	"core/shared/clientui"
-	"core/shared/runtimeids"
 
 	xansi "github.com/charmbracelet/x/ansi"
 )
@@ -36,22 +35,6 @@ type belTerminalNotifier struct {
 type osc9TerminalNotifier struct {
 	mu  sync.Mutex
 	out io.Writer
-}
-
-type observedNotificationTurn struct {
-	stepID    runtimeids.StepID
-	toolCalls int
-	preview   *turnCompletionPreview
-}
-
-type turnCompletionPreview struct {
-	stepID runtimeids.StepID
-	body   string
-}
-
-type queuedTurnCompletion struct {
-	preview  turnCompletionPreview
-	eligible bool
 }
 
 func newBELTerminalNotifier(out io.Writer) *belTerminalNotifier {
@@ -145,13 +128,10 @@ func (r *osc9TerminalNotifier) Bell() {
 }
 
 type bellHooks struct {
-	mu                    sync.Mutex
-	notifier              terminalNotifier
-	title                 func() string
-	focused               func() bool
-	observedTurn          *observedNotificationTurn
-	pendingTurnCompletion *queuedTurnCompletion
-	pendingCompaction     bool
+	mu       sync.Mutex
+	notifier terminalNotifier
+	title    func() string
+	focused  func() bool
 }
 
 func newBellHooks(notifier terminalNotifier, title func() string, focused ...func() bool) *bellHooks {
@@ -170,6 +150,10 @@ func newBellHooks(notifier terminalNotifier, title func() string, focused ...fun
 
 func (h *bellHooks) OnAttentionNotification(evt clientui.AttentionNotificationEvent) {
 	h.onAttentionNotification(evt, nil)
+}
+
+func (h *bellHooks) OnSessionTurnEnd(content string) {
+	h.notifyIfUnfocused(turnCompletionNotificationMessage(content))
 }
 
 func (h *bellHooks) onAttentionNotification(evt clientui.AttentionNotificationEvent, projectedBody *string) {
@@ -261,101 +245,12 @@ func attentionNotificationApprovalMessage(notification clientui.AttentionNotific
 	return ""
 }
 
-func (h *bellHooks) recordToolCall(stepID runtimeids.StepID) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.observedTurn == nil || h.observedTurn.stepID != stepID {
-		h.observedTurn = &observedNotificationTurn{stepID: stepID}
-	}
-	h.observedTurn.toolCalls++
-}
-
-func (h *bellHooks) recordTurnCompletion(stepID runtimeids.StepID, assistantContent string) {
-	message := turnCompletionNotificationMessage(assistantContent)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.observedTurn == nil {
-		h.observedTurn = &observedNotificationTurn{stepID: stepID}
-	}
-	if h.observedTurn.stepID != stepID {
-		return
-	}
-	h.observedTurn.preview = &turnCompletionPreview{stepID: stepID, body: message}
-}
-
-func (h *bellHooks) recordStepFinished(stepID runtimeids.StepID) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.observedTurn != nil && h.observedTurn.stepID == stepID {
-		if h.observedTurn.preview != nil {
-			eligible := h.observedTurn.toolCalls >= 2
-			if h.pendingTurnCompletion != nil {
-				eligible = eligible || h.pendingTurnCompletion.eligible
-			}
-			h.pendingTurnCompletion = &queuedTurnCompletion{
-				preview:  *h.observedTurn.preview,
-				eligible: eligible,
-			}
-		}
-		h.observedTurn = nil
-	}
-}
-
-func (h *bellHooks) clearPendingTurnCompletionForNoFinal() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.pendingTurnCompletion = nil
-	h.observedTurn = nil
-}
-
-func (h *bellHooks) OnTurnQueueDrained() {
-	if h == nil {
-		return
-	}
-	h.mu.Lock()
-	if h.pendingCompaction {
-		h.pendingCompaction = false
-		h.pendingTurnCompletion = nil
-		h.mu.Unlock()
-		h.notifyIfUnfocused(compactionCompletionNotificationMessage)
-		return
-	}
-	if h.pendingTurnCompletion == nil || !h.pendingTurnCompletion.eligible {
-		h.mu.Unlock()
-		return
-	}
-	message := h.pendingTurnCompletion.preview.body
-	h.pendingTurnCompletion = nil
-	h.mu.Unlock()
-	h.notifyIfUnfocused(message)
-}
-
-func (h *bellHooks) OnTurnQueueAborted() {
-	if h == nil {
-		return
-	}
-	h.mu.Lock()
-	h.observedTurn = nil
-	h.pendingTurnCompletion = nil
-	h.pendingCompaction = false
-	h.mu.Unlock()
-}
-
 const compactionCompletionNotificationMessage = "Compaction finished"
 
-func (h *bellHooks) OnUserCompactionCompleted(queueDrained bool) {
+func (h *bellHooks) OnUserCompactionCompleted() {
 	if h == nil {
 		return
 	}
-	h.mu.Lock()
-	if !queueDrained {
-		h.pendingCompaction = true
-		h.mu.Unlock()
-		return
-	}
-	h.pendingCompaction = false
-	h.pendingTurnCompletion = nil
-	h.mu.Unlock()
 	h.notifyIfUnfocused(compactionCompletionNotificationMessage)
 }
 

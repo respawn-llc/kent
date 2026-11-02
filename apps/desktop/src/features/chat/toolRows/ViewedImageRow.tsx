@@ -1,6 +1,6 @@
 import { Image } from "lucide-react";
 import { useState } from "react";
-import { AnimatePresence, motion, useIsPresent, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +8,7 @@ import { errorMessage, type ChatSessionTarget } from "@/api";
 import { queryKeys, useAppServices } from "@/app-facade";
 import {
   Button,
+  useReducedMotion,
   motionDurationFromCSSVar,
   Shimmer,
   showStatusToast,
@@ -112,14 +113,8 @@ function ImagePreview(props: PreviewContext) {
     <motion.div
       className="relative max-w-full"
       initial={false}
-      animate={
-        !loaded
-          ? { width: 300, aspectRatio: 2 }
-          : {
-              width: preview.state.width * scale,
-              aspectRatio: preview.state.width / preview.state.height,
-            }
-      }
+      animate={{ width: loaded ? preview.state.width * scale : 300 }}
+      style={loaded ? {} : { aspectRatio: 2 }}
       transition={transition}
     >
       <AnimatePresence initial={false}>
@@ -152,7 +147,9 @@ function ImagePreview(props: PreviewContext) {
           initial={{ opacity: 0 }}
           animate={{ opacity: loaded ? 1 : 0 }}
           transition={transition}
-          className="transcript-viewed-image absolute inset-0 size-full"
+          className={
+            loaded ? "transcript-viewed-image" : "transcript-viewed-image absolute inset-0 size-full"
+          }
         />
       )}
     </motion.div>

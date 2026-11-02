@@ -10,7 +10,7 @@ import (
 	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rivo/uniseg"
@@ -94,7 +94,7 @@ func renderCommittedRow(
 			),
 		}
 	case *transcriptpb.CommittedRow_ToolCall:
-		return Row{Group: GroupTool, Lines: pendingToolLines(row.GetToolCall(), width, syntax)}
+		return Row{Group: GroupTool, Lines: pendingToolLines(row.GetToolCall(), width, syntax, nil)}
 	case *transcriptpb.CommittedRow_ReasoningTrace:
 		if mode != ModeDetailCollapsed && mode != ModeDetailExpanded {
 			return Row{Group: GroupReasoningTrace}
@@ -138,7 +138,8 @@ func renderCommittedRow(
 			notice.Severity == transcriptpb.NoticeSeverity_NOTICE_SEVERITY_WARNING {
 			options.forceFull = true
 		}
-		if row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH {
+		if row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_PROVIDER_MODEL_MISMATCH ||
+			row.GetNotice().Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK {
 			options.forceFull = true
 		}
 		if isReviewerNotice(row.GetNotice()) {
@@ -657,7 +658,7 @@ func roleSymbol(role StyleRole) string {
 }
 
 func roleSymbolText(role StyleRole, meta toolMeta) string {
-	if role == StyleRoleToolPatch {
+	if role == StyleRoleToolPatch && meta.SymbolText == nil {
 		return "⇄"
 	}
 	if meta.IsError && role != StyleRoleToolShell {
@@ -754,6 +755,9 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 		return role, reasoningOmissionText
 	}
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTION_FALLBACK {
+		if !isError {
+			role = StyleRoleWarning
+		}
 		return role, fmt.Sprintf("Switched connection from %s to %s because usage was exhausted", row.ConnectionFallback.PreviousId, row.ConnectionFallback.CurrentId)
 	}
 	if row.Reason == transcriptpb.NoticeReason_NOTICE_REASON_CONNECTIONS_UNAVAILABLE {

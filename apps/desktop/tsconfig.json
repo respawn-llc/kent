@@ -1,5 +1,16 @@
 {
   "files": [],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "paths": {
+      "@app/server-api-contract/gen/*": ["./packages/server-api-contract/src/gen/*"],
+      "@app/server-api-contract": ["./packages/server-api-contract/src/index.ts"],
+      "@/*": ["./src/*"],
+      "@app/native-bridge": ["./packages/native-bridge/src/index.ts"],
+      "@app/ui-kit": ["./packages/ui-kit/src/index.ts"]
+    }
+  },
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },

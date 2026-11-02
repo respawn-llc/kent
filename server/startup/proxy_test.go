@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"core/server/auth"
+	auth "core/server/authmanager"
 	"core/server/llm"
 	"core/shared/config"
 )
@@ -42,12 +42,8 @@ func TestStartupProxyRoutesOutbound(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("HTTPS_PROXY="+proxy.URL+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	server, err := StartServeServer(t.Context(), Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer server.Close()
-	_, err = llm.NewProviderHTTPClient("https://provider.test", time.Second).Get("https://provider.test/")
+	startServeTestServer(t, Request{LoadOptions: config.LoadOptions{ConfigRoot: root}})
+	_, err := llm.NewProviderHTTPClient("https://provider.test", time.Second).Get("https://provider.test/")
 	if err == nil {
 		t.Fatal("rejecting proxy must fail the provider request")
 	}

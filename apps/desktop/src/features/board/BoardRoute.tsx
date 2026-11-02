@@ -1,12 +1,12 @@
 import { DragDropSurface } from "@app/ui-kit";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { hasSelectedWorkflow, type BoardColumn, type SelectedWorkflowBoard } from "@/api";
 import { errorMessage } from "@/api";
 import { SidebarRootOwner } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
-import { useNativeDialogFallback } from "@/app-facade";
 import { reportNonCancelledError, useStatusController } from "@/app-facade";
 import { useWindowChromeTitle } from "@/app-facade";
 import {
@@ -18,12 +18,12 @@ import {
 } from "@/shared/execution-target";
 import { ProjectLabelsProvider, useProjectLabelFilter } from "@/shared/labels";
 import { BoardTaskDeleteDialog } from "./BoardTaskDeleteDialog";
-import { useBoardTaskDeletions } from "./BoardTaskDeletion";
+import { useBoardDeleteConfirmation, useBoardTaskDeletions } from "./BoardTaskDeletion";
 import { WorkflowValidationIssues } from "@/shared/workflow-validation";
-import { ErrorState, FloatingNoticeIsland, LoadingState } from "@/ui";
+import { ErrorState, FloatingNoticeIsland, LoadingState, Spinner } from "@/ui";
 import { BoardHorizontalScrollbar } from "./BoardHorizontalScrollbar";
 import { BoardRailMotionController } from "./BoardRailMotionController";
-import { taskDeleteWindowOptions, type TaskDeleteTarget } from "./taskDeleteConfirmationModel";
+import type { BoardColumnDisclosureAction } from "./BoardColumns";
 import type { BoardColumnDropState } from "./BoardDragTypes";
 import { classifyBoardColumnDropState, useBoardDragLifecycle } from "./BoardDragState";
 import { BoardBackgroundRefreshNotice } from "./BoardBackgroundRefreshNotice";
@@ -43,8 +43,6 @@ export type BoardRouteProps = Readonly<{
   workflowId: string | undefined;
   selectedTaskId: string;
 }>;
-
-const emptyExpandedEmptyColumnIDs: ReadonlySet<string> = new Set();
 
 const manualMoveBlockerTranslationKeys = {
   invalid_workflow: "board.moveBlockedInvalidWorkflow",
@@ -148,7 +146,7 @@ function BoardRouteData({
   });
 
   if (boardQuery.isPending && board === undefined) {
-    return <LoadingState chromePadding reveal={false} title={t("states.loading")} />;
+    return <LoadingState chromePadding reveal={false} />;
   }
   if (boardQuery.isError && board === undefined) {
     return (
@@ -179,6 +177,7 @@ function BoardRouteData({
         board={board}
         boardQueryWorkflowID={workflowId}
         boardRefreshError={boardQuery.isError ? boardQuery.error : null}
+        key={`${board.projectID}:${board.selectedWorkflow.id}`}
         onBoardRefreshRetry={() => {
           boardQuery.refetch();
         }}
@@ -205,11 +204,11 @@ function BoardContent({
   selectedTaskId: string;
 }>) {
   const { t } = useTranslation();
-  const [expandedEmptyColumns, setExpandedEmptyColumns] = useState<
-    Readonly<{ ids: ReadonlySet<string>; scope: string }>
-  >(() => ({ ids: new Set(), scope: "" }));
+  const [columnCollapseChoices, setColumnCollapseChoices] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
+  );
   const { push } = useStatusController();
-  const { api, nativeBridge, logger } = useAppServices();
+  const { api, logger } = useAppServices();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
   const actions = useBoardTaskActions(board.projectID);
   const deletions = useBoardTaskDeletions();
@@ -271,26 +270,11 @@ function BoardContent({
     },
     [reportActionError, t],
   );
-  const taskDeleteDialog = useNativeDialogFallback<TaskDeleteTarget>({
-    errorNoticeID: "task-delete-window-error",
-    errorTitle: t("board.deleteTaskWindowError"),
-    nativeAvailable: nativeBridge.capabilities.dialogWindows,
-    openNative: async (target) => {
-      await nativeBridge.dialogs.openWindow(taskDeleteWindowOptions(target, t("board.deleteTaskTitle")));
-    },
-    renderFallback: (target, close) => (
-      <BoardTaskDeleteDialog
-        key={target.taskID}
-        taskID={target.taskID}
-        deletions={deletions}
-        projectID={board.projectID}
-        workflowID={board.selectedWorkflow.id}
-        selectedTaskID={selectedTaskId}
-        onClose={close}
-        onError={reportDeleteError}
-        onNavigationError={reportNavigationError}
-      />
-    ),
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const deletion = useBoardDeleteConfirmation({
+    deletions,
+    projectID: board.projectID,
+    onError: reportDeleteError,
   });
 
   const activeColumns = useMemo(
@@ -298,11 +282,6 @@ function BoardContent({
     [board.columns],
   );
   const firstActive = activeColumns[0];
-  const columnExpansionScope = `${board.projectID}:${board.selectedWorkflow.id}`;
-  const expandedEmptyColumnIDs =
-    expandedEmptyColumns.scope === columnExpansionScope
-      ? expandedEmptyColumns.ids
-      : emptyExpandedEmptyColumnIDs;
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
   const {
     openTask,
@@ -359,7 +338,7 @@ function BoardContent({
   }
 
   function deleteTask(taskID: string): void {
-    void taskDeleteDialog.open({ taskID });
+    setDeleteTarget(taskID);
   }
 
   function reportInterruptError(error: unknown): void {
@@ -389,20 +368,15 @@ function BoardContent({
   }
 
   function columnIsCollapsed(column: BoardColumn): boolean {
-    return (
-      !column.isBacklog &&
-      column.id !== firstActive?.id &&
-      column.taskCount === 0 &&
-      !expandedEmptyColumnIDs.has(column.id)
-    );
+    return columnCollapseChoices.get(column.id) ?? defaultColumnIsCollapsed(column);
   }
 
-  function expandColumn(columnID: string): void {
-    setExpandedEmptyColumns((current) => {
-      const next = new Set(current.scope === columnExpansionScope ? current.ids : []);
-      next.add(columnID);
-      return { ids: next, scope: columnExpansionScope };
-    });
+  function defaultColumnIsCollapsed(column: BoardColumn): boolean {
+    return !column.isBacklog && column.id !== firstActive?.id && column.taskCount === 0;
+  }
+
+  function setColumnDisclosure(columnID: string, action: BoardColumnDisclosureAction): void {
+    setColumnCollapseChoices((current) => new Map(current).set(columnID, action === "collapse"));
   }
 
   function handleTaskInitiatingDialogResult(result: TaskInitiatingActionDialogResult): void {
@@ -456,7 +430,7 @@ function BoardContent({
               onCardClick={openTask}
               onCardDragStart={startActiveDrag}
               onDeleteTask={deleteTask}
-              onExpandColumn={expandColumn}
+              onColumnDisclosure={setColumnDisclosure}
               onInterruptTask={interruptTask}
               onRegisterColumnScrollport={dragAutoScroll.registerColumnScrollport}
               pendingCardMove={pendingCardMove}
@@ -494,7 +468,24 @@ function BoardContent({
         continuation={initiatingAction}
         onResult={handleTaskInitiatingDialogResult}
       />
-      {taskDeleteDialog.fallback}
+      {deleteTarget === null ? null : (
+        <BoardTaskDeleteDialog
+          key={deleteTarget}
+          taskID={deleteTarget}
+          deletions={deletions}
+          onResult={(result) => {
+            flushSync(() => {
+              setDeleteTarget(null);
+            });
+            if (result === "confirm") deletion.confirm(deleteTarget);
+          }}
+        />
+      )}
+      {deletions.pending ? (
+        <div className="absolute right-[var(--space-4)] bottom-[var(--space-4)]">
+          <Spinner size="sm" />
+        </div>
+      ) : null}
       {boardRefreshError === null ? null : (
         <BoardBackgroundRefreshNotice error={boardRefreshError} onRetry={onBoardRefreshRetry} />
       )}

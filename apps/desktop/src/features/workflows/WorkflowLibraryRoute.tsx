@@ -32,7 +32,7 @@ function WorkflowLibraryContent() {
   };
 
   if (workflowsQuery.isPending) {
-    return <LoadingState appearanceDelayMs={0} title={t("workflowLibrary.title")} />;
+    return <LoadingState appearanceDelayMs={0} />;
   }
   if (workflowsQuery.isError) {
     return (
@@ -74,7 +74,6 @@ function WorkflowLibraryContent() {
           header={<WorkflowLibraryHeader onCreate={openCreateWorkflow} />}
           isFetchingNextPage={workflowsQuery.isFetchingNextPage}
           items={workflows}
-          loadingLabel={t("app.loadingMore")}
           onLoadMore={() => {
             workflowsQuery.fetchNextPage();
           }}

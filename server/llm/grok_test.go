@@ -100,6 +100,7 @@ func TestGrokToolContinuationKeepsOpaqueItemsAndReasoning(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requests == 1 {
 			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.reasoning_summary_text.delta\",\"output_index\":0,\"summary_index\":0,\"item_id\":\"r1\",\"delta\":%s}\n\n", encodedTrace)
+			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":%s}\n\n", reasoning)
 			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":1,\"item\":%s}\n\n", call)
 			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"first\",\"output\":[%s,%s]}}\n\n", reasoning, call)
 			return
@@ -129,7 +130,7 @@ func TestGrokToolContinuationKeepsOpaqueItemsAndReasoning(t *testing.T) {
 			result.Output[0].Type != "input_text" || result.Output[1].Type != "input_image" {
 			t.Errorf("call-bound result changed: %s, %v", request.Input[2], err)
 		}
-		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"second\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}]}}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"second\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"done\"}]}]}}\n\n")
 	}))
 	defer server.Close()
 	selected, err := ResolveConnectionVariant(config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy})

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { safeExternalUrl } from "./externalLinks";
-import { markdownLinkTarget } from "./markdownLinks";
+import { markdownLinkTarget } from "./markdownLinkTarget";
 
 describe("Markdown link targets", () => {
   it.each([

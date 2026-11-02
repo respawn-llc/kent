@@ -64,6 +64,18 @@ function attentionID(value: pb.AttentionNotificationID): AttentionNotificationID
 function attentionEvent(event: pb.AttentionNotificationEventValid): AttentionNotificationEvent {
   const sequence = Number(event.sequence);
   switch (event.payload.case) {
+    case "sessionTurnEnd": {
+      const completion = event.payload.value;
+      return {
+        type: "session_turn_end",
+        sequence,
+        shortID: completion.shortId === undefined ? null : Number(completion.shortId),
+        sessionName: completion.sessionName ?? null,
+        assistantContent: completion.assistantContent,
+        completedAt: timestampMillis(completion.completedAt),
+        target: { kind: "session_prompt", projectID: completion.projectId, sessionID: completion.sessionId },
+      };
+    }
     case "sessionNamingFailure": {
       const failure = event.payload.value;
       return {

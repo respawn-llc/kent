@@ -1,4 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { projectMarkdownText } from "@/ui";
+import { turnCompletionPresentation } from "./turnCompletionPresentation";
 import type { TFunction } from "i18next";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
@@ -17,6 +19,7 @@ import {
   type SidebarRootController,
   type StatusController,
   recoverOrThrowDebugFailure,
+  type DesktopSettings,
 } from "@/app-facade";
 import {
   advancesAttentionNotificationRevision,
@@ -35,6 +38,7 @@ import {
 
 type PresentationInputs = Readonly<{
   focused: boolean | null;
+  delivery: DesktopSettings["notifications"];
   picker: Readonly<{ projectID: string; sessionID: string }> | null;
 }>;
 
@@ -199,12 +203,16 @@ export function createAttentionViewModel({
             const outcome = yield* deliverPendingSurface({
               get,
               focused: pending.focused,
+              delivery: inputs().delivery,
               hasNativeNotifications: bridge.capabilities.notifications.basic,
               logger,
               notification: pending.record.notification,
               notifications: bridge.notifications,
               showToast: (notification) => {
                 showToast(get, notification);
+              },
+              dismissToast: () => {
+                status.dismiss(attentionToastID(id));
               },
               surfaced: surfaces,
               t,
@@ -227,26 +235,49 @@ export function createAttentionViewModel({
       const current = get.once(surfaces).get(id);
       if (!advancesAttentionNotificationRevision(current?.notification.revision, notification.revision))
         return;
-      if (current?.state === "toast" || current?.state === "activation_failed") {
-        showToast(get, notification);
-      } else if (current === undefined || current.state === "native") {
+      if (
+        current === undefined ||
+        current.state === "native" ||
+        current.state === "toast" ||
+        current.state === "activation_failed"
+      ) {
         setSurface(get, surfaces, id, { notification, state: "surfacing" });
         get.set(deliver, id);
       } else {
         setSurface(get, surfaces, id, { notification, state: current.state });
       }
     };
-    const namingFailure = Atom.fn<Extract<AttentionNotificationEvent, { type: "session_naming_failure" }>>()(
+    const sessionFeedback = Atom.fn<
+      Extract<AttentionNotificationEvent, { type: "session_naming_failure" | "session_turn_end" }>
+    >()(
       (event) =>
         Effect.gen(function* () {
-          const notification = {
-            id: `session-naming-${event.sequence.toString()}`,
-            title: t("app.attention.sessionNamingFailed"),
-            body: t("app.attention.sessionNamingFailureHelp"),
-            target: event.target,
-          };
+          const completed = event.type === "session_turn_end";
+          const notification = completed
+            ? {
+                id: `session-turn-end-${event.sequence.toString()}`,
+                ...turnCompletionPresentation({
+                  title: t("app.attention.sessionEnded", {
+                    name: event.sessionName ?? event.shortID?.toString() ?? event.target.sessionID,
+                  }),
+                  body: projectMarkdownText(event.assistantContent),
+                }),
+                target: event.target,
+              }
+            : {
+                id: `session-naming-${event.sequence.toString()}`,
+                title: t("app.attention.sessionNamingFailed"),
+                body: t("app.attention.sessionNamingFailureHelp"),
+                target: event.target,
+              };
           const showFailure = () => {
-            status.push({ ...notification, tone: "danger" });
+            status.push({
+              ...notification,
+              tone: completed ? "info" : "danger",
+              onClick: () => {
+                get.set(activate, { target: event.target, notification: null });
+              },
+            });
           };
           if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
             showFailure();
@@ -264,7 +295,7 @@ export function createAttentionViewModel({
                     context: { sessionID: event.target.sessionID },
                     error: error.cause,
                     logger,
-                    message: "Delivering Session-naming notification failed.",
+                    message: "Delivering Session notification failed.",
                     recover: showFailure,
                   }),
                 ),
@@ -275,7 +306,7 @@ export function createAttentionViewModel({
         }),
       { concurrent: true, initialValue: null },
     );
-    get.mount(namingFailure);
+    get.mount(sessionFeedback);
     const inbox = Atom.make(
       (observation) =>
         services.api
@@ -284,8 +315,11 @@ export function createAttentionViewModel({
             Stream.runForEach((value) =>
               Effect.sync(() => {
                 if (value.kind === "event") {
-                  if (value.event.type === "session_naming_failure") {
-                    get.set(namingFailure, value.event);
+                  if (
+                    value.event.type === "session_naming_failure" ||
+                    value.event.type === "session_turn_end"
+                  ) {
+                    get.set(sessionFeedback, value.event);
                     return;
                   }
                   get.set(refresh, undefined);

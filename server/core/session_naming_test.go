@@ -14,7 +14,7 @@ import (
 	modelstub "core/internal/testharness/pty/blackbox"
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
-	"core/server/auth"
+	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/metadata"
 	"core/shared/config"

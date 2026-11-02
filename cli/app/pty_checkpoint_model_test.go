@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/cli/tui/ongoing"
 	checkpoint "core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -305,8 +306,8 @@ func ptyCheckpointTranscriptEvent(msg tea.Msg) (ongoingTranscriptEvent, bool) {
 	return dispatched.event, true
 }
 
-func dispatchPTYCheckpointTranscriptEvent(event ongoingTranscriptEvent) uiDispatchedEventMsg {
-	return uiDispatchedEventMsg{event: event}
+func dispatchPTYCheckpointTranscriptEvent(model *ptyCheckpointModel, event ongoingTranscriptEvent) uiDispatchedEventMsg {
+	return uiDispatchedEventMsg{source: model.inner.(*uiModel).eventDispatcher, event: event}
 }
 
 type ptyOngoingTargetFinalDrainCandidate struct {
@@ -334,8 +335,9 @@ func ongoingTargetFinalDrainCandidate(
 		!appModel.nativeOngoingSurfaceActive() {
 		return ptyOngoingTargetFinalDrainCandidate{}
 	}
-	for _, message := range appModel.ongoingTranscript.queue {
-		if message.Sequence == targetSequence && isCommittedAssistantFinal(message) {
+	for _, work := range appModel.ongoingTranscript.queue {
+		message, ok := work.(ongoing.TerminalMessage)
+		if ok && message.Message.Sequence == targetSequence && isCommittedAssistantFinal(message.Message) {
 			return ptyOngoingTargetFinalDrainCandidate{
 				sequence: targetSequence,
 				valid:    true}

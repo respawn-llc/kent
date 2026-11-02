@@ -31,6 +31,7 @@ export function Spinner({
         size === "sm" ? "h-4 w-4" : "h-7 w-7",
         className,
       )}
+      data-slot="spinner"
       data-testid={testID}
       fill="none"
       viewBox="0 0 24 24"

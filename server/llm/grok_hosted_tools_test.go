@@ -15,6 +15,7 @@ func TestOpenAICustomCallsDoNotUseGrokOwnershipNamespaces(t *testing.T) {
 	for _, callID := range []string{"as_pdf", "xs_search"} {
 		t.Run(callID, func(t *testing.T) {
 			transport := newOpenAIStreamTestTransport(t,
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"custom_item","call_id":%q,"name":"patch","input":"patch input"}}`, callID),
 				fmt.Sprintf(`{"type":"response.completed","response":{"output":[{"type":"custom_tool_call","id":"custom_item","call_id":%q,"name":"patch","input":"patch input"}]}}`, callID),
 			)
 			response, err := transport.Generate(t.Context(), ResponsesRequest{
@@ -114,12 +115,6 @@ func TestGrokHostedCustomCallsAreNotLocalAndKeepWireHistory(t *testing.T) {
 			first, err := provider.Generate(t.Context(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatal(err)
-			}
-			if !completed {
-				if len(first.ToolCalls) != 0 || len(first.OutputItems) != 0 {
-					t.Fatalf("items omitted by terminal output were accepted: calls=%+v items=%+v", first.ToolCalls, first.OutputItems)
-				}
-				return
 			}
 			if len(first.ToolCalls) != 1 || first.ToolCalls[0].ID != "patch_call" {
 				t.Fatalf("local executions = %+v", first.ToolCalls)

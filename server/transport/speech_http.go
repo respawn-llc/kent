@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"core/server/speech"
+	"core/server/speechservice"
 	"core/shared/protoapi"
 	speechpb "core/shared/protoapi/gen/kent/api/speech"
 	"google.golang.org/protobuf/proto"

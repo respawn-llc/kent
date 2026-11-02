@@ -292,8 +292,9 @@ func TestUIProcessClientDoesNotBypassSharedControlBoundaryOnError(t *testing.T) 
 
 type allUIProjectSessionMembership struct{}
 
-func (allUIProjectSessionMembership) ListProjectSessionIDs(
+func (allUIProjectSessionMembership) FilterProjectSessionIDs(
 	_ context.Context,
-	_ string) ([]string, error) {
+	_ string,
+	_ []string) ([]string, error) {
 	return []string{uiProcessTestSessionID}, nil
 }

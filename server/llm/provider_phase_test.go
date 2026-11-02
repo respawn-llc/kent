@@ -149,9 +149,9 @@ func TestGenerateAccumulatesOutputItemProviderPhase(t *testing.T) {
 	}
 }
 
-func TestGenerateAggregatesCompletedResponseProviderPhase(t *testing.T) {
+func TestGenerateKeepsFinalizedResponseProviderPhase(t *testing.T) {
 	transport := newOpenAIStreamTestTransport(t,
-		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}`,
+		`{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}}`,
 		`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":2,"total_tokens":4},"output":[{"id":"msg_1","type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done"}]}]}}`,
 		`[DONE]`,
 	)
@@ -185,7 +185,7 @@ func newProviderPhaseResponseTransport(t *testing.T, phaseField string) *HTTPTra
 			return
 		}
 		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
-			return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_phase","object":"response","output":[{"type":"message","id":"msg_phase","role":"assistant"%s,"status":"completed","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, phaseField)}
+			return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_phase","role":"assistant"%s,"status":"completed","content":[{"type":"output_text","text":"done"}]}}`, phaseField), fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_phase","object":"response","output":[{"type":"message","id":"msg_phase","role":"assistant"%s,"status":"completed","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`, phaseField)}
 		})
 	}))
 	t.Cleanup(server.Close)

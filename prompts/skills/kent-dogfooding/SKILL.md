@@ -41,9 +41,9 @@ Global config (applies to all projects) is at `~/.kent/config.toml` (`%USERPROFI
 - Do not write directly to the live metadata database for normal operations. Manual edits can bypass Kent's invariants and leave the database broken; use first-party CLI, API, or store operations instead.
 - If Kent cannot perform an operation without direct database edits, file an issue. Carefully repairing an already-corrupted database is the only valid exception.
 
-Runtime logs live under the persistence root (default `~/.kent`; override with `$KENT_PERSISTENCE_ROOT`):
+CLI and server logs use the persistence root (default `~/.kent`; override with `$KENT_PERSISTENCE_ROOT`):
 
-- Desktop: `<persistence-root>/gui/desktop.log`.
+- Desktop: `~/.kent/gui/desktop.log`.
 - CLI: `<persistence-root>/logs/tui.log`.
 - Server: `<persistence-root>/logs/server.log` and `<persistence-root>/logs/server.err.log`; `kent service status` prints the exact paths.
 

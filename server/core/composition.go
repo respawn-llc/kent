@@ -21,11 +21,11 @@ import (
 	"core/server/metadata"
 	"core/server/nano"
 
+	"core/server/agentruntime"
 	"core/server/processview"
 	"core/server/projectview"
 	"core/server/promptcontrol"
 	"core/server/registry"
-	"core/server/runtime"
 	"core/server/runtimecontrol"
 	"core/server/runtimewire"
 	"core/server/serverstatus"
@@ -35,7 +35,7 @@ import (
 	"core/server/sessionservice"
 	"core/server/sessionview"
 	"core/server/sleepguard"
-	"core/server/speech"
+	"core/server/speechservice"
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowattention"
@@ -44,7 +44,7 @@ import (
 	"core/server/workflowstore"
 	"core/server/workflowsvc"
 	"core/server/workflowview"
-	"core/server/worktree"
+	"core/server/worktreeservice"
 	"core/shared/clientui"
 	"core/shared/config"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
@@ -212,7 +212,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeRegistry.WithExecutionTargetResolver(metadataStore.ResolveOptionalSessionExecutionTarget)
 	runtimeRegistry.WithBackgroundProcessSnapshots(background.List)
 	runtimeControlService := runtimecontrol.NewService(runtimeAuthority, metadataStore).
-		WithRuntimeActivityResolver(runtimeRegistry).
+		WithSessionSettingFeedbackPublisher(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
 		WithWorkflowTaskSessionResolver(metadataStore).
 		WithPersistedSessionResolver(metadataStore).
@@ -244,7 +244,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
-	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, authSupport.AuthManager, metadataStore).
+	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, metadataStore).
 		WithConnectionRotation(connectionRotation).
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).
@@ -330,8 +330,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: current node controller: %w", err)
 	}
-	runtimeControlService.WithWorkflowSessionReactivator(workflowController)
-	runtimeControlService.WithWorkflowSessionPreparationReader(workflowController)
+	runtimeAuthority.SetWorkflowSessionExecutionOwner(workflowController)
 	workflowTaskStatusProjection, err := workflowview.NewTaskStatusProjection(
 		workflowStore,
 		workflowTaskProjector,
@@ -484,6 +483,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		sourceSessionLaunch,
 		runtimeRegistry,
 		metadataStore,
+		worktreeService,
 	)
 	chatRuntimes := chatmutation.NewRuntimePlanner(
 		runtimeAuthority,

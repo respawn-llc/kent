@@ -3,8 +3,8 @@ package registry
 import (
 	"testing"
 
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/shared/sessioncontract"
 )
 

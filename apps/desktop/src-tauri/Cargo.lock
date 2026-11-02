@@ -52,6 +52,7 @@ name = "app-desktop"
 version = "0.0.0"
 dependencies = [
  "arboard",
+ "cc",
  "futures-util",
  "gtk",
  "image",
@@ -63,7 +64,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -76,7 +76,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
- "toml 0.9.12+spec-1.1.0",
  "webkit2gtk",
  "windows",
 ]

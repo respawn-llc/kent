@@ -42,6 +42,15 @@ func GenerateWithRetry(ctx context.Context, attempt GenerationAttempt, options G
 		var emitted, reasoningEmitted bool
 		var done atomic.Bool
 		callbacks := options.Callbacks
+		if options.Callbacks.OnAssistantSourceComplete != nil {
+			callbacks.OnAssistantSourceComplete = func(source AssistantSource) {
+				if done.Load() {
+					return
+				}
+				emitted = true
+				options.Callbacks.OnAssistantSourceComplete(source)
+			}
+		}
 		if options.Callbacks.OnAssistantDelta != nil {
 			callbacks.OnAssistantDelta = func(delta AssistantDelta) {
 				if done.Load() || delta.Text == "" {

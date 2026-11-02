@@ -260,10 +260,6 @@ func (l uiViewLayout) renderStatusNotice(available int) string {
 		text = strings.TrimSpace(m.runtimeDisconnectStatusText())
 		kind = uiStatusNoticeError
 	}
-	if text == "" && m.drafts != nil && m.drafts.saving {
-		text = "Saving draft"
-		kind = uiStatusNoticeInfo
-	}
 	if text == "" {
 		return ""
 	}
@@ -283,6 +279,9 @@ func (l uiViewLayout) renderReasoningStatus(available int) string {
 }
 
 func (l uiViewLayout) renderHelpHint(style uiStyles) string {
+	if l.model.surface() == uiSurfaceAsk {
+		return style.meta.Render("↑/↓ · PgUp/PgDn · wheel to scroll")
+	}
 	if !l.shouldRenderHelpHint() {
 		return ""
 	}

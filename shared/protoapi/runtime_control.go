@@ -2,7 +2,7 @@ package protoapi
 
 import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 var appendVisibilities = map[transcriptpb.AppendVisibility]transcript.EntryVisibility{

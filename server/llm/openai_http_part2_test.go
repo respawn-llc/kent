@@ -259,6 +259,9 @@ func TestBuildResponsesInput_AssistantReasoningItemsUseEncryptedContentOnly(t *t
 	if second["encrypted_content"] != "enc_1" {
 		t.Fatalf("expected encrypted content enc_1, got %#v", second["encrypted_content"])
 	}
+	if _, present := second["content"]; present {
+		t.Fatalf("encrypted-only reasoning unexpectedly included plaintext content: %#v", second["content"])
+	}
 	if text, ok := second["text"].(string); ok && strings.TrimSpace(text) != "" {
 		t.Fatalf("expected no reasoning text to be serialized, got %q", text)
 	}
@@ -461,6 +464,7 @@ func TestCompactRequestUsesSelectedProtocol(t *testing.T) {
 					_, _ = io.WriteString(w, response)
 				} else {
 					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1","opaque_extension":{"keep":true}}}`+"\n\n")
 					_, _ = io.WriteString(w, `data: {"type":"response.completed","response":`+response+"}\n\n")
 				}
 			}))
@@ -580,7 +584,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("event: response.completed\n" +
-			`data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15},"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}]}}` + "\n\n"))
+			"data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"compaction\",\"id\":\"cmp_1\",\"encrypted_content\":\"enc_1\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":5,\"total_tokens\":15},\"output\":[{\"type\":\"compaction\",\"id\":\"cmp_1\",\"encrypted_content\":\"enc_1\"}]}}" + "\n\n"))
 	}))
 	t.Cleanup(server.Close)
 
@@ -658,6 +662,7 @@ func TestOAuthCompactRequestTargetsStreamingResponsesWithFinalTrigger(t *testing
 func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 	tests := []struct {
 		name            string
+		events          []string
 		output          string
 		reason          CompactionCheckpointReason
 		compactionCount int
@@ -674,6 +679,7 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 		},
 		{
 			name:            "multiple checkpoints",
+			events:          []string{`{"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"}}`, `{"type":"response.output_item.done","output_index":1,"item":{"type":"compaction","id":"cmp_2","encrypted_content":"enc_2"}}`},
 			output:          `{"type":"response.completed","response":{"output":[{"type":"compaction","id":"cmp_1","encrypted_content":"enc_1"},{"type":"compaction","id":"cmp_2","encrypted_content":"enc_2"}]}}`,
 			reason:          CompactionCheckpointReasonMultiple,
 			compactionCount: 2,
@@ -682,6 +688,7 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 		},
 		{
 			name:            "missing encrypted content",
+			events:          []string{`{"type":"response.output_item.done","output_index":0,"item":{"type":"compaction","id":"cmp_1"}}`},
 			output:          `{"type":"response.completed","response":{"output":[{"type":"compaction","id":"cmp_1"}]}}`,
 			reason:          CompactionCheckpointReasonMissingEncryptedContent,
 			compactionCount: 1,
@@ -695,7 +702,7 @@ func TestCompactRequestPreservesTypedCheckpointContractReasons(t *testing.T) {
 			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
 				var transport *HTTPTransport
 				if protocol == config.ConnectionChatGPT {
-					server := newOAuthCompactStreamServer(t, []string{test.output})
+					server := newOAuthCompactStreamServer(t, append(test.events, test.output))
 					transport = newCanonicalOAuthTestTransport(t, server)
 				} else {
 					var event struct {
@@ -769,7 +776,7 @@ func TestOAuthCompactRequestUsesStreamedCompactionWhenCompletedOutputIsEmpty(t *
 	}
 }
 
-func TestOAuthCompactRequestUsesCompletedCheckpointAtStreamedPosition(t *testing.T) {
+func TestOAuthCompactRequestKeepsFinalizedCheckpoint(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		streamedID  *string
@@ -800,9 +807,9 @@ func TestOAuthCompactRequestUsesCompletedCheckpointAtStreamedPosition(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !textutil.EqualOptional(resp.OutputItems[0].ID, test.completedID) ||
-				!textutil.EqualOptional(resp.OutputItems[0].EncryptedContent, textutil.Value("enc_completed")) {
-				t.Fatalf("checkpoint = %+v, want completed checkpoint", resp.OutputItems[0])
+			if !textutil.EqualOptional(resp.OutputItems[0].ID, test.streamedID) ||
+				!textutil.EqualOptional(resp.OutputItems[0].EncryptedContent, textutil.Value("enc_streamed")) {
+				t.Fatalf("checkpoint = %+v, want finalized checkpoint", resp.OutputItems[0])
 			}
 		})
 	}

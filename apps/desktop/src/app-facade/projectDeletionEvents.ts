@@ -1,79 +1,24 @@
-import type { NativeBridge, NativeProjectDeleted } from "@app/native-bridge";
 import type { QueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
-import { useAtomSuspense } from "@effect/atom-react";
-import * as Effect from "effect/Effect";
-import * as Stream from "effect/Stream";
-import * as Atom from "effect/reactivity/Atom";
-
-import { errorMessage } from "@/api";
-import { useStableCallback } from "@/ui";
 import { clearLastProjectRoute } from "./projectRoutePersistence";
 import { queryKeys } from "./queryKeys";
 import { removeProjectTaskSearches } from "./taskSearchQueries";
-import { useAppServices } from "./useAppServices";
-
-export function useProjectDeletedEvents(
-  nativeBridge: NativeBridge,
-  handler: (event: NativeProjectDeleted) => Promise<void>,
-) {
-  const { logger } = useAppServices();
-  const handle = useStableCallback(handler);
-  const model = useMemo(() => {
-    const action = Atom.fn<NativeProjectDeleted>()(
-      (event) =>
-        Effect.tryPromise(async () => handle(event)).pipe(
-          Effect.catch((error) =>
-            Effect.promise(async () =>
-              logger.append("warn", "Project deletion event handling failed.", {
-                error: errorMessage(error.cause),
-              }),
-            ),
-          ),
-          Effect.as(null),
-        ),
-      { concurrent: true, initialValue: null },
-    );
-    const deleted = Atom.make(
-      (get) =>
-        nativeBridge.projectDeletion
-          .deleted(async () => logger.reportObservationOverflow("project-deletion"))
-          .pipe(
-            Stream.runForEach((event) =>
-              Effect.sync(() => {
-                get.set(action, event);
-              }),
-            ),
-            Effect.catch((error) =>
-              Effect.promise(async () =>
-                logger.append("warn", "Project deletion event listener failed.", {
-                  error: errorMessage(error),
-                }),
-              ),
-            ),
-            Effect.as(null),
-          ),
-      { initialValue: null },
-    );
-    return { action, deleted };
-  }, [handle, logger, nativeBridge.projectDeletion]);
-  useAtomSuspense(model.action);
-  useAtomSuspense(model.deleted);
-}
+import type { AppStorageNamespace } from "./services";
 
 export async function completeProjectDeletion({
   navigateHome,
   projectID,
   pushDeletedToast,
   queryClient,
+  storageNamespace,
 }: Readonly<{
   navigateHome?: (() => Promise<void>) | undefined;
   projectID: string;
   pushDeletedToast: () => void;
   queryClient: QueryClient;
+  storageNamespace: AppStorageNamespace | null;
 }>): Promise<void> {
   await invalidateProjectDeleteQueries(queryClient, projectID);
-  clearLastProjectRoute(projectID);
+  clearLastProjectRoute(storageNamespace, projectID);
   if (navigateHome !== undefined) await navigateHome();
   pushDeletedToast();
 }

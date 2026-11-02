@@ -36,10 +36,14 @@ func InheritReviewerSettings(settings *Settings, sources map[string]Origin) {
 
 func inheritReviewerModelCapabilities(settings *Settings, sources map[string]Origin) {
 	if sources == nil {
-		if !settings.Reviewer.ModelCapabilities.SupportsReasoningEffort && !settings.Reviewer.ModelCapabilities.SupportsVisionInputs {
+		if !settings.Reviewer.ModelCapabilities.SupportsReasoningEffort && !settings.Reviewer.ModelCapabilities.SupportsVisionInputs && !settings.Reviewer.ModelCapabilities.CyberAccess {
 			settings.Reviewer.ModelCapabilities = settings.ModelCapabilities
 		}
 		return
+	}
+	if !hasConfiguredSource(sources, "reviewer.model_capabilities.cyber_access") {
+		settings.Reviewer.ModelCapabilities.CyberAccess = settings.ModelCapabilities.CyberAccess
+		inheritSource(sources, "reviewer.model_capabilities.cyber_access", "model_capabilities.cyber_access")
 	}
 	if !hasConfiguredSource(sources, "reviewer.model_capabilities.supports_reasoning_effort") {
 		settings.Reviewer.ModelCapabilities.SupportsReasoningEffort = settings.ModelCapabilities.SupportsReasoningEffort
@@ -52,6 +56,7 @@ func inheritReviewerModelCapabilities(settings *Settings, sources map[string]Ori
 }
 
 var modelCapabilityKeys = []string{
+	"model_capabilities.cyber_access",
 	"model_capabilities.supports_reasoning_effort",
 	"model_capabilities.supports_vision_inputs",
 }

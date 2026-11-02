@@ -21,7 +21,7 @@ it("reuses one Task Detail Resume continuation for target selection", async () =
     ],
   });
   const resume = vi.spyOn(services.api, "resumeTask");
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const resumeButtons = await screen.findAllByTestId("task-detail-resume");
   const resumeButton = resumeButtons[0];
   if (resumeButton === undefined) {

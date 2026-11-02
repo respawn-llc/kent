@@ -259,7 +259,12 @@ func newSettingsRegistry() settingsRegistry {
 			nil,
 			normalizeModelVerbosity,
 			settingDocOptions{}),
+		newSpeechToTextPromptSetting(),
 		newPromptFileSetting(),
+		newBoolSetting("model_capabilities.cyber_access", false,
+			func(state *settingsState, value bool) { state.Settings.ModelCapabilities.CyberAccess = value },
+			func(state settingsState) bool { return state.Settings.ModelCapabilities.CyberAccess },
+			"", settingDocOptions{commented: true}),
 		newBoolSetting("model_capabilities.supports_reasoning_effort", false,
 			func(state *settingsState, value bool) {
 				state.Settings.ModelCapabilities.SupportsReasoningEffort = value
@@ -522,6 +527,10 @@ func newSettingsRegistry() settingsRegistry {
 			},
 			"KENT_REVIEWER_MODEL_CAPABILITIES_SUPPORTS_REASONING_EFFORT",
 			settingDocOptions{commented: true}),
+		newBoolSetting("reviewer.model_capabilities.cyber_access", false,
+			func(state *settingsState, value bool) { state.Settings.Reviewer.ModelCapabilities.CyberAccess = value },
+			func(state settingsState) bool { return state.Settings.Reviewer.ModelCapabilities.CyberAccess },
+			"", settingDocOptions{commented: true}),
 		newBoolSetting("reviewer.model_capabilities.supports_vision_inputs", false,
 			func(state *settingsState, value bool) {
 				state.Settings.Reviewer.ModelCapabilities.SupportsVisionInputs = value
@@ -735,6 +744,26 @@ func (r settingsRegistry) defaultLines(state settingsState) []defaultConfigLine 
 		}
 	}
 	return lines
+}
+
+func newSpeechToTextPromptSetting() globalOnlySetting[string] {
+	const key = "speech_to_text_prompt"
+	setting := newStringSetting(key, defaultSpeechToTextPrompt,
+		func(state *settingsState, value string) { state.Settings.SpeechToTextPrompt = value },
+		func(state settingsState) string { return state.Settings.SpeechToTextPrompt },
+		"", nil, nil, settingDocOptions{})
+	setting.equal = func(left, right string) bool { return left == right }
+	setting.decodeFile = func(raw settingsFile, path []string) (string, bool, error) {
+		value, present, err := lookupFileStringPreserving(raw, path)
+		if err != nil || !present {
+			return "", present, err
+		}
+		if strings.TrimSpace(value) == "" {
+			return "", false, fmt.Errorf("%s cannot be blank", key)
+		}
+		return value, true, nil
+	}
+	return globalOnlySetting[string]{rootOnlySetting[string]{setting}}
 }
 
 func newStringSetting[T ~string](
@@ -1587,15 +1616,11 @@ func lookupFileValue(raw settingsFile, path []string) (any, bool, error) {
 }
 
 func lookupFileString(raw settingsFile, path []string) (string, bool, error) {
-	value, ok, err := lookupFileValue(raw, path)
+	value, ok, err := lookupFileStringPreserving(raw, path)
 	if err != nil || !ok {
 		return "", ok, err
 	}
-	text, ok := value.(string)
-	if !ok {
-		return "", false, &SettingsKeyTypeError{Key: strings.Join(path, "."), ExpectedType: "string"}
-	}
-	trimmed := strings.TrimSpace(text)
+	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return "", false, nil
 	}
@@ -1603,6 +1628,14 @@ func lookupFileString(raw settingsFile, path []string) (string, bool, error) {
 }
 
 func lookupFileStringAllowEmpty(raw settingsFile, path []string) (string, bool, error) {
+	value, ok, err := lookupFileStringPreserving(raw, path)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	return strings.TrimSpace(value), true, nil
+}
+
+func lookupFileStringPreserving(raw settingsFile, path []string) (string, bool, error) {
 	value, ok, err := lookupFileValue(raw, path)
 	if err != nil || !ok {
 		return "", ok, err
@@ -1611,7 +1644,7 @@ func lookupFileStringAllowEmpty(raw settingsFile, path []string) (string, bool, 
 	if !ok {
 		return "", false, &SettingsKeyTypeError{Key: strings.Join(path, "."), ExpectedType: "string"}
 	}
-	return strings.TrimSpace(text), true, nil
+	return text, true, nil
 }
 
 func lookupFileBool(raw settingsFile, path []string) (bool, bool, error) {

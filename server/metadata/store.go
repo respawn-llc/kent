@@ -15,9 +15,10 @@ import (
 	"unicode"
 
 	"core/server/metadata/sqlitegen"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/invariant"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
@@ -271,15 +272,6 @@ func NewStore(persistenceRoot string, db *sql.DB) (*Store, error) {
 	return store, nil
 }
 
-func ResolveBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
-	store, err := Open(persistenceRoot)
-	if err != nil {
-		return Binding{}, err
-	}
-	defer func() { _ = store.Close() }()
-	return store.EnsureWorkspaceBinding(ctx, workspaceRoot)
-}
-
 func RegisterBinding(ctx context.Context, persistenceRoot string, workspaceRoot string) (Binding, error) {
 	store, err := Open(persistenceRoot)
 	if err != nil {
@@ -297,11 +289,19 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) AuthoritativeSessionStoreOptions() []session.StoreOption {
+	return s.sessionStoreOptions(sessionObserver{store: s})
+}
+
+func (s *Store) ProjectSessionStoreOptions(projectID string) []session.StoreOption {
+	return s.sessionStoreOptions(sessionObserver{store: s, projectID: &projectID})
+}
+
+func (s *Store) sessionStoreOptions(observer sessionObserver) []session.StoreOption {
 	if s == nil {
 		return nil
 	}
 	return []session.StoreOption{
-		session.WithPersistenceObserver(sessionObserver{store: s}),
+		session.WithPersistenceObserver(observer),
 		session.WithPersistedSessionResolver(s),
 		session.WithSessionContextFactWriter(s),
 	}
@@ -702,16 +702,6 @@ func updateSessionExecutionTarget(ctx context.Context, q *sqlitegen.Queries, upd
 	return nil
 }
 
-func (s *Store) DeleteFailedSessionCreationRecordByID(ctx context.Context, sessionID string) error {
-	if s == nil || s.db == nil {
-		return errors.New("metadata store is required")
-	}
-	if _, err := s.queries.DeleteSessionRecordByID(ctx, strings.TrimSpace(sessionID)); err != nil {
-		return fmt.Errorf("delete session record: %w", err)
-	}
-	return nil
-}
-
 type WorkspaceUnlinkRuntimeBlocker func(ctx context.Context, sessionIDs []string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, func(), error)
 
 func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]string, error) {
@@ -719,6 +709,20 @@ func (s *Store) ListProjectSessionIDs(ctx context.Context, projectID string) ([]
 		return nil, errors.New("metadata store is required")
 	}
 	return s.queries.ListProjectSessionIDs(ctx, strings.TrimSpace(projectID))
+}
+
+func (s *Store) FilterProjectSessionIDs(ctx context.Context, projectID string, sessionIDs []string) ([]string, error) {
+	if s == nil || s.queries == nil {
+		return nil, errors.New("metadata store is required")
+	}
+	sessionIDsJSON, err := json.Marshal(sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	return s.queries.FilterProjectSessionIDs(ctx, sqlitegen.FilterProjectSessionIDsParams{
+		ProjectID:      strings.TrimSpace(projectID),
+		SessionIdsJson: string(sessionIDsJSON),
+	})
 }
 
 func (s *Store) ListSessionsTargetingWorktreePage(ctx context.Context, worktreeID string, before *WorktreeSessionCursor) (WorktreeSessionPage, error) {
@@ -790,10 +794,6 @@ func bindingFromCanonicalRootRows(canonicalRoot string, rows []sqlitegen.ListWor
 		}
 		return Binding{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
 	}
-}
-
-func (s *Store) CreateProjectForWorkspace(ctx context.Context, workspaceRoot string, projectName string) (Binding, error) {
-	return s.CreateProjectForWorkspaceWithKey(ctx, workspaceRoot, projectName, "")
 }
 
 func (s *Store) CreateProjectForWorkspaceWithKey(ctx context.Context, workspaceRoot string, projectName string, projectKey string) (Binding, error) {
@@ -905,11 +905,6 @@ func (s *Store) UpdateProjectMetadata(ctx context.Context, projectID string, dis
 	return nil
 }
 
-func (s *Store) SetProjectDefaultWorkspace(ctx context.Context, projectID string, workspaceID string) error {
-	_, err := s.SetProjectDefaultWorkspaceAndGetSummary(ctx, projectID, workspaceID)
-	return err
-}
-
 func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, projectID string, workspaceID string) (serverapi.ProjectHomeSummary, error) {
 	if s == nil || s.queries == nil {
 		return serverapi.ProjectHomeSummary{}, errors.New("metadata store is required")
@@ -971,14 +966,6 @@ func (s *Store) SetProjectDefaultWorkspaceAndGetSummary(ctx context.Context, pro
 		return serverapi.ProjectHomeSummary{}, fmt.Errorf("commit default workspace tx: %w", err)
 	}
 	return projectHomeSummaryFromRow(rows[0]), nil
-}
-
-func (s *Store) UnlinkProjectWorkspace(ctx context.Context, projectID string, workspaceID string) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return s.UnlinkProjectWorkspaceWithPreflightBlockers(ctx, projectID, workspaceID, nil)
-}
-
-func (s *Store) UnlinkProjectWorkspaceWithPreflightBlockers(ctx context.Context, projectID string, workspaceID string, preflightBlockers []serverapi.ProjectWorkspaceUnlinkBlocker) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
-	return s.UnlinkProjectWorkspaceWithRuntimeBlockers(ctx, projectID, workspaceID, preflightBlockers, nil)
 }
 
 func (s *Store) UnlinkProjectWorkspaceWithRuntimeBlockers(ctx context.Context, projectID string, workspaceID string, preflightBlockers []serverapi.ProjectWorkspaceUnlinkBlocker, runtimeBlocker WorkspaceUnlinkRuntimeBlocker) ([]serverapi.ProjectWorkspaceUnlinkBlocker, error) {
@@ -1233,23 +1220,27 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
 
-	oldWorkspace, err := singleWorkspaceByCanonicalRoot(ctx, q, oldCanonicalRoot)
+	bindingRows, err := q.ListWorkspaceBindingsByCanonicalRoot(ctx, oldCanonicalRoot)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Binding{}, serverapi.ErrWorkspaceNotRegistered
-		}
 		return Binding{}, fmt.Errorf("get old workspace binding: %w", err)
 	}
-	if oldWorkspace.ProjectID != trimmedExpectedProjectID || oldWorkspace.ID != trimmedExpectedWorkspaceID {
+	oldWorkspace, err := bindingFromCanonicalRootRows(oldCanonicalRoot, bindingRows)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Binding{}, serverapi.ErrWorkspaceNotRegistered
+	}
+	if err != nil {
+		return Binding{}, fmt.Errorf("get old workspace binding: %w", err)
+	}
+	if oldWorkspace.ProjectID != trimmedExpectedProjectID || oldWorkspace.WorkspaceID != trimmedExpectedWorkspaceID {
 		return Binding{}, fmt.Errorf(
 			"workspace rebind preparation was invalidated: expected_project_id=%q expected_workspace_id=%q current_project_id=%q current_workspace_id=%q",
 			trimmedExpectedProjectID,
 			trimmedExpectedWorkspaceID,
 			oldWorkspace.ProjectID,
-			oldWorkspace.ID,
+			oldWorkspace.WorkspaceID,
 		)
 	}
-	if newCanonicalRoot == oldWorkspace.CanonicalRootPath {
+	if newCanonicalRoot == oldWorkspace.CanonicalRoot {
 		if err := tx.Commit(); err != nil {
 			return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 		}
@@ -1259,7 +1250,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		ProjectID:         oldWorkspace.ProjectID,
 		CanonicalRootPath: newCanonicalRoot,
 	}); err == nil {
-		if existing.WorkspaceID == oldWorkspace.ID {
+		if existing.WorkspaceID == oldWorkspace.WorkspaceID {
 			if err := tx.Commit(); err != nil {
 				return Binding{}, fmt.Errorf("commit workspace rebind noop tx: %w", err)
 			}
@@ -1269,7 +1260,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Binding{}, fmt.Errorf("get new workspace binding: %w", err)
 	}
-	worktrees, err := q.ListWorktreesByWorkspaceID(ctx, oldWorkspace.ID)
+	worktrees, err := q.ListWorktreesByWorkspaceID(ctx, oldWorkspace.WorkspaceID)
 	if err != nil {
 		return Binding{}, fmt.Errorf("list workspace worktrees: %w", err)
 	}
@@ -1277,8 +1268,8 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		rebindWorkspaceBeforeUpdateHook()
 	}
 	now := time.Now().UTC().UnixMilli()
-	rows, err := q.UpdateWorkspaceBindingCanonicalRoot(ctx, sqlitegen.UpdateWorkspaceBindingCanonicalRootParams{
-		ID:                oldWorkspace.ID,
+	updatedRows, err := q.UpdateWorkspaceBindingCanonicalRoot(ctx, sqlitegen.UpdateWorkspaceBindingCanonicalRootParams{
+		ID:                oldWorkspace.WorkspaceID,
 		CanonicalRootPath: newCanonicalRoot,
 		UpdatedAtUnixMs:   now,
 	})
@@ -1286,7 +1277,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 			return Binding{}, fmt.Errorf("rollback workspace rebind tx: %w", rollbackErr)
 		}
-		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.ID {
+		if binding, lookupErr := s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot); lookupErr == nil && binding.WorkspaceID != oldWorkspace.WorkspaceID {
 			return Binding{}, fmt.Errorf("workspace %q: %w", newCanonicalRoot, ErrWorkspaceAlreadyBound)
 		}
 		if IsSQLiteUniqueConstraint(err) {
@@ -1294,7 +1285,7 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		}
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: %w", err)
 	}
-	if rows == 0 {
+	if updatedRows == 0 {
 		return Binding{}, fmt.Errorf("update workspace binding canonical root: workspace %q was not updated", oldCanonicalRoot)
 	}
 	for _, worktree := range worktrees {
@@ -1321,25 +1312,6 @@ func (s *Store) RebindWorkspaceWithExpectedBinding(
 		return Binding{}, fmt.Errorf("commit workspace rebind tx: %w", err)
 	}
 	return s.lookupProjectWorkspaceBinding(ctx, oldWorkspace.ProjectID, newCanonicalRoot)
-}
-
-func singleWorkspaceByCanonicalRoot(ctx context.Context, q *sqlitegen.Queries, canonicalRoot string) (sqlitegen.Workspace, error) {
-	rows, err := q.ListWorkspacesByCanonicalRoot(ctx, canonicalRoot)
-	if err != nil {
-		return sqlitegen.Workspace{}, err
-	}
-	switch len(rows) {
-	case 0:
-		return sqlitegen.Workspace{}, sql.ErrNoRows
-	case 1:
-		return rows[0], nil
-	default:
-		projectIDs := make([]string, 0, len(rows))
-		for _, row := range rows {
-			projectIDs = append(projectIDs, row.ProjectID)
-		}
-		return sqlitegen.Workspace{}, serverapi.WorkspaceBindingAmbiguousError{CanonicalRoot: canonicalRoot, ProjectIDs: projectIDs}
-	}
 }
 
 func (s *Store) lookupProjectWorkspaceBinding(ctx context.Context, projectID string, canonicalRoot string) (Binding, error) {
@@ -2030,22 +2002,6 @@ func (s *Store) ResolveSessionNavigationBinding(ctx context.Context, sessionID s
 	return binding, nil
 }
 
-func (s *Store) ProjectWorkspaceAttached(ctx context.Context, projectID string, root string) (bool, error) {
-	if s == nil || s.queries == nil {
-		return false, errors.New("metadata store is required")
-	}
-	projectID = strings.TrimSpace(projectID)
-	if projectID == "" {
-		return false, errors.New("project id is required")
-	}
-	selector := serverapi.NewProjectWorkspaceSelectorForRoot(root)
-	_, err := s.ResolveProjectWorkspaceSelector(ctx, projectID, selector)
-	if errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
 func (s *Store) SessionBelongsToProject(ctx context.Context, sessionID string, projectID string) (bool, error) {
 	row, err := s.resolveSessionExecutionTargetRow(ctx, sessionID)
 	if err != nil {
@@ -2234,7 +2190,7 @@ func boolToInt64(value bool) int64 {
 }
 
 func (s *Store) ImportSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
-	return s.upsertSessionSnapshot(ctx, snapshot)
+	return s.upsertSessionSnapshot(ctx, snapshot, nil)
 }
 
 func (s *Store) reconcileSessionEventLog(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {
@@ -2291,24 +2247,35 @@ func (s *Store) reconcileSessionEventLog(ctx context.Context, reconciliation ses
 	return nil
 }
 
-func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (s *Store) upsertSessionSnapshot(ctx context.Context, snapshot session.PersistedStoreSnapshot, projectID *string) error {
 	if s == nil || s.queries == nil {
-		return errors.New("metadata store is required")
+		return session.DefinitelyUncommittedMutation(errors.New("metadata store is required"))
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin session snapshot import tx: %w", err)
+		return session.DefinitelyUncommittedMutation(fmt.Errorf("begin session snapshot import tx: %w", err))
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := s.upsertSessionSnapshotWithQueries(
+	expected, err := s.upsertSessionSnapshotWithQueries(
 		ctx,
 		s.queries.WithTx(tx),
 		snapshot,
-	); err != nil {
-		return err
+		projectID,
+	)
+	if err != nil {
+		return session.DefinitelyUncommittedMutation(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit session snapshot import tx: %w", err)
+		invariant.NewPolicy(invariant.WithSink(invariant.SinkFunc(func(diagnostic invariant.Diagnostic) {
+			log.Printf("Session commit failed; checking the database outcome: %+v", diagnostic)
+		}))).Check(false, invariant.FailureDiagnostic(invariant.ScopeSessionPersistence, "commit_metadata_snapshot", err))
+		receipt, resolveErr := s.resolveSessionCommit(ctx, expected)
+		if resolveErr != nil {
+			panic(errors.Join(err, resolveErr))
+		}
+		if !receipt.Committed {
+			return session.DefinitelyUncommittedMutation(err)
+		}
 	}
 	return nil
 }
@@ -2317,27 +2284,31 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 	ctx context.Context,
 	q *sqlitegen.Queries,
 	snapshot session.PersistedStoreSnapshot,
-) error {
+	projectID *string,
+) (sqlitegen.UpsertSessionParams, error) {
 	if _, err := q.AcquireWorkspaceRegistrationLock(ctx); err != nil {
-		return fmt.Errorf("lock session snapshot import: %w", err)
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("lock session snapshot import: %w", err)
 	}
 	existingTarget, targetErr := q.GetSessionExecutionTargetByID(ctx, strings.TrimSpace(snapshot.Meta.SessionID))
 	if targetErr != nil && !errors.Is(targetErr, sql.ErrNoRows) {
-		return fmt.Errorf("get existing session execution target: %w", targetErr)
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("get existing session execution target: %w", targetErr)
 	}
 	binding := Binding{}
 	worktreeID := sql.NullString{}
 	cwdRelpath := "."
 	if targetErr == nil {
+		if projectID != nil && existingTarget.ProjectID != *projectID {
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("Session %q does not belong to Project %q", snapshot.Meta.SessionID, *projectID)
+		}
 		binding.ProjectID = existingTarget.ProjectID
 		binding.WorkspaceID = existingTarget.WorkspaceID
 		authoritativeRoot := strings.TrimSpace(existingTarget.WorkspaceRoot)
 		if authoritativeRoot == "" {
-			return fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceRootRequired)
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceRootRequired)
 		}
 		sameRoot, err := canonicalWorkspaceRootsEqual(snapshot.Meta.WorkspaceRoot, authoritativeRoot)
 		if err != nil {
-			return err
+			return sqlitegen.UpsertSessionParams{}, err
 		}
 		if !sameRoot {
 			snapshot.Meta.WorktreeReminder = nil
@@ -2345,32 +2316,41 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		snapshot.Meta.WorkspaceRoot = authoritativeRoot
 		snapshot.Meta.WorkspaceContainer = strings.TrimSpace(existingTarget.WorkspaceSnapshotName)
 		if snapshot.Meta.WorkspaceContainer == "" {
-			return fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceContainerRequired)
+			return sqlitegen.UpsertSessionParams{}, fmt.Errorf("session %q: %w", snapshot.Meta.SessionID, errSessionWorkspaceContainerRequired)
 		}
 		worktreeID = existingTarget.WorktreeID
 		cwdRelpath = normalizeSessionCwdRelpath(existingTarget.CwdRelpath)
 	} else {
 		var err error
-		binding, err = lookupWorkspaceBindingWithQueries(ctx, q, snapshot.Meta.WorkspaceRoot)
+		if projectID == nil {
+			binding, err = lookupWorkspaceBindingWithQueries(ctx, q, snapshot.Meta.WorkspaceRoot)
+		} else {
+			canonicalRoot, canonicalErr := config.CanonicalWorkspaceRoot(snapshot.Meta.WorkspaceRoot)
+			if canonicalErr != nil {
+				return sqlitegen.UpsertSessionParams{}, canonicalErr
+			}
+			binding, err = lookupProjectWorkspaceBindingWithQueries(ctx, q, *projectID, canonicalRoot)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
-			return serverapi.ErrWorkspaceNotRegistered
+			return sqlitegen.UpsertSessionParams{}, serverapi.ErrWorkspaceNotRegistered
 		}
 		if err != nil {
-			return err
+			return sqlitegen.UpsertSessionParams{}, err
 		}
 	}
 	params, err := s.serializeSessionSnapshot(snapshot)
 	if err != nil {
-		return err
+		return sqlitegen.UpsertSessionParams{}, err
 	}
+	expected := params
 	params.ProjectID = binding.ProjectID
 	params.WorkspaceID = sql.NullString{String: binding.WorkspaceID, Valid: binding.WorkspaceID != ""}
 	params.WorktreeID = worktreeID
 	params.CwdRelpath = cwdRelpath
 	if err := persistSessionWithShortID(ctx, q, params); err != nil {
-		return fmt.Errorf("upsert session snapshot: %w", err)
+		return sqlitegen.UpsertSessionParams{}, fmt.Errorf("upsert session snapshot: %w", err)
 	}
-	return nil
+	return expected, nil
 }
 
 func (s *Store) serializeSessionSnapshot(snapshot session.PersistedStoreSnapshot) (sqlitegen.UpsertSessionParams, error) {
@@ -2950,23 +2930,41 @@ func timeFromStoredTimestamp(value int64) time.Time {
 }
 
 type sessionObserver struct {
-	store *Store
+	store     *Store
+	projectID *string
 }
 
-func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) error {
+func (o sessionObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
 	if o.store == nil {
-		return nil
+		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(errors.New("metadata store is required"))
 	}
-	if err := o.store.upsertSessionSnapshot(ctx, snapshot); err != nil {
-		return err
+	if err := o.store.upsertSessionSnapshot(ctx, snapshot, o.projectID); err != nil {
+		return session.CommitReceipt{}, err
 	}
 	status, err := goalProjection(&snapshot.Meta)
 	if err != nil {
 		log.Printf("publish Goal observation for Session %q: %v", snapshot.Meta.SessionID, err)
-		return nil
+		return session.CommitReceipt{Committed: true}, nil
 	}
 	o.store.goalObservations.publish(snapshot.Meta.SessionID, status)
-	return nil
+	return session.CommitReceipt{Committed: true}, nil
+}
+
+func (s *Store) resolveSessionCommit(ctx context.Context, expected sqlitegen.UpsertSessionParams) (session.CommitReceipt, error) {
+	record, err := s.ResolvePersistedSession(ctx, expected.ID)
+	if errors.Is(err, session.ErrSessionNotFound) {
+		return session.CommitReceipt{}, nil
+	}
+	if err != nil {
+		return session.CommitReceipt{}, err
+	}
+	persisted, err := s.serializeSessionSnapshot(session.PersistedStoreSnapshot{
+		SessionDir: record.SessionDir, Meta: *record.Meta, ContextFacts: record.ContextFacts,
+	})
+	if err != nil {
+		return session.CommitReceipt{}, err
+	}
+	return session.CommitReceipt{Committed: persisted == expected}, nil
 }
 
 func (o sessionObserver) ObserveEventLogReconciliation(ctx context.Context, reconciliation session.PersistedEventLogReconciliation) error {

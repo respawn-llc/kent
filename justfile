@@ -46,9 +46,9 @@ gen:
     @bash scripts/quiet-on-success.sh just _lint-protobuf _generate
     @bash scripts/quiet-on-success.sh just _gen-metadata
 
-# Run active tests, or select server, desktop, docs, tui, or explicit frozen rust.
+# Run active tests, or select server, desktop, integration, docs, tui, or explicit frozen rust.
 test *args:
-    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh {{ args }}
+    @bash scripts/quiet-on-success.sh --success pass bash scripts/test.sh "$@"
 
 # Apply safe lint fixes, or pass --dry-run for read-only validation.
 lint *args:
@@ -96,7 +96,6 @@ _lint-protobuf:
 
 [private]
 _gen-go:
-    just install _prepare-openai
     GOOS= GOARCH= go tool -modfile=tools.mod buf generate --template buf.gen.go.yaml
     GOOS= GOARCH= go tool -modfile=tools.mod buf build --as-file-descriptor-set --exclude-source-info --output shared/protoapi/gen/kent_api.binpb
 
@@ -106,7 +105,6 @@ _gen-typescript:
 
 [private]
 _gen-metadata:
-    just install _prepare-openai
     GOOS= GOARCH= go generate ./server/metadata/sqlitegen
 
 [parallel]

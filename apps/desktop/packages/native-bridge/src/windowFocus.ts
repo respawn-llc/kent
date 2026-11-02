@@ -1,4 +1,5 @@
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import type * as Stream from "effect/Stream";
 import { nativeObservation, type NativeOverflowReporter } from "./observation";
 
@@ -47,9 +48,7 @@ export function createTauriWindowFocusControls(
       return getWindow().isFocused();
     },
     async focusMain(): Promise<void> {
-      const window = getWindow();
-      await window.show();
-      await window.setFocus();
+      await invoke("open_main_window", { destination: null });
     },
     focusChanges: (reportOverflow) =>
       nativeObservation(async (handler) => {

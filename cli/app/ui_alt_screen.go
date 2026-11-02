@@ -49,7 +49,7 @@ func (m *uiModel) transitionTranscriptModeWithOptions(options transcriptModeTran
 	}
 	clearCmd := m.clearCmdForModeTransition(prevMode, nextMode)
 	transitionCmd := tea.Cmd(nil)
-	if !options.suppressAltScreen && surfaceTransitionCmd == nil {
+	if !options.suppressAltScreen && surfaceTransitionCmd == nil && m.surface() == surfaceForTranscriptMode(nextMode) {
 		transitionCmd = m.altScreenCmdForModeTransition(prevMode, nextMode)
 	}
 	detailLoadCmd := tea.Cmd(nil)

@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 type goASTPolicy struct {
 	errorHeading string
 	inspect      func(goSourceFile) []string
+	includeTests bool
 }
 
 type goSourceFile struct {
@@ -42,14 +42,6 @@ func checkProductionGo(root string, policy goASTPolicy) error {
 		case ".git", "node_modules", "vendor":
 			return filepath.SkipDir
 		}
-		if path != root {
-			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
-				return filepath.SkipDir
-			} else if !errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("inspect module boundary %s: %w", path, err)
-			}
-		}
-
 		buildPackage, importErr := buildContext.ImportDir(path, 0)
 		var noGoError *build.NoGoError
 		if errors.As(importErr, &noGoError) {
@@ -60,6 +52,10 @@ func checkProductionGo(root string, policy goASTPolicy) error {
 		}
 
 		names := append(append([]string{}, buildPackage.GoFiles...), buildPackage.CgoFiles...)
+		if policy.includeTests {
+			names = append(names, buildPackage.TestGoFiles...)
+			names = append(names, buildPackage.XTestGoFiles...)
+		}
 		sort.Strings(names)
 		for _, name := range names {
 			filename := filepath.Join(path, name)

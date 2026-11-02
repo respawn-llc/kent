@@ -2,14 +2,13 @@ package metadata
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestSetupRecoveryMigrationPreservesDiagnostics(t *testing.T) {
 	root := t.TempDir()
-	db, err := openDatabaseAtVersionForTest(t, root, filepath.Join(root, "db", "main.sqlite3"), 92)
+	db, err := openDatabaseAtVersionForTest(t, 92)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,14 +22,7 @@ VALUES ('project-setup', 'Project', ?, ?, '{}')`, now, now)
 (task_id,node_id,entered_by_edge_id,current_input_values_json,prior_node_values_json,scheduling_state,interruption_reason,interruption_detail_json,interrupted_at_unix_ms)
 VALUES (?,?,?,'{}','{"transition_parameters":{}}','interrupted','setup_failed',?,1000)`,
 		"task-setup", workflowGraphSeedID(t, db, "node-agent"), workflowGraphSeedID(t, db, "edge-start-1"), detail)
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err := Open(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 	var encoded string
 	if err := store.DB().QueryRowContext(t.Context(), `SELECT interruption_detail_json FROM task_current_nodes WHERE task_id='task-setup'`).Scan(&encoded); err != nil {
 		t.Fatal(err)

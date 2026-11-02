@@ -21,11 +21,16 @@ export type SessionChatTarget = Readonly<{
 }>;
 
 export type SessionChatOpeningIntent = "ordinary" | "native_window";
+export type HomeDestination =
+  | Readonly<{ kind: "inbox" }>
+  | Readonly<{ kind: "project"; projectID: string }>
+  | Readonly<{ kind: "settings" }>;
 
 export type AppNavigation = Readonly<{
   back(): Promise<void>;
   forward(): Promise<void>;
   openHome(): Promise<void>;
+  openSettings(): Promise<void>;
   selectHomeProject(projectID: string | null): Promise<void>;
   openProjectTasks(projectID: string): Promise<void>;
   openProject(projectID: string, workflowID?: string): Promise<void>;
@@ -107,6 +112,11 @@ export function useAppNavigation(): AppNavigation {
         }
         await runNavigation(async () => {
           await navigate({ to: "/", search: {} });
+        });
+      },
+      async openSettings() {
+        await runImmediateNavigation(async () => {
+          await navigate({ to: "/", search: { view: "settings" } });
         });
       },
       async selectHomeProject(projectID) {
@@ -227,7 +237,11 @@ export function useAppNavigation(): AppNavigation {
 }
 
 function isHomeLocation(pathname: string, searchStr: string, projectID: string | null): boolean {
-  return pathname === "/" && searchValue(searchStr, "projectId") === projectID;
+  return (
+    pathname === "/" &&
+    searchValue(searchStr, "view") === null &&
+    searchValue(searchStr, "projectId") === projectID
+  );
 }
 
 function searchValue(searchStr: string, key: string): string | null {

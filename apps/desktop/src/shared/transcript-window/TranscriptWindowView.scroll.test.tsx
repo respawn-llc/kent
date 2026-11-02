@@ -2,10 +2,11 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "bun:test";
 import { StrictMode } from "react";
 
-import { ChatTranscriptHost, TranscriptWindow } from "@/app-facade";
+import { TranscriptWindow } from "@/app-facade";
+import { TranscriptHarness } from "@/test-support/chat-runtime";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
-import { StaticMarkdown, StreamingMarkdown } from "@/ui";
+import { StaticMarkdown, StreamingMarkdown } from "@/ui/markdown";
 import { TranscriptWindowView } from "./TranscriptWindowView";
 
 it.each(["older", "newer"] as const)(
@@ -37,7 +38,6 @@ it.each(["older", "newer"] as const)(
       <TranscriptWindowView
         snapshot={window.snapshot}
         estimateSize={() => 40}
-        loadingLabel="Loading"
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={onInput}
@@ -80,7 +80,7 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
       return this.getAttribute("role") === "list" ? 600 : 400;
     },
   });
-  const host = new ChatTranscriptHost(
+  const host = new TranscriptHarness(
     {
       getTranscriptPage: vi.fn().mockResolvedValue(
         page(
@@ -101,7 +101,6 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
       snapshot={host.snapshot}
       presentationUpdate={host.presentationUpdate}
       estimateSize={() => 40}
-      loadingLabel="Loading"
       retryLabel="Retry"
       boundaryErrorMessage={(error) => error.message}
       onInput={vi.fn()}
@@ -125,7 +124,13 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
           3,
         ),
         ActiveAssistants: [
-          { StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" },
+          {
+            StepID: "step",
+            StreamID: "stream",
+            Phase: "commentary",
+            Text: "Live response",
+            SourceState: "streaming",
+          },
         ],
       });
       view.rerender(content());
@@ -153,7 +158,7 @@ it.each(["following", "reading", "historical-end"])(
   "preserves %s through live compaction hydration",
   async (position) => {
     const geometry = installVirtualizedScrollGeometry(600);
-    const host = new ChatTranscriptHost(
+    const host = new TranscriptHarness(
       {
         getTranscriptPage: vi
           .fn()
@@ -181,7 +186,6 @@ it.each(["following", "reading", "historical-end"])(
         snapshot={host.snapshot}
         presentationUpdate={host.presentationUpdate}
         estimateSize={() => 40}
-        loadingLabel="Loading"
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={vi.fn()}
@@ -250,7 +254,15 @@ function streamingView(history: readonly ReturnType<typeof row>[]) {
     kind: "initial-hydration",
     hydration: {
       ...hydration(history),
-      ActiveAssistants: [{ StepID: "step", StreamID: "stream", Phase: "commentary", Text: "Live response" }],
+      ActiveAssistants: [
+        {
+          StepID: "step",
+          StreamID: "stream",
+          Phase: "commentary",
+          Text: "Live response",
+          SourceState: "streaming",
+        },
+      ],
     },
   });
   const onInput = vi.fn();
@@ -258,7 +270,6 @@ function streamingView(history: readonly ReturnType<typeof row>[]) {
     <TranscriptWindowView
       snapshot={window.snapshot}
       estimateSize={() => 40}
-      loadingLabel="Loading"
       retryLabel="Retry"
       boundaryErrorMessage={(error) => error.message}
       onInput={onInput}
@@ -456,7 +467,6 @@ it("keeps viewport compensation and measured content geometry in the same resize
       <TranscriptWindowView
         snapshot={window.snapshot}
         estimateSize={() => 40}
-        loadingLabel="Loading"
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={vi.fn()}
@@ -603,7 +613,6 @@ it("opens at the bottom and keeps the latest content clear as composer padding g
           bottomInset={bottomInset}
           snapshot={window.snapshot}
           estimateSize={() => 40}
-          loadingLabel="Loading"
           retryLabel="Retry"
           boundaryErrorMessage={(error) => error.message}
           onInput={vi.fn()}

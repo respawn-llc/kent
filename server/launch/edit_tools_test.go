@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/serverapi"
 	"core/shared/textutil"

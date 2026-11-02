@@ -1,0 +1,191 @@
+package session
+
+import (
+	"context"
+	"sync"
+	"testing"
+
+	"core/internal/testharness/recordstore"
+	"core/shared/sessioncontract"
+)
+
+const testSessionCategory = sessioncontract.SessionCategoryMain
+
+type testSessionMetadata struct {
+	records map[string]PersistedSessionRecord
+	store   *recordstore.Store[PersistedSessionRecord]
+	once    sync.Once
+}
+
+var sessionTestPersistence = &testSessionMetadata{records: map[string]PersistedSessionRecord{}}
+
+func (p *testSessionMetadata) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
+	contextFacts := snapshot.ContextFacts.Clone()
+	if existing, ok := p.sharedStore().Get(snapshot.Meta.SessionID); ok {
+		contextFacts = existing.ContextFacts.Clone()
+	}
+	p.sharedStore().Put(snapshot.Meta.SessionID, PersistedSessionRecord{
+		SessionDir:   snapshot.SessionDir,
+		Meta:         cloneTestMeta(&snapshot.Meta),
+		ContextFacts: contextFacts,
+	})
+	return CommitReceipt{Committed: true}, nil
+}
+
+func (p *testSessionMetadata) WriteSessionContextFacts(
+	_ context.Context,
+	sessionID string,
+	facts SessionContextFacts,
+) error {
+	record, ok := p.sharedStore().Get(sessionID)
+	if !ok {
+		return ErrSessionNotFound
+	}
+	record.ContextFacts = facts.Clone()
+	p.sharedStore().Put(sessionID, record)
+	return nil
+}
+
+func (p *testSessionMetadata) WriteManualCompactEligibility(
+	_ context.Context,
+	sessionID string,
+	eligible bool,
+) error {
+	record, ok := p.sharedStore().Get(sessionID)
+	if !ok {
+		return ErrSessionNotFound
+	}
+	record.ContextFacts.ManualCompactEligible = &eligible
+	p.sharedStore().Put(sessionID, record)
+	return nil
+}
+
+func (p *testSessionMetadata) ObserveEventLogReconciliation(_ context.Context, reconciliation PersistedEventLogReconciliation) error {
+	record, ok := p.sharedStore().Get(reconciliation.SessionID)
+	if !ok {
+		return ErrSessionNotFound
+	}
+	invalidateUsageState, err := reconciliation.UsageState.InvalidatesUsageState()
+	if err != nil {
+		return err
+	}
+	meta := cloneTestMeta(record.Meta)
+	if meta.LastSequence != reconciliation.ObservedLastSequence {
+		return EventLogReconciliationConflictError{
+			SessionID:            reconciliation.SessionID,
+			ObservedLastSequence: reconciliation.ObservedLastSequence,
+			CurrentLastSequence:  meta.LastSequence,
+		}
+	}
+	meta.LastSequence = reconciliation.LastSequence
+	meta.ConversationEstablished = reconciliation.ConversationEstablished
+	meta.UpdatedAt = reconciliation.UpdatedAt
+	if invalidateUsageState {
+		meta.UsageState = nil
+	}
+	record.Meta = meta
+	p.sharedStore().Put(reconciliation.SessionID, record)
+	return nil
+}
+
+func (p *testSessionMetadata) ResolvePersistedSession(_ context.Context, sessionID string) (PersistedSessionRecord, error) {
+	record, ok := p.sharedStore().Get(sessionID)
+	if !ok {
+		return PersistedSessionRecord{}, ErrSessionNotFound
+	}
+	return record, nil
+}
+
+func (p *testSessionMetadata) sharedStore() *recordstore.Store[PersistedSessionRecord] {
+	p.once.Do(func() {
+		p.store = recordstore.NewWithRecords(p.records, cloneTestPersistedSessionRecord)
+	})
+	return p.store
+}
+
+func cloneTestPersistedSessionRecord(record PersistedSessionRecord) PersistedSessionRecord {
+	record.Meta = cloneTestMeta(record.Meta)
+	record.ContextFacts = record.ContextFacts.Clone()
+	return record
+}
+
+func cloneTestMeta(meta *Meta) *Meta {
+	if meta == nil {
+		return nil
+	}
+	cloned := *meta
+	return &cloned
+}
+
+func storeTestMeta(store *Store) Meta {
+	return store.metaSnapshot().meta
+}
+
+func (p *testSessionMetadata) options() []StoreOption {
+	return []StoreOption{
+		WithPersistenceObserver(p),
+		WithPersistedSessionResolver(p),
+		WithSessionContextFactWriter(p),
+	}
+}
+
+func newSessionTestStore(t *testing.T) *Store {
+	t.Helper()
+	return newSessionTestStoreAt(t, t.TempDir())
+}
+
+func newSessionTestStoreAt(t *testing.T, root string) *Store {
+	t.Helper()
+	store, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory, sessionTestPersistence.options()...)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	if err := store.EnsureDurable(); err != nil {
+		t.Fatalf("persist store: %v", err)
+	}
+	return store
+}
+
+func newSessionTestLazyStore(t *testing.T) *Store {
+	t.Helper()
+	return newSessionTestLazyStoreAt(t, t.TempDir())
+}
+
+func newSessionTestLazyStoreAt(t *testing.T, root string) *Store {
+	t.Helper()
+	store, err := NewLazy(root, "workspace-x", "/tmp/work", testSessionCategory, sessionTestPersistence.options()...)
+	if err != nil {
+		t.Fatalf("new lazy store: %v", err)
+	}
+	return store
+}
+
+func openSessionTestStore(store *Store) (*Store, error) {
+	return Open(store.Dir(), sessionTestPersistence.options()...)
+}
+
+func mustOpenSessionTestStore(t *testing.T, store *Store) *Store {
+	t.Helper()
+	opened, err := openSessionTestStore(store)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	return opened
+}
+
+func mustMaterializeSessionTestEventLog(t *testing.T, store *Store) MaterializedEventLog {
+	t.Helper()
+	log, err := store.MaterializeEventLog()
+	if err != nil {
+		t.Fatalf("materialize event log: %v", err)
+	}
+	return log
+}
+
+func sessionTestMessage(role MessageRole, content string) MessageRecord {
+	return MessageRecord{Role: role, Content: &content}
+}
+
+func sessionTestStringPointer(value string) *string {
+	return &value
+}

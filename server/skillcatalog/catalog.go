@@ -35,15 +35,6 @@ type Options struct {
 	IncludeEmbeddedGenerated bool
 }
 
-type Skill struct {
-	Name        string
-	Description string
-	Path        string
-	SourceKind  SourceKind
-	Disabled    bool
-	Shadowed    bool
-}
-
 type Issue struct {
 	Name       string
 	Path       string
@@ -51,22 +42,75 @@ type Issue struct {
 	Reason     string
 }
 
+type FailureKind uint8
+
+const (
+	FailureDirectory FailureKind = iota + 1
+	FailureFile
+	FailureDuplicate
+)
+
+type Failure struct {
+	Kind   FailureKind
+	Reason string
+}
+
 type Inspection struct {
 	Name        string
 	Description string
 	Path        string
 	SourceKind  SourceKind
-	Loaded      bool
 	Disabled    bool
 	Shadowed    bool
-	Reason      string
+	Failure     *Failure
+}
+
+func (i Inspection) Loaded() bool {
+	return i.Failure == nil
 }
 
 type Result struct {
-	Roots       []Root
-	Skills      []Skill
-	Issues      []Issue
 	Inspections []Inspection
+}
+
+func (r Result) PromptSkills() []Inspection {
+	skills := make([]Inspection, 0, len(r.Inspections))
+	for _, inspection := range r.Inspections {
+		if inspection.Loaded() && !inspection.Disabled && !inspection.Shadowed {
+			skills = append(skills, inspection)
+		}
+	}
+	return skills
+}
+
+func (r Result) DiscoveryWarnings() []Issue {
+	var issues []Issue
+	for _, inspection := range r.Inspections {
+		if inspection.Failure != nil && inspection.Failure.Kind == FailureDirectory {
+			issues = append(issues, Issue{
+				Name: inspection.Name, Path: filepath.ToSlash(filepath.Dir(inspection.Path)),
+				SourceKind: inspection.SourceKind, Reason: inspection.Failure.Reason,
+			})
+		}
+	}
+	return issues
+}
+
+func (r Result) StatusInspections() []Inspection {
+	inspections := append([]Inspection(nil), r.Inspections...)
+	sort.Slice(inspections, func(i, j int) bool {
+		if inspections[i].Shadowed != inspections[j].Shadowed {
+			return !inspections[i].Shadowed && inspections[j].Shadowed
+		}
+		if inspections[i].Disabled != inspections[j].Disabled {
+			return !inspections[i].Disabled && inspections[j].Disabled
+		}
+		if inspections[i].Loaded() != inspections[j].Loaded() {
+			return inspections[i].Loaded() && !inspections[j].Loaded()
+		}
+		return inspections[i].Path < inspections[j].Path
+	})
+	return inspections
 }
 
 type Root struct {
@@ -84,90 +128,47 @@ func Discover(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	candidates := make([]Skill, 0)
-	issues := make([]Issue, 0)
 	inspections := make([]Inspection, 0)
 	seenLoadedPaths := map[string]bool{}
 	userSkillNames := map[string]bool{}
 	for _, root := range roots {
-		rootInspections, rootSkills, rootIssues, err := discoverRoot(root, opts.IncludeEmbeddedGenerated)
+		rootInspections, err := discoverRoot(root, opts.IncludeEmbeddedGenerated)
 		if err != nil {
 			return Result{}, err
 		}
 		for _, inspection := range rootInspections {
-			if inspection.Loaded {
+			if inspection.Loaded() {
 				nameKey := brand.NormalizeSkillName(inspection.Name)
 				if !opts.Policy.SkillEnabled(nameKey) {
 					inspection.Disabled = true
 				}
 				if seenLoadedPaths[inspection.Path] {
-					inspection.Loaded = false
 					inspection.Disabled = false
-					inspection.Reason = "duplicate resolved SKILL.md path"
+					inspection.Failure = &Failure{Kind: FailureDuplicate, Reason: "duplicate resolved SKILL.md path"}
 				} else {
 					seenLoadedPaths[inspection.Path] = true
 				}
-				if inspection.Loaded && root.Kind != SourceKindGenerated {
+				if inspection.Loaded() && root.Kind != SourceKindGenerated {
 					userSkillNames[nameKey] = true
 				}
 			}
 			inspections = append(inspections, inspection)
 		}
-		candidates = append(candidates, rootSkills...)
-		issues = append(issues, rootIssues...)
 	}
 	for idx := range inspections {
-		if inspections[idx].Loaded && inspections[idx].SourceKind == SourceKindGenerated && userSkillNames[brand.NormalizeSkillName(inspections[idx].Name)] {
+		if inspections[idx].Loaded() && inspections[idx].SourceKind == SourceKindGenerated && userSkillNames[brand.NormalizeSkillName(inspections[idx].Name)] {
 			inspections[idx].Shadowed = true
 		}
 	}
-	loaded := make([]Skill, 0, len(candidates))
-	seenPaths := map[string]bool{}
-	for _, skill := range candidates {
-		nameKey := brand.NormalizeSkillName(skill.Name)
-		if !opts.Policy.SkillEnabled(nameKey) {
-			continue
-		}
-		if skill.SourceKind == SourceKindGenerated && userSkillNames[nameKey] {
-			continue
-		}
-		if seenPaths[skill.Path] {
-			continue
-		}
-		seenPaths[skill.Path] = true
-		loaded = append(loaded, skill)
-	}
-	sort.Slice(inspections, func(i, j int) bool {
-		if inspections[i].Shadowed != inspections[j].Shadowed {
-			return !inspections[i].Shadowed && inspections[j].Shadowed
-		}
-		if inspections[i].Disabled != inspections[j].Disabled {
-			return !inspections[i].Disabled && inspections[j].Disabled
-		}
-		if inspections[i].Loaded != inspections[j].Loaded {
-			return inspections[i].Loaded && !inspections[j].Loaded
-		}
-		return inspections[i].Path < inspections[j].Path
-	})
-	return Result{Roots: roots, Skills: loaded, Issues: issues, Inspections: inspections}, nil
+	return Result{Inspections: inspections}, nil
 }
 
 func DiscoverGenerated(configRoot string, policy brand.SkillPolicy) ([]Inspection, error) {
-	roots, err := Roots("", configRoot)
+	layout, err := prompts.GeneratedLayoutFor(configRoot)
 	if err != nil {
 		return nil, err
 	}
-	var generatedRoot *Root
-	for idx := range roots {
-		if roots[idx].Kind == SourceKindGenerated {
-			generatedRoot = &roots[idx]
-			break
-		}
-	}
-	if generatedRoot == nil {
-		return nil, nil
-	}
-	inspections, _, _, err := discoverEmbeddedGenerated(generatedRoot.Path)
+	inspections, err := discoverEmbeddedGenerated(layout.GeneratedSkillsRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -202,26 +203,25 @@ func Roots(workspaceRoot, configRoot string) ([]Root, error) {
 	return roots, nil
 }
 
-func discoverRoot(root Root, includeEmbeddedGenerated bool) ([]Inspection, []Skill, []Issue, error) {
+func discoverRoot(root Root, includeEmbeddedGenerated bool) ([]Inspection, error) {
 	if root.Kind == SourceKindGenerated && includeEmbeddedGenerated {
 		return discoverEmbeddedGenerated(root.Path)
 	}
 	entries, err := os.ReadDir(root.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, nil, nil
+			return nil, nil
 		}
-		return nil, nil, nil, fmt.Errorf("%w %q: %w", ErrReadSkillsDirectory, root.Path, err)
+		return nil, fmt.Errorf("%w %q: %w", ErrReadSkillsDirectory, root.Path, err)
 	}
 	inspections := make([]Inspection, 0)
-	skills := make([]Skill, 0)
-	issues := make([]Issue, 0)
 	for _, entry := range entries {
 		resolution := resolveSkillDir(root.Path, entry)
-		if resolution.Issue != nil {
-			issue := Issue{Name: resolution.Issue.Name, Path: resolution.Issue.Path, SourceKind: root.Kind, Reason: resolution.Issue.Reason}
-			issues = append(issues, issue)
-			inspections = append(inspections, Inspection{Name: issue.Name, Path: filepath.ToSlash(filepath.Join(issue.Path, SkillFileName)), SourceKind: root.Kind, Reason: issue.Reason})
+		if resolution.Failure != nil {
+			inspections = append(inspections, Inspection{
+				Name: sanitizeSkillSingleLine(entry.Name()), Path: filepath.ToSlash(filepath.Join(root.Path, entry.Name(), SkillFileName)),
+				SourceKind: root.Kind, Failure: resolution.Failure,
+			})
 		}
 		if !resolution.Discoverable {
 			continue
@@ -230,20 +230,16 @@ func discoverRoot(root Root, includeEmbeddedGenerated bool) ([]Inspection, []Ski
 		inspection := InspectSkillAtPath(entry.Name(), skillPath)
 		inspection.SourceKind = root.Kind
 		inspections = append(inspections, inspection)
-		if inspection.Loaded {
-			skills = append(skills, Skill{Name: inspection.Name, Description: inspection.Description, Path: inspection.Path, SourceKind: root.Kind})
-		}
 	}
-	return inspections, skills, issues, nil
+	return inspections, nil
 }
 
-func discoverEmbeddedGenerated(projectedRoot string) ([]Inspection, []Skill, []Issue, error) {
+func discoverEmbeddedGenerated(projectedRoot string) ([]Inspection, error) {
 	entries, err := fs.ReadDir(prompts.GeneratedSkillsFS, SkillsDirName)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("%w embedded generated skills: %w", ErrReadSkillsDirectory, err)
+		return nil, fmt.Errorf("%w embedded generated skills: %w", ErrReadSkillsDirectory, err)
 	}
 	inspections := make([]Inspection, 0, len(entries))
-	skills := make([]Skill, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -257,24 +253,21 @@ func discoverEmbeddedGenerated(projectedRoot string) ([]Inspection, []Skill, []I
 		inspection := inspectSkillContents(entry.Name(), projectedPath, string(contents))
 		inspection.SourceKind = SourceKindGenerated
 		inspections = append(inspections, inspection)
-		if inspection.Loaded {
-			skills = append(skills, Skill{Name: inspection.Name, Description: inspection.Description, Path: inspection.Path, SourceKind: SourceKindGenerated})
-		}
 	}
-	return inspections, skills, nil, nil
+	return inspections, nil
 }
 
 type skillDirResolution struct {
 	SkillDir     string
 	Discoverable bool
-	Issue        *Issue
+	Failure      *Failure
 }
 
 func resolveSkillDir(root string, entry os.DirEntry) skillDirResolution {
 	skillDir := filepath.Join(root, entry.Name())
 	info, err := os.Lstat(skillDir)
 	if err != nil {
-		return skillDirResolution{Issue: &Issue{Name: sanitizeSkillSingleLine(entry.Name()), Path: filepath.ToSlash(skillDir), Reason: formatSkillDirResolutionFailure(err)}}
+		return skillDirResolution{Failure: &Failure{Kind: FailureDirectory, Reason: formatSkillDirResolutionFailure(err)}}
 	}
 	if info.IsDir() {
 		return skillDirResolution{SkillDir: skillDir, Discoverable: true}
@@ -284,12 +277,12 @@ func resolveSkillDir(root string, entry os.DirEntry) skillDirResolution {
 	}
 	targetInfo, err := os.Stat(skillDir)
 	if err != nil {
-		return skillDirResolution{Issue: &Issue{Name: sanitizeSkillSingleLine(entry.Name()), Path: filepath.ToSlash(skillDir), Reason: formatSkillDirResolutionFailure(err)}}
+		return skillDirResolution{Failure: &Failure{Kind: FailureDirectory, Reason: formatSkillDirResolutionFailure(err)}}
 	}
 	if targetInfo.IsDir() {
 		return skillDirResolution{SkillDir: skillDir, Discoverable: true}
 	}
-	return skillDirResolution{Issue: &Issue{Name: sanitizeSkillSingleLine(entry.Name()), Path: filepath.ToSlash(skillDir), Reason: "symlink target is not a directory"}}
+	return skillDirResolution{Failure: &Failure{Kind: FailureDirectory, Reason: "symlink target is not a directory"}}
 }
 
 func formatSkillDirResolutionFailure(err error) string {
@@ -314,27 +307,19 @@ func InspectSkillAtPath(fallbackName, skillPath string) Inspection {
 		if os.IsNotExist(err) {
 			reason = "missing SKILL.md"
 		}
-		return Inspection{Name: sanitizeSkillSingleLine(fallbackName), Path: resolvedPath, Reason: reason}
+		return Inspection{Name: sanitizeSkillSingleLine(fallbackName), Path: resolvedPath, Failure: &Failure{Kind: FailureFile, Reason: reason}}
 	}
 	return inspectSkillContents(fallbackName, resolvedPath, string(contents))
-}
-
-func ParseSkillMetadata(path string) (Skill, bool) {
-	inspection := InspectSkillAtPath(filepath.Base(filepath.Dir(path)), path)
-	if !inspection.Loaded {
-		return Skill{}, false
-	}
-	return Skill{Name: inspection.Name, Description: inspection.Description, Path: inspection.Path}, true
 }
 
 func inspectSkillContents(fallbackName, resolvedPath, contents string) Inspection {
 	frontmatter, ok := extractSkillFrontmatter(contents)
 	if !ok {
-		return Inspection{Name: sanitizeSkillSingleLine(fallbackName), Path: resolvedPath, Reason: "missing or invalid frontmatter"}
+		return Inspection{Name: sanitizeSkillSingleLine(fallbackName), Path: resolvedPath, Failure: &Failure{Kind: FailureFile, Reason: "missing or invalid frontmatter"}}
 	}
 	var parsed skillFrontmatter
 	if err := yaml.Unmarshal([]byte(frontmatter), &parsed); err != nil {
-		return Inspection{Name: sanitizeSkillSingleLine(fallbackName), Path: resolvedPath, Reason: "invalid frontmatter YAML"}
+		return Inspection{Name: sanitizeSkillSingleLine(fallbackName), Path: resolvedPath, Failure: &Failure{Kind: FailureFile, Reason: "invalid frontmatter YAML"}}
 	}
 	name := sanitizeSkillSingleLine(parsed.Name)
 	if name == "" {
@@ -342,9 +327,9 @@ func inspectSkillContents(fallbackName, resolvedPath, contents string) Inspectio
 	}
 	description := sanitizeSkillSingleLine(parsed.Description)
 	if name == "" || description == "" {
-		return Inspection{Name: name, Path: resolvedPath, Reason: "missing name or description"}
+		return Inspection{Name: name, Path: resolvedPath, Failure: &Failure{Kind: FailureFile, Reason: "missing name or description"}}
 	}
-	return Inspection{Name: name, Description: description, Path: resolvedPath, Loaded: true}
+	return Inspection{Name: name, Description: description, Path: resolvedPath}
 }
 
 func extractSkillFrontmatter(contents string) (string, bool) {

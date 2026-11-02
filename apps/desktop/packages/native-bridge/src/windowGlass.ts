@@ -1,3 +1,8 @@
+export type NativeWindowGlassStatus =
+  | Readonly<{ status: "applied"; effect: string }>
+  | Readonly<{ status: "unsupported"; reason: string }>
+  | Readonly<{ status: "disabledByPreferences" }>;
+
 export type NativeWindowGlassTint = Readonly<{
   red: number;
   green: number;

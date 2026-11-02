@@ -57,12 +57,49 @@ func TestAskEventDefersWhileDetailModeActive(t *testing.T) {
 		t.Fatalf("expected ask prompt visible after returning to ongoing mode, got %q", view)
 	}
 
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*uiModel)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireQuestionAnswerEntry(t, request)
 	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
-		t.Fatalf("expected first option selected by default, got %+v", request)
+		t.Fatalf("expected explicitly selected first option, got %+v", request)
+	}
+}
+
+func TestAskDeferredOversizedPromptReturnsDirectlyToAsk(t *testing.T) {
+	model := sizedTestUIModel(newProjectedStaticUIModel(), 80, 12)
+	model = updateUIModel(t, model, tea.KeyMsg{Type: tea.KeyShiftTab})
+	model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent(
+		"deferred-long", strings.Repeat("Question paragraph.\n\n", 20), "Continue",
+	)})
+	if model.surface() != uiSurfaceTranscriptDetail || model.inputMode() != uiInputModeMain {
+		t.Fatal("hidden prompt changed detail focus")
+	}
+	next, command := model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	model = next.(*uiModel)
+	if model.surface() != uiSurfaceAsk || model.inputMode() != uiInputModeAsk || !model.altScreenActive {
+		t.Fatal("return from detail did not choose the dedicated destination")
+	}
+	if command != nil {
+		t.Fatal("detail-to-ask unexpectedly exited or re-entered alt-screen")
+	}
+}
+
+func TestAskResolutionBehindProcessListKeepsItsInputMode(t *testing.T) {
+	model := sizedTestUIModel(newProjectedStaticUIModel(), 80, 12)
+	model.openProcessList()
+	model.activateSurface(uiSurfaceProcessList)
+	model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent("deferred-first", "Question", "Continue")})
+	model = updateUIModel(t, model, askEventMsg{event: testQuestionAskEvent("deferred-next", "Question", "Continue")})
+	model = updateUIModel(t, model, askEventMsg{event: askEvent{resolvedToolCallID: "deferred-first"}})
+	if model.surface() != uiSurfaceProcessList || model.inputMode() != uiInputModeProcessList {
+		t.Fatal("deferred FIFO activation stole process-list input")
+	}
+	model = updateUIModel(t, model, askEventMsg{event: askEvent{resolvedToolCallID: "deferred-next"}})
+	if model.surface() != uiSurfaceProcessList || model.inputMode() != uiInputModeProcessList || model.ask.hasCurrent() {
+		t.Fatal("final deferred resolution changed process-list input")
 	}
 }
 
@@ -110,12 +147,14 @@ func TestAskEventDefersWhileProcessListOverlayIsOpen(t *testing.T) {
 		t.Fatalf("expected deferred ask prompt visible after closing process list, got %q", view)
 	}
 
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*uiModel)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireQuestionAnswerEntry(t, request)
 	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
-		t.Fatalf("expected first option selected by default, got %+v", request)
+		t.Fatalf("expected explicitly selected first option, got %+v", request)
 	}
 }
 

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -60,12 +61,14 @@ func TestPendingWorkRefreshTriggersUseCapturedSession(t *testing.T) {
 				runtimeTupleMergeResult{})
 		}},
 		{"Send/Steer", false, func(m *uiModel, _ runtimeids.SessionID) {
-			m.activeSubmit = activeSubmitState{token: 1}
-			m.inputController().handleSubmitDone(submitDoneMsg{token: 1})
+			m.enqueueInput("send", runtimeinput.Text("send"), runtimeinput.PendingWorkLaneSteer)
+			pending := m.injectedQueue[0]
+			m.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{pending: pending, item: clientui.QueuedUserMessage{ID: pending.Request.QueueItemID.String()}})
 		}},
 		{"Queue", false, func(m *uiModel, _ runtimeids.SessionID) {
-			m.injectedQueue = []*injectedRuntimeQueueItem{{State: injectedRuntimeQueuePendingCreate}}
-			m.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{pending: m.injectedQueue[0], completed: true})
+			m.enqueueInput("queue", runtimeinput.Text("queue"), runtimeinput.PendingWorkLaneQueue)
+			pending := m.injectedQueue[0]
+			m.inputController().handleInjectedQueueCreateDone(injectedQueueCreateDoneMsg{pending: pending, item: clientui.QueuedUserMessage{ID: pending.Request.QueueItemID.String()}})
 		}},
 		{"compact", true, func(m *uiModel, id runtimeids.SessionID) {
 			m.inputController().handleCompactDone(compactDoneMsg{sessionID: id})
@@ -78,10 +81,7 @@ func TestPendingWorkRefreshTriggersUseCapturedSession(t *testing.T) {
 				ack:        &worktreepb.ScheduledAcknowledgement{OperationId: runtimeids.NewQueueItemID().String()},
 			})
 		}},
-		{"remove", false, func(m *uiModel, _ runtimeids.SessionID) {
-			m.injectedQueue = []*injectedRuntimeQueueItem{{State: injectedRuntimeQueueDiscardPending}}
-			m.inputController().handleInjectedQueueDiscardDone(injectedQueueDiscardDoneMsg{item: m.injectedQueue[0], discarded: true})
-		}}}
+	}
 	for _, trigger := range triggers {
 		for _, captured := range []runtimeids.SessionID{sessionID, runtimeids.NewSessionID()} {
 			m := newProjectedStaticUIModel()

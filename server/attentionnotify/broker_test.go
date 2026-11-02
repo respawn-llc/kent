@@ -7,9 +7,27 @@ import (
 	"time"
 
 	"core/shared/clientui"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
+
+func TestTurnEndReachesGlobalAndMatchingSessionOnly(t *testing.T) {
+	fixture := newBrokerFixture(t)
+	global := fixture.subscribeDesktop()
+	matching := fixture.subscribeSession("session-1")
+	other := fixture.subscribeSession("session-2")
+	if err := fixture.PublishSessionTurnEnd(&attentionpb.SessionTurnEnd{SessionId: "session-1", ProjectId: "project-1"}); err != nil {
+		t.Fatal(err)
+	}
+	first, second := fixture.next(global), fixture.next(matching)
+	if first.Type != clientui.AttentionNotificationEventSessionTurnEnd || first.SessionTurnEnd == nil ||
+		second.Sequence != first.Sequence || second.SessionTurnEnd.SessionId != "session-1" {
+		t.Fatalf("turn-end routing = %+v, %+v", first, second)
+	}
+	fixture.requireNoEvent(other, "another Session received completion")
+	fixture.requireNoEvent(fixture.subscribeDesktop(), "completion replayed to a later subscriber")
+}
 
 func TestBrokerDeliversTaskDetailPendingAndTargetlessResolvedToDesktop(t *testing.T) {
 	fixture := newBrokerFixture(t)

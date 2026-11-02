@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/subagentpolicy"
 	"core/shared/textutil"
 )

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"core/server/launch"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/runtimeids"

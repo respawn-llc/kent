@@ -120,8 +120,15 @@ func (s *Store) PlanTaskResume(ctx context.Context, taskID workflow.TaskID, refe
 	if err != nil {
 		return TaskResumePlan{}, err
 	}
-	if err := s.preflightInitialExecution(definition); err != nil {
-		return TaskResumePlan{}, err
+	executionNodes := make(map[workflow.NodeID]bool, len(selected))
+	for _, node := range selected {
+		executionNodes[node.Reference.NodeID] = true
+	}
+	validation := workflow.ValidateDefinition(definition, workflow.ValidationOptions{
+		Context: workflow.ValidationContextExecution, RoleResolver: s.roleResolver, ExecutionNodes: executionNodes,
+	})
+	if validation.HasBlockingErrors() {
+		return TaskResumePlan{}, WorkflowValidationError{Diagnostics: validation.BlockingErrors()}
 	}
 	plan, err := s.planTaskExecution(ctx, task, record.Version, selected, selected, candidate)
 	return TaskResumePlan{plan: plan}, err

@@ -15,6 +15,10 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::mpsc;
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 
+#[cfg(target_os = "macos")]
+#[path = "speech_macos.rs"]
+pub(super) mod macos;
+
 #[derive(Default)]
 pub struct SpeechState {
     next: AtomicU64,
@@ -28,6 +32,8 @@ struct Recording {
     max_bytes: u64,
     cancel: CancellationToken,
     upload: Option<Upload>,
+    #[cfg(target_os = "macos")]
+    microphone: Option<macos::Microphone>,
 }
 
 struct Upload {
@@ -150,6 +156,8 @@ pub async fn speech_create(
                 sender: Some(sender),
                 result: upload,
             }),
+            #[cfg(target_os = "macos")]
+            microphone: None,
         },
     );
     Ok(Capture { handle, path })
@@ -164,11 +172,15 @@ pub async fn speech_append(
 ) -> Result<Written, String> {
     let mut recordings = state.recordings.lock().map_err(|e| e.to_string())?;
     let recording = owned(&mut recordings, handle, &window)?;
+    append(recording, &bytes)
+}
+
+fn append(recording: &mut Recording, bytes: &[u8]) -> Result<Written, String> {
     let file = recording
         .file
         .as_mut()
         .ok_or("Recording is already finalized")?;
-    file.write_all(&bytes).map_err(|e| {
+    file.write_all(bytes).map_err(|e| {
         format!(
             "Recording write failed at {}: {e}",
             recording.source.path.display()
@@ -373,6 +385,8 @@ pub async fn speech_upload_original(
                 sender: None,
                 result,
             }),
+            #[cfg(target_os = "macos")]
+            microphone: None,
         },
     );
     Ok(handle)

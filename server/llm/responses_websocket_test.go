@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	session "core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/textutil"
 	"github.com/coder/websocket"
@@ -21,63 +22,241 @@ import (
 	sdkwebsocket "github.com/openai/openai-go/v3/packages/websocket"
 )
 
-func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T) {
-	native := json.RawMessage(`{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}],"provider_extension":{"opaque":"retained"}}`)
-	next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)
-	var turns int
+func TestAssistantMessageSourceCompletesBeforeResponseAcceptance(t *testing.T) {
+	source := `{"type":"message","id":"source","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"message","annotations":[]},{"type":"output_text","text":" continuation","annotations":[]}]}`
+	completed := make(chan AssistantSource)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
-			turns++
-			var create struct {
-				Input    []json.RawMessage `json:"input"`
-				Previous *string           `json:"previous_response_id"`
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(t.Context()); err != nil {
+			return
+		}
+		events := []string{
+			fmt.Sprintf(`{"type":"response.output_item.added","output_index":2,"item":%s}`, source),
+			`{"type":"response.output_text.delta","output_index":2,"delta":"message"}`,
+			`{"type":"response.output_text.done","output_index":2,"text":"message"}`,
+			`{"type":"response.output_text.delta","output_index":2,"content_index":1,"delta":" continuation"}`,
+			`{"type":"response.output_text.done","output_index":2,"content_index":1,"text":" continuation"}`,
+			fmt.Sprintf(`{"type":"response.output_item.done","output_index":2,"item":%s}`, source),
+		}
+		for _, event := range events {
+			if err := socket.Write(t.Context(), websocket.MessageText, []byte(event)); err != nil {
+				return
 			}
-			if err := json.Unmarshal(raw, &create); err != nil {
-				t.Error(err)
+		}
+		select {
+		case result := <-completed:
+			if result.Text != "message continuation" || result.OutputIndex != 2 || result.Phase != MessagePhaseCommentary {
+				t.Errorf("source completion lost message identity or content: %+v", result)
 			}
-			if turns == 2 {
-				if create.Previous == nil || *create.Previous != "response-native" || len(create.Input) != 1 {
-					t.Errorf("next request retransmitted prefix: %s", raw)
-				}
-				if len(create.Input) == 1 && !bytes.Equal(create.Input[0], next) {
-					t.Errorf("new input missing: %s", raw)
-				}
-			}
-			if turns == 3 && (create.Previous != nil || len(create.Input) != 4) {
-				t.Errorf("changed controls did not reset to full context: %s", raw)
-			}
-			if turns == 4 && (create.Previous != nil || len(create.Input) != 1) {
-				t.Errorf("replacement context did not reset: %s", raw)
-			}
-			return []string{fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
-		})
+		case <-time.After(5 * time.Second):
+			return
+		}
+		_ = socket.Write(t.Context(), websocket.MessageText, []byte(fmt.Sprintf(
+			`{"type":"response.completed","response":{"id":"completed","output":[%s]}}`, source)))
 	}))
 	defer server.Close()
-	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
-	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
-	transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+	transport := newCanonicalOAuthTestTransport(t, server)
 	defer transport.Close()
-	request := ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic,
-		Items: []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"first"}]}`)}},
-	}
-	response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	_, err := transport.Generate(ctx, ResponsesRequest{
+		Model: "gpt-6-sol", ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic,
+		SessionID: textutil.Value("session-1"), CodexDispatch: newTestCodexDispatch(t),
+	}, StreamCallbacks{OnAssistantSourceComplete: func(source AssistantSource) { completed <- source }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Items = append(request.Items, response.OutputItems...)
-	request.Items = append(request.Items, ResponseItem{Raw: next})
-	response, err = transport.Generate(t.Context(), request, StreamCallbacks{})
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestResponsesSocketTurnCompletion(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		endTurn   json.RawMessage
+		want      bool
+		wantError bool
+	}{
+		{name: "omitted", want: true},
+		{name: "true", endTurn: json.RawMessage(`true`), want: true},
+		{name: "false", endTurn: json.RawMessage(`false`), want: false},
+		{name: "null", endTurn: json.RawMessage(`null`), want: true},
+		{name: "invalid", endTurn: json.RawMessage(`"false"`), wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := map[string]any{"id": "empty", "status": "completed", "output": []any{}}
+			if test.endTurn != nil {
+				response["end_turn"] = test.endTurn
+			}
+			event, err := json.Marshal(map[string]any{"type": "response.completed", "response": response})
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+					return []string{string(event)}
+				})
+			}))
+			defer server.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{
+				Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL),
+			})
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			defer transport.Close()
+			result, err := transport.Generate(t.Context(), ResponsesRequest{
+				Model: "gpt-6-sol", SessionID: textutil.Value("session"),
+				ReasoningEffort: "high", ToolChoiceMode: ToolChoiceModeAutomatic,
+			}, StreamCallbacks{})
+			if test.wantError {
+				if err == nil {
+					t.Fatal("invalid completion metadata was accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.EndTurn == nil || *result.EndTurn != test.want {
+				t.Fatalf("turn completion = %v, want %v", result.EndTurn, test.want)
+			}
+		})
 	}
-	request.Items = append(request.Items, response.OutputItems...)
-	request.MaxTokens = 256
-	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
-		t.Fatal(err)
+}
+
+func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T) {
+	for _, protocol := range []config.ConnectionProtocol{config.ConnectionResponses, config.ConnectionGrokAPIKey, config.ConnectionGrokOAuthAPI} {
+		t.Run(string(protocol), func(t *testing.T) {
+			native := json.RawMessage(`{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}],"provider_extension":{"opaque":"retained"}}`)
+			next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)
+			var turns int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+					turns++
+					var create struct {
+						Input        []json.RawMessage `json:"input"`
+						Previous     *string           `json:"previous_response_id"`
+						Instructions *string           `json:"instructions"`
+					}
+					if err := json.Unmarshal(raw, &create); err != nil {
+						t.Error(err)
+					}
+					wantInstructions := turns != 2 || protocol == config.ConnectionResponses
+					if (create.Instructions != nil) != wantInstructions {
+						t.Errorf("create instructions presence=%t want=%t: %s", create.Instructions != nil, wantInstructions, raw)
+					}
+					if turns == 2 {
+						if create.Previous == nil || *create.Previous != "response-native" || len(create.Input) != 1 {
+							t.Errorf("next request retransmitted prefix: %s", raw)
+						}
+						if len(create.Input) == 1 && !bytes.Equal(create.Input[0], next) {
+							t.Errorf("new input missing: %s", raw)
+						}
+					}
+					if turns == 3 && (create.Previous != nil || len(create.Input) != 4) {
+						t.Errorf("changed controls did not reset to full context: %s", raw)
+					}
+					if turns == 4 && (create.Previous != nil || len(create.Input) != 1) {
+						t.Errorf("replacement context did not reset: %s", raw)
+					}
+					return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native), fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-native","output":[%s]}}`, native)}
+				})
+			}))
+			defer server.Close()
+			connection := config.ProviderConnection{Protocol: protocol}
+			if protocol == config.ConnectionResponses {
+				connection.Endpoint = textutil.Value(defaultOpenAIBaseURL)
+			} else if protocol == config.ConnectionGrokAPIKey {
+				connection.EnvironmentVariable = textutil.Value("KENT_TEST_GROK_KEY")
+			}
+			registration := testConnectionRegistration(t, connection)
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			defer transport.Close()
+			request := ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic,
+				SystemPrompt: "initial instructions",
+				Items:        []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"first"}]}`)}},
+			}
+			response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Items = append(request.Items, response.OutputItems...)
+			request.Items = append(request.Items, ResponseItem{Raw: next})
+			response, err = transport.Generate(t.Context(), request, StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Items = append(request.Items, response.OutputItems...)
+			request.SystemPrompt = "changed instructions"
+			if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+				t.Fatal(err)
+			}
+			request.Items = []ResponseItem{{Raw: next}}
+			if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
-	request.Items = []ResponseItem{{Raw: next}}
-	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
-		t.Fatal(err)
+}
+
+func TestResponsesSocketContinuesWithRequiredEmptyInput(t *testing.T) {
+	for _, emptyInitial := range []bool{false, true} {
+		t.Run(fmt.Sprintf("empty_initial=%t", emptyInitial), func(t *testing.T) {
+			var turns atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+					turn := turns.Add(1)
+					var create struct {
+						Input    *[]json.RawMessage `json:"input"`
+						Previous *string            `json:"previous_response_id"`
+					}
+					if err := json.Unmarshal(raw, &create); err != nil {
+						t.Error(err)
+					}
+					if create.Input == nil {
+						return []string{`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"missing_required_parameter","param":"input","message":"Missing required input"}}`}
+					}
+					wantItems := 0
+					if (turn == 1 && !emptyInitial) || turn == 4 {
+						wantItems = 1
+					}
+					if len(*create.Input) != wantItems {
+						t.Errorf("turn %d input items=%d, want %d", turn, len(*create.Input), wantItems)
+					}
+					if turn > 1 && (create.Previous == nil || *create.Previous != fmt.Sprintf("response-%d", turn-1)) {
+						t.Errorf("turn %d lost its continuation: %s", turn, raw)
+					}
+					native := fmt.Sprintf(`{"type":"message","id":"message-%d","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"continue","annotations":[]}]}`, turn)
+					return []string{
+						fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native),
+						fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-%d","end_turn":false,"output":[]}}`, turn),
+					}
+				})
+			}))
+			defer server.Close()
+			transport := newCanonicalOAuthTestTransport(t, server)
+			request := ResponsesRequest{
+				Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session-1"),
+				CodexDispatch: newTestCodexDispatch(t), ToolChoiceMode: ToolChoiceModeAutomatic,
+			}
+			user := ResponseItem{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"next"}]}`)}
+			if !emptyInitial {
+				request.Items = []ResponseItem{user}
+			}
+			for turn := 1; turn <= 4; turn++ {
+				if turn == 4 {
+					request.Items = append(request.Items, user)
+				}
+				response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+				if err != nil {
+					t.Fatalf("turn %d: %v", turn, err)
+				}
+				request.Items = append(request.Items, response.OutputItems...)
+			}
+		})
 	}
 }
 
@@ -87,7 +266,7 @@ func TestResponsesCompactionReplacesContextWithoutReplacingSocket(t *testing.T) 
 		if r.Header.Get("Upgrade") != "websocket" {
 			compactions.Add(1)
 			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"compacted","output":[{"type":"compaction","id":"checkpoint","encrypted_content":"encrypted"}]}}`+"\n\n")
+			_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"compaction\",\"id\":\"checkpoint\",\"encrypted_content\":\"encrypted\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compacted\",\"output\":[{\"type\":\"compaction\",\"id\":\"checkpoint\",\"encrypted_content\":\"encrypted\"}]}}"+"\n\n")
 			return
 		}
 		openings.Add(1)
@@ -207,6 +386,154 @@ func TestResponsesSocketErrorsRetainProviderFactsWithoutHandshakeStatus(t *testi
 	}
 }
 
+func TestResponsesSocketRejectsInvalidFramesBeforeTerminal(t *testing.T) {
+	for name, event := range map[string]string{
+		"malformed":        `{"type":`,
+		"numeric type":     `{"type":1,"error":{"code":"insufficient_quota"}}`,
+		"null type":        `{"type":null,"error":{"code":"insufficient_quota"}}`,
+		"empty type":       `{"type":"","error":{"code":"insufficient_quota"}}`,
+		"missing envelope": `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{event} })
+			}))
+			defer server.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: textutil.Value(defaultOpenAIBaseURL)})
+			registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+			transport := newTestHTTPTransport(t, staticAuthHeader{}, registration)
+			defer transport.Close()
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			_, err := transport.Generate(ctx, ResponsesRequest{Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session"), ToolChoiceMode: ToolChoiceModeAutomatic}, StreamCallbacks{})
+			if err == nil || errors.Is(err, context.DeadlineExceeded) || IsUsageExhaustionError(err) {
+				t.Fatalf("invalid frame did not fail promptly as a protocol failure: %v", err)
+			}
+		})
+	}
+}
+
+func TestResponsesOpeningRetainsRejectedUpgradeFacts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-request-id", "rejected-request")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error":{"code":"insufficient_quota","message":"unavailable"}}`)
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+	var failure *ProviderAPIError
+	if !errors.As(err, &failure) || !IsUsageExhaustionError(err) || failure.StatusCode == nil ||
+		*failure.StatusCode != http.StatusTooManyRequests || failure.ProviderRequestID == nil ||
+		*failure.ProviderRequestID != "rejected-request" || failure.ProviderCode != "insufficient_quota" {
+		t.Fatalf("rejected upgrade lost provider facts: %v", err)
+	}
+}
+
+func TestResponsesOpeningRejectsChangedOriginBeforeSendingCredentials(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("secure=%t", secure), func(t *testing.T) {
+			var destinationRequests atomic.Int32
+			destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				destinationRequests.Add(1)
+				w.WriteHeader(http.StatusForbidden)
+			}))
+			defer destination.Close()
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, destination.URL+"/v1/responses", http.StatusTemporaryRedirect)
+			})
+			origin := httptest.NewUnstartedServer(handler)
+			if secure {
+				origin.StartTLS()
+			} else {
+				origin.Start()
+			}
+			defer origin.Close()
+			registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+			registration.Variant.BaseURL = textutil.Value(origin.URL + "/v1")
+			transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+			transport.Client = origin.Client()
+			_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+			if err == nil || destinationRequests.Load() != 0 {
+				t.Fatalf("redirect sent selected credentials outside configured origin: requests=%d error=%v", destinationRequests.Load(), err)
+			}
+		})
+	}
+}
+
+func TestResponsesOpeningKeepsSameOriginRedirectAndCallerPolicy(t *testing.T) {
+	var redirects, openings atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/responses" {
+			http.Redirect(w, r, "/socket", http.StatusTemporaryRedirect)
+			return
+		}
+		openings.Add(1)
+		if r.Header.Get("Authorization") != "Bearer token" || r.Header.Get("ChatGPT-Account-Id") != "acc-1" ||
+			r.Header.Get("session-id") != "session-1" {
+			t.Error("redirect lost selected credential/account/Session headers")
+		}
+		serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string { return []string{completedResponseSSEJSON} })
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	transport.Client = server.Client()
+	transport.Client.CheckRedirect = func(*http.Request, []*http.Request) error { redirects.Add(1); return nil }
+	if _, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	if redirects.Load() != 1 || openings.Load() != 1 {
+		t.Fatal("same-origin opening lost the existing redirect policy")
+	}
+}
+
+func TestResponsesOpeningRejectsDowngradeBeforeCallerRedirectPolicy(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/socket", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	transport.Client = server.Client()
+	var callerPolicy atomic.Int32
+	transport.Client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		callerPolicy.Add(1)
+		return errors.New("caller received an insecure redirect")
+	}
+	_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+	if err == nil || callerPolicy.Load() != 0 {
+		t.Fatal("same-host/port downgrade passed the configured-origin boundary")
+	}
+}
+
+func TestResponsesOpeningRevalidatesAuthorityAfterCallerRedirectPolicy(t *testing.T) {
+	var redirectedRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/responses" {
+			http.Redirect(w, r, "/socket", http.StatusTemporaryRedirect)
+			return
+		}
+		redirectedRequests.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	registration := testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT})
+	registration.Variant.BaseURL = textutil.Value(server.URL + "/v1")
+	transport := newTestHTTPTransport(t, oauthStaticAuth{}, registration)
+	transport.Client = server.Client()
+	transport.Client.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		next.Host = "foreign.invalid"
+		return nil
+	}
+	_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{})
+	if err == nil || redirectedRequests.Load() != 0 {
+		t.Fatal("caller redirect policy changed HTTP authority before credential-bearing dispatch")
+	}
+}
+
 func TestFirstPartyResponsesStreamsThroughManagedWebsocket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -240,6 +567,9 @@ func TestFirstPartyResponsesStreamsThroughManagedWebsocket(t *testing.T) {
 			`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reasoning-native","delta":"plan"}`,
 			`{"type":"response.output_item.added","output_index":1,"item":{"type":"message","id":"native","role":"assistant","content":[]}}`,
 			`{"type":"response.output_text.delta","output_index":1,"delta":"answer"}`,
+			`{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reasoning-native","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"opaque"}}`,
+			`{"type":"response.output_item.done","output_index":1,"item":{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}]}}`,
+			`{"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"call-item","call_id":"call-native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}`,
 			`{"type":"response.completed","response":{"id":"resp-native","status":"completed","model":"gpt-6-sol","output":[{"type":"reasoning","id":"reasoning-native","summary":[{"type":"summary_text","text":"plan"}],"encrypted_content":"opaque"},{"type":"message","id":"native","role":"assistant","content":[{"type":"output_text","text":"answer","annotations":[]}]},{"type":"function_call","id":"call-item","call_id":"call-native","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}],"usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}}`,
 		} {
 			if err := socket.Write(ctx, websocket.MessageText, []byte(event)); err != nil {
@@ -415,5 +745,132 @@ func TestResponsesStopAbandonsOnlyActiveSocketAndNextCallStartsFresh(t *testing.
 	}
 	if openings.Load() != 2 || auth.calls.Load() != 2 {
 		t.Fatalf("fresh invocation: sockets=%d credentials=%d", openings.Load(), auth.calls.Load())
+	}
+}
+
+func TestResponsesSocketContinuesWithCommittedToolOutput(t *testing.T) {
+	call := json.RawMessage(`{"type":"function_call","id":"fc_first","call_id":"call_first","name":"exec_command","arguments":"{}","status":"completed"}`)
+	output := json.RawMessage(`{"type":"function_call_output","call_id":"call_first","output":"result"}`)
+	var turns int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			turns++
+			var create struct {
+				Input    []json.RawMessage `json:"input"`
+				Previous *string           `json:"previous_response_id"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Fatal(err)
+			}
+			if turns == 2 {
+				if create.Previous == nil || *create.Previous != "response-first" || len(create.Input) != 1 || !bytes.Equal(create.Input[0], output) {
+					t.Errorf("tool continuation lost committed output: %s", raw)
+				}
+				return []string{`{"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_final","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done","annotations":[]}]}}`, `{"type":"response.completed","response":{"id":"response-final","output":[]}}`}
+			}
+			return []string{fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, call), `{"type":"response.completed","response":{"id":"response-first","output":[]}}`}
+		})
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	request := testCodexResponsesRequest(newTestCodexDispatch(t))
+	response, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.ToolCalls) != 1 || response.NativeResponse == nil || len(response.OutputItems) != 1 {
+		t.Fatalf("finalized tool call lost: %+v", response)
+	}
+	request.Items = append(request.Items, response.OutputItems...)
+	request.Items = append(request.Items, ResponseItem{Raw: output})
+	restored, err := MessageFromNativeResponse(*response.NativeResponse.Record())
+	if err != nil || len(restored.ToolCalls) != 1 || restored.ToolCalls[0].ID != response.ToolCalls[0].ID {
+		t.Fatalf("restored tool call lost: %+v, %v", restored, err)
+	}
+	final, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.NativeResponse == nil || final.AssistantText == nil || final.ProviderPhase == nil {
+		t.Fatalf("finalized answer lost: %+v", final)
+	}
+	restored, err = MessageFromNativeResponse(*final.NativeResponse.Record())
+	if err != nil || restored.Content == nil || restored.Phase == nil || *restored.Phase != MessagePhaseFinal {
+		t.Fatalf("restored answer lost: %+v, %v", restored, err)
+	}
+}
+
+func TestResponsesSocketKeepsFinalizedArrivalOrderAcrossReload(t *testing.T) {
+	reasoning := json.RawMessage(`{"type":"reasoning","id":"reasoning-arrival","summary":[{"type":"summary_text","text":"trace"}],"encrypted_content":"opaque"}`)
+	commentary := json.RawMessage(`{"type":"message","id":"commentary-arrival","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"\n\ncommentary","annotations":[]}]}`)
+	final := json.RawMessage(`{"type":"message","id":"final-arrival","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"answer","annotations":[]}]}`)
+	next := json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}`)
+	var turns int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			turns++
+			if turns == 2 {
+				var create struct {
+					Input    []json.RawMessage `json:"input"`
+					Previous *string           `json:"previous_response_id"`
+				}
+				if err := json.Unmarshal(raw, &create); err != nil {
+					t.Fatal(err)
+				}
+				if create.Previous == nil || *create.Previous != "arrival-response" || len(create.Input) != 1 || !bytes.Equal(create.Input[0], next) {
+					t.Errorf("reloaded arrival-order prefix was retransmitted: %s", raw)
+				}
+				return []string{completedResponseSSEJSON}
+			}
+			return []string{
+				`{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"reasoning-arrival","summary":[]}}`,
+				`{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"item_id":"reasoning-arrival","delta":"trace"}`,
+				fmt.Sprintf(`{"type":"response.output_item.added","output_index":1,"item":%s}`, commentary),
+				`{"type":"response.output_text.delta","output_index":1,"delta":"commentary"}`,
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":1,"item":%s}`, commentary),
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, reasoning),
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":2,"item":%s}`, final),
+				`{"type":"response.completed","response":{"id":"arrival-response","output":[]}}`,
+			}
+		})
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	request := testCodexResponsesRequest(newTestCodexDispatch(t))
+	response, err := transport.Generate(t.Context(), request, StreamCallbacks{OnAssistantDelta: func(AssistantDelta) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.OutputItems) != 3 || response.OutputItems[0].OutputIndex != 1 || response.OutputItems[1].OutputIndex != 0 {
+		t.Fatalf("finalized arrival order or stream coordinates changed: %+v", response.OutputItems)
+	}
+	native, err := response.NativeResponse.WithReasoningPresentation([]session.NativeReasoningPresentation{{OutputIndex: 0, PartIndex: 0, DurationMs: textutil.Value(int64(123))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := native.Record()
+	for index, want := range []json.RawMessage{commentary, reasoning, final} {
+		if !bytes.Equal(record.Items[index], want) {
+			t.Fatalf("native item %d was reordered or rewritten", index)
+		}
+	}
+	if len(record.AssistantPresentation) != 1 || record.AssistantPresentation[0].OutputIndex != 0 || len(record.ReasoningPresentation) != 1 || record.ReasoningPresentation[0].OutputIndex != 1 {
+		t.Fatalf("saved presentation does not address arrival positions: %+v", record)
+	}
+	restored, err := MessageFromNativeResponse(*record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.NativeResponse.PresentationItems()[0].Content == nil || *restored.NativeResponse.PresentationItems()[0].Content != *native.PresentationItems()[0].Content {
+		t.Fatal("assistant presentation changed after reload")
+	}
+	facts := restored.NativeResponse.ReasoningPresentation()
+	if len(facts) != 1 || facts[0].OutputIndex != 1 || facts[0].DurationMs == nil || *facts[0].DurationMs != 123 {
+		t.Fatalf("reasoning presentation moved after reload: %+v", facts)
+	}
+	request.Items = PrepareResponsesInputItems(ItemsFromMessages([]Message{restored}))
+	request.Items = append(request.Items, ResponseItem{Raw: next})
+	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+		t.Fatal(err)
 	}
 }

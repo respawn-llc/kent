@@ -3,12 +3,12 @@ package runtimeview
 import (
 	"testing"
 
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -35,10 +35,7 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 	if err != nil {
 		t.Fatalf("project page: %v", err)
 	}
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot),
-	}, nil)
-
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{}, runtime.TranscriptCommittedRowFactsFromSnapshot(snapshot))
 	live, err := TranscriptMessagesFromRuntimeEventChecked(runtime.Event{
 		Kind:                runtime.EventUserMessageFlushed,
 		StepID:              runtimeStepIDPointer(stepID),
@@ -148,17 +145,15 @@ func TestGeneratedTranscriptValidationRejectsMalformedProjectedLocators(t *testi
 	const sessionID = "12345678-1234-4234-8234-123456789012"
 	const stepID = "22222222-2222-4222-8222-222222222222"
 	malformed := &runtime.TranscriptCommittedRowProvenance{}
-	snapshot := runtime.TranscriptHydrationSnapshot{
-		CommittedRows: []runtime.TranscriptCommittedRowFact{{
-			StepID:     runtimeStepIDPointer(stepID),
-			Kind:       runtime.TranscriptCommittedRowFactUser,
-			Visibility: transcript.EntryVisibilityOngoing,
-			Locator:    transcript.CommittedRowLocator{},
-			Provenance: malformed,
-			User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
-		}},
-	}
-	tail, err := transcriptTailSegmentFromFactsChecked(snapshot.CommittedRows, nil, false, nil)
+	facts := []runtime.TranscriptCommittedRowFact{{
+		Visibility: transcript.EntryVisibilityOngoing,
+		StepID:     runtimeStepIDPointer(stepID),
+		Kind:       runtime.TranscriptCommittedRowFactUser,
+		Locator:    transcript.CommittedRowLocator{},
+		Provenance: malformed,
+		User:       &runtime.TranscriptUserRowFact{Text: "malformed"},
+	}}
+	tail, err := transcriptTailSegmentFromFactsChecked(facts, nil, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

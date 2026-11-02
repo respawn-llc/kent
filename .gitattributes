@@ -1,3 +1,2 @@
 *.expected.ansi -whitespace
 *.expected.txt -whitespace
-patches/openai-go/* text eol=lf

@@ -11,8 +11,8 @@ import (
 
 	"core/shared/jsoncontract"
 	"core/shared/toolspec"
-	"core/shared/transcript"
-	patchformat "core/shared/transcript/patchformat"
+	"core/shared/transcriptmodel"
+	patchformat "core/shared/transcriptmodel/patchformat"
 )
 
 const noOutputText = "No output"
@@ -710,14 +710,7 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}
 	if strings.EqualFold(actionType, "search") {
 		input["query"] = searchQuery
-	} else if query != "" || searchQuery != "" {
-		input["query"] = query
-	} else if query == "" {
-		if actionType != "" {
-			query = actionType
-		} else {
-			query = "web search"
-		}
+	} else if query != "" {
 		input["query"] = query
 	}
 	inputRaw, err := json.Marshal(input)
@@ -739,15 +732,17 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}
 	return HostedExecution{
 		Call: HostedCall{
-			ID:    callID,
-			Name:  toolspec.ToolWebSearch,
-			Input: inputRaw,
+			ID:           callID,
+			Name:         toolspec.ToolWebSearch,
+			Input:        inputRaw,
+			ProviderItem: append(json.RawMessage(nil), raw...),
 		},
 		Result: Result{
-			CallID:  callID,
-			Name:    toolspec.ToolWebSearch,
-			Output:  output,
-			IsError: isError,
+			CallID:           callID,
+			Name:             toolspec.ToolWebSearch,
+			Output:           output,
+			IsError:          isError,
+			ProviderItemOnly: true,
 		},
 	}, true
 }

@@ -12,9 +12,12 @@ import (
 func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case runtimeConnectionStateChangedMsg:
+		if !m.isCurrentObservation(msg.scope) {
+			return handledUIFeatureUpdate(m, nil)
+		}
 		m.observeRuntimeRequestResult(msg.err)
 		m.layout().syncViewport()
-		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(waitRuntimeConnectionStateChange(m.runtimeConnectionEvents)))
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(waitRuntimeConnectionStateChange(m.runtimeConnectionEvents, m.observationScope)))
 	case runtimeMainViewRefreshedMsg:
 		cmd := m.handleRuntimeMainViewRefreshed(msg)
 		m.layout().syncViewport()
@@ -26,7 +29,7 @@ func (m *uiModel) reduceRuntimeMessage(msg tea.Msg) uiFeatureUpdateResult {
 		if cmd := m.drainPendingRuntimeMainViewRefresh(); cmd != nil {
 			return handledUIFeatureUpdate(m, cmd)
 		}
-		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh(nil))
+		return handledUIFeatureUpdate(m, m.startRuntimeMainViewRefresh())
 	case detailTranscriptLoadMsg:
 		cmd := m.handleDetailTranscriptLoad(msg)
 		m.layout().syncViewport()

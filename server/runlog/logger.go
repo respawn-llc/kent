@@ -10,28 +10,17 @@ import (
 	"sync"
 	"time"
 
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/agentruntime"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/transcriptdiag"
 )
 
 type RunLogger struct {
 	mu                   sync.Mutex
-	fp                   writeStringCloser
-	onDiagnostic         func(RunLoggerDiagnostic)
+	fp                   *os.File
+	onDiagnostic         func(string)
 	reportedWriteFailure bool
-}
-
-type writeStringCloser interface {
-	WriteString(string) (int, error)
-	Close() error
-}
-
-type RunLoggerDiagnostic struct {
-	Kind    string
-	Message string
-	Err     error
 }
 
 type DurabilityObserver struct {
@@ -121,7 +110,7 @@ func (o *DurabilityObserver) recordLineLocked(line string) *RunLogger {
 	return o.logger
 }
 
-func NewRunLogger(sessionDir string, onDiagnostic func(RunLoggerDiagnostic)) (*RunLogger, error) {
+func NewRunLogger(sessionDir string, onDiagnostic func(string)) (*RunLogger, error) {
 	fp, err := os.OpenFile(session.RunLogPath(sessionDir), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -157,11 +146,7 @@ func (l *RunLogger) Logf(format string, args ...any) {
 	if _, err := l.fp.WriteString(stamp + " " + line + "\n"); err != nil && !l.reportedWriteFailure {
 		l.reportedWriteFailure = true
 		if l.onDiagnostic != nil {
-			l.onDiagnostic(RunLoggerDiagnostic{
-				Kind:    "write_failed",
-				Message: fmt.Sprintf("run log write failed; observability degraded: %v", err),
-				Err:     err,
-			})
+			l.onDiagnostic(fmt.Sprintf("run log write failed; observability degraded: %v", err))
 		}
 	}
 }

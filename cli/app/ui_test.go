@@ -16,96 +16,6 @@ import (
 	"testing"
 )
 
-func TestTabQueuesAndStartsSubmission(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	testSetMainInput(m, "echo hi")
-
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated := next.(*uiModel)
-
-	if !updated.isBusy() {
-		t.Fatal("expected busy after tab queued submission")
-	}
-	if testMainInput(updated) != "" {
-		t.Fatalf("expected input cleared, got %q", testMainInput(updated))
-	}
-}
-
-func TestEmptyEnterFlushesOnlyNextQueuedItem(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.queued = queuedInputsForTest("/name queued title", "follow up")
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated := next.(*uiModel)
-
-	if cmd == nil {
-		t.Fatal("expected command from queued /name flush")
-	}
-	if updated.sessionName == nil || *updated.sessionName != "queued title" {
-		t.Fatalf("expected only first queued item to execute, got session name %v", updated.sessionName)
-	}
-	if updated.isBusy() {
-		t.Fatal("did not expect follow-up prompt submission from empty-enter flush")
-	}
-	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
-		t.Fatalf("expected follow-up prompt to remain queued, got %+v", updated.queued)
-	}
-}
-
-func TestIdleTabWithExistingQueueFlushesOnlyNextQueuedItem(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.queued = queuedInputsForTest("/name queued title")
-	testSetMainInput(m, "follow up")
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	updated := next.(*uiModel)
-
-	if cmd == nil {
-		t.Fatal("expected command from queued /name flush")
-	}
-	if updated.sessionName == nil || *updated.sessionName != "queued title" {
-		t.Fatalf("expected queued /name to execute first, got %v", updated.sessionName)
-	}
-	if updated.isBusy() {
-		t.Fatal("did not expect appended prompt to auto-submit while idle tab is flushing one queued item")
-	}
-	if len(updated.queued) != 1 || updated.queued[0].Text != "follow up" {
-		t.Fatalf("expected appended prompt to remain queued, got %+v", updated.queued)
-	}
-}
-
-func TestCustomKeyCtrlEnterQueuesAndStartsSubmission(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	testSetMainInput(m, "echo hi")
-
-	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
-	updated := next.(*uiModel)
-
-	if !updated.isBusy() {
-		t.Fatal("expected busy after ctrl+enter custom key")
-	}
-	if testMainInput(updated) != "" {
-		t.Fatalf("expected input cleared after ctrl+enter custom key, got %q", testMainInput(updated))
-	}
-}
-
-func TestCustomKeyCtrlEnterQueuesPostTurnWhenBusy(t *testing.T) {
-	m := newProjectedStaticUIModel()
-	m.setRuntimeActivityBusyForTest(true)
-	submittedText := "  echo\n\thi  "
-	testSetMainInput(m, submittedText)
-
-	next, _ := m.Update(customKeyMsg{Kind: customKeyCtrlEnter})
-	updated := next.(*uiModel)
-
-	if len(updated.queued) != 1 || updated.queued[0].Text != submittedText {
-		t.Fatalf("queued post-turn messages = %+v, want verbatim %q", updated.queued, submittedText)
-	}
-	if len(updated.injectedQueue) != 0 {
-		t.Fatalf("did not expect injected steering messages, got %d", len(updated.injectedQueue))
-	}
-}
-
 func TestCustomKeyShiftEnterInsertsNewline(t *testing.T) {
 	m := newProjectedStaticUIModel()
 	testSetMainInput(m, "hello")
@@ -130,8 +40,8 @@ func TestCustomKeyShiftEnterThenEnterDoesNotSubmitTrailingNewline(t *testing.T) 
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 
-	if !updated.isBusy() {
-		t.Fatal("expected submission started")
+	if !updated.hasPendingInputAdmission() || updated.injectedQueue[0].Text != "hello" {
+		t.Fatal("expected admission without the synthetic trailing newline")
 	}
 }
 
@@ -282,44 +192,114 @@ func TestAskQuestionTabFreeformFlow(t *testing.T) {
 	if entry.GetQuestionAnswer().Freeform == nil || *entry.GetQuestionAnswer().Freeform != "custom" {
 		t.Fatalf("unexpected freeform answer: %+v", entry.GetQuestionAnswer())
 	}
-	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
-		t.Fatalf("expected selected option 1 preserved when switching to freeform, got %+v", request)
+	if entry.GetQuestionAnswer().SelectedOptionNumber != nil {
+		t.Fatalf("freeform submission without selection invented an option: %+v", request)
 	}
 	if testActiveAsk(updated) != nil {
 		t.Fatal("successful batch did not immediately remove the ask")
 	}
 }
 
-func TestAskQuestionRecommendedOptionIsSelectedAndSubmitted(t *testing.T) {
+func TestAskQuestionStartsUnselectedAndEnterDoesNothing(t *testing.T) {
+	recommended := int32(2)
+	for _, test := range []struct {
+		name                   string
+		recommendedOptionIndex *int32
+	}{
+		{name: "without recommendation"},
+		{name: "with recommendation", recommendedOptionIndex: &recommended},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m, control := newProjectedPromptTestUIModel(t)
+			m = sizedTestUIModel(m, 80, 24)
+			event := testQuestionAskEvent("ask-1", "Pick one", "first", "second")
+			if test.recommendedOptionIndex != nil {
+				event.prompt.GetQuestion().RecommendedOptionIndex = test.recommendedOptionIndex
+			}
+
+			updated := updateUIModel(t, m, askEventMsg{event: event})
+			if updated.ask.dedicated != nil {
+				t.Fatal("short Question unexpectedly left inline mode")
+			}
+			recommendedUnselected := test.recommendedOptionIndex == nil
+			for _, line := range updated.askController().renderPriorityPromptLines() {
+				if line.Kind != askPromptLineKindOption {
+					continue
+				}
+				if line.Selected {
+					t.Fatal("Question option started selected")
+				}
+				if line.Recommended {
+					recommendedUnselected = !line.Selected
+				}
+			}
+			if !recommendedUnselected {
+				t.Fatal("recommended option did not remain visibly unselected")
+			}
+
+			next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated = next.(*uiModel)
+			if command != nil || len(control.batchRequests) != 0 ||
+				testActiveAsk(updated) == nil || updated.ask.freeform {
+				t.Fatal("Enter without a selected Question option changed or submitted the prompt")
+			}
+		})
+	}
+}
+
+func TestAskQuestionDownSelectsFirstOption(t *testing.T) {
 	m, control := newProjectedPromptTestUIModel(t)
 	event := testQuestionAskEvent("ask-1", "Pick one", "first", "second")
 	recommended := int32(2)
 	event.prompt.GetQuestion().RecommendedOptionIndex = &recommended
-
 	updated := updateUIModel(t, m, askEventMsg{event: event})
-	selectedRecommended := false
-	for _, line := range updated.askController().renderPriorityPromptLines() {
-		if line.Kind == askPromptLineKindOption && line.Selected && line.Recommended {
-			selectedRecommended = true
-		}
-	}
-	if !selectedRecommended {
-		t.Fatal("recommended option was not selected")
-	}
 
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+	lines := updated.askController().renderPriorityPromptLines()
+	if len(lines) < 2 || lines[0].Kind != askPromptLineKindOption || !lines[0].Selected ||
+		!lines[1].Recommended || lines[1].Selected {
+		t.Fatalf("Down did not select the first answer independently of the recommendation: %+v", lines)
+	}
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
 	entry := requireQuestionAnswerEntry(t, request)
-	if request.SessionId.GetSessionId() != transcriptPromptSessionID(event.prompt) || request.StepId != transcriptPromptStepID(event.prompt) ||
-		entry.ToolCallId != transcriptPromptToolCallID(event.prompt) || entry.GetQuestionAnswer().SelectedOptionNumber == nil ||
-		*entry.GetQuestionAnswer().SelectedOptionNumber != recommended {
-		t.Fatalf("selected option = %+v, want %d", entry.GetQuestionAnswer().SelectedOptionNumber, recommended)
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
+		t.Fatalf("Down answer = %+v, want first option", entry.GetQuestionAnswer())
 	}
 	if testActiveAsk(updated) != nil {
 		t.Fatal("successful batch did not immediately remove the ask")
 	}
 }
 
-func TestQueuedAskQuestionReceivesItsRecommendationWhenPromoted(t *testing.T) {
+func TestAskQuestionUpSelectsLastVisibleOption(t *testing.T) {
+	m, control := newProjectedPromptTestUIModel(t)
+	event := testQuestionAskEvent("ask-1", "Pick one", "first", "second")
+	recommended := int32(1)
+	event.prompt.GetQuestion().RecommendedOptionIndex = &recommended
+	updated := updateUIModel(t, m, askEventMsg{event: event})
+
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyUp})
+	lines := updated.askController().renderPriorityPromptLines()
+	last := lines[len(lines)-2]
+	if last.Kind != askPromptLineKindOption || !last.Selected || last.Option == nil ||
+		*last.Option != len(event.prompt.GetQuestion().GetSuggestions()) {
+		t.Fatalf("Up did not select the last visible option: %+v", lines)
+	}
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyUp})
+	lines = updated.askController().renderPriorityPromptLines()
+	if !lines[1].Selected {
+		t.Fatalf("Up from the last option did not move to the preceding answer: %+v", lines)
+	}
+	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
+	entry := requireQuestionAnswerEntry(t, request)
+	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 2 {
+		t.Fatalf("Up answer = %+v, want second option", entry.GetQuestionAnswer())
+	}
+	if testActiveAsk(updated) != nil {
+		t.Fatal("successful batch did not immediately remove the ask")
+	}
+}
+
+func TestQueuedAskQuestionStartsUnselectedWhenPromoted(t *testing.T) {
 	m, control := newProjectedPromptTestUIModel(t)
 	updated := updateUIModel(t, m, askEventMsg{event: testQuestionAskEvent(
 		"ask-a",
@@ -331,19 +311,34 @@ func TestQueuedAskQuestionReceivesItsRecommendationWhenPromoted(t *testing.T) {
 	recommended := int32(2)
 	queued.prompt.GetQuestion().RecommendedOptionIndex = &recommended
 	updated = updateUIModel(t, updated, askEventMsg{event: queued})
-	if updated.ask.current == nil || transcriptPromptToolCallID(updated.ask.current.prompt) != "ask-a" || updated.ask.cursor != 0 {
-		t.Fatalf("queued question changed active selection: current=%+v cursor=%d", updated.ask.current, updated.ask.cursor)
+	if updated.ask.current == nil || transcriptPromptToolCallID(updated.ask.current.prompt) != "ask-a" ||
+		updated.ask.selectedOption != nil {
+		t.Fatalf(
+			"queued question changed active selection: current=%+v selection=%v",
+			updated.ask.current,
+			updated.ask.selectedOption,
+		)
 	}
 
 	updated = updateUIModel(t, updated, askEventMsg{event: askEvent{resolvedToolCallID: "ask-a"}})
-	selectedRecommended := false
+	recommendedUnselected := false
 	for _, line := range updated.askController().renderPriorityPromptLines() {
-		if line.Kind == askPromptLineKindOption && line.Selected && line.Recommended {
-			selectedRecommended = true
+		if line.Kind == askPromptLineKindOption && line.Recommended {
+			recommendedUnselected = !line.Selected
 		}
 	}
-	if !selectedRecommended {
-		t.Fatal("promoted question did not select its recommendation")
+	if !recommendedUnselected {
+		t.Fatal("promoted question initialized its recommendation as selected")
+	}
+	next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if command != nil || len(control.batchRequests) != 0 || !updated.ask.hasCurrent() {
+		t.Fatal("Enter without a promoted Question selection submitted an answer")
+	}
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+	if updated.ask.selectedOption == nil || *updated.ask.selectedOption != 1 {
+		t.Fatal("explicit navigation did not select the promoted recommendation")
 	}
 
 	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
@@ -361,6 +356,7 @@ func TestAskQuestionPickerSubmitPreservesPendingFreeformDraft(t *testing.T) {
 	event := testQuestionAskEvent("ask-1", "Pick one", "a", "b")
 
 	updated := updateUIModel(t, m, askEventMsg{event: event})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
 	next, _ := updated.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated = next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("custom")})
@@ -412,6 +408,7 @@ func TestAskQuestionTabRoundTripRestoresPendingFreeformDraftAndCursor(t *testing
 	event := testQuestionAskEvent("ask-1", "Pick one", "a", "b")
 
 	updated := updateUIModel(t, m, askEventMsg{event: event})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
 	next, _ := updated.Update(tea.KeyMsg{Type: tea.KeyTab})
 	updated = next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("custom")})
@@ -429,8 +426,8 @@ func TestAskQuestionTabRoundTripRestoresPendingFreeformDraftAndCursor(t *testing
 	if !testAskFreeform(updated) {
 		t.Fatal("expected tab to restore freeform editing")
 	}
-	if testAskCursor(updated) != 1 {
-		t.Fatalf("expected changed picker selection preserved, got %d", testAskCursor(updated))
+	if selection := testAskSelection(updated); selection == nil || *selection != 1 {
+		t.Fatalf("expected changed picker selection preserved, got %v", selection)
 	}
 	if testAskInput(updated) != "custom" {
 		t.Fatalf("expected pending freeform draft restored, got %q", testAskInput(updated))
@@ -463,6 +460,8 @@ func TestAskQuestionFreeformSelectionEnterDropsIntoFreeformWhenEmpty(t *testing.
 	updated = next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated = next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = next.(*uiModel)
 	next, cmd := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	updated = next.(*uiModel)
 
@@ -486,6 +485,8 @@ func TestAskQuestionFreeformSelectionEmptySubmitRequiresCommentary(t *testing.T)
 
 	updated := updateUIModel(t, m, askEventMsg{event: event})
 	next, _ := updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated = next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated = next.(*uiModel)
@@ -519,6 +520,8 @@ func TestAskQuestionFreeformSelectionSubmitsFreeformOnly(t *testing.T) {
 
 	updated := updateUIModel(t, m, askEventMsg{event: event})
 	next, _ := updated.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated = next.(*uiModel)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated = next.(*uiModel)
 	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated = next.(*uiModel)
@@ -631,7 +634,7 @@ func TestApprovalAskUsesSingleDenyOptionAndTabCommentary(t *testing.T) {
 		t.Fatalf("expected one approval picker hint line, got %+v", promptLines)
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		next, _ := updated.Update(tea.KeyMsg{Type: tea.KeyDown})
 		updated = next.(*uiModel)
 	}
@@ -699,28 +702,28 @@ func TestOutsideWorkspaceApprovalRendersDistinctSuppliedPathsBeforeOptions(t *te
 	}
 }
 
-func TestApprovalAskDefaultsToAllowOnceOrFirstDecision(t *testing.T) {
+func TestApprovalAskStartsUnselectedAndRequiresDownBeforeEnter(t *testing.T) {
 	tests := []struct {
-		name      string
-		decisions []clientui.ApprovalDecision
-		want      promptpb.ApprovalDecision
+		name            string
+		decisions       []clientui.ApprovalDecision
+		wantFirstChoice promptpb.ApprovalDecision
 	}{
 		{
-			name: "allow once is selected despite order",
+			name: "allow once is not implicitly selected",
 			decisions: []clientui.ApprovalDecision{
 				clientui.ApprovalDecisionDeny,
 				clientui.ApprovalDecisionAllowSession,
 				clientui.ApprovalDecisionAllowOnce,
 			},
-			want: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
+			wantFirstChoice: promptpb.ApprovalDecision_APPROVAL_DECISION_DENY,
 		},
 		{
-			name: "first decision is selected without allow once",
+			name: "first decision requires explicit navigation",
 			decisions: []clientui.ApprovalDecision{
 				clientui.ApprovalDecisionAllowSession,
 				clientui.ApprovalDecisionDeny,
 			},
-			want: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION,
+			wantFirstChoice: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_SESSION,
 		},
 	}
 	for _, test := range tests {
@@ -732,14 +735,169 @@ func TestApprovalAskDefaultsToAllowOnceOrFirstDecision(t *testing.T) {
 				test.decisions...,
 			)})
 
+			for _, line := range updated.askController().renderPriorityPromptLines() {
+				if line.Kind == askPromptLineKindOption && line.Selected {
+					t.Fatal("Approval decision was selected before operator input")
+				}
+			}
 			next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated = next.(*uiModel)
+			if command != nil || len(control.batchRequests) != 0 || !updated.ask.hasCurrent() {
+				t.Fatal("Enter without an Approval decision submitted an answer")
+			}
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+			if updated.ask.selectedOption == nil || *updated.ask.selectedOption != 0 {
+				t.Fatal("Down did not select the first Approval decision")
+			}
+			next, command = updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			updated = runPromptDeliveryCommand(t, next.(*uiModel), command)
 			request := requirePromptAnswerBatchRequest(t, control)
 			entry := requireApprovalAnswerEntry(t, request)
-			if entry.GetApprovalAnswer().Decision != test.want || entry.GetApprovalAnswer().Commentary != nil {
-				t.Fatalf("approval answer = %+v, want %q without commentary", entry.GetApprovalAnswer(), test.want)
+			if entry.GetApprovalAnswer().Decision != test.wantFirstChoice || entry.GetApprovalAnswer().Commentary != nil {
+				t.Fatalf(
+					"approval answer = %+v, want first offered decision %q without commentary",
+					entry.GetApprovalAnswer(),
+					test.wantFirstChoice,
+				)
 			}
 		})
+	}
+}
+
+func TestApprovalAskAllowsCommentaryBeforeDecision(t *testing.T) {
+	m, control := newProjectedPromptTestUIModel(t)
+	updated := updateUIModel(t, m, askEventMsg{event: testApprovalAskEvent(
+		"approval-1",
+		"Approve?",
+		clientui.ApprovalDecisionAllowOnce,
+		clientui.ApprovalDecisionDeny,
+	)})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+	if !updated.ask.freeform || updated.ask.freeformMode != askFreeformModeApprovalCommentary {
+		t.Fatal("Tab did not open Approval commentary without a selected decision")
+	}
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("explain first")})
+	next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated = next.(*uiModel)
+	if command != nil || len(control.batchRequests) != 0 || !updated.ask.hasCurrent() {
+		t.Fatal("Approval commentary submitted without a selected decision")
+	}
+	if testAskInput(updated) != "explain first" {
+		t.Fatal("Enter without a decision discarded drafted commentary")
+	}
+	hasInput := false
+	for _, line := range updated.askController().renderPriorityPromptLines() {
+		hasInput = hasInput || line.Kind == askPromptLineKindInput
+	}
+	if !hasInput {
+		t.Fatal("Approval commentary input is not visible before choosing a decision")
+	}
+}
+
+func TestApprovalAskReturnsToDecisionPickerWithDraft(t *testing.T) {
+	m, control := newProjectedPromptTestUIModel(t)
+	updated := updateUIModel(t, m, askEventMsg{event: testApprovalAskEvent(
+		"approval-1",
+		"Approve?",
+		clientui.ApprovalDecisionAllowOnce,
+		clientui.ApprovalDecisionDeny,
+	)})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("explain first")})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+
+	if updated.ask.freeform || updated.ask.selectedOption != nil || testAskInput(updated) != "explain first" {
+		t.Fatal("returning to the Approval picker did not retain the unbound commentary draft")
+	}
+	hasDisabledDraft := false
+	for _, line := range updated.askController().renderPriorityPromptLines() {
+		hasDisabledDraft = hasDisabledDraft ||
+			(line.Kind == askPromptLineKindInput && line.Disabled && line.InputEditor.Text() == "explain first")
+	}
+	if !hasDisabledDraft {
+		t.Fatal("Approval picker did not present the pending commentary draft")
+	}
+	if len(control.batchRequests) != 0 {
+		t.Fatal("Approval picker navigation submitted the prompt")
+	}
+}
+
+func TestApprovalAskSelectionConfirmsWithDraftedCommentary(t *testing.T) {
+	tests := []struct {
+		name         string
+		downCount    int
+		wantDecision promptpb.ApprovalDecision
+	}{
+		{
+			name:         "first decision",
+			downCount:    1,
+			wantDecision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
+		},
+		{
+			name:         "later decision",
+			downCount:    2,
+			wantDecision: promptpb.ApprovalDecision_APPROVAL_DECISION_DENY,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m, control := newProjectedPromptTestUIModel(t)
+			updated := updateUIModel(t, m, askEventMsg{event: testApprovalAskEvent(
+				"approval-1",
+				"Approve?",
+				clientui.ApprovalDecisionAllowOnce,
+				clientui.ApprovalDecisionDeny,
+			)})
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("explain first")})
+			next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated = next.(*uiModel)
+			if command != nil || len(control.batchRequests) != 0 || !updated.ask.hasCurrent() {
+				t.Fatal("Enter without an Approval decision submitted drafted commentary")
+			}
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+			for range test.downCount {
+				updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+			}
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+			if !updated.ask.freeform || updated.ask.selectedOption == nil || *updated.ask.selectedOption != test.downCount-1 ||
+				testAskInput(updated) != "explain first" || len(control.batchRequests) != 0 {
+				t.Fatal("selecting an Approval decision lost commentary or submitted it")
+			}
+			updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
+			entry := requireApprovalAnswerEntry(t, request)
+			if entry.GetApprovalAnswer().Decision != test.wantDecision ||
+				entry.GetApprovalAnswer().Commentary == nil ||
+				*entry.GetApprovalAnswer().Commentary != "explain first" {
+				t.Fatalf("Approval answer did not include the selected decision and commentary: %+v", entry.GetApprovalAnswer())
+			}
+			if testActiveAsk(updated) != nil {
+				t.Fatal("successful batch did not immediately remove the Approval")
+			}
+		})
+	}
+}
+
+func TestApprovalAskUpSelectsLastDecision(t *testing.T) {
+	m, control := newProjectedPromptTestUIModel(t)
+	updated := updateUIModel(t, m, askEventMsg{event: testApprovalAskEvent(
+		"approval-1",
+		"Approve?",
+		clientui.ApprovalDecisionAllowOnce,
+		clientui.ApprovalDecisionDeny,
+	)})
+	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyUp})
+	lines := updated.askController().renderPriorityPromptLines()
+	if len(lines) < 2 || !lines[len(lines)-2].Selected {
+		t.Fatalf("Up did not select the last Approval decision: %+v", lines)
+	}
+	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
+	entry := requireApprovalAnswerEntry(t, request)
+	if entry.GetApprovalAnswer().Decision != promptpb.ApprovalDecision_APPROVAL_DECISION_DENY {
+		t.Fatalf("Up selected Approval decision %v, want Deny", entry.GetApprovalAnswer().Decision)
+	}
+	if testActiveAsk(updated) != nil {
+		t.Fatal("successful batch did not immediately remove the Approval")
 	}
 }
 

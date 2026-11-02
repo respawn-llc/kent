@@ -27,17 +27,13 @@ func registerProcessGatewayBinaryBindings(bindings map[string]gatewayBinaryBindi
 			}, apicontract.ProcessViewService.ListProcesses),
 		registerProcessUnary(bindings, view, "Get", GatewayDependencies.ProcessViewClient,
 			func() *processpb.GetRequest { return &processpb.GetRequest{} },
-			func(request *processpb.GetRequest) (routeScopeParams, error) {
-				return routeScopeParams{processID: request.ProcessId}, nil
-			}, apicontract.ProcessViewService.GetProcess),
+			nil, apicontract.ProcessViewService.GetProcess),
 		registerProcessUnary(bindings, control, "Kill", GatewayDependencies.ProcessControlClient,
 			func() *processpb.KillRequest { return &processpb.KillRequest{} },
 			nil, apicontract.ProcessControlService.KillProcess),
 		registerProcessUnary(bindings, control, "InlineOutput", GatewayDependencies.ProcessControlClient,
 			func() *processpb.InlineOutputRequest { return &processpb.InlineOutputRequest{} },
-			func(request *processpb.InlineOutputRequest) (routeScopeParams, error) {
-				return routeScopeParams{processID: request.ProcessId}, nil
-			}, apicontract.ProcessControlService.GetInlineOutput),
+			nil, apicontract.ProcessControlService.GetInlineOutput),
 	)
 }
 

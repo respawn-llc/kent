@@ -13,14 +13,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/server/authservice"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/capabilityfacts"
 	"core/server/chatcontext"
 	"core/server/core"
 	"core/server/metadata"
-	"core/server/onboarding"
+	"core/server/onboardingservice"
 	"core/server/serverstatus"
 	"core/server/sessionview"
 	"core/server/transport"
@@ -98,7 +98,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	}
 	cfg := resolved.Config
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment, bootstrapReq.Now)
+	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment)
 	if err != nil {
 		return nil, err
 	}

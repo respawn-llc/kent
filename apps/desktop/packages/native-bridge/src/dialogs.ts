@@ -1,51 +1,40 @@
 import { invoke } from "@tauri-apps/api/core";
-import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { NativeWindowGlassStatus } from "./windowGlass";
 
 export type NativeDialogWindowOptions = Readonly<{
   label: string;
   title: string;
   route: string;
   params: Readonly<Record<string, string>>;
-  theme?: NativeDialogTheme;
   initialWidth?: number;
   initialHeight?: number;
   maximizable?: boolean;
   resizable?: boolean;
-  presentation?: "content" | "pinned";
   chrome?: "app" | "dialog";
 }>;
 
 export type NativeDialogOpenResult = "created" | "reused";
 
-export type NativeDialogTheme = "light" | "dark";
-
-export type NativeDialogContentSize = Readonly<{
-  width: number;
-  height: number;
-}>;
-
-const nativeDialogThemeSearchParam = "__appTheme";
-const themeAttribute = "data-theme";
-
 export async function openNativeDialogWindow(
   options: NativeDialogWindowOptions,
 ): Promise<NativeDialogOpenResult> {
-  const url = routeWithParams(
-    options.route,
-    withDialogTheme(options.params, options.theme ?? readEffectiveParentTheme()),
-  );
+  const url = routeWithParams(options.route, options.params);
   const label = options.label.startsWith("native-dialog-") ? options.label : `native-dialog-${options.label}`;
   const existing = await WebviewWindow.getByLabel(label);
   if (existing !== null) {
-    await bringDialogToFront(existing, options);
+    await bringDialogToFront(existing);
     return "reused";
   }
   const placement = await centeredOnCurrentWindow(options);
+  const appearance = await invoke<{ transparency: boolean; lowPower: boolean } | null>(
+    "desktop_launch_appearance",
+  );
   await new Promise<void>((resolve, reject) => {
     const window = new WebviewWindow(label, {
-      alwaysOnTop: options.presentation !== "content",
+      alwaysOnTop: false,
       center: false,
       closable: true,
       decorations: true,
@@ -53,16 +42,15 @@ export async function openNativeDialogWindow(
       height: placement.height,
       hiddenTitle: true,
       maximizable: options.maximizable ?? false,
-      ...(options.presentation === "content" ? {} : { parent: getCurrentWindow() }),
       preventOverflow: true,
       resizable: options.resizable ?? false,
       shadow: true,
-      skipTaskbar: options.presentation !== "content",
+      skipTaskbar: false,
       title: options.title,
       titleBarStyle: "overlay",
       trafficLightPosition:
         options.chrome === "app" ? new LogicalPosition(12, 22) : new LogicalPosition(20, 18),
-      transparent: true,
+      transparent: appearance !== null && appearance.transparency && !appearance.lowPower,
       url,
       visible: false,
       width: placement.width,
@@ -71,7 +59,7 @@ export async function openNativeDialogWindow(
     });
     window
       .once("tauri://created", () => {
-        prepareNativeDialogWindow(label, window, options).then(resolve, reject);
+        prepareNativeDialogWindow(label, window).then(resolve, reject);
       })
       .catch(reject);
     window
@@ -109,22 +97,18 @@ async function centeredOnCurrentWindow(options: NativeDialogWindowOptions): Prom
   };
 }
 
-async function prepareNativeDialogWindow(
-  label: string,
-  window: WebviewWindow,
-  options: NativeDialogWindowOptions,
-): Promise<void> {
+async function prepareNativeDialogWindow(label: string, window: WebviewWindow): Promise<void> {
   try {
     await applyNativeWindowGlass(label);
   } catch (error) {
     void appendDialogGlassWarning(label, error);
   } finally {
-    await bringDialogToFront(window, options);
+    await bringDialogToFront(window);
   }
 }
 
-async function applyNativeWindowGlass(label: string): Promise<void> {
-  await invoke("apply_native_window_glass", { label });
+async function applyNativeWindowGlass(label: string): Promise<NativeWindowGlassStatus> {
+  return invoke<NativeWindowGlassStatus>("apply_native_window_glass", { label });
 }
 
 async function appendDialogGlassWarning(label: string, error: unknown): Promise<void> {
@@ -146,24 +130,10 @@ function nativeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function bringDialogToFront(window: WebviewWindow, options: NativeDialogWindowOptions): Promise<void> {
+async function bringDialogToFront(window: WebviewWindow): Promise<void> {
   await window.show();
-  await window.setAlwaysOnTop(options.presentation !== "content");
-  if (options.presentation === "content") await window.unminimize();
+  await window.unminimize();
   await window.setFocus();
-}
-
-export async function fitCurrentWindowToContent(size: NativeDialogContentSize): Promise<void> {
-  const logicalSize = new LogicalSize(
-    Math.max(1, Math.ceil(size.width)),
-    Math.max(1, Math.ceil(size.height)),
-  );
-  const window = getCurrentWindow();
-  await window.setMinSize(null);
-  await window.setMaxSize(null);
-  await window.setSize(logicalSize);
-  await window.setMinSize(logicalSize);
-  await window.setMaxSize(logicalSize);
 }
 
 function routeWithParams(route: string, params: Readonly<Record<string, string>>): string {
@@ -173,28 +143,4 @@ function routeWithParams(route: string, params: Readonly<Record<string, string>>
   }
   const suffix = search.size > 0 ? `?${search.toString()}` : "";
   return `${route}${suffix}`;
-}
-
-function withDialogTheme(
-  params: Readonly<Record<string, string>>,
-  theme: NativeDialogTheme,
-): Readonly<Record<string, string>> {
-  if (params[nativeDialogThemeSearchParam] !== undefined) {
-    return params;
-  }
-  return {
-    ...params,
-    [nativeDialogThemeSearchParam]: theme,
-  };
-}
-
-function readEffectiveParentTheme(): NativeDialogTheme {
-  const configured = document.documentElement.getAttribute(themeAttribute);
-  if (configured === "light" || configured === "dark") {
-    return configured;
-  }
-  if (!(window.matchMedia instanceof Function)) {
-    return "dark";
-  }
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }

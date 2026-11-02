@@ -162,8 +162,13 @@ export function LabelResultRow({
             {deletion.error}
           </span>
         )}
-        <Button aria-busy={deletePending} onClick={onDeleteConfirm} variant="danger">
-          {deletePending ? <Spinner /> : t("app.confirm")}
+        <Button
+          aria-busy={deletePending}
+          loading={deletePending === true}
+          onClick={onDeleteConfirm}
+          variant="danger"
+        >
+          {t("app.confirm")}
         </Button>
       </PopoverContent>
     </Popover>

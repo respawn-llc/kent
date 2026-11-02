@@ -2,12 +2,12 @@ package llm
 
 import (
 	"context"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/clientui"
 	"core/shared/jsoncontract"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -142,11 +142,13 @@ type ResponseItem struct {
 	CustomInput          *string                             `json:"custom_input,omitempty"`
 	Output               json.RawMessage                     `json:"output,omitempty"`
 	ReasoningSummary     []ReasoningEntry                    `json:"reasoning_summary,omitempty"`
-	ConfigurationEffort  *string                             `json:"configuration_effort,omitempty"`
-	EncryptedContent     *string                             `json:"encrypted_content,omitempty"`
-	Raw                  json.RawMessage                     `json:"raw,omitempty"`
-	LinkedCallID         *string                             `json:"linked_call_id,omitempty"`
-	LinkKind             *ResponseItemLinkKind               `json:"link_kind,omitempty"`
+	// VerbatimReasoning contains provider reasoning_text parts, never UI summaries.
+	VerbatimReasoning   []string              `json:"-"`
+	ConfigurationEffort *string               `json:"configuration_effort,omitempty"`
+	EncryptedContent    *string               `json:"encrypted_content,omitempty"`
+	Raw                 json.RawMessage       `json:"raw,omitempty"`
+	LinkedCallID        *string               `json:"linked_call_id,omitempty"`
+	LinkKind            *ResponseItemLinkKind `json:"link_kind,omitempty"`
 }
 
 func CloneResponseItems(items []ResponseItem) []ResponseItem {
@@ -188,6 +190,9 @@ func CloneResponseItems(items []ResponseItem) []ResponseItem {
 		}
 		if len(item.ReasoningSummary) > 0 {
 			copyItem.ReasoningSummary = append([]ReasoningEntry(nil), item.ReasoningSummary...)
+		}
+		if len(item.VerbatimReasoning) > 0 {
+			copyItem.VerbatimReasoning = append([]string(nil), item.VerbatimReasoning...)
 		}
 		out = append(out, copyItem)
 	}
@@ -714,7 +719,9 @@ func (u Usage) CacheHitPercent() (int, bool) {
 }
 
 type Response struct {
-	Assistant         Message                             `json:"assistant"`
+	Assistant Message `json:"assistant"`
+	// EndTurn is absent when the provider supplies no turn-completion fact.
+	EndTurn           *bool                               `json:"-"`
 	ProviderPhase     *ProviderPhase                      `json:"-"`
 	ServedModel       *string                             `json:"served_model,omitempty"`
 	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
@@ -755,6 +762,12 @@ type AssistantDelta struct {
 	OutputIndex *int64
 }
 
+type AssistantSource struct {
+	Text        string
+	Phase       MessagePhase
+	OutputIndex int64
+}
+
 type ReasoningStatus struct {
 	Text string
 }
@@ -768,10 +781,11 @@ type ReasoningSummaryDelta struct {
 }
 
 type StreamCallbacks struct {
-	OnAssistantDelta        func(delta AssistantDelta)
-	OnOutputItem            func(item ResponseItem)
-	OnReasoningSummaryDelta func(delta ReasoningSummaryDelta)
-	OnStreamActivity        func()
+	OnAssistantDelta          func(delta AssistantDelta)
+	OnAssistantSourceComplete func(source AssistantSource)
+	OnOutputItem              func(item ResponseItem)
+	OnReasoningSummaryDelta   func(delta ReasoningSummaryDelta)
+	OnStreamActivity          func()
 }
 
 type ModelContextWindowClient interface {

@@ -19,6 +19,7 @@ var ErrCustomToolNameRequired = errors.New("custom tool name is required")
 type responsesRequestPayloadBuilder struct {
 	policy         responsesPolicy
 	store          bool
+	cyberAccess    bool
 	modelVerbosity string
 	capabilities   ProviderCapabilities
 }
@@ -45,8 +46,9 @@ func (t *HTTPTransport) effectiveRequestCapabilities(connectionCapabilities Prov
 
 func (t *HTTPTransport) requestPayloadBuilder(connectionCapabilities ProviderCapabilities, policy responsesPolicy) responsesRequestPayloadBuilder {
 	return responsesRequestPayloadBuilder{
-		policy: policy,
-		store:  t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
+		policy:      policy,
+		cyberAccess: t.CyberAccess,
+		store:       t.Store, modelVerbosity: strings.ToLower(strings.TrimSpace(t.ModelVerbosity)),
 		capabilities: t.effectiveRequestCapabilities(connectionCapabilities),
 	}
 }
@@ -86,12 +88,10 @@ func (b responsesRequestPayloadBuilder) BuildResponse(request ResponsesRequest, 
 
 	out := responses.ResponseNewParams{
 		Model: request.Model,
+		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
 	}
 	if cacheKey := strings.TrimSpace(request.PromptCacheKey); cacheKey != "" && SupportsPromptCacheKeyProvider(b.capabilities) {
 		out.PromptCacheKey = openai.String(cacheKey)
-	}
-	if len(input) > 0 {
-		out.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: input}
 	}
 	if instructions := strings.TrimSpace(request.SystemPrompt); instructions != "" {
 		out.Instructions = openai.String(instructions)

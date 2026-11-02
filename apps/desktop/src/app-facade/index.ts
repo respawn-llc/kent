@@ -1,7 +1,15 @@
 export { nativeObservation } from "@app/native-bridge";
-export type { SpeechCapture, SpeechRequest, SpeechSource, SpeechTransfer } from "./speech";
+export type {
+  SpeechCapture,
+  SpeechRequest,
+  SpeechSource,
+  SpeechTransfer,
+  SpeechMicrophoneEvent,
+} from "./speech";
 export { speechSourceBytes } from "./speech";
 export { useLocalSubscription } from "./useLocalSubscription";
+export * from "./desktopSettings";
+export * from "./settingsFeedback";
 export { createAppLogger, type AppLogger, type AppLogLevel, type AppObservationLogger } from "./logging";
 export * from "./boardQueries";
 export * from "./browserStorage";
@@ -49,7 +57,6 @@ export * from "./transcript-window";
 export * from "./useAppServices";
 export * from "./usePathFormatter";
 export * from "./chatPromptPresence";
-export * from "./useNativeDialogFallback";
 export * from "./useRetainedQueryData";
 export * from "./useStatusController";
 export * from "./useTaskSearch";

@@ -11,7 +11,7 @@ import type { TranscriptToolSlotItem } from "./toolSlotTypes";
 beforeAll(initializeI18n);
 
 it("formats the image label without changing its source or offering Copy", async () => {
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
   const path = "/Users/engineer/project/image.png";
   const item = {
     kind: "call",

@@ -1,5 +1,6 @@
 import {
-  ArrowUp,
+  Send,
+  ClockArrowRight,
   AlertTriangle,
   Folder,
   GitBranch,
@@ -12,10 +13,10 @@ import {
 } from "lucide-react";
 
 import { cx, Spinner } from "@/ui";
-import "./composerIcon.css";
 
 const icons = {
-  send: ArrowUp,
+  send: Send,
+  queue: ClockArrowRight,
   warning: AlertTriangle,
   workspace: Folder,
   worktree: GitBranch,
@@ -32,13 +33,13 @@ export function ComposerIcon({
   className,
 }: Readonly<{ kind: keyof typeof icons | "loading"; className?: string }>) {
   if (kind === "loading") {
-    return <Spinner className={cx("chat-composer-icon", className)} size="sm" strokeWidth={2} />;
+    return <Spinner className={className} size="sm" strokeWidth={2} />;
   }
   const Icon = icons[kind];
   return (
     <Icon
       aria-hidden="true"
-      className={cx("chat-composer-icon", `chat-composer-icon--${kind}`, className)}
+      className={cx("shrink-0", kind === "fast" ? "size-[1em]" : "size-4", className)}
       nonScalingStroke
       strokeWidth={1.5}
     />

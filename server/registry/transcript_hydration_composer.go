@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"core/server/runtime"
+	"core/server/agentruntime"
 	"core/server/runtimeview"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"

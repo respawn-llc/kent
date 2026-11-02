@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -10,8 +9,7 @@ import (
 func TestSessionCommandAuthorityCutoverUpgradesReleasedSchema(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "db", "main.sqlite3")
-	db, err := openDatabaseAtVersionForTest(t, root, dbPath, 80)
+	db, err := openDatabaseAtVersionForTest(t, 80)
 	if err != nil {
 		t.Fatalf("open version 80 database: %v", err)
 	}
@@ -91,15 +89,7 @@ FROM workflow_nodes
 WHERE node_key = 'backlog'`).Scan(&releasedNodeID); err != nil {
 		t.Fatalf("read released graph identity: %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close version 86 database: %v", err)
-	}
-
-	store, err := Open(root)
-	if err != nil {
-		t.Fatalf("upgrade released database: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := migrateMetadataTestStore(t, root, db)
 
 	for _, assertion := range []struct {
 		table  string

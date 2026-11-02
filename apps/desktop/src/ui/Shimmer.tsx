@@ -1,8 +1,8 @@
 // Adapted from Vercel AI Elements Shimmer (Apache-2.0).
 // https://github.com/vercel/ai-elements
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 
-import { motionDurationFromCSSVar, shimmerMotion } from "./motion";
+import { motionDurationFromCSSVar, shimmerMotion, useReducedMotion } from "./motion";
 
 export function Shimmer({ children, className }: Readonly<{ children?: string; className?: string }>) {
   const reducedMotion = useReducedMotion();
@@ -12,8 +12,13 @@ export function Shimmer({ children, className }: Readonly<{ children?: string; c
       initial={{ backgroundPosition: "100% center" }}
       animate={{ backgroundPosition: reducedMotion ? "100% center" : "0% center" }}
       transition={{
-        duration:
-          motionDurationFromCSSVar(shimmerMotion.durationVarName, shimmerMotion.fallbackDurationMs) / 1000,
+        duration: reducedMotion
+          ? 0
+          : motionDurationFromCSSVar(
+              shimmerMotion.durationVarName,
+              shimmerMotion.fallbackDurationMs,
+              reducedMotion,
+            ) / 1000,
         ease: shimmerMotion.ease,
         repeat: reducedMotion ? 0 : Infinity,
       }}

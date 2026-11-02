@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"core/server/metadata"
-	"core/server/session"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
+	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"

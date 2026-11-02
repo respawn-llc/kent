@@ -9,7 +9,7 @@ describe("ActionableListRow", () => {
     const onSelect = vi.fn();
     const onRename = vi.fn();
     const onDelete = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(
       <ActionableListRow

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/sessioncontract"
 )
 

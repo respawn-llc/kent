@@ -2,8 +2,23 @@ package ongoing
 
 import (
 	"fmt"
+	"io"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
+
+func (s *Surface) writeTerminalFrame(frame string) error {
+	payload := ansi.SetModeSynchronizedOutput + frame + ansi.ResetModeSynchronizedOutput
+	n, err := io.WriteString(s.writer, payload)
+	if err != nil {
+		return err
+	}
+	if n != len(payload) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
 
 func resetScrollRegionAndOriginMode() string {
 	return "\x1b[r\x1b[?6l"
@@ -21,17 +36,11 @@ func writeMutableBandErase(builder *strings.Builder, terminalHeight, bandHeight 
 	if bandHeight <= 0 {
 		return
 	}
-	writeMutableRowsErase(builder, terminalHeight-bandHeight+1, terminalHeight)
-}
-
-func writeMutableRowsErase(builder *strings.Builder, startRow, endRow int) {
-	for row := startRow; row <= endRow; row++ {
-		fmt.Fprintf(builder, "\x1b[%d;1H", row)
-		// Retire semantic prompt metadata before this row can rejoin the
-		// immutable area; erasing cells alone does not clear that metadata.
-		builder.WriteString(semanticOutputSequence())
-		builder.WriteString("\x1b[2K")
-	}
+	fmt.Fprintf(builder, "\x1b[%d;1H", terminalHeight-bandHeight+1)
+	builder.WriteString(semanticOutputSequence())
+	// ED clears row metadata below the cursor as well as cells. Per-row EL
+	// leaves OUTPUT_START markers that block native prompt resize detection.
+	builder.WriteString("\x1b[J")
 }
 
 func writeImmutableRegionScrollForLiveBandGrowth(builder *strings.Builder, terminalHeight, previousBandHeight, nextBandHeight int) {
@@ -40,24 +49,29 @@ func writeImmutableRegionScrollForLiveBandGrowth(builder *strings.Builder, termi
 		return
 	}
 	oldImmutableBottom := terminalHeight - previousBandHeight
+	if oldImmutableBottom == 1 {
+		// Equal top/bottom margins are invalid. Retire the sole immutable row
+		// before the disposable mutable rows are erased and repainted.
+		builder.WriteString(resetScrollRegionAndOriginMode())
+		fmt.Fprintf(builder, "\x1b[%d;1H\r\n", terminalHeight)
+		return
+	}
 	writeImmutableRegionScroll(builder, oldImmutableBottom, delta)
 }
 
-func writeImmutableRegionScrollForTerminalExpansion(
-	builder *strings.Builder,
-	previousTerminalHeight int,
-	terminalHeight int,
-	previousBandHeight int,
-) {
-	writeImmutableRegionScroll(
-		builder,
-		terminalHeight-previousBandHeight,
-		terminalHeight-previousTerminalHeight,
-	)
+func writeFreshViewport(builder *strings.Builder, terminalHeight int) {
+	builder.WriteString(resetScrollRegionAndOriginMode())
+	builder.WriteString(semanticOutputSequence())
+	builder.WriteString("\x1b[?25l")
+	fmt.Fprintf(builder, "\x1b[%d;1H", terminalHeight)
+	for range terminalHeight + 1 {
+		builder.WriteString("\r\n")
+	}
+	builder.WriteString("\x1b[1;1H")
 }
 
 func writeImmutableRegionScroll(builder *strings.Builder, immutableBottom, rows int) {
-	if immutableBottom < 1 || rows <= 0 {
+	if immutableBottom < 2 || rows <= 0 {
 		return
 	}
 	if rows > immutableBottom {
@@ -108,7 +122,24 @@ func writeImmutableRowsAboveMutableBand(
 		return
 	}
 	bottom := terminalHeight - bandHeight
-	if bottom < 1 {
+	if bottom <= 1 {
+		builder.WriteString(resetScrollRegionAndOriginMode())
+		if bottom == 1 && previousBandHeight < terminalHeight {
+			fmt.Fprintf(builder, "\x1b[%d;1H\r\n", terminalHeight)
+		}
+		// The mutable area has already been erased. Start at the top without
+		// a leading blank row; scrolling after the payload places every new
+		// immutable row above the final band, including at full height.
+		builder.WriteString("\x1b[1;1H")
+		for index, row := range rows {
+			if index > 0 {
+				builder.WriteString("\r\n")
+			}
+			builder.WriteString(row)
+		}
+		for range terminalHeight - bottom {
+			builder.WriteString("\r\n")
+		}
 		return
 	}
 	previousBottom := terminalHeight - min(previousBandHeight, terminalHeight)

@@ -1,7 +1,5 @@
 module core
 
-replace github.com/openai/openai-go/v3 => ./.generated/openai-sdk
-
 go 1.26.4
 
 require (

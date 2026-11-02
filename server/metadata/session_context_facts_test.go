@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/sessioncontract"
 )
 

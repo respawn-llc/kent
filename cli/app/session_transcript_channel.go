@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/cli/tui/ongoing"
 	"errors"
 	"time"
 
@@ -19,17 +20,20 @@ const (
 	ongoingTranscriptEventMessage ongoingTranscriptEventKind = "message"
 	ongoingTranscriptEventLoss    ongoingTranscriptEventKind = "loss"
 	ongoingTranscriptEventFailure ongoingTranscriptEventKind = "failure"
+	ongoingTranscriptEventCutover ongoingTranscriptEventKind = "cutover"
+	ongoingTranscriptEventClosed  ongoingTranscriptEventKind = "closed"
 )
 
 type ongoingTranscriptEvent struct {
 	Kind    ongoingTranscriptEventKind
 	Message *transcriptpb.Message
 	Err     error
+	Reason  *ongoing.RehydrateReason
 }
 
 type ongoingTranscriptEventStream struct {
 	Events             <-chan ongoingTranscriptEvent
-	RequestRehydration func()
+	RequestRehydration func(ongoing.RehydrateReason)
 	Stop               func()
 }
 
@@ -42,10 +46,10 @@ func startSessionTranscriptEvents(
 	observers ...func(*transcriptpb.Message),
 ) ongoingTranscriptEventStream {
 	out := make(chan ongoingTranscriptEvent, 64)
-	requests := make(chan struct{}, 1)
+	requests := make(chan ongoing.RehydrateReason, 1)
 	if subscribe == nil {
 		close(out)
-		return ongoingTranscriptEventStream{Events: out, RequestRehydration: func() {}, Stop: func() {}}
+		return ongoingTranscriptEventStream{Events: out, RequestRehydration: func(ongoing.RehydrateReason) {}, Stop: func() {}}
 	}
 	pollCtx, cancel := context.WithCancel(ctx)
 	go func() {
@@ -75,14 +79,19 @@ func startSessionTranscriptEvents(
 			if stop {
 				return
 			}
-			if !reopen {
+			if reopen == nil {
 				return
+			}
+			select {
+			case <-pollCtx.Done():
+				return
+			case out <- ongoingTranscriptEvent{Kind: ongoingTranscriptEventCutover, Reason: reopen}:
 			}
 		}
 	}()
-	requestRehydration := func() {
+	requestRehydration := func(reason ongoing.RehydrateReason) {
 		select {
-		case requests <- struct{}{}:
+		case requests <- reason:
 		default:
 		}
 	}
@@ -98,9 +107,9 @@ func pumpSessionTranscriptSubscription(
 	ctx context.Context,
 	sub serverapi.TranscriptSubscription,
 	out chan<- ongoingTranscriptEvent,
-	requests <-chan struct{},
+	requests <-chan ongoing.RehydrateReason,
 	observers ...func(*transcriptpb.Message),
-) (reopen bool, stop bool, lossErr error) {
+) (reopen *ongoing.RehydrateReason, stop bool, lossErr error) {
 	subClosed := false
 	closeSub := func() {
 		if subClosed {
@@ -120,15 +129,15 @@ func pumpSessionTranscriptSubscription(
 		select {
 		case <-ctx.Done():
 			cancel()
-			return false, true, nil
-		case <-requests:
+			return nil, true, nil
+		case reason := <-requests:
 			cancel()
-			return true, false, nil
+			return &reason, false, nil
 		case result := <-next:
 			cancel()
 			if result.err != nil {
 				if errors.Is(result.err, context.Canceled) && ctx.Err() != nil {
-					return false, true, nil
+					return nil, true, nil
 				}
 				closeSub()
 				emitSessionTranscriptLoss(ctx, out, result.err)
@@ -142,19 +151,19 @@ func pumpSessionTranscriptSubscription(
 			}
 			select {
 			case <-ctx.Done():
-				return false, true, nil
+				return nil, true, nil
 			case out <- ongoingTranscriptEvent{Kind: ongoingTranscriptEventMessage, Message: result.message}:
 			}
 		}
 	}
 }
 
-func waitForTranscriptRehydrationRequest(ctx context.Context, requests <-chan struct{}) (reopen bool, stop bool) {
+func waitForTranscriptRehydrationRequest(ctx context.Context, requests <-chan ongoing.RehydrateReason) (reopen *ongoing.RehydrateReason, stop bool) {
 	select {
 	case <-ctx.Done():
-		return false, true
-	case <-requests:
-		return true, false
+		return nil, true
+	case reason := <-requests:
+		return &reason, false
 	}
 }
 

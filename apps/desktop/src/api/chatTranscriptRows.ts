@@ -299,8 +299,16 @@ function assistantRow(value: T.AssistantRow): NonNullable<ChatCommittedRow["Assi
     Text: value.text,
     CondensedText: value.condensedText ?? null,
     Phase: assistantPhase(value.phase),
+    ...(value.sourceState === undefined ? {} : { SourceState: assistantSourceState(value.sourceState) }),
     committed_at_unix_ms: value.committedAt === undefined ? null : timestampMillis(value.committedAt),
   };
+}
+
+export function assistantSourceState(value: T.AssistantSourceState): "streaming" | "complete" {
+  return enumValue(value, {
+    [T.AssistantSourceState.STREAMING]: "streaming",
+    [T.AssistantSourceState.COMPLETE]: "complete",
+  });
 }
 
 function viewedImageKind(
@@ -314,7 +322,7 @@ function viewedImageKind(
       });
 }
 
-function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
+function toolRow(value: T.ToolRowValid): NonNullable<ChatCommittedRow["Tool"]> {
   return {
     ViewedImageKind: viewedImageKind(value.viewedImageKind),
     StepID: value.stepId ?? null,

@@ -70,6 +70,7 @@ func TestGenerateHostedSearchKeepsCompletedPayloadAndDistinctCalls(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			transport := newOpenAIStreamTestTransport(t,
 				fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":%s}`, test.outputIndex, test.streamed),
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, completed),
 				fmt.Sprintf(`{"type":"response.completed","response":{"output":[%s]}}`, completed),
 				`[DONE]`,
 			)

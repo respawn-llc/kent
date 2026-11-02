@@ -54,8 +54,7 @@ func TestProjectItemKeepsMainWorkspacePresentationSeparateFromGitMainMarker(t *t
 			},
 		},
 		Projection: &worktreepb.ListProjection{
-			FallbackIdentity: stringPtr("server-identity"),
-			Selector:         "main",
+			Selector: "main",
 			Switch: &worktreepb.SwitchOperation{
 				Kind:     worktreepb.SwitchOperationKind_WORKTREE_SWITCH_OPERATION_ENTER,
 				Selector: stringPtr("main"),
@@ -72,8 +71,8 @@ func TestProjectItemKeepsMainWorkspacePresentationSeparateFromGitMainMarker(t *t
 	if items[1].IsMainWorkspace {
 		t.Fatalf("Git main item = %+v", items[1])
 	}
-	if items[1].DisplayName != *gitMain.Projection.FallbackIdentity {
-		t.Fatalf("external display identity = %q, want server fact %q", items[1].DisplayName, *gitMain.Projection.FallbackIdentity)
+	if items[0].IsGitMainWorktree || !items[1].IsGitMainWorktree {
+		t.Fatalf("Git main topology classification = %v, %v", items[0].IsGitMainWorktree, items[1].IsGitMainWorktree)
 	}
 	if got := DeleteActions(items[0]); len(got) != 1 || got[0] != DeleteActionCancel {
 		t.Fatalf("Main Workspace delete actions = %+v, want cancel only", got)

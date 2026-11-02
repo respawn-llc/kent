@@ -12,10 +12,11 @@ import (
 
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/metadata"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/shared/clientui"
 	"core/shared/runtimeids"
@@ -95,7 +96,7 @@ func releaseApprovalActionGate(gate chan struct{}, once *sync.Once) {
 type approvalActionHarnessOptions struct {
 	blockPending, blockConsumer, blockResolved, secondPatch, multiTarget bool
 	consumerErr, resolvedErr                                             error
-	storeOptions                                                         []session.StoreOption
+	persistenceGate                                                      func(*sessiontest.PersistenceGate)
 	onEvent                                                              func(runtime.Event)
 }
 type approvalActionHarness struct {
@@ -109,6 +110,15 @@ type approvalActionHarness struct {
 	consumerStarted, releaseConsumer chan struct{}
 	releaseOnce                      sync.Once
 	consumerAccepted                 atomic.Int32
+}
+
+type approvalActionMetadataObserver struct{ store *metadata.Store }
+
+func (o approvalActionMetadataObserver) ObservePersistedStore(ctx context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
+	if err := o.store.ImportSessionSnapshot(ctx, snapshot); err != nil {
+		return session.CommitReceipt{}, err
+	}
+	return session.CommitReceipt{Committed: true}, nil
 }
 
 func newApprovalActionHarness(t *testing.T, options approvalActionHarnessOptions) *approvalActionHarness {
@@ -133,11 +143,17 @@ func newApprovalActionHarness(t *testing.T, options approvalActionHarnessOptions
 	responses = append(responses, llm.Response{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)}, Usage: llm.Usage{WindowTokens: 200000}})
 	client := &approvalActionClient{responses: responses}
 	feed := newApprovalActionFeed(options)
+	storeOptions := fixture.metadata.AuthoritativeSessionStoreOptions()
+	if options.persistenceGate != nil {
+		gate := sessiontest.NewPersistenceGate(approvalActionMetadataObserver{store: fixture.metadata})
+		options.persistenceGate(gate)
+		storeOptions = append(storeOptions, session.WithPersistenceObserver(gate))
+	}
 	authority := NewAuthority(AuthorityOptions{
 		WorkspaceMembership:           fixture.metadata,
 		PersistenceRoot:               fixture.config.PersistenceRoot,
 		ProjectWorkspaceContextReader: fixture.metadata,
-		StoreOptions:                  append(fixture.metadata.AuthoritativeSessionStoreOptions(), options.storeOptions...),
+		StoreOptions:                  storeOptions,
 		PromptFeed:                    feed,
 	})
 	h := &approvalActionHarness{
@@ -277,18 +293,19 @@ func approvalActionRows(t *testing.T, h *approvalActionHarness, commentary strin
 	t.Helper()
 	var users int
 	var toolRows []runtime.TranscriptToolRowFact
-	err := h.engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
-		for _, row := range snapshot.CommittedRows {
-			if row.User != nil && row.User.Text == commentary {
-				users++
-			}
-			if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
-				toolRows = append(toolRows, *row.Tool)
-			}
-		}
-		return nil
-	})
+	page, err := h.engine.TranscriptNewestSegmentPage()
 	requireApproval(t, err == nil, "read Approval transcript: %v", err)
+	if err != nil {
+		return users, toolRows
+	}
+	for _, row := range runtime.TranscriptCommittedRowFactsFromSnapshot(page.Snapshot) {
+		if row.User != nil && row.User.Text == commentary {
+			users++
+		}
+		if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
+			toolRows = append(toolRows, *row.Tool)
+		}
+	}
 	return users, toolRows
 }
 func requireApprovalActionTerminal(t *testing.T, h *approvalActionHarness, payload PromptAnswerPayload) {
@@ -440,15 +457,18 @@ func TestApprovalActionCommentaryFIFOAtStepBoundary(t *testing.T) {
 	h := newApprovalActionHarness(t, approvalActionHarnessOptions{blockConsumer: true})
 	done := beginApprovalAction(h, context.Background(), approvalActionAnswer(tools.AskQuestionApprovalDecisionAllowOnce, &commentary))
 	receiveApprovalAction(t, h.consumerStarted, "ApprovalConsumer")
-	transitionStarted, releaseTransition := make(chan struct{}), make(chan struct{})
+	transitionScheduled, transitionStarted, releaseTransition := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	transitionDone := make(chan error, 1)
 	go func() {
-		transitionDone <- h.engine.RunExecutionTargetTransition(context.Background(), nil, func() error {
+		transitionDone <- h.engine.RunExecutionTargetTransition(context.Background(), func() {
+			close(transitionScheduled)
+		}, func() error {
 			close(transitionStarted)
 			<-releaseTransition
 			return nil
 		})
 	}()
+	receiveApprovalAction(t, transitionScheduled, "Runtime transition scheduling")
 	h.release()
 	requireApprovalActionOutcome(t, receiveApprovalAction(t, done, "FIFO answer"), PromptAnswerOutcomeResolved)
 	receiveApprovalAction(t, transitionStarted, "Step Boundary drain")
@@ -476,13 +496,13 @@ func TestApprovalActionAcceptedFailureBoundaries(t *testing.T) {
 	})
 	t.Run("commentary application", func(t *testing.T) {
 		cause := errors.New("commentary application failed")
-		gate := sessiontest.NewPersistenceGate(sessiontest.NewPersistence())
+		var gate *sessiontest.PersistenceGate
 		var once sync.Once
 		h := newApprovalActionHarness(t, approvalActionHarnessOptions{
-			storeOptions: []session.StoreOption{session.WithPersistenceObserver(gate)},
+			persistenceGate: func(value *sessiontest.PersistenceGate) { gate = value },
 			onEvent: func(event runtime.Event) {
 				if event.Kind == runtime.EventToolCallCompleted && event.ToolResult != nil && event.ToolResult.CallID == "approval-action" {
-					once.Do(func() { gate.FailNext(cause) })
+					once.Do(func() { gate.FailAfterCommit(cause) })
 				}
 			},
 		})

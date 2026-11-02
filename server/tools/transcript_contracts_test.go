@@ -1,12 +1,34 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
+
+func TestHostedWebActivityWithoutActionDoesNotInventQuery(t *testing.T) {
+	raw := json.RawMessage(`{"type":"web_search_call","id":"ws_pending","status":"in_progress"}`)
+	executions := HostedExecutionsFromOutputs(
+		[]HostedToolOutput{{Raw: raw}},
+		DefinitionsFor([]toolspec.ID{toolspec.ToolWebSearch}),
+	)
+	if len(executions) != 1 {
+		t.Fatalf("hosted executions = %d, want 1", len(executions))
+	}
+	var input map[string]json.RawMessage
+	if err := json.Unmarshal(executions[0].Call.Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	if query, exists := input["query"]; exists {
+		t.Fatalf("missing provider action acquired invented query: %s", query)
+	}
+	if !bytes.Equal(executions[0].Call.ProviderItem, raw) {
+		t.Fatal("provider item changed")
+	}
+}
 
 func TestWebSearchDetailProjection(t *testing.T) {
 	detail, err := DecodeWebSearchDetail(json.RawMessage(`{"action":{"type":"search","queries":["first","second"],"sources":[{"url":"https://example.com"},{"url":"https://example.com"}]},"results":[{"type":"text_result","title":"Example","url":"https://example.com","snippet":"not display content"}]}`))

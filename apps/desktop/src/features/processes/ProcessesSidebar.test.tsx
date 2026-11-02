@@ -35,10 +35,12 @@ it("keeps the viewport in place when Stop moves the leading process below runnin
     await act(async () => {
       publish(processes);
     });
-    const list = screen.getByRole("list");
+    const list = await screen.findByRole("list", { hidden: true });
     list.scrollTop = 160;
     fireEvent.scroll(list);
-    fireEvent.click(screen.getByRole("button", { name: appI18n.t("processes.terminate", { id: "2" }) }));
+    fireEvent.click(
+      screen.getByRole("button", { name: appI18n.t("processes.terminate", { id: "2" }), hidden: true }),
+    );
     await waitFor(() => {
       expect(kill).toHaveBeenCalledWith("2");
     });

@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import type { ActivityItem, TaskComment } from "@/api";
 import { formatRelativeTime, useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, IslandSurface, StaticMarkdown } from "@/ui";
+import { Button, IslandSurface } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 import { cx, fieldIslandInputClassName } from "@/ui";
 import { taskDetailIslandRadius, taskDetailIslandRadiusClassName } from "./taskDetailIslandStyles";
 import { useTaskSpeech } from "./TaskDetailSpeech";
@@ -67,11 +68,13 @@ export function CommentComposer({
         <div className="relative z-10 col-start-1 row-start-1 flex items-center gap-[var(--space-2)] self-end justify-self-end m-[var(--space-2)]">
           {speech.control}
           <ControlTooltip
-            label={
+            label={t(
               speech.busy
-                ? speech.busyReason
-                : t(editing === null ? "task.submitComment" : "task.saveComment")
-            }
+                ? "speech.finishBeforeSubmit"
+                : editing === null
+                  ? "task.submitComment"
+                  : "task.saveComment",
+            )}
           >
             <Button
               aria-label={editing === null ? t("task.submitComment") : t("task.saveComment")}

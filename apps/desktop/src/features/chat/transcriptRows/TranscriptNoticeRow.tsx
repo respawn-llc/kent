@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { cx, StaticMarkdown } from "@/ui";
+import { cx } from "@/ui";
+import { StaticMarkdown } from "@/ui/markdown";
 
 import type { ChatTranscriptCommittedRow } from "@/api";
 import { basename, usePathFormatter } from "@/app-facade";
@@ -22,7 +23,10 @@ export function TranscriptNoticeRow({ row }: Readonly<{ row: ChatTranscriptCommi
   if (policy.kind === "compact") {
     return (
       <p
-        className="chat-transcript-row-body flex min-w-0 items-center gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)] text-sm text-[var(--color-muted)]"
+        className={cx(
+          "chat-transcript-row-body flex min-w-0 items-start gap-[var(--space-2)] px-[var(--space-2)] py-[var(--space-1)] text-sm",
+          policy.tone === "warning" ? "text-[var(--color-warning)]" : "text-[var(--color-muted)]",
+        )}
         data-transcript-collapsed
       >
         <Icon className="size-4 shrink-0" />

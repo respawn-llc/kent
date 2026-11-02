@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"core/server/metadata"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/workflowstore"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/sessioncontract"

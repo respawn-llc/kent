@@ -96,7 +96,7 @@ describe("TranscriptDisclosure", () => {
   });
 
   it("toggles from the whole disclosure header with pointer and keyboard input", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderDisclosure();
     const header = screen.getByRole("button", { name: "Expand transcript item" });
 
@@ -111,7 +111,7 @@ describe("TranscriptDisclosure", () => {
   });
 
   it("keeps status and actions independent from disclosure activation", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onStatus = vi.fn();
     const onAction = vi.fn();
 
@@ -177,7 +177,7 @@ describe("TranscriptDisclosure", () => {
   });
 
   it("reveals the body through the disclosure button and connects it for accessibility", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderDisclosure();
     const header = screen.getByRole("button", { name: "Expand transcript item" });
 
@@ -305,7 +305,7 @@ describe("TranscriptDisclosure", () => {
   });
 
   it("renders the compact identity in both collapsed and expanded states", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderDisclosure({ defaultExpanded: true, summary: "Stable compact identity" });
 
     expect(screen.getByText("Stable compact identity")).toBeInTheDocument();

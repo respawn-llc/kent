@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"core/server/auth"
+	"core/server/authmanager"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	capabilitypb "core/shared/protoapi/gen/kent/api/capability"

@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import type { QueryObserver } from "@tanstack/react-query";
-import type { NativeBridge } from "@app/native-bridge";
 
 export function observe<A>(observer: QueryObserver<A>) {
   return Atom.make((get) => {
@@ -12,12 +11,15 @@ export function observe<A>(observer: QueryObserver<A>) {
   });
 }
 
-export function changes(bridge: NativeBridge, projectID: string) {
+export function changes(
+  register: (handler: (event: { projectID: string }) => void) => Promise<() => void>,
+  projectID: string,
+) {
   return Stream.callback<{ projectID: string }>(
     (queue) =>
       Effect.acquireRelease(
         Effect.promise(() =>
-          bridge.projectCreation.onCreated((event) => {
+          register((event) => {
             if (event.projectID === projectID) Queue.offerUnsafe(queue, event);
           }),
         ),

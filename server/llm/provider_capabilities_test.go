@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"core/server/httpcompression"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/modelcontract"
 	"core/shared/textutil"
@@ -406,28 +406,6 @@ func TestLockedProviderVerbosityPreservesExplicitFalseAndFallsBackOnlyWhenAbsent
 	}
 	if !legacyCaps.SupportsProviderVerbosity {
 		t.Fatalf("expected absent legacy provider verbosity to fall back to first-party behavior, got %+v", legacyCaps)
-	}
-}
-
-func TestProviderCapabilitiesFromLockedOrOverridePrefersSessionContract(t *testing.T) {
-	lockedVerbosity := true
-	caps, ok := ProviderCapabilitiesFromLockedOrOverride(
-		&session.LockedContract{ProviderContract: session.LockedProviderCapabilities{
-			ProviderID:                "locked-provider",
-			SupportsResponsesAPI:      false,
-			SupportsProviderVerbosity: &lockedVerbosity,
-		}},
-		config.ProviderCapabilitiesOverride{
-			ProviderID:                "configured-provider",
-			SupportsResponsesAPI:      true,
-			SupportsProviderVerbosity: false,
-		},
-	)
-	if !ok {
-		t.Fatal("expected resolved provider capabilities")
-	}
-	if caps.ProviderID != "locked-provider" || caps.SupportsResponsesAPI || !caps.SupportsProviderVerbosity {
-		t.Fatalf("resolved capabilities = %+v, want locked contract", caps)
 	}
 }
 

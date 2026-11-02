@@ -1,0 +1,660 @@
+package session
+
+import (
+	"context"
+	"core/shared/textutil"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+)
+
+type stubPersistedSessionResolver struct {
+	record PersistedSessionRecord
+	err    error
+}
+
+func (s stubPersistedSessionResolver) ResolvePersistedSession(context.Context, string) (PersistedSessionRecord, error) {
+	if s.err != nil {
+		return PersistedSessionRecord{}, s.err
+	}
+	return s.record, nil
+}
+
+type recordingPersistenceObserver struct {
+	snapshot       PersistedStoreSnapshot
+	reconciliation PersistedEventLogReconciliation
+	called         bool
+	reconciled     bool
+	err            error
+}
+
+func (r *recordingPersistenceObserver) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
+	r.called = true
+	r.snapshot = snapshot
+	return CommitReceipt{Committed: true}, r.err
+}
+
+func (r *recordingPersistenceObserver) ResolvePersistedSession(_ context.Context, id string) (PersistedSessionRecord, error) {
+	if r.snapshot.Meta.SessionID != id {
+		return PersistedSessionRecord{}, ErrSessionNotFound
+	}
+	return PersistedSessionRecord{SessionDir: r.snapshot.SessionDir, Meta: cloneTestMeta(&r.snapshot.Meta), ContextFacts: r.snapshot.ContextFacts.Clone()}, nil
+}
+
+func (r *recordingPersistenceObserver) ObserveEventLogReconciliation(_ context.Context, reconciliation PersistedEventLogReconciliation) error {
+	r.reconciled = true
+	r.reconciliation = reconciliation
+	return r.err
+}
+
+type flakyPersistenceObserver struct {
+	failuresRemaining int
+	callCount         int
+	lastSnapshot      PersistedStoreSnapshot
+}
+
+func (o *flakyPersistenceObserver) ObservePersistedStore(_ context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
+	o.callCount++
+	o.lastSnapshot = snapshot
+	if o.failuresRemaining > 0 {
+		o.failuresRemaining--
+		return CommitReceipt{}, DefinitelyUncommittedMutation(context.DeadlineExceeded)
+	}
+	return CommitReceipt{Committed: true}, nil
+}
+
+type reentrantPersistenceObserver struct {
+	store *Store
+	ch    chan Meta
+}
+
+func (o *reentrantPersistenceObserver) ObservePersistedStore(_ context.Context, _ PersistedStoreSnapshot) (CommitReceipt, error) {
+	o.ch <- storeTestMeta(o.store)
+	return CommitReceipt{Committed: true}, nil
+}
+
+type blockingFailingPersistenceObserver struct {
+	downstream PersistenceObserver
+	mu         sync.Mutex
+	failNext   bool
+	blocked    chan struct{}
+	release    chan struct{}
+}
+
+func newBlockingFailingPersistenceObserver(downstream PersistenceObserver) *blockingFailingPersistenceObserver {
+	return &blockingFailingPersistenceObserver{
+		downstream: downstream,
+		blocked:    make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+}
+
+func (o *blockingFailingPersistenceObserver) Arm() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.failNext = true
+}
+
+func (o *blockingFailingPersistenceObserver) ObservePersistedStore(ctx context.Context, snapshot PersistedStoreSnapshot) (CommitReceipt, error) {
+	o.mu.Lock()
+	fail := o.failNext
+	o.failNext = false
+	o.mu.Unlock()
+	if fail {
+		close(o.blocked)
+		select {
+		case <-o.release:
+			return CommitReceipt{}, DefinitelyUncommittedMutation(os.ErrPermission)
+		case <-ctx.Done():
+			return CommitReceipt{}, DefinitelyUncommittedMutation(ctx.Err())
+		}
+	}
+	return o.downstream.ObservePersistedStore(ctx, snapshot)
+}
+
+type deadlineRejectingPersistenceObserver struct {
+	downstream PersistenceObserver
+	mu         sync.Mutex
+	checkNext  bool
+}
+
+func (o *deadlineRejectingPersistenceObserver) Arm() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.checkNext = true
+}
+
+func (o *deadlineRejectingPersistenceObserver) takeCheck() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	check := o.checkNext
+	o.checkNext = false
+	return check
+}
+
+func (o *deadlineRejectingPersistenceObserver) ObservePersistedStore(
+	ctx context.Context,
+	snapshot PersistedStoreSnapshot,
+) (CommitReceipt, error) {
+	if o.takeCheck() {
+		if deadline, ok := ctx.Deadline(); ok {
+			return CommitReceipt{}, DefinitelyUncommittedMutation(fmt.Errorf("metadata durability has synthetic deadline %s", deadline))
+		}
+	}
+	return o.downstream.ObservePersistedStore(ctx, snapshot)
+}
+
+func (o *deadlineRejectingPersistenceObserver) ObserveEventLogReconciliation(
+	ctx context.Context,
+	reconciliation PersistedEventLogReconciliation,
+) error {
+	downstream, ok := o.downstream.(EventLogReconciliationObserver)
+	if !ok {
+		return errEventLogReconcilerRequired
+	}
+	if o.takeCheck() {
+		if deadline, ok := ctx.Deadline(); ok {
+			return fmt.Errorf("event-log reconciliation has synthetic deadline %s", deadline)
+		}
+	}
+	return downstream.ObserveEventLogReconciliation(ctx, reconciliation)
+}
+
+func TestOpenByIDUsesAuthoritativeResolver(t *testing.T) {
+	root := t.TempDir()
+	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "550e8400-e29b-41d4-a716-446655440000")
+	writeSessionFixtureEvents(t, sessionDir, nil)
+	now := time.Now().UTC()
+	store, err := OpenByID(
+		root,
+		"550e8400-e29b-41d4-a716-446655440000",
+		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+			SessionDir: sessionDir,
+			Meta: &Meta{
+				SessionID:     "550e8400-e29b-41d4-a716-446655440000",
+				WorkspaceRoot: "/tmp/workspace-a",
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			},
+		}}),
+	)
+	if err != nil {
+		t.Fatalf("OpenByID: %v", err)
+	}
+	if got := store.Meta().WorkspaceRoot; got != "/tmp/workspace-a" {
+		t.Fatalf("workspace root = %q", got)
+	}
+}
+
+func TestCommittedEventMetadataDurabilityHasNoSyntheticDeadline(t *testing.T) {
+	persistence := &testSessionMetadata{records: map[string]PersistedSessionRecord{}}
+	observer := &deadlineRejectingPersistenceObserver{downstream: persistence}
+	store, err := Create(
+		t.TempDir(),
+		"workspace-x",
+		"/tmp/work",
+		testSessionCategory,
+		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(persistence),
+	)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	log := mustMaterializeSessionTestEventLog(t, store)
+
+	observer.Arm()
+	record, receipt, err := log.AppendRecord(
+		sessionTestStringPointer("step-1"),
+		sessionTestMessage(MessageRoleAssistant, "durable"),
+	)
+	if err != nil {
+		t.Fatalf("AppendRecord: %v", err)
+	}
+	if !receipt.Committed || record.Seq() != 1 {
+		t.Fatalf("append record=%+v receipt=%+v, want committed sequence 1", record, receipt)
+	}
+}
+
+func TestOpenUsesAuthoritativeResolverMetadata(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	writeSessionFixtureEvents(t, sessionDir, nil)
+	now := time.Now().UTC()
+	authoritative := Meta{
+		SessionID:          "550e8400-e29b-41d4-a716-446655440000",
+		WorkspaceRoot:      "/tmp/workspace-new",
+		WorkspaceContainer: "workspace-new",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+
+	opened, err := Open(
+		sessionDir,
+		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+			SessionDir: sessionDir,
+			Meta:       &authoritative,
+		}}),
+	)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if opened.Meta().WorkspaceRoot != authoritative.WorkspaceRoot {
+		t.Fatalf("workspace root = %q, want authoritative %q", opened.Meta().WorkspaceRoot, authoritative.WorkspaceRoot)
+	}
+}
+
+func TestOpenRejectsAuthoritativeResolverSessionDirMismatch(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	otherDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	now := time.Now().UTC()
+	_, err := Open(
+		sessionDir,
+		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+			SessionDir: otherDir,
+			Meta: &Meta{
+				SessionID:     "550e8400-e29b-41d4-a716-446655440000",
+				WorkspaceRoot: "/tmp/workspace",
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			},
+		}}),
+	)
+	if !errors.Is(err, errResolverRecordSessionDirMismatch) {
+		t.Fatalf("Open error = %v, want session dir mismatch", err)
+	}
+}
+
+func TestOpenPropagatesAuthoritativeResolverNotFound(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	_, err := Open(
+		sessionDir,
+		WithPersistedSessionResolver(stubPersistedSessionResolver{err: ErrSessionNotFound}),
+	)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("Open error = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestOpenRejectsAuthoritativeResolverSessionIDMismatch(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	now := time.Now().UTC()
+	_, err := Open(
+		sessionDir,
+		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+			SessionDir: sessionDir,
+			Meta: &Meta{
+				SessionID:     "550e8400-e29b-41d4-a716-446655440001",
+				WorkspaceRoot: "/tmp/workspace",
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			},
+		}}),
+	)
+	if !errors.Is(err, errResolverRecordSessionIDMismatch) {
+		t.Fatalf("Open error = %v, want session id mismatch", err)
+	}
+}
+
+func TestOpenRejectsAuthoritativeResolverMissingSessionID(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	now := time.Now().UTC()
+	_, err := Open(
+		sessionDir,
+		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+			SessionDir: sessionDir,
+			Meta: &Meta{
+				WorkspaceRoot: "/tmp/workspace",
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			},
+		}}),
+	)
+	if !errors.Is(err, errResolverRecordMissingSessionID) {
+		t.Fatalf("Open error = %v, want missing session id", err)
+	}
+}
+
+func TestMetadataPersistencePublishesObserver(t *testing.T) {
+	sessionDir := filepath.Join(t.TempDir(), "550e8400-e29b-41d4-a716-446655440000")
+	writeSessionFixtureEvents(t, sessionDir, nil)
+	now := time.Now().UTC()
+	observer := &recordingPersistenceObserver{}
+	store, err := Open(
+		sessionDir,
+		WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
+			SessionDir: sessionDir,
+			Meta: &Meta{
+				SessionID:     "550e8400-e29b-41d4-a716-446655440000",
+				WorkspaceRoot: "/tmp/workspace-a",
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			},
+		}}),
+		WithPersistenceObserver(observer),
+	)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := store.SetName(stringPointer("incident triage")); err != nil {
+		t.Fatalf("SetName: %v", err)
+	}
+	if !observer.called || observer.snapshot.Meta.Name == nil || *observer.snapshot.Meta.Name != "incident triage" {
+		t.Fatalf("observer snapshot = %+v, called = %t", observer.snapshot.Meta, observer.called)
+	}
+}
+
+func TestForkAtUserMessagePreservesPersistenceObserver(t *testing.T) {
+	observer := &recordingPersistenceObserver{}
+	parent, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	parentLog := mustMaterializeSessionTestEventLog(t, parent)
+	userEvt, _, err := parentLog.AppendRecord(stringPointer("s1"), sessionTestMessage(MessageRoleUser, "u1"))
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	observer.called = false
+
+	forked, _, err := ForkAtUserMessage(parentLog, userEvt.Seq(), "Parent -> edit u1", testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
+	if err != nil {
+		t.Fatalf("fork at user message: %v", err)
+	}
+	if !observer.called || observer.snapshot.Meta.SessionID != forked.Meta().SessionID {
+		t.Fatalf("observer snapshot = %+v, called = %t", observer.snapshot.Meta, observer.called)
+	}
+}
+
+func TestOpenByIDRejectsInvalidResolverRecords(t *testing.T) {
+	root := t.TempDir()
+	sessionDir := filepath.Join(root, "projects", "project-1", "sessions", "550e8400-e29b-41d4-a716-446655440000")
+	writeSessionFixtureEvents(t, sessionDir, nil)
+	tests := []struct {
+		name   string
+		record PersistedSessionRecord
+		want   error
+	}{
+		{
+			name:   "missing metadata",
+			record: PersistedSessionRecord{SessionDir: sessionDir},
+			want:   errResolverRecordMissingMetadata,
+		},
+		{
+			name: "relative session dir",
+			record: PersistedSessionRecord{
+				SessionDir: "relative/550e8400-e29b-41d4-a716-446655440000",
+				Meta:       &Meta{SessionID: "550e8400-e29b-41d4-a716-446655440000"},
+			},
+			want: errResolverRecordRelativeSessionDir,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := OpenByID(
+				root,
+				"550e8400-e29b-41d4-a716-446655440000",
+				WithPersistedSessionResolver(stubPersistedSessionResolver{record: tt.record}),
+			)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("OpenByID error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestPersistedSessionOpenRequiresResolver(t *testing.T) {
+	root := t.TempDir()
+	sessionDir := filepath.Join(root, "550e8400-e29b-41d4-a716-446655440000")
+	writeSessionFixtureEvents(t, sessionDir, nil)
+	if _, err := Open(sessionDir); !errors.Is(err, ErrPersistedSessionResolverRequired) {
+		t.Fatalf("Open error = %v, want resolver required", err)
+	}
+	if _, err := OpenByID(root, "550e8400-e29b-41d4-a716-446655440000"); !errors.Is(err, ErrPersistedSessionResolverRequired) {
+		t.Fatalf("OpenByID error = %v, want resolver required", err)
+	}
+}
+
+func TestDurableSessionCreationRequiresPersistenceObserver(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Create(root, "workspace-x", "/tmp/work", testSessionCategory); !errors.Is(err, errPersistenceObserverRequired) {
+		t.Fatalf("Create error = %v, want persistence observer required", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("durable creation without authority created artifacts: %+v", entries)
+	}
+}
+
+func TestMetadataMutationRequiresPersistenceObserverWithoutChangingState(t *testing.T) {
+	store, err := NewLazy(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory)
+	if err != nil {
+		t.Fatalf("NewLazy: %v", err)
+	}
+	if err := store.SetName(stringPointer("must not persist")); !errors.Is(err, errPersistenceObserverRequired) {
+		t.Fatalf("SetName error = %v, want persistence observer required", err)
+	}
+	if store.Meta().Name != nil {
+		t.Fatalf("name changed without persistence observer: %v", store.Meta().Name)
+	}
+	if _, err := os.Stat(store.Dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session artifact created without persistence observer: %v", err)
+	}
+}
+
+func TestEventLogMaterializationRequiresPersistenceObserverWithoutCreatingArtifact(t *testing.T) {
+	store, err := NewLazy(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory)
+	if err != nil {
+		t.Fatalf("NewLazy: %v", err)
+	}
+	if _, err := store.MaterializeEventLog(); err == nil {
+		t.Fatal("MaterializeEventLog succeeded without durable session metadata")
+	}
+	if storeTestMeta(store).LastSequence != 0 {
+		t.Fatalf("last sequence = %d, want unchanged", storeTestMeta(store).LastSequence)
+	}
+	if _, err := os.Stat(store.Dir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("session artifact created without persistence observer: %v", err)
+	}
+}
+
+func TestPersistedSessionDirectoryContainsOnlyStableArtifacts(t *testing.T) {
+	observer := &recordingPersistenceObserver{}
+	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	entries, err := os.ReadDir(store.Dir())
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 2 ||
+		entries[0].Name() != eventsFile || entries[0].IsDir() ||
+		entries[1].Name() != eventLogPersistenceLockFile || entries[1].IsDir() {
+		t.Fatalf(
+			"session artifacts = %+v, want regular %s and %s files",
+			entries,
+			eventsFile,
+			eventLogPersistenceLockFile,
+		)
+	}
+}
+
+func TestMetadataPersistenceRetriesSameValueUntilObserverSucceeds(t *testing.T) {
+	observer := &flakyPersistenceObserver{failuresRemaining: 1}
+	store, err := NewLazy(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	if err != nil {
+		t.Fatalf("NewLazy: %v", err)
+	}
+
+	if err := store.SetInputDraft("draft", nil); err == nil {
+		t.Fatal("expected first SetInputDraft call to surface observer failure")
+	}
+	if err := store.SetInputDraft("draft", nil); err != nil {
+		t.Fatalf("second SetInputDraft should retry same value successfully: %v", err)
+	}
+	if observer.callCount != 2 || observer.lastSnapshot.Meta.InputDraft != "draft" {
+		t.Fatalf("observer calls = %d, snapshot = %+v", observer.callCount, observer.lastSnapshot.Meta)
+	}
+}
+
+func TestSetUsageStateRejectsFailedCommitAndAllowsExplicitRetry(t *testing.T) {
+	observer := &flakyPersistenceObserver{failuresRemaining: 1}
+	store, err := NewLazy(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	if err != nil {
+		t.Fatalf("NewLazy: %v", err)
+	}
+	usage := &UsageState{InputTokens: textutil.Value(900), WindowTokens: 200_000, ReportedContextTokens: textutil.Value(900)}
+
+	receipt, err := store.SetUsageState(usage)
+	if err == nil || receipt.Committed {
+		t.Fatalf("first SetUsageState receipt=%+v error=%v, want uncommitted failure", receipt, err)
+	}
+	if stored := store.Meta().UsageState; stored != nil {
+		t.Fatalf("failed commit published usage state: %+v", stored)
+	}
+
+	receipt, err = store.SetUsageState(usage)
+	if err != nil || !receipt.Committed {
+		t.Fatalf("retried SetUsageState receipt=%+v error=%v, want committed success", receipt, err)
+	}
+	if stored := store.Meta().UsageState; stored == nil || !textutil.EqualOptional(stored.InputTokens, usage.InputTokens) {
+		t.Fatalf("committed usage state = %+v, want %+v", stored, usage)
+	}
+}
+
+func TestPersistenceObserverRunsOutsideStoreLock(t *testing.T) {
+	observer := &reentrantPersistenceObserver{ch: make(chan Meta, 1)}
+	store, err := NewLazy(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer))
+	if err != nil {
+		t.Fatalf("NewLazy: %v", err)
+	}
+	observer.store = store
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- store.SetName(stringPointer("incident triage"))
+	}()
+
+	select {
+	case meta := <-observer.ch:
+		if meta.Name != nil {
+			t.Fatalf("observer reentrant read exposed an uncommitted name: %v", meta.Name)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("observer did not complete; possible store lock reentrancy deadlock")
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("SetName: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetName did not return; possible store lock reentrancy deadlock")
+	}
+}
+
+func TestPersistenceSnapshotsAreImmutable(t *testing.T) {
+	observer := &recordingPersistenceObserver{}
+	store, err := Create(t.TempDir(), "workspace-x", "/tmp/work", testSessionCategory, WithPersistenceObserver(observer), WithPersistedSessionResolver(observer))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	verbosity := true
+	if err := store.MarkModelDispatchLocked(LockedContract{
+		Model:        "gpt-6-sol",
+		SystemPrompt: "original prompt",
+		ProviderContract: LockedProviderCapabilities{
+			SupportsProviderVerbosity: &verbosity,
+		},
+	}); err != nil {
+		t.Fatalf("MarkModelDispatchLocked: %v", err)
+	}
+	if observer.snapshot.Meta.Locked == nil || observer.snapshot.Meta.Locked.ProviderContract.SupportsProviderVerbosity == nil {
+		t.Fatalf("observer snapshot locked contract = %+v", observer.snapshot.Meta.Locked)
+	}
+	observer.snapshot.Meta.Locked.SystemPrompt = "observer mutation"
+	*observer.snapshot.Meta.Locked.ProviderContract.SupportsProviderVerbosity = false
+
+	locked := store.Meta().Locked
+	if locked == nil || locked.SystemPrompt != "original prompt" {
+		t.Fatalf("store locked contract = %+v, want original prompt", locked)
+	}
+	if locked.ProviderContract.SupportsProviderVerbosity == nil || !*locked.ProviderContract.SupportsProviderVerbosity {
+		t.Fatalf("store provider verbosity = %+v, want true", locked.ProviderContract.SupportsProviderVerbosity)
+	}
+}
+
+func TestFailedCommitDoesNotLeakIntoLaterMutation(t *testing.T) {
+	observer := newBlockingFailingPersistenceObserver(sessionTestPersistence)
+	root := t.TempDir()
+	store, err := Create(
+		root,
+		"workspace-x",
+		"/tmp/work",
+		testSessionCategory,
+		WithPersistenceObserver(observer),
+		WithPersistedSessionResolver(sessionTestPersistence),
+	)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.MarkModelDispatchLocked(LockedContract{Model: "gpt-6-sol"}); err != nil {
+		t.Fatal(err)
+	}
+
+	observer.Arm()
+	type mutationOutcome struct {
+		result LockedContractMutationResult
+		err    error
+	}
+	firstDone := make(chan mutationOutcome, 1)
+	go func() {
+		result, err := store.RefreshLockedReviewerPromptSnapshot(LockedReviewerPromptSnapshot{
+			ReviewerPrompt: "reviewer", HasReviewerPrompt: true,
+		})
+		firstDone <- mutationOutcome{result: result, err: err}
+	}()
+	select {
+	case <-observer.blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first persistence did not reach the observer")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- store.SetName(stringPointer("later mutation"))
+	}()
+	close(observer.release)
+
+	first := <-firstDone
+	if first.err == nil || first.result.Committed {
+		t.Fatalf("first mutation result = %+v, error = %v, want uncommitted failure", first.result, first.err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("SetName: %v", err)
+	}
+	if store.Meta().Name == nil || *store.Meta().Name != "later mutation" {
+		t.Fatalf("session name = %v, want later mutation", store.Meta().Name)
+	}
+	if locked := store.Meta().Locked; locked == nil || locked.HasReviewerPrompt {
+		t.Fatalf("failed reviewer snapshot leaked into later mutation: %+v", locked)
+	}
+
+	reopened, err := OpenByID(root, store.Meta().SessionID, sessionTestPersistence.options()...)
+	if err != nil {
+		t.Fatalf("OpenByID: %v", err)
+	}
+	if reopened.Meta().Name == nil || *reopened.Meta().Name != "later mutation" {
+		t.Fatalf("reopened name = %v, want later mutation", reopened.Meta().Name)
+	}
+	if locked := reopened.Meta().Locked; locked == nil || locked.HasReviewerPrompt {
+		t.Fatalf("failed reviewer snapshot was persisted by later mutation: %+v", locked)
+	}
+}

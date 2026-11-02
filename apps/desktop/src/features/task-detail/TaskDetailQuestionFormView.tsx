@@ -3,15 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import { type ApprovalDecision, type FileAccessTarget, type QuestionAttentionItem } from "@/api";
 import { usePathFormatter, useTextFieldSubmitShortcut } from "@/app-facade";
-import {
-  Button,
-  RadioGroup,
-  PromptOptionRow as QuestionOption,
-  PromptAccessTargets,
-  StaticMarkdown,
-  TextArea,
-  ControlTooltip,
-} from "@/ui";
+import { Button, RadioGroup, PromptAccessTargets, TextArea, ControlTooltip } from "@/ui";
+import { StaticMarkdown, PromptOptionRow as QuestionOption } from "@/ui/markdown";
 import { useSpeechField } from "@/shared/speech-input";
 import { useTaskSpeech } from "./TaskDetailSpeech";
 import { promptAnswerKey } from "./PromptAnswerState";
@@ -344,7 +337,6 @@ function QuestionFormFrame({
         </fieldset>
       )}
       <TextArea
-        label={t("task.commentary")}
         floatingAction={speech.control}
         aria-label={t("task.commentary")}
         className="min-h-24"
@@ -357,7 +349,7 @@ function QuestionFormFrame({
         rows={3}
         value={answer}
       />
-      <ControlTooltip label={speech.busy ? speech.busyReason : t("task.submitAnswer")}>
+      <ControlTooltip label={t(speech.busy ? "speech.finishBeforeSubmit" : "task.submitAnswer")}>
         <Button disabled={!submitEnabled} type="submit" variant="primary">
           {t("task.submitAnswer")}
         </Button>

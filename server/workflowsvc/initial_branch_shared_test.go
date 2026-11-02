@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"core/server/session"
 	"core/server/sessionruntime"
+	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"

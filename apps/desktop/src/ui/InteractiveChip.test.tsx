@@ -7,7 +7,7 @@ import { InteractiveChip, ProgressChip, ProgressInteractiveChip } from "./index"
 describe("InteractiveChip", () => {
   it("exposes toggle state and native keyboard activation", async () => {
     const onClick = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(
       <InteractiveChip selected onClick={onClick}>
@@ -28,7 +28,7 @@ describe("InteractiveChip", () => {
 
   it("composes semantic progress inside the native chip button", async () => {
     const onClick = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(
       <ProgressInteractiveChip

@@ -59,6 +59,9 @@ describe("ApiClient workflow subscriptions", () => {
     const client: ApiService = new ApiClient(rpc, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     observeProject(client, events);
+    await waitFor(() => {
+      expect(rpc.descriptorSubscriptions).toContain(projectService.subscribe);
+    });
     await act(async () => {
       rpc.emitDescriptor(projectService.subscribe, projectService.event, event);
       rpc.emitDescriptor(
@@ -71,14 +74,16 @@ describe("ApiClient workflow subscriptions", () => {
         }),
       );
     });
-    expect(events).toEqual([
-      projectedEvent,
-      {
-        ...projectedEvent,
-        action: "dependencies_changed",
-        relatedIDs: ["task-2"],
-      },
-    ]);
+    await waitFor(() => {
+      expect(events).toEqual([
+        projectedEvent,
+        {
+          ...projectedEvent,
+          action: "dependencies_changed",
+          relatedIDs: ["task-2"],
+        },
+      ]);
+    });
   });
 
   it("adapts workflow-only events without delivering them to a Project subscription", async () => {
@@ -87,6 +92,9 @@ describe("ApiClient workflow subscriptions", () => {
     const workflowEvents: WorkflowProjectEvent[] = [];
     const projectEvents: WorkflowProjectEvent[] = [];
     observeProject(client, projectEvents);
+    await waitFor(() => {
+      expect(rpc.descriptorSubscriptions).toContain(projectService.subscribe);
+    });
     client.subscribeWorkflow(workflowID, eventCollector(workflowEvents));
     await act(async () => {
       rpc.emitDescriptor(
@@ -110,6 +118,9 @@ describe("ApiClient workflow subscriptions", () => {
     const client = new ApiClient(rpc, unexpectedProjectOverflow);
     const events: WorkflowProjectEvent[] = [];
     observeProject(client, events);
+    await waitFor(() => {
+      expect(rpc.descriptorSubscriptions).toContain(projectService.subscribe);
+    });
     rpc.emitDescriptor(
       projectService.subscribe,
       projectService.event,

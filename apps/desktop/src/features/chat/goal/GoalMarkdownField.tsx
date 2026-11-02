@@ -3,13 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useAnimate } from "motion/react";
 
 import { useTextFieldSubmitShortcutPolicy } from "@/app-facade";
-import {
-  CollapsibleMarkdownField,
-  motionDurationFromCSSVar,
-  Spinner,
-  fieldActions,
-  type MarkdownFieldSubmitIntent,
-} from "@/ui";
+import { motionDurationFromCSSVar, Spinner, fieldActions } from "@/ui";
+import { CollapsibleMarkdownField, type MarkdownFieldSubmitIntent } from "@/ui/markdown";
 import { useSpeechField } from "@/shared/speech-input";
 import { GoalSaveButton } from "./GoalSidebarParts";
 
@@ -35,6 +30,7 @@ export function NewChatGoalField({
   label: string;
 }>) {
   const speech = useSpeechField({ value: draft, onChange: setDraft });
+  const { t } = useTranslation();
   const submit = () => {
     if (!speech.busy) save();
   };
@@ -51,7 +47,7 @@ export function NewChatGoalField({
             ) : draft.trim().length === 0 ? undefined : (
               <GoalSaveButton
                 disabled={!canSave || speech.busy}
-                label={speech.busy ? speech.busyReason : label}
+                label={speech.busy ? t("speech.finishBeforeSubmit") : label}
                 onClick={submit}
                 pending={pending}
               />

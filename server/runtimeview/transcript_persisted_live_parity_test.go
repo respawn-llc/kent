@@ -9,9 +9,9 @@ import (
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/toolfixture"
+	"core/server/agentruntime"
 	"core/server/llm"
-	"core/server/runtime"
-	"core/server/session"
+	"core/server/sessionstore"
 	"core/server/tools"
 	patchtool "core/server/tools/patch"
 	shelltool "core/server/tools/shell"
@@ -23,7 +23,7 @@ import (
 	"core/shared/rollbacktarget"
 	"core/shared/textutil"
 	"core/shared/toolspec"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -33,6 +33,7 @@ func durableParityRow(row *transcriptpb.CommittedRow) *transcriptpb.CommittedRow
 	durable := proto.Clone(row).(*transcriptpb.CommittedRow)
 	if assistant := durable.GetAssistant(); assistant != nil {
 		assistant.StreamId = nil
+		assistant.SourceState = nil
 	}
 	if reasoning := durable.GetReasoningTrace(); reasoning != nil {
 		reasoning.ProvisionalIdentity = nil
@@ -555,9 +556,8 @@ func mustProjectNewestPersistedTranscript(
 	if err != nil {
 		t.Fatalf("project persisted page: %v", err)
 	}
-	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{
-		CommittedRows: runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot),
-	}, nil)
+	hydration := mustTranscriptHydration(t, runtime.TranscriptHydrationSnapshot{},
+		runtime.TranscriptCommittedRowFactsFromSnapshot(segment.Snapshot), nil)
 
 	return page, hydration
 }

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
-	"core/server/session"
-	"core/server/session/sessiontest"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -18,7 +18,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
-	"core/shared/transcript"
+	"core/shared/transcriptmodel"
 )
 
 func TestQuestionHistoryProjectsRetainedAnswererIdentities(t *testing.T) {
@@ -53,7 +53,7 @@ func TestQuestionHistoryProjectsRetainedAnswererIdentities(t *testing.T) {
 			})
 			appendSessionViewRecord(t, store, stepID, completion)
 			if state == "deleted" {
-				if err := metadataStore.DeleteFailedSessionCreationRecordByID(t.Context(), identity.ID.String()); err != nil {
+				if err := metadataStore.DeleteSession(t.Context(), identity.ID.String()); err != nil {
 					t.Fatal(err)
 				}
 			}

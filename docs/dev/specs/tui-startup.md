@@ -17,18 +17,40 @@ Kent must process the following gates in order. It must skip a gate only when it
 2. **First-time setup.** A missing `config.toml` must open setup, including first sign-in, before Session selection.
 3. **Workspace resolution.** Startup begins from the current workspace. An unregistered current directory opens Project binding and is not registered automatically.
 4. **Session selection.** If no Sessions exist, startup opens new-Session setup directly.
-5. **Authentication.** Authentication must use the selected Session/role's Provider Connection. Auth-less connections require no sign-in. A broken default connection must not prevent Session selection or use of another working connection.
+5. **Connection readiness.** Session listing must open authentication or connection setup automatically only when no configured connection is usable. Auth-less connections are usable. A broken default connection must not prevent Session selection or use of another working connection.
 6. **Workspace-change prompt.** This prompt appears when the selected Session's available workspace root differs from the current root.
-7. **Lazy open and handoff.** Kent creates and initializes the Session only when the first user message or another Agent Turn trigger requires it.
+7. **Lazy open and handoff.** Kent presents New Session before creating a Session. A nonblank message, Queue, recognized prompt command, Goal Set, manual compaction, confirmed Worktree creation, or user-shell submission requires ordinary Session creation.
 
 - Opening or abandoning an empty New Session, repeated `/new`, and picker navigation must not assign a Provider Connection or change the global connection assignment order. The first Agent-Turn-starting action must claim exactly one connection through ordinary Session creation.
 - `Esc` on a startup surface navigates back one gate where a previous gate exists. On the first visible surface it exits the TUI cleanly. The session picker is an explicit exception: its `Esc` key is a no-op.
+
+## New Session
+
+- Opening, typing in, changing settings in, abandoning, or reopening New Session must create neither a durable Session nor a Session catalog row.
+- The open New Session must store its selected workspace, configuration inputs, settings, optional name, and optional Worktree target only in client memory until creation.
+- New Session must read settings defaults and choices from the server. Thinking, Fast, Supervisor, Questions, and Auto-compaction edits must be temporary before creation. Creation must receive the selected settings. After creation, edits must use ordinary server-owned Session settings mutations.
+- New Session must show its editable composer immediately and resolve selected-role settings and connection readiness in the background. If the selected connection requires authentication, Kent must show a notice directing the user to `/login` without automatically opening authentication. This applies both before first sign-in on that connection and after authentication is lost. Returning from login must not resend an earlier action.
+- For connection sets, New Session readiness must be advisory. Settings reads must not allocate or reserve a connection. The explicit first action must allocate and validate its actual connection through ordinary server selection without requiring every member to be ready. A delivered Session identity and its ordinary draft must be available after failure.
+- While settings load or their read has failed, editing and navigation must be usable. Initial loading must keep creation-triggering actions unavailable until settings are ready. Loading must appear immediately. Read failure must show an error. Enter after a read failure must retry the read and send the explicitly requested input when that read succeeds. Kent must not guess defaults or retry an already-issued creation or action without another user action.
+- Each successful explicit creation-triggering request must create one ordinary Session and invoke its ordinary action once. Concurrent requests issued before a Session result arrives may create separate Sessions.
+- An explicit prompt action supplied by navigation must wait for settings and dispatch once when ready without requiring another Enter. Settings-read or authentication failure must leave that prompt unsent for another explicit action.
+- Each delivered Session result must adopt that Session in the same composer. Visible unsent text must follow the delivered Session. A result from a New Session the user has left must not navigate the current view.
+- If a delivered result identifies a created Session but later activation or action fails, the TUI must keep that Session and its ordinary server-owned draft. If no Session identity was delivered, the TUI must keep New Session without searching for or inferring the result.
+- Submission failure must use the restoration behavior in [TUI Chat Core](tui-chat-core.md#queueing-and-steering). Goal Set must leave composer text unchanged. Kent must not automatically retry, replay, or reconcile failed or disconnected creation or actions.
+- Navigation or exit must discard uncreated New Session text, name, settings, and Worktree selection without confirmation. `/new` must navigate to a fresh Chat presentation, dispose the prior presentation's in-memory state, and recreate it with ordinary startup defaults.
+- Ordinary TUI `/new` must copy only the originating Session's navigation relationship. It must use the chosen Project and workspace's fresh defaults and explicit temporary selections without inheriting the originating Session's model, provider setup, ancestry, or Worktree. Rollback and agent-child inheritance must follow their respective creation contracts.
+- The server must own existing Session drafts and their ordinary save and restore behavior.
+- New Session and an identified Session must use one Chat composer. Actions must target the selected New Session or known Session identity through the shared server Chat creation and action services.
+- Session observation must attach only after identity is known. Observation must be read-only and must not determine action routing or prevent actions on a known Session.
+- Creation must accept the initial name and settings through a shared server API usable by both TUI and Desktop.
+- Pre-Session controls must follow [TUI Slash Overlays](tui-slash-overlays.md#pre-session-controls).
 
 ## Auth gate
 
 - The picker and credential selection must follow [Provider Connections](provider-connections.md). Onboarding must own first-run sign-in, and slash commands must be unavailable before onboarding completes.
 - Successful auth shows a brief confirmation state on the auth surface before advancing to the next gate.
-- Authentication failures and 401 responses appear on the authentication surface with retry or method-selection actions. They never cause a silent exit.
+- While the authentication surface is open, authentication failures and 401 responses must appear there with retry or method-selection actions. Outside that surface, missing or lost authentication must show a notice directing the user to `/login` without an automatic redirect or silent exit.
+- Automatic authentication must be limited to first-time onboarding and Session listing with no usable configured connections. Usability must come from server readiness without refreshing credentials or contacting providers.
 
 ## Session picker
 

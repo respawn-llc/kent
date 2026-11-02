@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"core/cli/tui/ongoing"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -35,10 +36,19 @@ func TestRendererOutputGateDropsSuppressedNormalBufferRendererPayloads(t *testin
 
 func TestRendererOutputGateAllowsAltScreenPayloadsWhileSuppressed(t *testing.T) {
 	state := newUIRendererOutputGateState()
-	state.SetSuppressRendererWrites(true)
+	model := sizedTestUIModel(newProjectedStaticUIModel(
+		WithUIRendererOutputGateState(state),
+		WithUIOngoingSurface(ongoing.NewSurface())), 80, 24)
+	model.activateSurface(uiSurfaceAsk)
 
 	var out bytes.Buffer
 	writer := newUIRendererOutputGateWriter(&out, state)
+	if _, err := writer.Write([]byte("pre-entry frame")); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatal("ask frame leaked before physical alt entry")
+	}
 	if _, err := writer.Write([]byte(xansi.SetModeAltScreenSaveCursor)); err != nil {
 		t.Fatalf("write alt-screen enter: %v", err)
 	}
@@ -55,6 +65,7 @@ func TestRendererOutputGateAllowsAltScreenPayloadsWhileSuppressed(t *testing.T) 
 	if _, err := writer.Write([]byte(xansi.ResetModeAltScreenSaveCursor)); err != nil {
 		t.Fatalf("write alt-screen exit: %v", err)
 	}
+	model.activateSurface(uiSurfaceOngoingTranscript)
 	out.Reset()
 	if _, err := writer.Write([]byte("ongoing frame")); err != nil {
 		t.Fatalf("write ongoing renderer frame: %v", err)

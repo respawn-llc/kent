@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -21,10 +20,6 @@ func TestLoadInteractiveClientLifecycleHookIsAbsentByDefault(t *testing.T) {
 	}
 	if got := app.Source.Sources["hooks.client.lifecycle"].Kind; got != "default" {
 		t.Fatalf("lifecycle source = %q, want default", got)
-	}
-	rendered := settingsTOMLWithRenderingOptions(app.Settings, true, nil, nil)
-	if !strings.Contains(rendered, "[hooks.client]\n# lifecycle = [\"executable\", \"fixed-arg\"]") {
-		t.Fatalf("default settings TOML missing client lifecycle example:\n%s", rendered)
 	}
 }
 

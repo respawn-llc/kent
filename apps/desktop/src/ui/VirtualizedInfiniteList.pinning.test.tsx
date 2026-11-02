@@ -23,12 +23,11 @@ it.each(["loading", "error"] as const)(
         estimateSize={() => 40}
         hasNextPage={false}
         isFetchingNextPage={false}
-        loadingLabel="Loading"
         onLoadMore={vi.fn()}
         previousBoundary={
           loading
             ? state === "loading"
-              ? { state: "loading", label: "Loading" }
+              ? { state: "loading" }
               : { state: "error", message: "Failed", retryLabel: "Retry", onRetry: vi.fn() }
             : undefined
         }
@@ -74,7 +73,6 @@ it.each([false, true])(
         estimateSize={() => 40}
         hasNextPage
         isFetchingNextPage={false}
-        loadingLabel="Loading"
         onLoadMore={onLoadMore}
         pinnedItemKeys={new Set(["99"])}
         endAnchoring={
