@@ -54,7 +54,7 @@
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
-- Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Busy actions must keep their ordinary action labels with a spinner. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
+- Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Loading buttons must crossfade between their action label and a replacing spinner without changing width. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
 
 ## Transcript configuration notices
 
@@ -113,13 +113,13 @@
 - When Transparency is Off or Low-power mode is enabled, Desktop must create opaque native windows rather than painting opaque content over transparent windows.
 - Low-power mode must be a boolean defaulting to Off. When enabled, it must disable all blur, behind-window transparency, and animations. Enabling it must not change the saved Transparency and Reduced motion values. Their controls must be disabled with tooltips showing `Low-power mode overrides this`.
 - Connection changes from Settings, Transparency, and Low-power mode must require restart and show a dismissible Sonner with Restart. Theme, Reduced motion, Notifications, and Project opening changes must apply immediately. Global settings must govern every Desktop window after taking effect.
+- Selecting Restart must dismiss the notice and start relaunch without a loading toast. Relaunch failure must show error feedback.
 - Permission, I/O, memory, and disk-storage failures must not trigger settings recreation and must show failure with Retry.
 - Adding settings must not change valid saved preferences, including self-update. Missing preferences and unknown enum values must use that preference's default. Unknown fields must be ignored. Only a missing or structurally invalid whole document must trigger recreation with defaults.
 - A crash during a Desktop preference write may cause the next launch to reset those preferences to defaults.
 - When a settings read failure prevents normal startup, Desktop must show an opaque error shell with Retry without overwriting the file or connecting with guessed settings. After Retry reads the settings successfully, Desktop must offer Restart to create the window with those settings.
 
 ## Projects and workspaces
-
 
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key. The default name is the directory basename.

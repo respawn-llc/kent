@@ -29,7 +29,7 @@ export function Button({
   return (
     <button
       className={cx(
-        "border border-[var(--button-border)] bg-[var(--button-bg)] text-[var(--button-color)] disabled:cursor-not-allowed disabled:opacity-55",
+        "border border-[var(--button-border)] bg-[var(--button-bg)] text-[var(--button-color)] disabled:cursor-not-allowed disabled:opacity-55 [&_[data-slot=spinner]]:text-current",
         buttonSizeClassNames[size],
         size === "default" && variant === "primary" && "min-w-[var(--button-primary-min-width)]",
         className,
@@ -39,8 +39,24 @@ export function Button({
       ref={ref}
       {...props}
     >
-      {loading === true && <Spinner size="sm" tone="inherit" />}
-      {(size === "default" || loading !== true) && children}
+      {loading === undefined ? (
+        children
+      ) : (
+        <span className="inline-grid place-items-center">
+          <span
+            className="col-start-1 row-start-1 inline-flex items-center justify-center gap-[var(--space-1)]"
+            style={{ opacity: loading ? 0 : 1, transition: "opacity var(--motion-fast)" }}
+          >
+            {children}
+          </span>
+          <span
+            className="pointer-events-none col-start-1 row-start-1 inline-flex items-center justify-center"
+            style={{ opacity: loading ? 1 : 0, transition: "opacity var(--motion-fast)" }}
+          >
+            <Spinner size="sm" tone="inherit" />
+          </span>
+        </span>
+      )}
     </button>
   );
 }

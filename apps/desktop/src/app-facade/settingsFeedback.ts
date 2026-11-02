@@ -22,7 +22,7 @@ export function requestSettingsRestart(
     actionLabel: t("settings.restart"),
     durationMs: Infinity,
     onAction: () => {
-      push({ id: "settings-restart", tone: "loading", title: t("settings.restart"), durationMs: Infinity });
+      dismiss("settings-restart");
       void services.nativeBridge.updates.relaunch().catch((error: unknown) => {
         push({
           id: "settings-restart",
