@@ -316,6 +316,7 @@ export const englishResources = {
       attachWorkspace: "Attach workspace",
       chooseWorkspace: "Choose workspace to attach",
       noWorkspaces: "No workspaces linked to this project.",
+      workspaceCatalogLoadFailed: "Could not load workspaces. Try again.",
       filesStayOnDisk: "Files stay on disk",
       workspaceAlreadyLinked: "Workspace is already linked to this project.",
       workspaceAttached: "Workspace linked.",

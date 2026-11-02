@@ -16,6 +16,59 @@ type ProjectEditMetadata struct {
 	ProjectKey  string
 }
 
+type ProjectWorkspacePathKind uint8
+
+const (
+	ProjectWorkspacePathUnregistered ProjectWorkspacePathKind = iota + 1
+	ProjectWorkspacePathWorkspace
+	ProjectWorkspacePathWorktree
+)
+
+type ProjectWorkspacePathResolution struct {
+	Kind          ProjectWorkspacePathKind
+	CanonicalRoot string
+	Binding       Binding
+}
+
+func (s *Store) ResolveProjectWorkspacePath(
+	ctx context.Context,
+	projectID string,
+	workspaceRoot string,
+) (ProjectWorkspacePathResolution, error) {
+	projectID = strings.TrimSpace(projectID)
+	binding, err := s.ResolveProjectWorkspaceSelector(
+		ctx,
+		projectID,
+		serverapi.NewProjectWorkspaceSelectorForRoot(workspaceRoot),
+	)
+	if err == nil {
+		return ProjectWorkspacePathResolution{
+			Kind:          ProjectWorkspacePathWorkspace,
+			CanonicalRoot: binding.CanonicalRoot,
+			Binding:       binding,
+		}, nil
+	}
+	if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
+		return ProjectWorkspacePathResolution{}, err
+	}
+
+	resolution, err := s.resolveWorkspacePath(ctx, workspaceRoot)
+	if err != nil {
+		return ProjectWorkspacePathResolution{}, err
+	}
+	if resolution.Kind == ProjectWorkspacePathUnregistered {
+		return resolution, nil
+	}
+	if strings.TrimSpace(resolution.Binding.ProjectID) != projectID {
+		return ProjectWorkspacePathResolution{}, fmt.Errorf(
+			"workspace %q is not bound to project %q",
+			resolution.Binding.CanonicalRoot,
+			projectID,
+		)
+	}
+	return resolution, nil
+}
+
 func (s *Store) GetProjectEditMetadata(
 	ctx context.Context,
 	projectID string,

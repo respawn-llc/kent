@@ -176,11 +176,14 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 	}
 	trimmedWorkspaceRoot := strings.TrimSpace(workspaceRoot)
 	if trimmedWorkspaceRoot != "" {
-		binding, err := s.safeBundles().Persistence.metadataStore.EnsureWorkspaceBinding(ctx, trimmedWorkspaceRoot)
-		if err == nil {
-			if strings.TrimSpace(binding.ProjectID) != trimmedProjectID {
-				return projectContext{}, fmt.Errorf("workspace %q is not bound to project %q", binding.CanonicalRoot, trimmedProjectID)
-			}
+		store := s.safeBundles().Persistence.metadataStore
+		resolution, err := store.ResolveProjectWorkspacePath(ctx, trimmedProjectID, trimmedWorkspaceRoot)
+		if err != nil {
+			return projectContext{}, err
+		}
+		switch resolution.Kind {
+		case metadata.ProjectWorkspacePathWorkspace:
+			binding := resolution.Binding
 			projectCfg, err := s.configForWorkspace(binding.CanonicalRoot)
 			if err != nil {
 				return projectContext{}, err
@@ -192,9 +195,12 @@ func (s *Core) resolveProjectContext(ctx context.Context, projectID string, work
 				projectRoot:    binding.CanonicalRoot,
 				projectSession: filepath.Join(filepath.Join(projectCfg.PersistenceRoot, "projects"), trimmedProjectID, "sessions"),
 			}, nil
-		}
-		if !errors.Is(err, serverapi.ErrWorkspaceNotRegistered) {
-			return projectContext{}, err
+		case metadata.ProjectWorkspacePathWorktree:
+			return projectContext{}, serverapi.ErrWorkspaceNotRegistered
+		case metadata.ProjectWorkspacePathUnregistered:
+			// An entirely unregistered root may use the Project default below.
+		default:
+			return projectContext{}, fmt.Errorf("invalid Project Workspace path resolution kind %d", resolution.Kind)
 		}
 	}
 	_, err := s.safeBundles().Persistence.metadataStore.GetProjectEditMetadata(ctx, trimmedProjectID)

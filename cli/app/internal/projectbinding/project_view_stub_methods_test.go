@@ -11,8 +11,12 @@ func (*testProjectViewClient) GetProjectEdit(context.Context, *projectpb.Project
 	return nil, errors.New("unexpected GetProjectEdit call")
 }
 
-func (*testProjectViewClient) GetProjectWorkspace(context.Context, *projectpb.GetProjectWorkspaceRequest) (*projectpb.GetProjectWorkspaceSuccess, error) {
-	return nil, errors.New("unexpected GetProjectWorkspace call")
+func (c *testProjectViewClient) GetProjectWorkspace(_ context.Context, req *projectpb.GetProjectWorkspaceRequest) (*projectpb.GetProjectWorkspaceSuccess, error) {
+	c.getWorkspaceReq = req
+	if c.getWorkspace == nil {
+		return nil, errors.New("unexpected GetProjectWorkspace call")
+	}
+	return c.getWorkspace, nil
 }
 
 func (*testProjectViewClient) UpdateProject(context.Context, *projectpb.UpdateProjectRequest) (*projectpb.UpdateProjectSuccess, error) {
