@@ -94,6 +94,7 @@ type FieldBinding = Readonly<{
   readOnly?: boolean;
   editorRef?: RefObject<HTMLTextAreaElement | null>;
   captureDraft?: () => SpeechDraft;
+  shortcutScope?: "field" | "destination";
 }>;
 
 export function useSpeechDestinationBusy() {
@@ -139,6 +140,30 @@ export function useSpeechField(binding: FieldBinding) {
       editor: () => (captured === undefined ? editorRef.current : captured.editor()),
     });
   });
+  useLayoutEffect(() => {
+    const editor = binding.captureDraft?.().editor() ?? editorRef.current;
+    if (editor === null || binding.readOnly === true || state.available === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (document.activeElement !== editor &&
+          (binding.shortcutScope !== "destination" ||
+            document.activeElement instanceof HTMLInputElement ||
+            document.activeElement instanceof HTMLTextAreaElement ||
+            (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable))) ||
+        editor.readOnly ||
+        editor.disabled ||
+        !isDictationShortcut(event)
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !state.busy) actions.start();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  });
   const control = fieldControlHidden(binding.readOnly, state) ? undefined : (
     <SpeechFieldControl state={state} own={own} phase={phase} actions={actions} />
   );
@@ -153,6 +178,16 @@ export function useSpeechField(binding: FieldBinding) {
 }
 
 type DestinationState = ReturnType<ReturnType<typeof createSpeechDestination>["state"]["read"]>;
+
+function isDictationShortcut(event: KeyboardEvent) {
+  return (
+    event.code === "Space" &&
+    event.altKey !== event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !event.isComposing
+  );
+}
 
 function fieldControlHidden(readOnly: boolean | undefined, state: DestinationState) {
   return readOnly === true || (state.available === null && !state.busy);

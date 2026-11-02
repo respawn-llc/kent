@@ -41,13 +41,19 @@ afterEach(() => {
 });
 
 function Editor() {
-  const { composer, speech, promptPicker, onEditorKeyDown } = useComposerSurface();
+  const {
+    composer,
+    speech: { editorRef, control },
+    promptPicker,
+    onEditorKeyDown,
+  } = useComposerSurface();
   return (
     <>
       {promptPicker?.state.current != null ? (
         <ChatPromptPicker picker={promptPicker} />
       ) : (
         <textarea
+          ref={editorRef}
           value={composer.text}
           onChange={(event) => {
             composer.edit(event.target.value);
@@ -55,7 +61,7 @@ function Editor() {
           onKeyDown={onEditorKeyDown}
         />
       )}
-      {speech.control}
+      {control}
       <ComposerSendButton />
     </>
   );
@@ -161,6 +167,20 @@ async function setupSpeech(
   }
   return { editor, services, transcript, readTranscript, steer, queue, answer, handlers };
 }
+
+it.each([
+  { modifier: "altKey", prompt: undefined },
+  { modifier: "ctrlKey", prompt: undefined },
+  { modifier: "altKey", prompt: question() },
+  { modifier: "ctrlKey", prompt: question() },
+] as const)("starts dictation in the visible Chat field without focus: %j", async ({ modifier, prompt }) => {
+  await setupSpeech("draft", prompt);
+  await screen.findByRole("button", { name: appI18n.t("speech.record") });
+  screen.getByRole<HTMLTextAreaElement>("textbox").blur();
+  fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
+  await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+  expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
+});
 
 it.each([question(), approval()])(
   "inserts into the visible prompt when it arrives while the ordinary composer is recording: %s",
