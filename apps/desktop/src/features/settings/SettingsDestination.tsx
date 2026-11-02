@@ -134,7 +134,7 @@ function SettingsPage({
       data-settings-scroll={scrollID}
       className="h-full min-h-0 overflow-auto p-[var(--space-5)]"
     >
-      <div className="grid max-w-2xl gap-[var(--space-7)]">
+      <div className="grid min-w-0 gap-[var(--space-7)]">
         <h1 className="m-0 flex items-center gap-[var(--space-2)] text-2xl font-semibold">
           {t("settings.title")}
           {change.isPending && <Spinner size="sm" />}
@@ -240,7 +240,7 @@ function SettingsPage({
               <Switch
                 checked={saved.transparency}
                 aria-label={t("settings.transparency")}
-                disabled={saved.lowPower || change.isPending}
+                disabled={saved.lowPower}
                 onCheckedChange={(value) => {
                   submit({ field: "transparency", value });
                 }}
@@ -255,7 +255,7 @@ function SettingsPage({
               <Switch
                 checked={saved.reducedMotion}
                 aria-label={t("settings.reducedMotion")}
-                disabled={saved.lowPower || change.isPending}
+                disabled={saved.lowPower}
                 onCheckedChange={(value) => {
                   submit({ field: "reducedMotion", value });
                 }}
