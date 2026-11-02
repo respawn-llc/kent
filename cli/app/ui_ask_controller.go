@@ -209,7 +209,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			decision, ok := selectedApprovalDecision(req, m.ask.selectedOption)
 			m.ask.freeformMode = askFreeformModeApprovalCommentary
 			if ok {
-				if m.ask.chosenApproval == nil || *m.ask.chosenApproval != decision {
+				if m.ask.chosenApproval != nil && *m.ask.chosenApproval != decision {
 					m.clearAskInput()
 				}
 				m.ask.chosenApproval = &decision

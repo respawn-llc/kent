@@ -74,7 +74,8 @@ func (c uiAskController) focusReadingRow(document askDocument) {
 
 func (c uiAskController) chooseFocusedApproval() {
 	m := c.model
-	if m.ask.freeformMode == askFreeformModeApprovalCommentary && m.ask.chosenApproval != nil {
+	if m.ask.freeformMode == askFreeformModeApprovalCommentary {
+		// Bind a pre-decision draft only when Tab returns to its editor.
 		return
 	}
 	if decision, ok := selectedApprovalDecision(m.ask.current.prompt, m.ask.selectedOption); ok {

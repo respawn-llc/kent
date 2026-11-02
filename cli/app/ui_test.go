@@ -823,35 +823,58 @@ func TestApprovalAskReturnsToDecisionPickerWithDraft(t *testing.T) {
 }
 
 func TestApprovalAskSelectionConfirmsWithDraftedCommentary(t *testing.T) {
-	m, control := newProjectedPromptTestUIModel(t)
-	updated := updateUIModel(t, m, askEventMsg{event: testApprovalAskEvent(
-		"approval-1",
-		"Approve?",
-		clientui.ApprovalDecisionAllowOnce,
-		clientui.ApprovalDecisionDeny,
-	)})
-	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
-	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("explain first")})
-	next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	updated = next.(*uiModel)
-	if command != nil || len(control.batchRequests) != 0 || !updated.ask.hasCurrent() {
-		t.Fatal("Enter without an Approval decision submitted drafted commentary")
+	tests := []struct {
+		name         string
+		downCount    int
+		wantDecision promptpb.ApprovalDecision
+	}{
+		{
+			name:         "first decision",
+			downCount:    1,
+			wantDecision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE,
+		},
+		{
+			name:         "later decision",
+			downCount:    2,
+			wantDecision: promptpb.ApprovalDecision_APPROVAL_DECISION_DENY,
+		},
 	}
-	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
-	updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
-	if updated.ask.selectedOption == nil || *updated.ask.selectedOption != 0 ||
-		testAskInput(updated) != "explain first" || len(control.batchRequests) != 0 {
-		t.Fatal("selecting the first Approval decision lost commentary or submitted it")
-	}
-	updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
-	entry := requireApprovalAnswerEntry(t, request)
-	if entry.GetApprovalAnswer().Decision != promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE ||
-		entry.GetApprovalAnswer().Commentary == nil ||
-		*entry.GetApprovalAnswer().Commentary != "explain first" {
-		t.Fatalf("Approval answer did not include the selected decision and commentary: %+v", entry.GetApprovalAnswer())
-	}
-	if testActiveAsk(updated) != nil {
-		t.Fatal("successful batch did not immediately remove the Approval")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m, control := newProjectedPromptTestUIModel(t)
+			updated := updateUIModel(t, m, askEventMsg{event: testApprovalAskEvent(
+				"approval-1",
+				"Approve?",
+				clientui.ApprovalDecisionAllowOnce,
+				clientui.ApprovalDecisionDeny,
+			)})
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("explain first")})
+			next, command := updated.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			updated = next.(*uiModel)
+			if command != nil || len(control.batchRequests) != 0 || !updated.ask.hasCurrent() {
+				t.Fatal("Enter without an Approval decision submitted drafted commentary")
+			}
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+			for range test.downCount {
+				updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyDown})
+			}
+			updated = updateUIModel(t, updated, tea.KeyMsg{Type: tea.KeyTab})
+			if !updated.ask.freeform || updated.ask.selectedOption == nil || *updated.ask.selectedOption != test.downCount-1 ||
+				testAskInput(updated) != "explain first" || len(control.batchRequests) != 0 {
+				t.Fatal("selecting an Approval decision lost commentary or submitted it")
+			}
+			updated, request := submitAskPromptKey(t, updated, control, tea.KeyMsg{Type: tea.KeyEnter})
+			entry := requireApprovalAnswerEntry(t, request)
+			if entry.GetApprovalAnswer().Decision != test.wantDecision ||
+				entry.GetApprovalAnswer().Commentary == nil ||
+				*entry.GetApprovalAnswer().Commentary != "explain first" {
+				t.Fatalf("Approval answer did not include the selected decision and commentary: %+v", entry.GetApprovalAnswer())
+			}
+			if testActiveAsk(updated) != nil {
+				t.Fatal("successful batch did not immediately remove the Approval")
+			}
+		})
 	}
 }
 
