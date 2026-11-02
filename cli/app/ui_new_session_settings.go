@@ -115,7 +115,7 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	if msg.err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: msg.err}
 		m.restoreNavigationPrompt()
-		return m.showTransientStatusNotice(uiStatusNotice{Text: msg.err.Error(), Kind: uiStatusNoticeError})
+		return m.agentSettingsFailureNotice(msg.err, uiAgentPickerLoad)
 	}
 	target.settingsLoad = uiNewSettingsReady{choices: msg.catalog.Choices, readiness: msg.readiness}
 	if target.creation.InitialSettings == nil {
@@ -129,12 +129,12 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	defaults, err := protoapi.SessionSettingsFromProto(choice.Defaults)
 	if err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: err}
-		return m.showTransientStatusNotice(uiStatusNotice{Text: err.Error(), Kind: uiStatusNoticeError})
+		return m.agentSettingsFailureNotice(err, uiAgentPickerLoad)
 	}
 	source, err := protoapi.SessionSourceReportFromProto(choice.Source)
 	if err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: err}
-		return m.showTransientStatusNotice(uiStatusNotice{Text: err.Error(), Kind: uiStatusNoticeError})
+		return m.agentSettingsFailureNotice(err, uiAgentPickerLoad)
 	}
 	m.statusConfig.Settings = defaults
 	m.statusConfig.Source = source
@@ -213,7 +213,7 @@ func (m *uiModel) gateNewSessionInput(text string, intent newSessionInputIntent)
 		return false, nil
 	case uiNewSettingsFailed:
 		if intent != newSessionInputEnter {
-			return true, m.showTransientStatusNotice(uiStatusNotice{Text: state.err.Error(), Kind: uiStatusNoticeError})
+			return true, m.agentSettingsFailureNotice(state.err, uiAgentPickerLoad)
 		}
 		retry := &newSessionSettingsRetry{text: text, draftToken: m.mainInputDraftToken}
 		if command.Handled {

@@ -50,6 +50,7 @@ type uiLoopRequest struct {
 	sessionTitle                 *string
 	modelContractLocked          bool
 	chatSettings                 *chatsettingspb.Settings
+	chatSettingsErr              error
 	configuredModelName          *string
 	statusConfig                 uiStatusConfig
 	connectionManagement         apicontract.ConnectionManagementService
@@ -246,7 +247,9 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	model.observationContext = programContext
 	if runtimeClient != nil {
 		model.observationScope, model.cancelObservation = context.WithCancel(programContext)
-		model.startupCmds = append(model.startupCmds, model.installSessionObservation(request.wiring, sessionLaunchPlan{StatusConfig: request.statusConfig, ChatSettings: request.chatSettings}))
+		model.startupCmds = append(model.startupCmds, model.installSessionObservation(request.wiring, sessionLaunchPlan{
+			StatusConfig: request.statusConfig, ChatSettings: request.chatSettings, ChatSettingsErr: request.chatSettingsErr,
+		}))
 	}
 	if request.loadCommandCatalog != nil {
 		load := request.loadCommandCatalog

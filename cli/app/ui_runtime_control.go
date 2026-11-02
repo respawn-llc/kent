@@ -147,6 +147,9 @@ func enabledChatSettingsOperation(
 
 func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 	if msg.err != nil {
+		if _, agent := msg.operation.GetOperation().(*chatsettingspb.MutationOperation_AgentRole); agent {
+			return m.agentSettingsFailureNotice(msg.err, uiAgentPickerApply)
+		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
@@ -175,6 +178,7 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings) {
 	if m.newSessionTarget() == nil {
 		m.sessionSettings = settings
+		m.sessionSettingsErr = nil
 	}
 	m.modelName = settings.SelectedAgent.Model
 	m.thinkingLevel = settings.SelectedAgent.Thinking

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"errors"
 	"strings"
 
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"
@@ -33,10 +32,24 @@ type agentPickerAppliedMsg struct {
 	result    chatSettingsDoneMsg
 }
 
+type sessionSettingsLoadedMsg struct {
+	sessionID runtimeids.SessionID
+	settings  *settingspb.Settings
+	err       error
+}
+
+func (m *uiModel) agentSelectionLocked() bool {
+	return m.newSessionTarget() == nil &&
+		m.sessionSettings.GetAgentEditability() == settingspb.Editability_EDITABILITY_WORKFLOW_LOCK
+}
+
+func (m *uiModel) refuseAgentSelection() tea.Cmd {
+	return m.showTransientStatusNotice(uiStatusNotice{Text: "The Workflow controls this Agent.", Kind: uiStatusNoticeError})
+}
+
 func (m *uiModel) openAgentPicker() tea.Cmd {
-	if m.newSessionTarget() == nil && m.sessionSettings != nil &&
-		m.sessionSettings.AgentEditability == settingspb.Editability_EDITABILITY_WORKFLOW_LOCK {
-		return m.showTransientStatusNotice(uiStatusNotice{Text: "The Workflow controls this Agent.", Kind: uiStatusNoticeError})
+	if m.agentSelectionLocked() {
+		return m.refuseAgentSelection()
 	}
 	m.agentPicker = &uiAgentPicker{}
 	m.focusCurrentAgent()
@@ -92,7 +105,7 @@ func (m *uiModel) agentPickerLoading() bool {
 		_, loading := target.settingsLoad.(uiNewSettingsLoading)
 		return loading || target.settingsLoad == nil
 	}
-	return m.agentPicker.pending || (m.sessionSettings == nil && m.sessionObservationErr == nil)
+	return m.agentPicker.pending || (m.sessionSettings == nil && m.agentPickerError() == nil)
 }
 
 func (m *uiModel) agentPickerError() error {
@@ -103,6 +116,9 @@ func (m *uiModel) agentPickerError() error {
 		return nil
 	}
 	if m.agentPicker.request == uiAgentPickerLoad {
+		if m.sessionSettingsErr != nil {
+			return m.sessionSettingsErr
+		}
 		return m.sessionObservationErr
 	}
 	return m.agentPicker.err
@@ -113,9 +129,45 @@ func (m *uiModel) retryAgentPicker() tea.Cmd {
 		return m.loadNewSessionSettingsCmd(nil)
 	}
 	if m.agentPicker.request == uiAgentPickerLoad {
-		return tea.Batch(m.observeAdoptedSessionCmd(), m.reconcileSpinnerTicking(false))
+		if m.sessionObservationErr != nil {
+			return tea.Batch(m.observeAdoptedSessionCmd(), m.reconcileSpinnerTicking(false))
+		}
+		return m.loadSessionSettingsCmd()
 	}
 	return m.applyAgentSelection()
+}
+
+func (m *uiModel) loadSessionSettingsCmd() tea.Cmd {
+	client := m.selectedSessionSettingsClient()
+	m.sessionSettingsErr = nil
+	return tea.Batch(func() tea.Msg {
+		settings, err := client.ReadChatSettings()
+		return sessionSettingsLoadedMsg{sessionID: client.sessionID, settings: settings, err: err}
+	}, m.reconcileSpinnerTicking(false))
+}
+
+func (m *uiModel) applySessionSettingsLoaded(msg sessionSettingsLoadedMsg) tea.Cmd {
+	if m.currentRuntimeSessionID() != msg.sessionID.String() {
+		return nil
+	}
+	m.observeRuntimeRequestResult(msg.err)
+	m.sessionSettingsErr = msg.err
+	if msg.err != nil {
+		return tea.Batch(
+			m.agentSettingsFailureNotice(msg.err, uiAgentPickerLoad),
+			m.reconcileSpinnerTicking(false),
+		)
+	}
+	m.applyChatSettingsProjection(msg.settings)
+	if m.agentPicker != nil {
+		if m.agentSelectionLocked() {
+			return tea.Batch(m.closeAgentPicker(), m.refuseAgentSelection())
+		}
+		if m.agentPicker.selectedRole == nil {
+			m.focusCurrentAgent()
+		}
+	}
+	return m.reconcileSpinnerTicking(false)
 }
 
 func (m *uiModel) reconcileNewChatAgentPicker(msg newSessionSettingsLoadedMsg) tea.Cmd {
@@ -173,7 +225,7 @@ func (m *uiModel) applyAgentPickerResult(msg agentPickerAppliedMsg) tea.Cmd {
 		return cmd
 	}
 	if rejected := msg.result.response.Result.GetRejected(); rejected != nil {
-		m.agentPicker.err = errors.New(chatSettingsRejectionNotices[rejected.Reason])
+		m.agentPicker.err = &chatSettingsRejectedError{reason: rejected.Reason}
 		return cmd
 	}
 	return tea.Batch(cmd, m.closeAgentPicker())
@@ -247,7 +299,9 @@ func (l uiViewLayout) renderAgentPicker(width, height int, style uiStyles) []str
 		lines = append(lines, "")
 	}
 	if err := m.agentPickerError(); err != nil {
-		lines[1] = statusNoticeStyle(m.theme, uiStatusNoticeError).Render(truncateQueuedMessageLine(err.Error(), width))
+		lines[1] = statusNoticeStyle(m.theme, uiStatusNoticeError).Render(
+			truncateQueuedMessageLine(agentSettingsFailureSummary(err, m.agentPicker.request), width),
+		)
 	}
 	choices := m.agentChoices()
 	footerLines := 0

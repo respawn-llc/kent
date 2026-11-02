@@ -46,6 +46,7 @@ func (m *uiModel) applyNewSessionActionDone(msg newSessionActionDoneMsg) tea.Cmd
 		m.stopSessionObservation()
 		m.setKnownSessionTarget(msg.session.SessionId)
 		m.sessionSettings = nil
+		m.sessionSettingsErr = nil
 		m.sessionObservationErr = nil
 		m.resetPendingWorkRefreshScope(m.presentationTarget.(uiKnownSessionTarget).id)
 		m.reconcileMissingPromptRecoveryScope()
@@ -121,7 +122,7 @@ func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg)
 		m.sessionObservationErr = msg.err
 		m.observeRuntimeRequestResult(msg.err)
 		return tea.Batch(
-			m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
+			m.agentSettingsFailureNotice(msg.err, uiAgentPickerLoad),
 			m.reconcileSpinnerTicking(false),
 		)
 	}
@@ -132,6 +133,7 @@ func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg)
 }
 
 func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionLaunchPlan) tea.Cmd {
+	m.sessionSettingsErr = plan.ChatSettingsErr
 	if plan.ChatSettings != nil {
 		m.applyChatSettingsProjection(plan.ChatSettings)
 		if m.agentPicker != nil && m.agentPicker.selectedRole == nil {
@@ -164,7 +166,11 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	m.statusConfig = plan.StatusConfig
 	client := wiring.runtimeClient.(*sessionRuntimeClient)
 	m.ongoingTranscript = newOngoingTranscriptController(m.ongoingSurface, m.ongoingFrameInput, client.admitTranscriptMessageState, m.applyAdmittedTranscriptMessageState)
-	return m.startSessionObservationLoads()
+	var settingsNotice tea.Cmd
+	if m.sessionSettingsErr != nil {
+		settingsNotice = m.agentSettingsFailureNotice(m.sessionSettingsErr, uiAgentPickerLoad)
+	}
+	return tea.Batch(m.startSessionObservationLoads(), settingsNotice)
 }
 
 func (m *uiModel) startSessionObservationLoads() tea.Cmd {

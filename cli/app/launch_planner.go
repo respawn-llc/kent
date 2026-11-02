@@ -52,6 +52,7 @@ type sessionLaunchPlan struct {
 	SessionTitle               *string
 	ModelContractLocked        bool
 	ChatSettings               *chatsettingspb.Settings
+	ChatSettingsErr            error
 	QuestionsEnabled           bool
 	AutoCompactionEnabled      bool
 	ThinkingOverrideExplicit   bool
@@ -215,19 +216,21 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}
 	scopeSelection := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
 	var chatSettings *chatsettingspb.Settings
+	var chatSettingsErr error
 	if req.Mode == launchModeInteractive {
 		response, err := p.server.ChatSettingsClient().ReadChatSettings(ctx, &chatsettingspb.ReadRequest{
 			Target: &chatsettingspb.ReadRequest_Session{Session: &chatsettingspb.SessionTarget{
 				SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: resp.Plan.SessionId}},
 			}},
 		})
-		if err != nil {
-			return sessionLaunchPlan{}, err
+		chatSettingsErr = err
+		if err == nil {
+			chatSettings = response.GetSession().Settings
 		}
-		chatSettings = response.GetSession().Settings
 	}
 	return sessionLaunchPlan{
 		ChatSettings:             chatSettings,
+		ChatSettingsErr:          chatSettingsErr,
 		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
 		Mode:                     req.Mode,
 		SessionID:                resp.Plan.SessionId,

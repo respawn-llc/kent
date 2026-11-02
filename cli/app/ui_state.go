@@ -45,6 +45,7 @@ type uiRuntimeFeatureState struct {
 	chatMutations         apicontract.ChatMutationService
 	chatSettings          apicontract.ChatSettingsService
 	sessionSettings       *chatsettingspb.Settings
+	sessionSettingsErr    error
 	agentPicker           *uiAgentPicker
 	sessionControls       apicontract.RuntimeControlService
 	sessionLiveControls   apicontract.RuntimeLiveControlService

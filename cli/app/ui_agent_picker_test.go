@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"core/shared/apicontract"
+	"core/shared/protoapi"
 	chatcontextpb "core/shared/protoapi/gen/kent/api/chat_context"
 	settingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -220,6 +221,70 @@ func TestAgentPickerAdoptedSessionLoadFailureRetry(t *testing.T) {
 			}
 			if model.sessionSettings == nil || model.sessionObservationLoading() || model.surface() != uiSurfaceAgent {
 				t.Fatal("retry did not finish loading the adopted Session")
+			}
+			model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if !model.surface().isTranscript() {
+				t.Fatal("loaded current Agent was not selectable")
+			}
+		})
+	}
+}
+
+func TestAgentPickerExistingSessionOpeningLoadFailureRetry(t *testing.T) {
+	disableTransientStatusClearForTest(t)
+	t.Setenv("REMOTE_TEST_KEY", "ready-key")
+	fixture := startRemoteAuthTestFixture(t)
+	server, err := ensureInteractiveProjectBinding(t.Context(), fixture.server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	planner := newSessionLaunchPlanner(server)
+	create, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := planner.PlanSession(t.Context(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: create})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(created.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open, err := protoapi.SessionLaunchRequestIntentToProto(serverapi.OpenExistingSessionLaunchIntent(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeyRunes, Runes: []rune{'r'}}} {
+		t.Run(key.String(), func(t *testing.T) {
+			failed := newSessionLaunchPlanner(failingHeaderSettingsServer{launchPlannerServer: server, err: errors.New("settings read failed")})
+			plan, err := failed.PlanSession(t.Context(), sessionLaunchRequest{Mode: launchModeInteractive, Intent: open})
+			if err != nil {
+				t.Fatalf("settings failure prevented opening the selected Session: %v", err)
+			}
+			observation, request, err := prepareSessionUIRun(t.Context(), server, planner, plan, "", false, "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer observation.Close()
+			composition, err := composeUIProgram(request, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer composition.close()
+			model := composition.model
+			testSetMainInput(model, "/agent")
+			model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if model.surface() != uiSurfaceAgent || model.surfaceHasPendingOperation() || model.agentPickerError() == nil {
+				t.Fatal("opening settings failure did not remain retryable in the selected Session")
+			}
+			_, retry := model.Update(key)
+			for _, msg := range collectCmdMessages(t, retry) {
+				model.Update(msg)
+			}
+			if model.sessionSettings == nil || model.currentRuntimeSessionID() != id.String() || model.agentPickerError() != nil {
+				t.Fatal("retry did not load settings for the original Session")
 			}
 			model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			if !model.surface().isTranscript() {
