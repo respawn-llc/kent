@@ -44,8 +44,8 @@ func TestAskProjectionAdmissionInitializesPromptWithoutRenderingOnUpdate(t *test
 	if updated.ask.currentToken == 0 {
 		t.Fatal("prompt admission did not establish a current token")
 	}
-	if updated.ask.cursor != 0 {
-		t.Fatalf("prompt cursor = %d, want 0", updated.ask.cursor)
+	if updated.ask.selectedOption != nil {
+		t.Fatal("pending prompt initialized an option selection")
 	}
 	if updated.ask.freeform {
 		t.Fatal("prompt with options initialized in freeform mode")

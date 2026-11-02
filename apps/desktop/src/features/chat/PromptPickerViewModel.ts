@@ -85,7 +85,8 @@ export function createPromptPickerViewModel({
           input.action.kind !== "sync"
         )
           return;
-        const transition = transitionPicker(get(state), get(runtime).pendingPrompts, input.action);
+        const previous = get(state);
+        const transition = transitionPicker(previous, get(runtime).pendingPrompts, input.action);
         get.set(state, transition.state);
         if (transition.effect === "focus-field") input.focusField?.();
         if (transition.effect !== "submit") return;

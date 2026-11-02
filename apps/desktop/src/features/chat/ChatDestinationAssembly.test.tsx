@@ -129,6 +129,13 @@ it("keeps navigation for a five-question batch when four questions are answered"
     const first = screen.getAllByRole("radio")[0];
     if (first === undefined) throw new Error("Question must offer an answer.");
     await user.click(first);
+    if (index === 0) {
+      await user.keyboard("{ArrowLeft}");
+      expect(
+        screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 5 })),
+      ).toBeInTheDocument();
+      await user.keyboard("{ArrowRight}");
+    }
   }
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 5, count: 5 }))).toBeInTheDocument();
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeInTheDocument();
@@ -829,33 +836,6 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
   view.unmount();
 });
 
-it.each(["radio", "label"] as const)(
-  "confirms an option with one %s click when commentary is empty",
-  async (surface) => {
-    const view = sessionWithPrompts();
-    const prompt = question("quick-answer", { recommendedOptionIndex: 1 });
-    await waitFor(() => {
-      expect(view.handlers).toHaveLength(1);
-    });
-    await act(async () => {
-      view.handlers[0]?.onEvent({
-        sequence: 1,
-        kind: "hydration",
-        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
-      });
-    });
-    const option = await screen.findByRole("radio", { name: "one" });
-    await userEvent.setup({ delay: null }).click(surface === "radio" ? option : screen.getByText("one"));
-    await waitFor(() => {
-      expect(view.answer).toHaveBeenCalledTimes(1);
-    });
-    expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
-      { selectedOptionNumber: 1, freeform: null },
-    ]);
-    view.unmount();
-  },
-);
-
 it.each(["enter", "send"] as const)(
   "Neither focuses commentary and waits for explicit %s",
   async (method) => {
@@ -902,38 +882,6 @@ it.each(["enter", "send"] as const)(
   },
 );
 
-it("protects typed commentary even for the preselected recommendation and resets protection after more typing", async () => {
-  const view = sessionWithPrompts();
-  const prompt = question("recommended-test", { recommendedOptionIndex: 1 });
-  await waitFor(() => {
-    expect(view.handlers).toHaveLength(1);
-  });
-  await act(async () => {
-    view.handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
-    });
-  });
-  const user = userEvent.setup({ delay: null });
-  const field = await screen.findByRole("textbox", { name: appI18n.t("task.commentary") });
-  const option = screen.getByRole("radio", { name: "one" });
-  await user.type(field, "still writing");
-  await user.click(option);
-  expect(view.answer).not.toHaveBeenCalled();
-  await user.type(field, " commentary");
-  await user.click(option);
-  expect(view.answer).not.toHaveBeenCalled();
-  await user.click(option);
-  await waitFor(() => {
-    expect(view.answer).toHaveBeenCalledTimes(1);
-  });
-  expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
-    { selectedOptionNumber: 1, freeform: "still writing commentary" },
-  ]);
-  view.unmount();
-});
-
 it("preserves failed answer diagnostics separately while retaining answers for explicit resubmission", async () => {
   const failure = new RpcError({
     code: "internal_failure",
@@ -957,9 +905,12 @@ it("preserves failed answer diagnostics separately while retaining answers for e
     await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
     "retained answer",
   );
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  const option = screen.getByRole("radio", { name: "one" });
+  await user.click(option);
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.click(option);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.dblClick(option);
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(1);
   });
@@ -1001,8 +952,7 @@ it("retains pending prompt answers and commentary through a Settings read failur
   );
   const user = userEvent.setup({ delay: null });
   await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "first answer");
-  await user.click(screen.getByRole("radio", { name: "one" }));
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.dblClick(screen.getByRole("radio", { name: "one" }));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
   await user.type(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), "last draft");
   view.settings.mockRejectedValueOnce(new Error("offline"));
@@ -1013,8 +963,10 @@ it("retains pending prompt answers and commentary through a Settings read failur
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByDisplayValue("last draft")).toBeInTheDocument();
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("radio", { name: "two" }));
-  await user.click(screen.getByRole("radio", { name: "two" }));
+  const lastOption = screen.getByRole("radio", { name: "two" });
+  await user.click(lastOption);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.dblClick(lastOption);
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(1);
   });
@@ -1049,8 +1001,11 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
     "approval commentary",
   );
   const option = approvalDecisionLabel("allow_once", appI18n.t);
-  await user.click(screen.getByRole("radio", { name: option }));
-  await user.click(screen.getByRole("radio", { name: option }));
+  const decision = screen.getByRole("radio", { name: option });
+  expect(decision.getAttribute("aria-checked")).toBe("false");
+  await user.click(decision);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.dblClick(decision);
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(1);
   });
