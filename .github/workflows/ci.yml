@@ -98,10 +98,25 @@ jobs:
         run: just install _apps-dependencies
 
       - name: Test
-        run: just test server
+        shell: bash
+        env:
+          JUST_VERBOSE: "1"
+        run: just test server -- ./... -json | tee "$RUNNER_TEMP/kent-server-tests.log"
 
       - name: Test production binary
-        run: just test integration
+        shell: bash
+        env:
+          JUST_VERBOSE: "1"
+        run: just test integration -- -json | tee "$RUNNER_TEMP/kent-integration-tests.log"
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: server-test-output
+          path: |
+            ${{ runner.temp }}/kent-server-tests.log
+            ${{ runner.temp }}/kent-integration-tests.log
 
   windows-installer:
     runs-on: windows-latest

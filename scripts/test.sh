@@ -124,9 +124,6 @@ finish_suites() {
 		fi
 		next_suite=$((next_suite + 1))
 		if [ "$status" -eq 0 ]; then
-			if [ -n "${JUST_VERBOSE:-}" ]; then
-				cat "$log"
-			fi
 			printf '✓ %s tests passed\n' "$label"
 		else
 			failure_labels+=("$label")
@@ -168,7 +165,11 @@ run_suite() {
 	log="$(mktemp "${TMPDIR:-/tmp}/kent-${label}-tests.XXXXXX")"
 	logs+=("$log")
 	suite_labels+=("$label")
-	"$@" >"$log" 2>&1 &
+	if [ -n "${JUST_VERBOSE:-}" ]; then
+		"$@" 2>&1 | tee "$log" &
+	else
+		"$@" >"$log" 2>&1 &
+	fi
 	suite_pids+=("$!")
 }
 
