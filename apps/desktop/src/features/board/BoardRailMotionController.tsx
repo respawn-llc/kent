@@ -9,11 +9,10 @@ import { BoardColumnMotionBoundary } from "./BoardColumnMotionBoundary";
 import { runBoardCardMotionTransition } from "./BoardCardMotionAnimator";
 import { BoardCardMotionContext, type BoardCardMotionContextValue } from "./BoardCardMotionContext";
 import { BoardCardVisibilityContext, createBoardCardVisibility } from "./BoardCardVisibilityRegistry";
-import { KanbanGroup } from "./BoardColumns";
+import { KanbanGroup, type BoardColumnDisclosureAction } from "./BoardColumns";
 import {
   boardCardColumnCountSnapshot,
   boardCardMotionParticipants,
-  boardCardColumnIDsWithCards,
   boardCardSnapshotsEqual,
   boardCardSnapshotFromEntries,
   boardRailLayoutSignature,
@@ -57,7 +56,7 @@ export type BoardRailMotionControllerProps = Readonly<{
   onCardClick: (taskID: string) => void;
   onCardDragStart: (drag: ActiveBoardCardDrag) => void;
   onDeleteTask: (taskID: string) => void;
-  onExpandColumn: (columnID: string) => void;
+  onColumnDisclosure: (columnID: string, action: BoardColumnDisclosureAction) => void;
   onInterruptTask: (taskID: string) => void;
   onRegisterColumnScrollport: (columnID: string, element: HTMLElement | null) => void;
   onResumeTask: (taskID: string) => void;
@@ -82,7 +81,7 @@ export function BoardRailMotionController({
   onCardClick,
   onCardDragStart,
   onDeleteTask,
-  onExpandColumn,
+  onColumnDisclosure,
   onInterruptTask,
   onRegisterColumnScrollport,
   onResumeTask,
@@ -120,7 +119,10 @@ export function BoardRailMotionController({
     if (pendingCardMove === null) {
       return emptyPendingMoveColumnIDs;
     }
-    return new Set([...boardCardColumnIDsWithCards(displayedColumns), pendingCardMove.targetColumnID]);
+    const sourceColumnIDs = Array.from(displayedColumns)
+      .filter(([, cards]) => cards.some((card) => card.id === pendingCardMove.card.id))
+      .map(([columnID]) => columnID);
+    return new Set([...sourceColumnIDs, pendingCardMove.targetColumnID]);
   }, [displayedColumns, pendingCardMove]);
   const latestColumnsRef = useRef<ReadonlyMap<string, BoardColumnQueryDataSnapshot>>(new Map());
   const displayedColumnsRef = useRef(displayedColumns);
@@ -205,7 +207,14 @@ export function BoardRailMotionController({
       const attemptID = attemptIDRef.current + 1;
       attemptIDRef.current = attemptID;
       phaseRef.current = "arming";
-      setHeldExpandedColumnIDs(boardCardColumnIDsWithCards(currentDisplayed));
+      const motionTaskIDs = participants.namesByCardID;
+      const heldColumnIDs = new Set<string>();
+      for (const [columnID, cards] of currentDisplayed) {
+        if (cards.some((card) => motionTaskIDs.has(card.id))) {
+          heldColumnIDs.add(columnID);
+        }
+      }
+      setHeldExpandedColumnIDs(heldColumnIDs);
       setActiveNamesByCardID(participants.namesByCardID);
       setArmedTransition({
         attemptID,
@@ -460,7 +469,7 @@ export function BoardRailMotionController({
                     onCardClick={onCardClick}
                     onCardDragStart={onCardDragStart}
                     onDeleteTask={onDeleteTask}
-                    onExpandColumn={onExpandColumn}
+                    onColumnDisclosure={onColumnDisclosure}
                     onInterruptTask={onInterruptTask}
                     onReportColumnSnapshot={reportColumnSnapshot}
                     onRegisterColumn={registerColumn}
@@ -488,7 +497,7 @@ export function BoardRailMotionController({
                 onCardClick={onCardClick}
                 onCardDragStart={onCardDragStart}
                 onDeleteTask={onDeleteTask}
-                onExpandColumn={onExpandColumn}
+                onColumnDisclosure={onColumnDisclosure}
                 onInterruptTask={onInterruptTask}
                 onReportColumnSnapshot={reportColumnSnapshot}
                 onRegisterColumn={registerColumn}

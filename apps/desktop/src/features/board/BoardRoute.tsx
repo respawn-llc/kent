@@ -23,6 +23,7 @@ import { WorkflowValidationIssues } from "@/shared/workflow-validation";
 import { ErrorState, FloatingNoticeIsland, LoadingState, Spinner } from "@/ui";
 import { BoardHorizontalScrollbar } from "./BoardHorizontalScrollbar";
 import { BoardRailMotionController } from "./BoardRailMotionController";
+import type { BoardColumnDisclosureAction } from "./BoardColumns";
 import type { BoardColumnDropState } from "./BoardDragTypes";
 import { classifyBoardColumnDropState, useBoardDragLifecycle } from "./BoardDragState";
 import { BoardBackgroundRefreshNotice } from "./BoardBackgroundRefreshNotice";
@@ -42,8 +43,6 @@ export type BoardRouteProps = Readonly<{
   workflowId: string | undefined;
   selectedTaskId: string;
 }>;
-
-const emptyExpandedEmptyColumnIDs: ReadonlySet<string> = new Set();
 
 const manualMoveBlockerTranslationKeys = {
   invalid_workflow: "board.moveBlockedInvalidWorkflow",
@@ -147,7 +146,7 @@ function BoardRouteData({
   });
 
   if (boardQuery.isPending && board === undefined) {
-    return <LoadingState chromePadding reveal={false} title={t("states.loading")} />;
+    return <LoadingState chromePadding reveal={false} />;
   }
   if (boardQuery.isError && board === undefined) {
     return (
@@ -178,6 +177,7 @@ function BoardRouteData({
         board={board}
         boardQueryWorkflowID={workflowId}
         boardRefreshError={boardQuery.isError ? boardQuery.error : null}
+        key={`${board.projectID}:${board.selectedWorkflow.id}`}
         onBoardRefreshRetry={() => {
           boardQuery.refetch();
         }}
@@ -204,9 +204,9 @@ function BoardContent({
   selectedTaskId: string;
 }>) {
   const { t } = useTranslation();
-  const [expandedEmptyColumns, setExpandedEmptyColumns] = useState<
-    Readonly<{ ids: ReadonlySet<string>; scope: string }>
-  >(() => ({ ids: new Set(), scope: "" }));
+  const [columnCollapseChoices, setColumnCollapseChoices] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
+  );
   const { push } = useStatusController();
   const { api, logger } = useAppServices();
   const scrollportRef = useRef<HTMLDivElement | null>(null);
@@ -282,11 +282,6 @@ function BoardContent({
     [board.columns],
   );
   const firstActive = activeColumns[0];
-  const columnExpansionScope = `${board.projectID}:${board.selectedWorkflow.id}`;
-  const expandedEmptyColumnIDs =
-    expandedEmptyColumns.scope === columnExpansionScope
-      ? expandedEmptyColumns.ids
-      : emptyExpandedEmptyColumnIDs;
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
   const {
     openTask,
@@ -373,20 +368,15 @@ function BoardContent({
   }
 
   function columnIsCollapsed(column: BoardColumn): boolean {
-    return (
-      !column.isBacklog &&
-      column.id !== firstActive?.id &&
-      column.taskCount === 0 &&
-      !expandedEmptyColumnIDs.has(column.id)
-    );
+    return columnCollapseChoices.get(column.id) ?? defaultColumnIsCollapsed(column);
   }
 
-  function expandColumn(columnID: string): void {
-    setExpandedEmptyColumns((current) => {
-      const next = new Set(current.scope === columnExpansionScope ? current.ids : []);
-      next.add(columnID);
-      return { ids: next, scope: columnExpansionScope };
-    });
+  function defaultColumnIsCollapsed(column: BoardColumn): boolean {
+    return !column.isBacklog && column.id !== firstActive?.id && column.taskCount === 0;
+  }
+
+  function setColumnDisclosure(columnID: string, action: BoardColumnDisclosureAction): void {
+    setColumnCollapseChoices((current) => new Map(current).set(columnID, action === "collapse"));
   }
 
   function handleTaskInitiatingDialogResult(result: TaskInitiatingActionDialogResult): void {
@@ -440,7 +430,7 @@ function BoardContent({
               onCardClick={openTask}
               onCardDragStart={startActiveDrag}
               onDeleteTask={deleteTask}
-              onExpandColumn={expandColumn}
+              onColumnDisclosure={setColumnDisclosure}
               onInterruptTask={interruptTask}
               onRegisterColumnScrollport={dragAutoScroll.registerColumnScrollport}
               pendingCardMove={pendingCardMove}

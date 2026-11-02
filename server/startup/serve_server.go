@@ -29,6 +29,7 @@ import (
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
+	"core/shared/proxyhttp"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -78,8 +79,16 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	if err := serverbootstrap.ConvertProviderConfiguration(ctx, root); err != nil {
 		return nil, err
 	}
-	bootstrapReq.Environment, err = serverbootstrap.LoadEnvironment(root)
+	environment, err := serverbootstrap.LoadEnvironment(root)
 	if err != nil {
+		return nil, err
+	}
+	bootstrapReq.Environment = environment.Lookup
+	proxy, err := config.ResolveServerProxy(root, environment.FileLookup)
+	if err != nil {
+		return nil, err
+	}
+	if err := proxyhttp.Configure(proxy); err != nil {
 		return nil, err
 	}
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)

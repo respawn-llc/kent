@@ -21,13 +21,7 @@ export function AppUpdateChip({ state }: AppUpdateChipProps) {
     state.phase !== "installing" || state.progressRatio === null
       ? null
       : Math.round(state.progressRatio * 100);
-  const label = installing
-    ? percent === null
-      ? t("app.update.installing")
-      : t("app.update.installingPercent", { percent })
-    : state.phase === "error"
-      ? t("app.update.retry")
-      : t("app.update.available");
+  const label = state.phase === "error" ? t("app.update.retry") : t("app.update.available");
   return (
     <div
       className="app-region-no-drag inline-flex h-[22px] items-center rounded-full bg-primary text-primary-foreground"
@@ -46,6 +40,7 @@ export function AppUpdateChip({ state }: AppUpdateChipProps) {
           <Loader2 aria-hidden="true" className="animate-spin" size={12} strokeWidth={1.75} />
         ) : null}
         {label}
+        {percent !== null && <span>{t("app.update.progressPercent", { percent })}</span>}
       </button>
       {installing ? null : (
         <button

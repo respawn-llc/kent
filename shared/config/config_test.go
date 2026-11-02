@@ -977,6 +977,34 @@ func TestLoadGlobalSkipsWorkspaceConfigLayer(t *testing.T) {
 	}
 }
 
+func TestLoadGlobalSpeechToTextPromptDefaultsWhenOmitted(t *testing.T) {
+	_, _, app := loadConfigTestFileApp(t, "", LoadOptions{})
+
+	if got, want := app.Settings.SpeechToTextPrompt, configRegistry.defaultState().Settings.SpeechToTextPrompt; got != want {
+		t.Fatalf("speech_to_text_prompt = %q, want registered default %q", got, want)
+	}
+}
+
+func TestLoadGlobalSpeechToTextPromptPreservesCustomValue(t *testing.T) {
+	const want = "  first line\nsecond line  \n"
+	_, _, app := loadConfigTestFileApp(t, "speech_to_text_prompt = \"  first line\\nsecond line  \\n\"\n", LoadOptions{})
+
+	if got := app.Settings.SpeechToTextPrompt; got != want {
+		t.Fatalf("speech_to_text_prompt = %q, want complete configured value %q", got, want)
+	}
+}
+
+func TestLoadGlobalRejectsBlankSpeechToTextPrompt(t *testing.T) {
+	for _, value := range []string{"", "  \\t\\n "} {
+		t.Run(value, func(t *testing.T) {
+			err := loadConfigTestFileError(t, "speech_to_text_prompt = \""+value+"\"\n", LoadOptions{})
+			if err == nil {
+				t.Fatal("blank speech_to_text_prompt accepted")
+			}
+		})
+	}
+}
+
 func TestLoadGlobalRejectsModelContextWindowBelowMinimum(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

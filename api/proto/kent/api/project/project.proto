@@ -33,6 +33,7 @@ enum WorkspaceBindingPlanKind {
   WORKSPACE_BINDING_PLAN_KIND_SERVER_WORKSPACE_SELECTION = 3;
   WORKSPACE_BINDING_PLAN_KIND_HEADLESS_REMOTE_SELECTED = 4;
   WORKSPACE_BINDING_PLAN_KIND_HEADLESS_REMOTE_AMBIGUOUS = 5;
+  WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION = 6;
 }
 
 message ProjectSummary {
@@ -536,6 +537,7 @@ message PlanWorkspaceBindingSuccess {
     expression:
       "this.kind == 1 ? has(this.binding) && this.binding.project_id.trim() != '' && size(this.projects) == 0 && !has(this.workspace) : "
       "this.kind == 4 ? !has(this.binding) && size(this.projects) == 0 && has(this.workspace) : "
+      "this.kind == 6 ? !has(this.binding) && size(this.projects) > 0 && !has(this.workspace) : "
       "!has(this.binding) && !has(this.workspace)"
   };
 }

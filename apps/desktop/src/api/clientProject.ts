@@ -408,6 +408,8 @@ function workspaceBindingPlanKind(kind: WorkspaceBindingPlanKind): string {
       return "local_unbound";
     case WorkspaceBindingPlanKind.SERVER_WORKSPACE_SELECTION:
       return "server_workspace_selection";
+    case WorkspaceBindingPlanKind.ATTACHED_WORKSPACE_PROJECT_SELECTION:
+      return "attached_workspace_project_selection";
     case WorkspaceBindingPlanKind.HEADLESS_REMOTE_SELECTED:
       return "headless_remote_selected";
     case WorkspaceBindingPlanKind.HEADLESS_REMOTE_AMBIGUOUS:

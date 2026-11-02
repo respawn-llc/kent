@@ -106,7 +106,6 @@ export function useSpeechDestinationBusy() {
 export function useSpeechField(binding: FieldBinding) {
   const destination = useContext(DestinationContext);
   if (destination === null) throw new Error("SpeechDestinationProvider is required.");
-  const { t } = useTranslation();
   const [localIdentity] = useState(() => Symbol("speech-field"));
   const field = binding.identity ?? localIdentity;
   const localEditor = useRef<HTMLTextAreaElement>(null);
@@ -172,7 +171,6 @@ export function useSpeechField(binding: FieldBinding) {
     phase,
     finish: actions.finish,
     busy: own && state.busy,
-    busyReason: t("speech.busy"),
     editorRef,
   };
 }
@@ -208,8 +206,8 @@ function SpeechFieldControl({
   const labels = {
     idle: "speech.record",
     recording: "speech.stop",
-    preparing: "speech.preparing",
-    transcribing: "speech.transcribing",
+    preparing: "speech.record",
+    transcribing: "speech.record",
   } as const;
   const label = t(labels[phase]);
   const siblingBusy = state.busy && !own;

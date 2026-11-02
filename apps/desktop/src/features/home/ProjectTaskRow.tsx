@@ -45,7 +45,6 @@ export type ProjectTaskListEntry =
       state?: VirtualizedInfiniteListBoundaryState | undefined;
       hasMore?: boolean | undefined;
       isFetching?: boolean | undefined;
-      loadingLabel: string;
       requestGeneration: string;
       onLoadMore?: (() => void) | undefined;
       className?: string | undefined;

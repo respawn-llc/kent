@@ -9,7 +9,7 @@ import type {
   ExecutionTargetChoiceFailure,
 } from "@/api";
 import { useTextFieldSubmitShortcut } from "@/app-facade";
-import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, Spinner, TextInput } from "@/ui";
+import { Button, compactDialogWidth, Dialog, RadioGroup, RadioGroupItem, TextInput } from "@/ui";
 import {
   executionTargetSelectionFromDraft,
   executionTargetBranchName,
@@ -89,12 +89,13 @@ export function TaskSetupRecoveryDialog({
               <Button
                 data-testid="setup-recovery-retry"
                 aria-busy={running}
+                loading={running}
                 onClick={() => {
                   onSubmit(retrySelection);
                 }}
                 variant="primary"
               >
-                {running ? <Spinner /> : t("app.retry")}
+                {t("app.retry")}
               </Button>
             ) : null}
           </div>
@@ -123,13 +124,14 @@ export function TaskSetupRecoveryDialog({
                 data-testid="setup-recovery-target-submit"
                 disabled={selection === null}
                 aria-busy={running}
+                loading={running}
                 onClick={() => {
                   if (selection !== null)
                     onSubmit(selection, executionTargetBranchName(selection, branchName));
                 }}
                 variant="primary"
               >
-                {running ? <Spinner /> : t("executionTargetContinuation.continue")}
+                {t("executionTargetContinuation.continue")}
               </Button>
             </div>
           </>
@@ -337,10 +339,11 @@ function ExecutionTargetForm({
           data-testid="execution-target-submit"
           disabled={!canSubmit}
           aria-busy={continuation.running}
+          loading={continuation.running}
           type="submit"
           variant="primary"
         >
-          {continuation.running ? <Spinner /> : t("executionTargetContinuation.continue")}
+          {t("executionTargetContinuation.continue")}
         </Button>
       </div>
     </form>

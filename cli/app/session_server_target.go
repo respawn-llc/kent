@@ -11,6 +11,7 @@ import (
 	"core/shared/config"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
+	"core/shared/proxyhttp"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -21,6 +22,9 @@ func startSessionServer(ctx context.Context, opts Options, interactor authIntera
 		return nil, err
 	}
 	cfg := resolved.Config
+	if err := proxyhttp.Configure(cfg.Proxy); err != nil {
+		return nil, err
+	}
 	remote, err := attachConfiguredStartupRemote(ctx, cfg)
 	if err != nil {
 		return nil, err

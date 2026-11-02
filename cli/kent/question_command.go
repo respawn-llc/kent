@@ -842,7 +842,7 @@ func openConfiguredSessionRemote(ctx context.Context, sessionID string) (*client
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadConnectionDiscovery(configRoot, config.LoadOptions{})
+	cfg, err := loadCommandConnection(configRoot)
 	if err != nil {
 		return nil, err
 	}

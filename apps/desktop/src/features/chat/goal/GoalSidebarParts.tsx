@@ -1,11 +1,12 @@
 import { Check, CircleDot, Pause, PauseCircle, Play, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 
 import type { ChatGoalStatus } from "@/api";
 import {
   Button,
+  useReducedMotion,
   DisabledInteractionGuard,
   motionDurationFromCSSVar,
   Tooltip,

@@ -1,27 +1,50 @@
-import { createAutoNativeBridge, type NativePlatform } from "@app/native-bridge";
+import {
+  createAutoNativeBridge,
+  parseBrowserServerAddress,
+  type NativeBridge,
+  type NativePlatform,
+  type SettingsSnapshot,
+} from "@app/native-bridge";
 import { z } from "zod";
 
 import { StartupConfigurationError } from "@/api";
 import { ApiClient, createRpcTransport, protocolVersion, type RpcTransport } from "@/api/composition";
 import { projectEventDiagnostics, type AppServices, type AppStorageNamespace } from "@/app-facade";
-import { readEffectiveTheme, type AppTheme } from "@/ui";
 import { createGuiLogger } from "../logging";
 import { createSpeechTransfer } from "./speechTransfer";
 
 const defaultServerEndpoint = "ws://127.0.0.1:53082/rpc";
 const platformAttribute = "data-platform";
 const themeAttribute = "data-theme";
-const nativeDialogThemeSearchParam = "__appTheme";
 let productionContextMenuGuardInstalled = false;
-const stringValueSchema = z.string();
 
-export async function createDefaultAppServices(): Promise<AppServices> {
+export type SettingsStartupFailure = Readonly<{
+  kind: "settings";
+  nativeBridge: NativeBridge;
+  error: unknown;
+  recovered: boolean;
+}>;
+
+export async function createDefaultAppServices(): Promise<AppServices | SettingsStartupFailure> {
   installProductionContextMenuGuard(import.meta.env.PROD);
-  applyNativeDialogThemeOverride();
   const bootstrapNativeBridge = createAutoNativeBridge("unknown");
   const platform = await bootstrapNativeBridge.app.resolvePlatform().catch(() => "unknown" as const);
   applyNativePlatform(platform);
-  const nativeBridge = createAutoNativeBridge(platform);
+  const browserEndpoint = platform === "browser" ? readBrowserRpcEndpoint() : null;
+  const nativeBridge = createAutoNativeBridge(
+    platform,
+    browserEndpoint === null || browserEndpoint instanceof Error ? undefined : browserEndpoint,
+  );
+  let initialSettings: SettingsSnapshot;
+  try {
+    initialSettings = await nativeBridge.settings.read();
+  } catch (error) {
+    return { kind: "settings", nativeBridge, error, recovered: false };
+  }
+  if (initialSettings.launch === null) {
+    return { kind: "settings", nativeBridge, error: null, recovered: true };
+  }
+  applyConfiguredTheme(initialSettings.saved.theme);
   const logger = createGuiLogger(nativeBridge);
   const context = await nativeBridge.app
     .resolveContext()
@@ -32,8 +55,8 @@ export async function createDefaultAppServices(): Promise<AppServices> {
     });
     return {
       api: new ApiClient(new BootstrapErrorTransport(context), projectEventDiagnostics(logger)),
+      initialSettings,
       speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
-      debugThemeOverrideEnabled: import.meta.env.DEV,
       endpoint: defaultServerEndpoint,
       homePath: "",
       logger,
@@ -42,64 +65,46 @@ export async function createDefaultAppServices(): Promise<AppServices> {
       storageNamespace: null,
     };
   }
-  applyConfiguredTheme(context.theme);
-  applyNativeDialogThemeOverride();
-  const browserEndpoint =
-    nativeBridge.capabilities.platform === "browser" ? __KENT_BROWSER_RPC_ENDPOINT__ : null;
-  const endpoint =
-    browserEndpoint ?? (context.serverEndpoint.length > 0 ? context.serverEndpoint : defaultServerEndpoint);
-  // Browser QA points at an arbitrary endpoint, so root validation only applies
-  // to the native-resolved server. context.persistenceRootId is empty for the
-  // default root (validation skipped).
-  const expectedRootId = browserEndpoint === null ? context.persistenceRootId : "";
+  if (browserEndpoint instanceof Error) {
+    await logger.append("error", "Browser RPC endpoint configuration failed.", {
+      error: browserEndpoint.message,
+    });
+    return {
+      api: new ApiClient(new BootstrapErrorTransport(browserEndpoint), projectEventDiagnostics(logger)),
+      initialSettings,
+      speech: createSpeechTransfer(nativeBridge, defaultServerEndpoint),
+      endpoint: defaultServerEndpoint,
+      homePath: context.homePath,
+      logger,
+      nativeBridge,
+      protocolVersion,
+      storageNamespace: null,
+    };
+  }
+  const endpoint = browserEndpoint ?? context.serverEndpoint;
   const api = new ApiClient(
-    createRpcTransport(
-      endpoint,
-      (error) => {
-        void logger.append("error", "Invalid server response.", {
-          error: error instanceof Error ? (error.stack ?? error.message) : String(error),
-        });
-      },
-      expectedRootId,
-    ),
+    createRpcTransport(endpoint, (error) => {
+      void logger.append("error", "Invalid server response.", {
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      });
+    }),
     projectEventDiagnostics(logger),
   );
   return {
     api,
+    initialSettings,
     speech: createSpeechTransfer(nativeBridge, endpoint),
-    debugThemeOverrideEnabled: import.meta.env.DEV,
     endpoint,
     homePath: context.homePath,
     logger,
     nativeBridge,
     protocolVersion,
-    storageNamespace: resolveAppStorageNamespace(nativeBridge.capabilities.platform, {
-      endpoint,
-      persistenceRoot: context.persistenceRoot,
-    }),
+    storageNamespace: resolveAppStorageNamespace(endpoint),
   };
 }
 
-export function resolveAppStorageNamespace(
-  platform: NativePlatform,
-  source: Readonly<{
-    endpoint: string;
-    persistenceRoot: string | null;
-  }>,
-): AppStorageNamespace | null {
-  if (platform === "browser") {
-    return {
-      kind: "browser-endpoint",
-      identity: source.endpoint,
-    };
-  }
-  if (source.persistenceRoot === null || source.persistenceRoot.trim().length === 0) {
-    return null;
-  }
-  return {
-    kind: "native-persistence-root",
-    identity: source.persistenceRoot,
-  };
+export function resolveAppStorageNamespace(endpoint: string): AppStorageNamespace {
+  return { kind: "server-address", identity: endpoint };
 }
 
 export function applyNativePlatform(platform: NativePlatform): void {
@@ -120,33 +125,14 @@ export function applyConfiguredTheme(theme: string): void {
   document.documentElement.removeAttribute(themeAttribute);
 }
 
-export function applyNativeDialogThemeOverride(): void {
-  if (!import.meta.env.DEV) return;
-  const theme = readNativeDialogThemeOverride();
-  if (theme !== null) {
-    setInMemoryThemeOverride(theme);
+function readBrowserRpcEndpoint(): string | StartupConfigurationError {
+  const address =
+    new URLSearchParams(window.location.search).get("appRpcEndpoint") ?? __KENT_BROWSER_RPC_ENDPOINT__;
+  try {
+    return parseBrowserServerAddress(address);
+  } catch (error) {
+    return new StartupConfigurationError(errorMessage(error));
   }
-}
-
-export function setInMemoryThemeOverride(theme: AppTheme): void {
-  if (typeof document === "undefined") {
-    return;
-  }
-  document.documentElement.setAttribute(themeAttribute, theme);
-}
-
-function readNativeDialogThemeOverride(): AppTheme | null {
-  if (typeof window === "undefined" || !window.location.pathname.startsWith("/native-dialog/")) {
-    return null;
-  }
-  const theme = new URLSearchParams(window.location.search).get(nativeDialogThemeSearchParam);
-  return theme === "light" || theme === "dark" ? theme : null;
-}
-
-export function toggleInMemoryThemeOverride(): AppTheme {
-  const nextTheme = readEffectiveTheme() === "dark" ? "light" : "dark";
-  setInMemoryThemeOverride(nextTheme);
-  return nextTheme;
 }
 
 export function installProductionContextMenuGuard(isProduction: boolean): void {
@@ -192,9 +178,7 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  const parsed = stringValueSchema.safeParse(error);
-  if (parsed.success) {
-    return parsed.data;
-  }
+  const text = z.string().safeParse(error);
+  if (text.success) return text.data;
   return "Unknown native context error.";
 }

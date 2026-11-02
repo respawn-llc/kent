@@ -364,7 +364,7 @@ func callerCanceledStreamRead(ctx context.Context) bool {
 func (t *HTTPTransport) streamingHTTPClient() *http.Client {
 	transport := t.Client.Transport
 	if transport == nil {
-		transport = sharedHTTPTransport
+		transport = http.DefaultTransport
 	}
 	return &http.Client{Transport: transport}
 }

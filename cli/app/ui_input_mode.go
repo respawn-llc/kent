@@ -36,7 +36,7 @@ type uiAskState struct {
 	current                 *askEvent
 	currentToken            uint64
 	queue                   []askEvent
-	cursor                  int
+	selectedOption          *int
 	freeform                bool
 	freeformMode            askFreeformMode
 	chosenApproval          *clientui.ApprovalDecision

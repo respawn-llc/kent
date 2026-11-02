@@ -131,12 +131,6 @@ export function boardCardColumnCountSnapshot(
   return new Map(board.columns.map((column) => [column.id, column.taskCount]));
 }
 
-export function boardCardColumnIDsWithCards(snapshot: BoardCardColumnsSnapshot): ReadonlySet<string> {
-  return new Set(
-    Array.from(snapshot, ([columnID, cards]) => (cards.length > 0 ? columnID : "")).filter(Boolean),
-  );
-}
-
 export function boardRailLayoutSignature(
   board: SelectedWorkflowBoard,
   sections: readonly BoardSection[],

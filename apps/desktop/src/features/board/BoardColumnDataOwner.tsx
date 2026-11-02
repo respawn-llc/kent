@@ -131,7 +131,6 @@ export function BoardColumnDataOwner({
             }
           : {
               state: "loading",
-              label: t("states.loading"),
             }
         : undefined,
     [cardsQuery.data, error, isError, retryCards, t],
@@ -142,7 +141,6 @@ export function BoardColumnDataOwner({
         message: errorMessage(error),
         failed: isFetchPreviousPageError,
         loading: isFetchingPreviousPage,
-        loadingLabel: t("app.loadingMore"),
         onRetry: loadNewer,
         retryLabel: t("app.retry"),
       }),
@@ -154,7 +152,6 @@ export function BoardColumnDataOwner({
         message: errorMessage(error),
         failed: isFetchNextPageError,
         loading: isFetchingNextPage,
-        loadingLabel: t("app.loadingMore"),
         onRetry: loadOlder,
         retryLabel: t("app.retry"),
       }),

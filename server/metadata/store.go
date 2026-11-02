@@ -319,16 +319,31 @@ func (s *Store) EnsureWorkspaceBinding(ctx context.Context, workspaceRoot string
 }
 
 func (s *Store) ResolveWorkspacePath(ctx context.Context, workspaceRoot string) (string, *Binding, error) {
-	if s == nil || s.queries == nil {
-		return "", nil, errors.New("metadata store is required")
-	}
-	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
+	resolution, err := s.resolveWorkspacePath(ctx, workspaceRoot)
 	if err != nil {
 		return "", nil, err
 	}
+	if resolution.Kind == ProjectWorkspacePathUnregistered {
+		return resolution.CanonicalRoot, nil, nil
+	}
+	return resolution.CanonicalRoot, &resolution.Binding, nil
+}
+
+func (s *Store) resolveWorkspacePath(ctx context.Context, workspaceRoot string) (ProjectWorkspacePathResolution, error) {
+	if s == nil || s.queries == nil {
+		return ProjectWorkspacePathResolution{}, errors.New("metadata store is required")
+	}
+	canonicalRoot, err := config.CanonicalWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return ProjectWorkspacePathResolution{}, err
+	}
 	binding, err := s.lookupWorkspaceBinding(ctx, canonicalRoot)
 	if err == nil {
-		return canonicalRoot, &binding, nil
+		return ProjectWorkspacePathResolution{
+			Kind:          ProjectWorkspacePathWorkspace,
+			CanonicalRoot: canonicalRoot,
+			Binding:       binding,
+		}, nil
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		// Managed task worktrees are tracked as worktrees rather than standalone
@@ -338,16 +353,23 @@ func (s *Store) ResolveWorkspacePath(ctx context.Context, workspaceRoot string) 
 		if worktreeErr == nil {
 			binding, bindingErr := s.LookupWorkspaceBindingByID(ctx, worktree.WorkspaceID)
 			if bindingErr != nil {
-				return "", nil, bindingErr
+				return ProjectWorkspacePathResolution{}, bindingErr
 			}
-			return canonicalRoot, &binding, nil
+			return ProjectWorkspacePathResolution{
+				Kind:          ProjectWorkspacePathWorktree,
+				CanonicalRoot: canonicalRoot,
+				Binding:       binding,
+			}, nil
 		}
 		if !errors.Is(worktreeErr, sql.ErrNoRows) {
-			return "", nil, worktreeErr
+			return ProjectWorkspacePathResolution{}, worktreeErr
 		}
-		return canonicalRoot, nil, nil
+		return ProjectWorkspacePathResolution{
+			Kind:          ProjectWorkspacePathUnregistered,
+			CanonicalRoot: canonicalRoot,
+		}, nil
 	}
-	return "", nil, err
+	return ProjectWorkspacePathResolution{}, err
 }
 
 func (s *Store) LookupWorkspaceBindingByID(ctx context.Context, workspaceID string) (Binding, error) {

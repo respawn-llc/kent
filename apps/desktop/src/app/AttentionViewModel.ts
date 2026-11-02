@@ -19,6 +19,7 @@ import {
   type SidebarRootController,
   type StatusController,
   recoverOrThrowDebugFailure,
+  type DesktopSettings,
 } from "@/app-facade";
 import {
   advancesAttentionNotificationRevision,
@@ -37,6 +38,7 @@ import {
 
 type PresentationInputs = Readonly<{
   focused: boolean | null;
+  delivery: DesktopSettings["notifications"];
   picker: Readonly<{ projectID: string; sessionID: string }> | null;
 }>;
 
@@ -201,12 +203,16 @@ export function createAttentionViewModel({
             const outcome = yield* deliverPendingSurface({
               get,
               focused: pending.focused,
+              delivery: inputs().delivery,
               hasNativeNotifications: bridge.capabilities.notifications.basic,
               logger,
               notification: pending.record.notification,
               notifications: bridge.notifications,
               showToast: (notification) => {
                 showToast(get, notification);
+              },
+              dismissToast: () => {
+                status.dismiss(attentionToastID(id));
               },
               surfaced: surfaces,
               t,
@@ -229,9 +235,12 @@ export function createAttentionViewModel({
       const current = get.once(surfaces).get(id);
       if (!advancesAttentionNotificationRevision(current?.notification.revision, notification.revision))
         return;
-      if (current?.state === "toast" || current?.state === "activation_failed") {
-        showToast(get, notification);
-      } else if (current === undefined || current.state === "native") {
+      if (
+        current === undefined ||
+        current.state === "native" ||
+        current.state === "toast" ||
+        current.state === "activation_failed"
+      ) {
         setSurface(get, surfaces, id, { notification, state: "surfacing" });
         get.set(deliver, id);
       } else {

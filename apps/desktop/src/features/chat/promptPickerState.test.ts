@@ -42,20 +42,39 @@ describe("Chat prompt drafts", () => {
     expect([...completed.state.drafts.keys()]).toEqual(["third"]);
   });
 
-  it("requires a fresh pair of matching option clicks after typing, including the recommendation", () => {
+  it("ignores pointer confirmation after its originating Question is no longer current", () => {
+    const prompts = [question("first"), question("second")];
+    let state = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;
+    state = transitionPicker(state, prompts, { kind: "navigate", direction: 1 }).state;
+    const staleConfirmation = transitionPicker(state, prompts, {
+      kind: "pointer-confirm",
+      selection: { kind: "suggested", number: 1 },
+      originToolCallID: "first",
+    });
+    expect(staleConfirmation.state.current).toBe("second");
+    expect(staleConfirmation.state.drafts.get("second")?.status).toBe("tentative");
+    expect(staleConfirmation.state.drafts.get("second")?.selection).toEqual({ kind: "none" });
+    expect(staleConfirmation.effect).toBe("none");
+  });
+
+  it("requires explicit pointer confirmation after commentary changes", () => {
     const prompts = [question("first", { recommendedOptionIndex: 1 })];
     let state = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;
+    expect(state.drafts.get("first")?.selection).toEqual({ kind: "none" });
     state = transitionPicker(state, prompts, { kind: "commentary", text: "Half-written" }).state;
     const click = { kind: "activate", selection: { kind: "suggested", number: 1 } } as const;
-    const first = transitionPicker(state, prompts, click);
-    expect(first.effect).toBe("none");
-    expect(transitionPicker(first.state, prompts, { kind: "sync" }).effect).toBe("none");
-    state = transitionPicker(first.state, prompts, { kind: "commentary", text: "More typing" }).state;
-    const next = transitionPicker(state, prompts, click);
-    expect(next.effect).toBe("none");
-    const second = transitionPicker(next.state, prompts, click);
-    expect(second.effect).toBe("submit");
-    expect(second.state.drafts.get("first")?.commentary).toBe("More typing");
+    let selected = transitionPicker(state, prompts, click);
+    expect(selected.effect).toBe("none");
+    expect(selected.state.drafts.get("first")?.selection).toEqual({ kind: "suggested", number: 1 });
+    selected = transitionPicker(selected.state, prompts, { kind: "commentary", text: "More typing" });
+    expect(transitionPicker(selected.state, prompts, click).effect).toBe("none");
+    const confirmed = transitionPicker(selected.state, prompts, {
+      kind: "pointer-confirm",
+      selection: { kind: "suggested", number: 1 },
+      originToolCallID: "first",
+    });
+    expect(confirmed.effect).toBe("submit");
+    expect(confirmed.state.drafts.get("first")?.commentary).toBe("More typing");
   });
 
   it("does not confirm a different option or let a pending selection complete a batch", () => {

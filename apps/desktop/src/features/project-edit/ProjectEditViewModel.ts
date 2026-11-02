@@ -199,6 +199,7 @@ export function createProjectEditViewModel({
       }
       const outcome = navigator?.close();
       await completeProjectDeletion({
+        storageNamespace: services.storageNamespace,
         projectID,
         queryClient: client,
         navigateHome: outcome === "accepted" ? input.openHome : undefined,

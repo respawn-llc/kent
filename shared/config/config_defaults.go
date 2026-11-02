@@ -17,6 +17,7 @@ const (
 	defaultModel                        = "gpt-6.1-sol"
 	defaultThinkingLevel                = "medium"
 	defaultModelVerbosity               = ModelVerbosityLow
+	defaultSpeechToTextPrompt           = `Do not translate the text into other languages. The speaker may not be a native English speaker. Use proper punctuation and sentence boundaries, and omit filler words and sounds such as "uhm". Uncommon terms: "Kent" ([kʲent] — a developer tool).`
 	defaultTheme                        = theme.Auto
 	defaultModelContextWindow           = 272_000
 	minimumModelContextWindow           = 40_000

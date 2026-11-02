@@ -448,6 +448,58 @@ func TestSessionLaunchClientForProjectWorkspaceUsesWorkspaceLocalConfig(t *testi
 	}
 }
 
+func TestSessionLaunchClientForProjectWorkspaceSelectsSharedWorkspaceByProject(t *testing.T) {
+	home := t.TempDir()
+	workspaceA := t.TempDir()
+	sharedWorkspace := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(sharedWorkspace, brand.ConfigDirName), 0o755); err != nil {
+		t.Fatalf("create shared Workspace config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sharedWorkspace, brand.ConfigDirName, "config.toml"), []byte("model = \"shared-workspace-model\"\n"), 0o644); err != nil {
+		t.Fatalf("write shared Workspace config: %v", err)
+	}
+
+	resolvedA, err := serverbootstrap.ResolveConfig(serverbootstrap.Request{WorkspaceRoot: workspaceA})
+	if err != nil {
+		t.Fatalf("ResolveConfig A: %v", err)
+	}
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA, err := metadataStore.RegisterWorkspaceBinding(t.Context(), resolvedA.Config.WorkspaceRoot)
+	if err != nil {
+		t.Fatalf("RegisterWorkspaceBinding A: %v", err)
+	}
+	sharedA, err := metadataStore.AttachWorkspaceToProject(t.Context(), bindingA.ProjectID, sharedWorkspace)
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject A: %v", err)
+	}
+	if _, err := metadataStore.CreateProjectForWorkspaceWithKey(t.Context(), sharedWorkspace, "Shared workspace", ""); err != nil {
+		t.Fatalf("CreateProjectForWorkspace B: %v", err)
+	}
+	appCore := newCoreTestAppWithOptions(t, resolvedA.Config, auth.EmptyState(), Options{MetadataStore: metadataStore})
+
+	launch, err := appCore.SessionLaunchClientForProjectWorkspace(t.Context(), bindingA.ProjectID, sharedWorkspace)
+	if err != nil {
+		t.Fatalf("SessionLaunchClientForProjectWorkspace: %v", err)
+	}
+	intent, err := protoapi.SessionLaunchRequestIntentToProto(
+		serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()),
+	)
+	if err != nil {
+		t.Fatalf("convert Session launch intent: %v", err)
+	}
+	plan, err := launch.PlanSession(t.Context(), &sessionlaunchpb.SessionPlanRequest{
+		Mode:   sessionlaunchpb.SessionLaunchMode_SESSION_LAUNCH_MODE_INTERACTIVE,
+		Intent: intent,
+	})
+	if err != nil {
+		t.Fatalf("PlanSession: %v", err)
+	}
+	if plan.Plan.ActiveSettings.Model != "shared-workspace-model" {
+		t.Fatalf("active model = %q, want settings from Workspace %s", plan.Plan.ActiveSettings.Model, sharedA.CanonicalRoot)
+	}
+}
+
 func createCoreSettingsSession(
 	t *testing.T,
 	appCore *Core,

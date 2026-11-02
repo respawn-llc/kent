@@ -106,7 +106,7 @@ func (t *HTTPTransport) openResponsesSocket(ctx context.Context, request Respons
 	client := *t.Client
 	transport := client.Transport
 	if transport == nil {
-		transport = sharedHTTPTransport
+		transport = http.DefaultTransport
 	}
 	opening := &responsesOpeningTransport{next: transport, origin: origin, provider: preparation.variant.ProviderID}
 	client.Transport = opening

@@ -344,11 +344,12 @@ func (reasoningOutputItemParser) Parse(item responses.ResponseOutputItemUnion, _
 	raw := json.RawMessage(item.RawJSON())
 	parsed := parsedResponseOutputItem{
 		CanonicalItems: []ResponseItem{{
-			Type:             ResponseItemTypeReasoning,
-			ID:               textutil.OptionalTrimmedString(reasoningItem.ID),
-			ReasoningSummary: summaries,
-			EncryptedContent: textutil.OptionalTrimmedString(reasoningItem.EncryptedContent),
-			Raw:              raw,
+			Type:              ResponseItemTypeReasoning,
+			ID:                textutil.OptionalTrimmedString(reasoningItem.ID),
+			ReasoningSummary:  summaries,
+			VerbatimReasoning: verbatimReasoningFromContent(reasoningItem.Content),
+			EncryptedContent:  textutil.OptionalTrimmedString(reasoningItem.EncryptedContent),
+			Raw:               raw,
 		}},
 		Reasoning: reasoning,
 	}

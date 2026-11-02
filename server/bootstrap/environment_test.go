@@ -8,7 +8,34 @@ import (
 	"testing"
 
 	"core/server/bootstrap"
+	"core/shared/config"
 )
+
+func TestProxyEnvironmentLayers(t *testing.T) {
+	for _, name := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"} {
+		t.Setenv(name, "")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("HTTP_PROXY=dotenv:80\nHTTPS_PROXY=dotenv:443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment, err := bootstrap.LoadEnvironment(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy, err := config.ResolveServerProxy(root, environment.FileLookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxy.HTTP == nil || *proxy.HTTP != "dotenv:80" || proxy.HTTPS == nil || *proxy.HTTPS != "dotenv:443" {
+		t.Fatal("empty process values must reach the dotenv layer")
+	}
+	t.Setenv("http_proxy", "process:80")
+	proxy, err = config.ResolveServerProxy(root, environment.FileLookup)
+	if err != nil || proxy.HTTP == nil || *proxy.HTTP != "process:80" {
+		t.Fatal("process lowercase must win over dotenv uppercase")
+	}
+}
 
 func TestLoadEnvironmentCreatesPrivateEmptyFile(t *testing.T) {
 	root := t.TempDir()
@@ -58,7 +85,7 @@ func TestLoadEnvironmentPreservesExistingFileAndPrecedence(t *testing.T) {
 			"KENT_BOOTSTRAP_TEST_OVERRIDE": "process",
 			"KENT_BOOTSTRAP_TEST_EMPTY":    "",
 		} {
-			if got, present := lookup(key); !present || got != want {
+			if got, present := lookup.Lookup(key); !present || got != want {
 				t.Fatalf("lookup %s = %q, %v; want %q, true", key, got, present, want)
 			}
 		}
@@ -101,7 +128,7 @@ func TestLoadEnvironmentAppliesPlatformPermissionsWithoutChangingExistingFile(t 
 		if err != nil {
 			t.Fatalf("existing Windows environment file rejected: %v", err)
 		}
-		if value, present := lookup("SECRET"); !present || value != "preserve-me" {
+		if value, present := lookup.Lookup("SECRET"); !present || value != "preserve-me" {
 			t.Fatal("existing Windows environment values not loaded")
 		}
 	} else if err == nil {

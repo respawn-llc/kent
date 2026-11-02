@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { AttentionItem } from "@/api";
 import { errorMessage } from "@/api";
 import { useAppNavigation } from "@/app-facade";
+import type { HomeDestination } from "@/app-facade";
 import { SidebarRootOwner, useOwnedSidebarRoots } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
@@ -20,15 +21,21 @@ import { useGlobalAttentionPages, useProjectPages } from "./useHomeData";
 import { AttentionRow } from "./AttentionRow";
 import { useProjectCreationActions } from "./ProjectCreationModel";
 
-export function HomeRoute({ selectedProjectID }: Readonly<{ selectedProjectID: string | null }>) {
+type HomeRouteProps = Readonly<{
+  destination: HomeDestination;
+  settingsPage?: ReactNode;
+  settingsSidebar?: ReactNode;
+}>;
+export function HomeRoute(props: HomeRouteProps) {
   return (
     <SidebarRootOwner>
-      <HomeRouteContent selectedProjectID={selectedProjectID} />
+      <HomeRouteContent {...props} />
     </SidebarRootOwner>
   );
 }
 
-function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: string | null }>) {
+function HomeRouteContent({ destination, settingsPage, settingsSidebar }: HomeRouteProps) {
+  const selectedProjectID = destination.kind === "project" ? destination.projectID : null;
   const { t } = useTranslation();
   const services = useAppServices();
   const { push } = useStatusController();
@@ -81,13 +88,20 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
       />
     );
 
-  const selectedCategory = selectedProjectID === null ? category : "projects";
-  const detailKey = selectedProjectID === null ? "inbox" : `project:${selectedProjectID}`;
+  const selectedCategory =
+    destination.kind === "settings" ? "settings" : selectedProjectID === null ? category : "projects";
+  const detailKey =
+    destination.kind === "settings"
+      ? "settings"
+      : selectedProjectID === null
+        ? "inbox"
+        : `project:${selectedProjectID}`;
   return (
     <div className="h-full min-h-0" data-testid="home-route-root">
       {projectCreationDialog}
       <div className="grid h-full min-h-0 grid-cols-[350px_minmax(0,1fr)]" data-testid="home-pane-grid">
         <HomeSidebar
+          settingsSidebar={settingsSidebar}
           projectCreationPending={creation.isPending}
           onChooseWorkspace={() => {
             if (creation.isPending) return;
@@ -112,7 +126,6 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
           onCategorySelect={(nextCategory) => {
             selectCategory({
               category: nextCategory,
-              selectedProjectID,
               selectProject: navigation.selectHomeProject,
             });
           }}
@@ -127,7 +140,9 @@ function HomeRouteContent({ selectedProjectID }: Readonly<{ selectedProjectID: s
           data-sidebar-protected-main
         >
           <OverlappingCrossfade contentKey={detailKey}>
-            {selectedProjectID !== null ? (
+            {destination.kind === "settings" ? (
+              settingsPage
+            ) : selectedProjectID !== null ? (
               <HomeProjectContent key={selectedProjectID} projectID={selectedProjectID} />
             ) : (
               <AttentionList items={attentionItems} model={model} query={attention} />
@@ -158,7 +173,7 @@ function AttentionList({ items, query, model }: AttentionListProps) {
     openChat({ target, open: navigation.openSessionChat });
   });
   if (query.isPending) {
-    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} />;
   }
   if (query.isError) {
     return <ErrorState body={errorMessage(query.error)} reveal={false} title={t("states.error")} />;
@@ -182,7 +197,6 @@ function AttentionList({ items, query, model }: AttentionListProps) {
       }
       isFetchingNextPage={query.isFetchingNextPage}
       items={items}
-      loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
         query.fetchNextPage();
       }}

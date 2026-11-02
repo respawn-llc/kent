@@ -322,7 +322,7 @@ function viewedImageKind(
       });
 }
 
-function toolRow(value: T.ToolRow): NonNullable<ChatCommittedRow["Tool"]> {
+function toolRow(value: T.ToolRowValid): NonNullable<ChatCommittedRow["Tool"]> {
   return {
     ViewedImageKind: viewedImageKind(value.viewedImageKind),
     StepID: value.stepId ?? null,

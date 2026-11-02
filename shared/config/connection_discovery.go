@@ -14,6 +14,7 @@ type Connection struct {
 	ServerHost      string
 	ServerPort      int
 	Source          SourceReport
+	Proxy           Proxy
 }
 
 func (connection Connection) RPCURL() string {
@@ -70,6 +71,10 @@ func resolveClientConfiguration(sharedRoot string, opts LoadOptions, registry se
 		WorkspaceRoot: locations.workspaceRoot, PersistenceRoot: locations.persistenceRoot,
 		ServerHost: state.Settings.ServerHost, ServerPort: state.Settings.ServerPort,
 		Source: SourceReport{Files: locations.files, Sources: sources},
+	}
+	connection.Proxy, err = ResolveClientProxy(locations.persistenceRoot)
+	if err != nil {
+		return Connection{}, LocalPreferences{}, err
 	}
 	preferences := LocalPreferences{
 		Theme: state.Settings.Theme, Debug: state.Settings.Debug,

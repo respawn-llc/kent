@@ -310,7 +310,7 @@ func resolveGoalCommandSession(sessionFlag string) (sessionID runtimeids.Session
 }
 
 func openGoalCommandRemote(ctx context.Context) (goalCommandRemote, error) {
-	cfg, err := config.LoadConnectionDiscovery(".", config.LoadOptions{})
+	cfg, err := loadCommandConnection(".")
 	if err != nil {
 		return nil, err
 	}
