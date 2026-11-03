@@ -5,6 +5,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -32,7 +33,11 @@ func TestManagerLogUsesNumericSessionDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join("/tmp/kent", request.OwnerSessionShortID.String(), result.SessionID+".log")
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = os.TempDir()
+	}
+	want := filepath.Join(root, "kent", request.OwnerSessionShortID.String(), result.SessionID+".log")
 	if result.OutputPath != want {
 		t.Fatalf("log path = %q, want %q", result.OutputPath, want)
 	}

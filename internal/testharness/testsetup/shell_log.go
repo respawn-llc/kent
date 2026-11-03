@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"core/shared/runtimeids"
@@ -22,7 +23,11 @@ func ShellLogSessionShortID(t testing.TB) runtimeids.SessionShortID {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := os.RemoveAll(filepath.Join("/tmp/kent", id.String())); err != nil {
+		root := "/tmp"
+		if runtime.GOOS == "windows" {
+			root = os.TempDir()
+		}
+		if err := os.RemoveAll(filepath.Join(root, "kent", id.String())); err != nil {
 			t.Errorf("remove test session logs: %v", err)
 		}
 	})

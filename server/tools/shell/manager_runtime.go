@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -531,7 +532,11 @@ func (m *Manager) allocateProcessSlot(shortID runtimeids.SessionShortID) (string
 	if m.occupiedSlots >= m.maxConcurrent {
 		return "", nil, &ConcurrentShellLimitError{Limit: m.maxConcurrent}
 	}
-	directory := filepath.Join("/tmp", "kent", shortID.String())
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = os.TempDir()
+	}
+	directory := filepath.Join(root, "kent", shortID.String())
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", nil, fmt.Errorf("prepare background shell log directory: %w", err)
 	}
