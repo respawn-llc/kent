@@ -5,7 +5,7 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskDetail } from "@/api";
-import { errorMessage, sessionDisplayID } from "@/api";
+import { errorMessage } from "@/api";
 import {
   useAppServices,
   useNativeChatOpening,
@@ -136,7 +136,7 @@ function TaskSessionOpenAction({
       >
         <div className="grid max-h-[min(20rem,var(--radix-popover-content-available-height))] min-w-0 gap-[var(--space-1)] overflow-y-auto">
           {sessions.map((session) => {
-            const sessionLabel = session.sessionName ?? sessionDisplayID(session.sessionID, session.shortID);
+            const sessionLabel = session.displayName;
             const sessionAction = t("task.openChat", { name: sessionLabel });
             return (
               <TaskSessionOpenButton
@@ -468,17 +468,6 @@ function TaskOpenButtons({
   const canOpenScript = nativeBridge.capabilities.files.open;
   const canOpenChat = openSessionChat !== undefined || sessionChatDefaultIntent === "native_window";
   const nativeWindowsAvailable = canOpenChat && nativeBridge.capabilities.dialogWindows;
-  const sessions = new Map(detail.liveSessions.map((session) => [session.sessionID, session]));
-  for (const node of detail.currentNodes) {
-    if (node.sessionID !== null && !sessions.has(node.sessionID)) {
-      sessions.set(node.sessionID, {
-        sessionID: node.sessionID,
-        shortID: null,
-        sessionName: null,
-        nodeDisplayName: node.displayName,
-      });
-    }
-  }
 
   async function openInCli(sessionID: string): Promise<void> {
     await writeClipboardText(`kent --session=${sessionID}`, nativeBridge);
@@ -496,7 +485,7 @@ function TaskOpenButtons({
   return (
     <>
       <TaskSessionOpenAction
-        sessions={[...sessions.values()]}
+        sessions={detail.liveSessions}
         label={t(canOpenChat ? "task.openInChat" : "task.openInCli")}
         defaultIntent={sessionChatDefaultIntent}
         nativeWindowsAvailable={nativeWindowsAvailable}

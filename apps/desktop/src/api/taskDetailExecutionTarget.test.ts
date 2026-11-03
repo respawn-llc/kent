@@ -44,18 +44,58 @@ describe("task detail execution target contract", () => {
     expect(detail.liveSessions).toEqual([
       {
         sessionID: "33333333-3333-4333-8333-333333333333",
-        shortID: null,
-        sessionName: "Review chat",
-        nodeDisplayName: "Code Review",
+        displayName: "Review chat",
       },
       {
         sessionID: "44444444-4444-4444-8444-444444444444",
-        shortID: null,
-        sessionName: null,
-        nodeDisplayName: "Implementation",
+        displayName: "302",
       },
     ]);
     expect(detail.currentScripts).toEqual([]);
+  });
+
+  it("uses UUIDs for historical Sessions without another display identity", async () => {
+    const task = create(pb.TaskDetailSchema, {
+      ...taskDetailResponse.task,
+      liveSessions: taskDetailResponse.task.liveSessions.map((session) =>
+        create(pb.LiveSessionSchema, { ...session, shortId: undefined }),
+      ),
+    });
+    const detail = await getTask(task);
+    expect(detail.liveSessions).toEqual([
+      {
+        sessionID: "33333333-3333-4333-8333-333333333333",
+        displayName: "Review chat",
+      },
+      {
+        sessionID: "44444444-4444-4444-8444-444444444444",
+        displayName: "44444444-4444-4444-8444-444444444444",
+      },
+    ]);
+  });
+
+  it.each([
+    { sessionName: "Named review", role: "reviewer", expected: "Named review" },
+    { sessionName: undefined, role: "reviewer", expected: "reviewer" },
+  ])("uses $expected without requiring an unused numeric ID", async ({ sessionName, role, expected }) => {
+    const sessionID = "33333333-3333-4333-8333-333333333333";
+    const detail = await getTask(
+      create(pb.TaskDetailSchema, {
+        ...taskDetailResponse.task,
+        currentNodes: [
+          create(AttentionCurrentNodeSchema, {
+            nodeId: "node-1",
+            nodeDisplayName: "Review",
+            sessionId: sessionID,
+            effectiveAssignee: role,
+          }),
+        ],
+        liveSessions: [
+          create(pb.LiveSessionSchema, { sessionId: sessionID, sessionName, nodeDisplayName: "Review" }),
+        ],
+      }),
+    );
+    expect(detail.liveSessions).toEqual([{ sessionID, displayName: expected }]);
   });
 
   it("distinguishes unlocked and source-workspace targets", async () => {

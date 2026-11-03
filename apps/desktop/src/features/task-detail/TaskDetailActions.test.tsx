@@ -46,13 +46,16 @@ it("does not offer an unrelated Chat for a paused Task without a Session", async
   expect(openSessionChat).not.toHaveBeenCalled();
 });
 
-it("uses the ordinary Session picker for paused parallel Sessions", async () => {
+it.each([
+  ["Agent role", "reviewer"],
+  ["numeric ID", undefined],
+] as const)("uses the ordinary paused Session picker with name and %s labels", async (_kind, role) => {
   const openSessionChat = vi.fn(async () => undefined);
   const sessionIDs = [
     "33333333-3333-4333-8333-333333333333",
     "44444444-4444-4444-8444-444444444444",
   ] as const;
-  const services = mountTaskDetailSurface(pausedTaskFixture(taskDetailResponse, sessionIDs), {
+  const services = mountTaskDetailSurface(pausedTaskFixture(taskDetailResponse, sessionIDs, role), {
     openSessionChat,
   });
   const resume = vi.spyOn(services.api, "resumeTask");
@@ -60,8 +63,12 @@ it("uses the ordinary Session picker for paused parallel Sessions", async () => 
   await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
   expect(openSessionChat).not.toHaveBeenCalled();
   const picker = within(screen.getByRole("dialog"));
+  expect(picker.getByRole("button", { name: "Review chat" })).toBeInTheDocument();
+  for (const sessionID of sessionIDs) {
+    expect(picker.queryByText(sessionID)).not.toBeInTheDocument();
+  }
   const selectedID = sessionIDs[1];
-  await user.click(picker.getByRole("button", { name: selectedID }));
+  await user.click(picker.getByRole("button", { name: role ?? "302" }));
   expect(openSessionChat).toHaveBeenCalledTimes(1);
   expect(openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID: selectedID });
   expect(resume).not.toHaveBeenCalled();
@@ -170,7 +177,7 @@ it("Shift-clicks Open Chat then opens the ordinary picker selection natively", a
   await user.click(picker.getByRole("button", { name: "Review chat" }));
   await user.click(screen.getByRole("button", { name: appI18n.t("task.openInChat") }));
   const ordinaryPicker = within(screen.getByRole("dialog"));
-  await user.click(ordinaryPicker.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" }));
+  await user.click(ordinaryPicker.getByRole("button", { name: "302" }));
 
   await waitFor(() => {
     expect(openWindow).toHaveBeenCalledTimes(1);
@@ -236,7 +243,7 @@ it("offers a CLI Session picker and keeps Task-wide Interrupt generic", async ()
   expect(within(flow).getAllByRole("button")).toEqual([open, interrupt]);
   await userEvent.setup().click(open);
   const popup = within(screen.getByRole("dialog"));
-  expect(popup.getByRole("button", { name: "33333333-3333-4333-8333-333333333333" })).toBeInTheDocument();
+  expect(popup.getByRole("button", { name: "1" })).toBeInTheDocument();
   expect(popup.getByRole("button", { name: "Review" })).toBeInTheDocument();
 });
 
@@ -272,7 +279,7 @@ it("selects one Session from the Open in Chat popup without opening the others",
   await user.click(openChat);
   expect(targets).toEqual([]);
   const popup = within(screen.getByRole("dialog"));
-  expect(popup.getByRole("button", { name: "44444444-4444-4444-8444-444444444444" })).toBeInTheDocument();
+  expect(popup.getByRole("button", { name: "302" })).toBeInTheDocument();
   await user.click(popup.getByRole("button", { name: "Review chat" }));
 
   expect(targets).toEqual([{ projectID: "project-1", sessionID: "33333333-3333-4333-8333-333333333333" }]);

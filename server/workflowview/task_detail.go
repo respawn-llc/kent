@@ -119,10 +119,11 @@ func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*task
 	}
 	task = projected.Task
 	definition := projected.Definition
-	liveSessions, currentScripts, err := taskDetailLiveTargets(
+	liveSessions, currentScripts, err := taskDetailTargets(
 		ctx,
 		d.queries.ListSessionNamesByIDs,
 		task.ID,
+		projected.CurrentNodes,
 		projected.LiveExecutions,
 		definition,
 	)
@@ -209,35 +210,45 @@ func (d *TaskDetail) taskDetailCurrentNodes(ctx context.Context, nodes []workflo
 	return projected, nil
 }
 
-func taskDetailLiveTargets(
+func taskDetailTargets(
 	ctx context.Context,
 	nameLookup sessionNameLookup,
 	taskID string,
+	currentNodes []workflow.CurrentNode,
 	executions []sessionruntime.TaskExecution,
 	definition definitionSnapshot,
 ) ([]*taskpb.LiveSession, []*taskpb.CurrentScript, error) {
-	type liveAgent struct {
-		sessionID       string
-		nodeDisplayName string
-	}
-	agents := make([]liveAgent, 0, len(executions))
-	sessionIDs := make([]string, 0, len(executions))
+	agents := make(map[string]string, len(currentNodes)+len(executions))
+	sessionIDs := make([]string, 0, len(currentNodes)+len(executions))
 	scripts := make([]*taskpb.CurrentScript, 0, len(executions))
 	nodesByID := workflowNodesByID(definition.api)
+	addSession := func(sessionID, nodeID string) error {
+		node, exists := nodesByID[nodeID]
+		if !exists {
+			return fmt.Errorf("task %q Session references unknown Node %q", taskID, nodeID)
+		}
+		if node.Kind != pb.NodeKind_WORKFLOW_NODE_KIND_AGENT {
+			return fmt.Errorf("task %q Session references %s Node %q", taskID, node.Kind, nodeID)
+		}
+		if _, exists := agents[sessionID]; !exists {
+			sessionIDs = append(sessionIDs, sessionID)
+			agents[sessionID] = workflow.DisplayLabel(node.DisplayName, node.Key)
+		}
+		return nil
+	}
+	for _, current := range currentNodes {
+		if current.SessionID != nil {
+			if err := addSession(current.SessionID.String(), string(current.Reference.NodeID)); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 	for _, execution := range executions {
 		switch {
 		case execution.Agent != nil:
-			sessionID := execution.Agent.SessionID.String()
-			nodeID := string(execution.Ref.CurrentNode.NodeID)
-			node, exists := nodesByID[nodeID]
-			if !exists {
-				return nil, nil, fmt.Errorf("task %q live Agent execution references unknown Node %q", taskID, nodeID)
+			if err := addSession(execution.Agent.SessionID.String(), string(execution.Ref.CurrentNode.NodeID)); err != nil {
+				return nil, nil, err
 			}
-			if node.Kind != pb.NodeKind_WORKFLOW_NODE_KIND_AGENT {
-				return nil, nil, fmt.Errorf("task %q live Agent execution references %s Node %q", taskID, node.Kind, nodeID)
-			}
-			sessionIDs = append(sessionIDs, sessionID)
-			agents = append(agents, liveAgent{sessionID: sessionID, nodeDisplayName: workflow.DisplayLabel(node.DisplayName, node.Key)})
 		case execution.Script != nil:
 			scripts = append(scripts, &taskpb.CurrentScript{
 				CurrentNode: workflowCurrentNodeReference(execution.Ref.CurrentNode),
@@ -247,15 +258,15 @@ func taskDetailLiveTargets(
 	}
 	names, err := resolveSessionPresentations(ctx, nameLookup, sessionIDs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("task %q live Sessions: %w", taskID, err)
+		return nil, nil, fmt.Errorf("task %q Sessions: %w", taskID, err)
 	}
 	liveSessions := make([]*taskpb.LiveSession, 0, len(agents))
-	for _, agent := range agents {
+	for sessionID, nodeDisplayName := range agents {
 		liveSessions = append(liveSessions, &taskpb.LiveSession{
-			SessionId:       agent.sessionID,
-			SessionName:     names[agent.sessionID].Name,
-			ShortId:         names[agent.sessionID].ShortID,
-			NodeDisplayName: agent.nodeDisplayName,
+			SessionId:       sessionID,
+			SessionName:     names[sessionID].Name,
+			ShortId:         names[sessionID].ShortID,
+			NodeDisplayName: nodeDisplayName,
 		})
 	}
 	sort.Slice(liveSessions, func(i, j int) bool { return liveSessions[i].SessionId < liveSessions[j].SessionId })

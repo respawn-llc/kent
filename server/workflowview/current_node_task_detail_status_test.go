@@ -97,6 +97,51 @@ func TestTaskDetailProjectsCurrentNodeAndDirectRetainedSession(t *testing.T) {
 	}
 }
 
+func TestTaskDetailProjectsPausedSessionPresentation(t *testing.T) {
+	for _, test := range []struct {
+		label string
+		name  *string
+	}{
+		{label: "named", name: proto.String("Paused review")},
+		{label: "unnamed"},
+	} {
+		t.Run(test.label, func(t *testing.T) {
+			fixture := newCurrentNodeViewFixture(t, false)
+			started := fixture.startTask(t, "Paused Session")
+			sessionID := fixture.bindCurrentNodeSession(t, started)
+			if _, err := fixture.metadata.DB().ExecContext(fixture.ctx,
+				`UPDATE sessions SET name = ? WHERE id = ?`, test.name, sessionID.String()); err != nil {
+				t.Fatal(err)
+			}
+			record, err := fixture.metadata.ResolvePersistedSession(fixture.ctx, sessionID.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			detail := taskDetailWithObservation(t, fixture, workflowexecution.WorkflowTaskExecutionObservation{
+				Quiescence: map[workflow.TaskID]bool{started.task.ID: true},
+			})
+			projected, err := detail.GetTask(fixture.ctx, string(started.task.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(projected.LiveSessions) != 1 {
+				t.Fatalf("paused Session entries = %v, want one", projected.LiveSessions)
+			}
+			presentation := projected.LiveSessions[0]
+			if presentation.SessionId != sessionID.String() ||
+				!reflect.DeepEqual(presentation.SessionName, test.name) ||
+				record.ShortID == nil || presentation.ShortId == nil ||
+				*presentation.ShortId != record.ShortID.Int64() ||
+				presentation.NodeDisplayName != "Agent" {
+				t.Fatalf("paused Session presentation = %+v, want persisted name and number", presentation)
+			}
+			if projected.Actions.CanInterrupt || projected.Status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING {
+				t.Fatalf("retained Session incorrectly implies live execution: %+v", projected)
+			}
+		})
+	}
+}
+
 func TestTaskDetailMaterializesAndOrdersLiveScripts(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Live Scripts")
