@@ -151,7 +151,8 @@ func (m *uiModel) ongoingFrameInput() ongoing.FrameInput {
 					return ongoing.SectionProjection{
 						Lines: pane.Lines,
 						Cursor: ongoing.Cursor{
-							Visible: pane.Cursor.Visible, Row: pane.Cursor.Row, Column: pane.Cursor.Col + 1,
+							// Surface coordinates are one-based; pane coordinates are zero-based.
+							Visible: pane.Cursor.Visible, Row: pane.Cursor.Row + 1, Column: pane.Cursor.Col + 1,
 						},
 					}
 				},
