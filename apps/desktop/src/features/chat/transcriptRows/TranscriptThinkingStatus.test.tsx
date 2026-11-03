@@ -32,10 +32,10 @@ it("retains outgoing status text during replacement and then retires it", async 
   view.rerender(status("second activity"));
   expect(screen.getByText("first activity")).toBeInTheDocument();
   expect(screen.getByText("second activity")).toBeInTheDocument();
-  await new Promise(requestAnimationFrame);
-  await new Promise(requestAnimationFrame);
-  now += 1_000;
-  await waitFor(() => expect(screen.queryByText("first activity")).not.toBeInTheDocument());
+  await waitFor(() => {
+    now += 1_000;
+    expect(screen.queryByText("first activity")).not.toBeInTheDocument();
+  });
   expect(screen.getByText("second activity")).toBeVisible();
 });
 
