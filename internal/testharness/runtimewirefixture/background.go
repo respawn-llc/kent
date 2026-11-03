@@ -3,14 +3,17 @@ package runtimewirefixture
 import (
 	"context"
 	"fmt"
+	"testing"
 	"time"
 
+	"core/internal/testharness/testsetup"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 )
 
-func BackgroundCompletionEvent(ctx context.Context, id string, ownerSessionID string, root string) shelltool.Event {
+func BackgroundCompletionEvent(t testing.TB, ctx context.Context, id string, ownerSessionID string, root string) shelltool.Event {
+	t.Helper()
 	manager, err := shelltool.NewManager(root, shelltool.WithMinimumExecToBgTime(time.Millisecond))
 	if err != nil {
 		panic(fmt.Sprintf("create background shell manager fixture: %v", err))
@@ -29,7 +32,8 @@ func BackgroundCompletionEvent(ctx context.Context, id string, ownerSessionID st
 		return true
 	})
 	result, err := manager.Start(ctx, shelltool.ExecRequest{
-		Postprocessor: runner,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       runner,
 		Command: []string{
 			"/bin/sh",
 			"-c",

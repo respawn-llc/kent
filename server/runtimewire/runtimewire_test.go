@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/executionfixture"
 	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/scriptedllm"
@@ -1117,9 +1118,11 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 		t.Fatalf("marshal %s input: %v", id, err)
 	}
 	toolCallID := "runtimewire-" + string(id)
+	shortID := testsetup.ShellLogSessionShortID(t)
 	ctx := tools.WithExecutionIdentity(context.Background(), tools.ExecutionIdentity{
-		StepID:     "22222222-2222-4222-8222-222222222222",
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		StepID:         "22222222-2222-4222-8222-222222222222",
+		ToolCallID:     clientui.ToolCallID(toolCallID),
+		SessionShortID: &shortID,
 	})
 	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
 	result, err := handler.Call(ctx, tools.Call{
@@ -1186,7 +1189,7 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 		if err != nil {
 			t.Fatalf("marshal exec_command input: %v", err)
 		}
-		result, err := handler.Call(context.Background(), tools.Call{
+		result, err := handler.Call(executionfixture.ExecutionContext(t, context.Background(), callID), tools.Call{
 			ID:    callID,
 			Name:  toolspec.ToolExecCommand,
 			Input: input,
@@ -1404,7 +1407,7 @@ func callRuntimeWireExec(t *testing.T, registry *tools.Registry, command string)
 	if err != nil {
 		t.Fatalf("marshal exec_command input: %v", err)
 	}
-	result, err := handler.Call(context.Background(), tools.Call{
+	result, err := handler.Call(executionfixture.ExecutionContext(t, context.Background(), "runtimewire-exec"), tools.Call{
 		ID:    "runtimewire-exec",
 		Name:  toolspec.ToolExecCommand,
 		Input: input,
@@ -1872,7 +1875,7 @@ func shellPwdOutput(t *testing.T, registry *tools.Registry) string {
 	if !ok {
 		t.Fatal("expected exec_command handler")
 	}
-	result, err := handler.Call(context.Background(), tools.Call{ID: "call-pwd", Name: toolspec.ToolExecCommand, Input: json.RawMessage(`{"cmd":"pwd"}`)})
+	result, err := handler.Call(executionfixture.ExecutionContext(t, context.Background(), "call-pwd"), tools.Call{ID: "call-pwd", Name: toolspec.ToolExecCommand, Input: json.RawMessage(`{"cmd":"pwd"}`)})
 	if err != nil {
 		t.Fatalf("exec_command call: %v", err)
 	}

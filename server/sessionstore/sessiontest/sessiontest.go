@@ -11,10 +11,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"core/server/sessionstore"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 
 	"core/internal/testharness/recordstore"
 )
@@ -65,9 +69,12 @@ func WriteUnsupportedEventLogVersion(
 }
 
 type Persistence struct {
+	observeMu       sync.Mutex
 	records         *recordstore.Store[session.PersistedSessionRecord]
 	contextWriteErr error
 }
+
+var sessionShortIDs atomic.Int64
 
 func NewPersistence() *Persistence {
 	return &Persistence{records: recordstore.New(clonePersistedSessionRecord)}
@@ -82,12 +89,23 @@ func (p *Persistence) Options() []session.StoreOption {
 }
 
 func (p *Persistence) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
+	p.observeMu.Lock()
+	defer p.observeMu.Unlock()
 	contextFacts := snapshot.ContextFacts.Clone()
+	var shortID *runtimeids.SessionShortID
 	if existing, ok := p.records.Get(snapshot.Meta.SessionID); ok {
 		contextFacts = existing.ContextFacts.Clone()
+		shortID = existing.ShortID
+	} else {
+		id, err := runtimeids.NewSessionShortID(sessionShortIDs.Add(1))
+		if err != nil {
+			panic(err)
+		}
+		shortID = &id
 	}
 	p.records.Put(snapshot.Meta.SessionID, session.PersistedSessionRecord{
 		SessionDir:   snapshot.SessionDir,
+		ShortID:      shortID,
 		Meta:         cloneMeta(&snapshot.Meta),
 		ContextFacts: contextFacts,
 	})
@@ -176,6 +194,7 @@ func (*Persistence) SessionHasWorkflowTask(context.Context, string) (bool, error
 }
 
 func clonePersistedSessionRecord(record session.PersistedSessionRecord) session.PersistedSessionRecord {
+	record.ShortID = textutil.Pointer(record.ShortID)
 	record.Meta = cloneMeta(record.Meta)
 	record.ContextFacts = record.ContextFacts.Clone()
 	return record

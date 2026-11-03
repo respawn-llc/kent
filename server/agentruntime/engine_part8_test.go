@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +32,7 @@ import (
 
 type backgroundCompletionGatedClient struct {
 	*fakeClient
+	manager     *shelltool.Manager
 	pollStarted chan struct{}
 	completed   <-chan struct{}
 }
@@ -46,6 +48,23 @@ func (c *backgroundCompletionGatedClient) Generate(ctx context.Context, req llm.
 		case <-ctx.Done():
 			return llm.Response{}, ctx.Err()
 		}
+		processes := c.manager.List()
+		if len(processes) != 1 {
+			return llm.Response{}, fmt.Errorf("expected one background process, got %d", len(processes))
+		}
+		processID, err := strconv.Atoi(processes[0].ID)
+		if err != nil {
+			return llm.Response{}, err
+		}
+		input, err := json.Marshal(map[string]any{
+			"session_id": processID, "yield_time_ms": 15000, "max_output_tokens": 21,
+		})
+		if err != nil {
+			return llm.Response{}, err
+		}
+		c.mu.Lock()
+		c.responses[0].ToolCalls[0].Input = input
+		c.mu.Unlock()
 	}
 	return c.fakeClient.Generate(ctx, req, callbacks)
 }
@@ -254,9 +273,8 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 		{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("poll background"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 			ToolCalls: []llm.ToolCall{{
-				ID:    "call_stdin_1",
-				Name:  string(toolspec.ToolWriteStdin),
-				Input: json.RawMessage(`{"session_id":1000,"yield_time_ms":15000,"max_output_tokens":21}`),
+				ID:   "call_stdin_1",
+				Name: string(toolspec.ToolWriteStdin),
 			}},
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
@@ -264,7 +282,7 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done"), Phase: textutil.Value(llm.MessagePhaseFinal)},
 			Usage:     llm.Usage{WindowTokens: 200000},
 		},
-	}}, pollStarted: make(chan struct{}), completed: completed}
+	}}, manager: manager, pollStarted: make(chan struct{}), completed: completed}
 	registry := newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandToolWithPostprocessor(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))},
 		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager, nil)},

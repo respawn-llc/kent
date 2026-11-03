@@ -323,11 +323,12 @@ func TestEnrichEnvKeepsUserRIPGREPConfigPath(t *testing.T) {
 }
 
 func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
+	shortID := testsetup.ShellLogSessionShortID(t)
 	manager := newBackgroundTestManager(t)
 	workspace := t.TempDir()
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		OwnerSessionShortID: shortID,
 		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		Command:             []string{"sh", "-c", "printf 'hello\\n'; sleep 0.3; printf 'world\\n'"},
 		DisplayCommand:      "tail-test",

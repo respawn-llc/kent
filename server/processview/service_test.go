@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"core/internal/testharness/executionfixture"
 	"core/internal/testharness/postprocessfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/sessionstore"
@@ -28,7 +29,7 @@ const processViewTestWaitTimeout = 10 * time.Second
 
 func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	result := fixture.startCommand(t, "call-1", "printf 'working\n'; sleep 30", "step-1")
+	result := fixture.startCommand(t, "call-1", "printf 'working\n'; sleep 30", processViewTestStepID)
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
@@ -45,7 +46,7 @@ func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 		return process, true
 	})
 	ownerSessionID := "session-1"
-	ownerStepID := "step-1"
+	ownerStepID := processViewTestStepID
 	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
 		ProjectId:      fixture.projectID,
 		OwnerSessionId: &ownerSessionID,
@@ -58,7 +59,7 @@ func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 		t.Fatalf("expected one process, got %+v", resp.Processes)
 	}
 	process := resp.Processes[0]
-	if process.OwnerSessionId != "session-1" || process.GetOwnerStepId() != "step-1" {
+	if process.OwnerSessionId != "session-1" || process.GetOwnerStepId() != processViewTestStepID {
 		t.Fatalf("unexpected ownership: %+v", process)
 	}
 	if !process.Backgrounded || !process.Running {
@@ -72,7 +73,7 @@ func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProcess: %v", err)
 	}
-	if got.Process == nil || got.Process.GetOwnerStepId() != "step-1" {
+	if got.Process == nil || got.Process.GetOwnerStepId() != processViewTestStepID {
 		t.Fatalf("unexpected process payload: %+v", got.Process)
 	}
 	if got.Process.LogPath != process.LogPath || got.Process.RecentOutput == "" {
@@ -95,7 +96,7 @@ func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 	fixture.manager.SetMinimumExecToBgTime(2 * time.Second)
 	done := make(chan tools.Result, 1)
 	go func() {
-		done <- fixture.startCommand(t, "foreground", "sleep 1", "step-1")
+		done <- fixture.startCommand(t, "foreground", "sleep 1", processViewTestStepID)
 	}()
 	waitForProcessCount(t, fixture.manager, 1)
 	list, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{ProjectId: fixture.projectID})
@@ -127,7 +128,7 @@ func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 		t.Fatalf("initial contents: %v (%v)", empty, err)
 	}
 	for _, id := range []string{"first", "second"} {
-		fixture.startCommand(t, id, "sleep 30", "step-1")
+		fixture.startCommand(t, id, "sleep 30", processViewTestStepID)
 	}
 	initial, err := sub.Next(context.Background())
 	if err != nil {
@@ -164,7 +165,7 @@ func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 
 func TestObservationInitialSessionScopeAndClose(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	fixture.startCommand(t, "background", "sleep 30", "step-1")
+	fixture.startCommand(t, "background", "sleep 30", processViewTestStepID)
 	for _, sessionID := range []string{"session-1", "session-2"} {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
 			SessionId: sessionID,
@@ -197,7 +198,7 @@ func TestObservationFollowsSessionAfterProjectMembershipChanges(t *testing.T) {
 	membership := &mutableProjectSessionMembership{byProject: make(map[string][]string)}
 	fixture := newProcessViewFixtureWithMembership(t, membership)
 	membership.setProject(fixture.projectID, sessionID)
-	if result := fixture.startCommand(t, "moved-session", "sleep 30", "step-1"); result.IsError {
+	if result := fixture.startCommand(t, "moved-session", "sleep 30", processViewTestStepID); result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
 	process := waitForProcessSnapshot(t, processViewTestWaitTimeout, func() (shelltool.Snapshot, bool) {
@@ -341,6 +342,8 @@ type processViewFixture struct {
 	projectID string
 }
 
+const processViewTestStepID = "11111111-1111-4111-8111-111111111111"
+
 func newProcessViewFixture(t *testing.T) processViewFixture {
 	return newProcessViewFixtureWithMembership(t, nil)
 }
@@ -398,7 +401,13 @@ func (f processViewFixture) startCommand(t *testing.T, id string, command string
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
-	result, err := f.tool.Call(context.Background(), tools.Call{
+	ctx := executionfixture.ExecutionContext(t, context.Background(), id)
+	identity, err := tools.ExecutionIdentityFromContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.StepID = stepID
+	result, err := f.tool.Call(tools.WithExecutionIdentity(ctx, identity), tools.Call{
 		ID:     id,
 		Name:   toolspec.ToolExecCommand,
 		Input:  input,
@@ -412,13 +421,14 @@ func (f processViewFixture) startCommand(t *testing.T, id string, command string
 
 func TestServiceListProcessesFiltersByOwnerStepID(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	for _, stepID := range []string{"step-a", "step-b"} {
+	secondStepID := "22222222-2222-4222-8222-222222222222"
+	for _, stepID := range []string{processViewTestStepID, secondStepID} {
 		fixture.startCommand(t, stepID, "sleep 1", stepID)
 	}
 
 	waitForProcessCount(t, fixture.manager, 2)
 
-	ownerStepID := "step-b"
+	ownerStepID := secondStepID
 	resp, err := fixture.service.ListProcesses(context.Background(), &processpb.ListRequest{
 		ProjectId:   fixture.projectID,
 		OwnerStepId: &ownerStepID,
@@ -426,14 +436,14 @@ func TestServiceListProcessesFiltersByOwnerStepID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProcesses: %v", err)
 	}
-	if len(resp.Processes) != 1 || resp.Processes[0].GetOwnerStepId() != "step-b" {
+	if len(resp.Processes) != 1 || resp.Processes[0].GetOwnerStepId() != secondStepID {
 		t.Fatalf("unexpected filtered processes: %+v", resp.Processes)
 	}
 }
 
 func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	result := fixture.startCommand(t, "call-inline", "printf 'inline-preview\n'; sleep 1", "step-1")
+	result := fixture.startCommand(t, "call-inline", "printf 'inline-preview\n'; sleep 1", processViewTestStepID)
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
@@ -454,7 +464,7 @@ func TestServiceGetInlineOutputReturnsManagerPreview(t *testing.T) {
 
 func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	result := fixture.startCommand(t, "call-kill", "sleep 30", "step-1")
+	result := fixture.startCommand(t, "call-kill", "sleep 30", processViewTestStepID)
 	if result.IsError {
 		t.Fatalf("expected successful tool result, got %+v", result)
 	}
