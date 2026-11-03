@@ -153,6 +153,8 @@ func (s *Surface) AllocateTerminalFrames(work []TerminalWork, frame FrameInput) 
 			switch item := item.(type) {
 			case TerminalMessage:
 				next.source.prepareTerminalMessage(item.Message, frame)
+			case TerminalHistory:
+				next.source.historyImmutableLines(item.Rows, frame.Size.Width, frame.Theme)
 			case TerminalReset:
 				next.source.reset()
 			default:

@@ -411,6 +411,11 @@ func (s *ongoingSurfaceSpy) ApplyTerminalMessage(message *transcriptpb.Message, 
 	return ongoing.Result{}, s.err
 }
 
+func (s *ongoingSurfaceSpy) ApplyHistoryRows(_ []*transcriptpb.CommittedRow, frame ongoing.FrameInput) (ongoing.Result, error) {
+	s.calls = append(s.calls, ongoingSurfaceCall{name: "history", frame: frame})
+	return ongoing.Result{}, s.err
+}
+
 func (s *ongoingSurfaceSpy) Render(frame ongoing.FrameInput) (ongoing.Result, error) {
 	s.calls = append(s.calls, ongoingSurfaceCall{name: "render", frame: frame})
 	return ongoing.Result{}, s.err

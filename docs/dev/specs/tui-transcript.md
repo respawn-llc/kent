@@ -16,6 +16,7 @@
 - **Ongoing normal-buffer history is append-only.**
 - **Once a transcript line is emitted into scrollback, it is immutable: no retroactive restyling, no in-place rewrites, no clear-and-replay, and no emitted-history reconciliation.**
 - **Scrollback must be a fire-and-forget, black-box sink. Kent must forget emitted presentation and must not inspect it, track its contents, or coordinate later output against it. Source-backed tracking of an unfinished Streaming Message belongs outside this stateless sink.**
+- Initial history loading must use committed-row identities to omit overlapping history from the first subscription hydration. This handoff must not inspect emitted presentation or suppress newly completed tools, reconnect history, or Scratch Rehydration history.
 - **Ongoing Mode must emit eligible content at the first suitable opportunity. Provider output indexes, internal stream organization, response acceptance, and persistence order must not delay otherwise eligible output. Saved conversation order must not determine Scrollback order.**
 - **Emission exclusions must protect coherent, immutable output: unstable Markdown stays mutable, tool rows must not break up an assistant message, and tools requiring animation stay in the Mutable Band. These exclusions must not become general ordering barriers for unrelated ready output.**
 - Compaction appends committed content to the same Session's transcript. It must not rewrite that transcript.

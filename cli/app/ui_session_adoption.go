@@ -154,6 +154,9 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 }
 
 func (m *uiModel) startSessionObservationLoads() tea.Cmd {
+	if m.eventDispatcher != nil && m.eventDispatcher.transcriptEvents != nil {
+		m.sendTransientStatusWithNoticeID("Loading conversation history…", uiStatusNoticeInfo, 0, uiStatusNoticeReplace, ongoingHistoryNoticeID)
+	}
 	return tea.Batch(
 		m.eventDispatcher.wait(),
 		waitRuntimeConnectionStateChange(m.runtimeConnectionEvents, m.observationScope),
