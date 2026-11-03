@@ -45,6 +45,7 @@ export { taskQuestionPage } from "./attention";
 
 export {
   taskActionFixture,
+  pausedTaskFixture,
   backlogTaskFixture,
   taskStartApplied,
   taskStartFailure,

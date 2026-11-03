@@ -1,10 +1,31 @@
 import { create } from "@app/server-api-contract";
 import * as read from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import type { FakeRoute } from "../api";
 
 type TaskFixture = Readonly<{ task: read.TaskDetail }>;
 type ActionChanges = Partial<Pick<read.TaskActions, "canStart" | "canInterrupt" | "canResume" | "canDelete">>;
+
+export function pausedTaskFixture(base: TaskFixture, sessionIDs: readonly (string | null)[]): TaskFixture {
+  const task = taskActionFixture(base, { canResume: true, canInterrupt: false }, []);
+  return {
+    task: create(read.TaskDetailSchema, {
+      ...task.task,
+      status: create(read.TaskStatusSchema, {
+        kind: read.TaskStatusKind.INTERRUPTED,
+        nativeState: read.TaskNativeState.INTERRUPTED,
+      }),
+      currentNodes: sessionIDs.map((sessionID, index) =>
+        create(AttentionCurrentNodeSchema, {
+          nodeId: `node-${String(index + 1)}`,
+          nodeDisplayName: "Review",
+          ...(sessionID === null ? {} : { sessionId: sessionID }),
+        }),
+      ),
+    }),
+  };
+}
 
 export function taskActionFixture(
   base: TaskFixture,

@@ -468,6 +468,17 @@ function TaskOpenButtons({
   const canOpenScript = nativeBridge.capabilities.files.open;
   const canOpenChat = openSessionChat !== undefined || sessionChatDefaultIntent === "native_window";
   const nativeWindowsAvailable = canOpenChat && nativeBridge.capabilities.dialogWindows;
+  const sessions = new Map(detail.liveSessions.map((session) => [session.sessionID, session]));
+  for (const node of detail.currentNodes) {
+    if (node.sessionID !== null && !sessions.has(node.sessionID)) {
+      sessions.set(node.sessionID, {
+        sessionID: node.sessionID,
+        shortID: null,
+        sessionName: null,
+        nodeDisplayName: node.displayName,
+      });
+    }
+  }
 
   async function openInCli(sessionID: string): Promise<void> {
     await writeClipboardText(`kent --session=${sessionID}`, nativeBridge);
@@ -485,7 +496,7 @@ function TaskOpenButtons({
   return (
     <>
       <TaskSessionOpenAction
-        sessions={detail.liveSessions}
+        sessions={[...sessions.values()]}
         label={t(canOpenChat ? "task.openInChat" : "task.openInCli")}
         defaultIntent={sessionChatDefaultIntent}
         nativeWindowsAvailable={nativeWindowsAvailable}

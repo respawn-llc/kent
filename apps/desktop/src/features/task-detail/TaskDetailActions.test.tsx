@@ -10,9 +10,62 @@ import {
   taskActionFixture,
   taskStartRoute,
   taskStartApplied,
+  pausedTaskFixture,
 } from "@/test-support/task-detail";
 import { projectEventsFixture } from "@/test-support/project-events";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
+
+it.each([1, 2])(
+  "opens a paused Task's retained Session across %s Nodes without resuming it",
+  async (nodeCount) => {
+    const openSessionChat = vi.fn(async () => undefined);
+    const services = mountTaskDetailSurface(
+      pausedTaskFixture(
+        taskDetailResponse,
+        Array.from({ length: nodeCount }, () => "33333333-3333-4333-8333-333333333333"),
+      ),
+      { openSessionChat },
+    );
+    const resume = vi.spyOn(services.api, "resumeTask");
+    await userEvent.setup().click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
+    expect(openSessionChat).toHaveBeenCalledWith({
+      projectID: "project-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+    });
+    expect(resume).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: appI18n.t("board.resume") })).toBeInTheDocument();
+  },
+);
+
+it("does not offer an unrelated Chat for a paused Task without a Session", async () => {
+  const openSessionChat = vi.fn(async () => undefined);
+  mountTaskDetailSurface(pausedTaskFixture(taskDetailResponse, [null]), { openSessionChat });
+  await screen.findByTestId("task-detail-action-flow");
+  expect(screen.queryByRole("button", { name: appI18n.t("task.openInChat") })).not.toBeInTheDocument();
+  expect(openSessionChat).not.toHaveBeenCalled();
+});
+
+it("uses the ordinary Session picker for paused parallel Sessions", async () => {
+  const openSessionChat = vi.fn(async () => undefined);
+  const sessionIDs = [
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444",
+  ] as const;
+  const services = mountTaskDetailSurface(pausedTaskFixture(taskDetailResponse, sessionIDs), {
+    openSessionChat,
+  });
+  const resume = vi.spyOn(services.api, "resumeTask");
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: appI18n.t("task.openInChat") }));
+  expect(openSessionChat).not.toHaveBeenCalled();
+  const picker = within(screen.getByRole("dialog"));
+  const selectedID = sessionIDs[1];
+  await user.click(picker.getByRole("button", { name: selectedID }));
+  expect(openSessionChat).toHaveBeenCalledTimes(1);
+  expect(openSessionChat).toHaveBeenCalledWith({ projectID: "project-1", sessionID: selectedID });
+  expect(resume).not.toHaveBeenCalled();
+});
 
 function nativeDesktopBridge(openWindow = vi.fn(async () => "created" as const)) {
   const bridge = createBrowserNativeBridge();
