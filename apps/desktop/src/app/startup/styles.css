@@ -159,11 +159,26 @@
   --motion-morph: 350ms ease-in-out;
   --motion-morph-stage-delay: 200ms;
   --motion-morph-stage: 200ms ease-in-out;
-  --color-island-0: light-dark(rgba(255, 255, 255, 0.64), rgba(24, 22, 20, 0.82));
-  --color-island-1: light-dark(rgba(255, 255, 255, 0.58), rgba(30, 28, 26, 0.74));
-  --color-island-2: light-dark(rgba(255, 255, 255, 0.52), rgba(36, 34, 32, 0.66));
-  --color-island-3: light-dark(rgba(255, 255, 255, 0.46), rgba(42, 40, 38, 0.58));
-  --color-island-4: light-dark(rgba(255, 255, 255, 0.4), rgba(48, 46, 44, 0.5));
+  --color-island-0: light-dark(
+    rgb(255 255 255 / var(--island-opacity, 0.64)),
+    rgb(24 22 20 / var(--island-opacity, 0.82))
+  );
+  --color-island-1: light-dark(
+    rgb(255 255 255 / var(--island-opacity, 0.58)),
+    rgb(30 28 26 / var(--island-opacity, 0.74))
+  );
+  --color-island-2: light-dark(
+    rgb(255 255 255 / var(--island-opacity, 0.52)),
+    rgb(36 34 32 / var(--island-opacity, 0.66))
+  );
+  --color-island-3: light-dark(
+    rgb(255 255 255 / var(--island-opacity, 0.46)),
+    rgb(42 40 38 / var(--island-opacity, 0.58))
+  );
+  --color-island-4: light-dark(
+    rgb(255 255 255 / var(--island-opacity, 0.4)),
+    rgb(48 46 44 / var(--island-opacity, 0.5))
+  );
   --color-outline: light-dark(rgba(21, 30, 46, 0.12), rgba(255, 255, 255, 0.15));
   --color-on-island: light-dark(#12100e, #ffffff);
   --color-on-background: light-dark(#12100e, #ffffff);
@@ -294,6 +309,7 @@
 :root[data-opaque="true"] {
   background: var(--background);
   --window-glass-tint: var(--background);
+  --island-opacity: 1;
 }
 
 :root[data-low-power="true"] *,
