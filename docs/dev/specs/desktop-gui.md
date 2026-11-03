@@ -307,6 +307,8 @@
 
 ## Labels and board sorting
 
+- An ordinary Board Task card click must open Task Detail. Shift-click must open an existing Task Session in ordinary Chat navigation. The card context menu must offer `Open in Chat` for active and paused Tasks. These Chat entry points must use the same applicable Sessions, direct-open behavior, and multiple-Session picker as Task Detail. Opening Chat must not create a Session or resume the Task. Pending Question actions must be separate.
+
 - Boards have one transparent filter-and-sort row. Its controls appear in this order: `Labels`, `Sort`, `Unblocked`, `Search`. It has no status, attention, or column filter.
 - `Sort` uses an icon followed by text and opens a popover styled like the Label chooser.
 - The Sort popover lists `Updated`, `Created`, `Labels`, and `Short ID`, in that order. An `Asc`/`Desc` segmented selector controls the direction.

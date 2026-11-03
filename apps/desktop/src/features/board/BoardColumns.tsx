@@ -24,6 +24,8 @@ import {
   ContextMenuTrigger,
   InfiniteListBoundary,
   OneLineOverflowRow,
+  Popover,
+  PopoverAnchor,
   Spinner,
   VirtualizedInfiniteList,
   type VirtualizedInfiniteListBoundaryState,
@@ -39,6 +41,8 @@ import { useBoardCardMotion } from "./BoardCardMotionContext";
 import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
 import { BoardTaskCardActions } from "./BoardTaskCardActions";
 import { useOwnedSidebarRoots } from "@/app-facade";
+import { TaskSessionPicker } from "@/shared/task-session-chat";
+import { useBoardTaskChat } from "./BoardTaskChat";
 
 export type BoardColumnDisclosureAction = "collapse" | "expand";
 
@@ -369,6 +373,7 @@ const TaskCard = memo(function TaskCard({
 }>) {
   const { t } = useTranslation();
   const { cardClassName, cardStyle, registerCard: registerMotionCard } = useBoardCardMotion();
+  const chat = useBoardTaskChat(card.id);
   const { listeners, setNodeRef } = useDragSource({
     id: boardCardInstanceKey(instance),
     disabled: dragDisabled,
@@ -406,105 +411,122 @@ const TaskCard = memo(function TaskCard({
   );
   const footer = taskCardFooter(card, pendingStartMove);
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <article
-          {...listeners}
-          onPointerDown={(event) => {
-            if (!isInteractiveEventTarget(event.target)) listeners?.onPointerDown?.(event);
-          }}
-          aria-label={card.title}
-          className={cx(
-            "board-task-card grid cursor-pointer gap-0 rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] shadow-[var(--shadow-island-0)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
-            cardClassName(card.id),
-          )}
-          data-task-card-border-tone={card.borderTone}
-          data-task-card-state={waitingForAnswer ? "waiting-answer" : card.statusKind}
-          data-testid="task-card"
-          onClick={() => {
-            onCardClick(card.id);
-          }}
-          onKeyDown={(event) => {
-            activateCardFromKeyboard(event, () => {
-              onCardClick(card.id);
-            });
-          }}
-          ref={registerCard}
-          style={cardStyle(card.id)}
-          tabIndex={0}
-        >
-          <header className="grid gap-[var(--space-1)]">
-            <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)] text-left text-xs leading-5 text-[var(--color-muted)]">
-              <span className="shrink-0 font-mono font-medium tracking-wide">{card.shortID}</span>
-              <span className="min-w-0 truncate text-right">{formatRelativeTime(card.updatedAt)}</span>
-            </span>
-            <strong
-              className="task-card-title text-left text-base leading-snug font-semibold text-[var(--color-on-island)]"
-              data-testid="task-card-title"
+    <Popover open={chat.pickerOpen} onOpenChange={chat.setPickerOpen}>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <PopoverAnchor asChild>
+            <article
+              {...listeners}
+              onPointerDown={(event) => {
+                if (!isInteractiveEventTarget(event.target)) listeners?.onPointerDown?.(event);
+              }}
+              aria-label={card.title}
+              className={cx(
+                "board-task-card grid cursor-pointer gap-0 rounded-[var(--radius-l)] border border-[var(--color-outline)] bg-[var(--color-island-1)] p-[var(--space-3)] shadow-[var(--shadow-island-0)] outline-none focus-visible:border-[var(--color-primary)] focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_26%,transparent)]",
+                cardClassName(card.id),
+              )}
+              data-task-card-border-tone={card.borderTone}
+              data-task-card-state={waitingForAnswer ? "waiting-answer" : card.statusKind}
+              data-testid="task-card"
+              aria-busy={chat.pending}
+              onClick={(event) => {
+                if (event.shiftKey) chat.open();
+                else onCardClick(card.id);
+              }}
+              onKeyDown={(event) => {
+                activateCardFromKeyboard(event, () => {
+                  onCardClick(card.id);
+                });
+              }}
+              ref={registerCard}
+              style={cardStyle(card.id)}
+              tabIndex={0}
             >
-              {card.title}
-            </strong>
-          </header>
-          <AdaptiveLineClamp
-            className="mt-[var(--space-3)] text-sm leading-relaxed text-[var(--color-muted)]"
-            data-testid="task-card-body"
-          >
-            <TaskCardPreview instance={instance} preview={card.preview} />
-          </AdaptiveLineClamp>
-          {footer.visible ? (
-            <div
-              className="task-card-footer flex min-w-0 items-center justify-between gap-[var(--space-3)]"
-              data-testid="task-card-footer"
-            >
-              <div
-                className="flex min-w-0 flex-1 items-center gap-[var(--space-2)] overflow-hidden text-xs text-[var(--color-muted)]"
-                data-testid="task-card-chips"
+              <header className="grid gap-[var(--space-1)]">
+                <span className="flex min-w-0 items-center justify-between gap-[var(--space-2)] text-left text-xs leading-5 text-[var(--color-muted)]">
+                  <span className="shrink-0 font-mono font-medium tracking-wide">{card.shortID}</span>
+                  <span className="min-w-0 truncate text-right">{formatRelativeTime(card.updatedAt)}</span>
+                </span>
+                <strong
+                  className="task-card-title text-left text-base leading-snug font-semibold text-[var(--color-on-island)]"
+                  data-testid="task-card-title"
+                >
+                  {card.title}
+                </strong>
+                {chat.pending ? <Spinner size="sm" /> : null}
+              </header>
+              <AdaptiveLineClamp
+                className="mt-[var(--space-3)] text-sm leading-relaxed text-[var(--color-muted)]"
+                data-testid="task-card-body"
               >
-                {footer.loading ? (
-                  <Spinner
-                    className="h-[20px] w-[20px] shrink-0"
-                    strokeWidth={1.8}
-                    testID="task-card-active-run-spinner"
+                <TaskCardPreview instance={instance} preview={card.preview} />
+              </AdaptiveLineClamp>
+              {footer.visible ? (
+                <div
+                  className="task-card-footer flex min-w-0 items-center justify-between gap-[var(--space-3)]"
+                  data-testid="task-card-footer"
+                >
+                  <div
+                    className="flex min-w-0 flex-1 items-center gap-[var(--space-2)] overflow-hidden text-xs text-[var(--color-muted)]"
+                    data-testid="task-card-chips"
+                  >
+                    {footer.loading ? (
+                      <Spinner
+                        className="h-[20px] w-[20px] shrink-0"
+                        strokeWidth={1.8}
+                        testID="task-card-active-run-spinner"
+                      />
+                    ) : null}
+                    {card.workspaceChipLabel !== null ? (
+                      <span className="inline-flex shrink-0 items-center" data-testid="task-card-chip-slot">
+                        <Badge tone="neutral">{card.workspaceChipLabel}</Badge>
+                      </span>
+                    ) : null}
+                    <TaskCardDependencyProgress card={card} />
+                    {labelItems.length === 0 ? null : (
+                      <OneLineOverflowRow
+                        ariaLabel={t("labels.filter")}
+                        className="min-w-0 flex-1"
+                        items={labelItems}
+                        renderOverflow={(hiddenCount) => <Badge tone="neutral">+{hiddenCount}</Badge>}
+                      />
+                    )}
+                  </div>
+                  <BoardTaskCardActions
+                    card={card}
+                    onInterrupt={onInterruptTask}
+                    onResume={onResumeTask}
+                    pendingInterrupt={pendingInterrupt}
+                    pendingResume={pendingResume}
                   />
-                ) : null}
-                {card.workspaceChipLabel !== null ? (
-                  <span className="inline-flex shrink-0 items-center" data-testid="task-card-chip-slot">
-                    <Badge tone="neutral">{card.workspaceChipLabel}</Badge>
-                  </span>
-                ) : null}
-                <TaskCardDependencyProgress card={card} />
-                {labelItems.length === 0 ? null : (
-                  <OneLineOverflowRow
-                    ariaLabel={t("labels.filter")}
-                    className="min-w-0 flex-1"
-                    items={labelItems}
-                    renderOverflow={(hiddenCount) => <Badge tone="neutral">+{hiddenCount}</Badge>}
-                  />
-                )}
-              </div>
-              <BoardTaskCardActions
-                card={card}
-                onInterrupt={onInterruptTask}
-                onResume={onResumeTask}
-                pendingInterrupt={pendingInterrupt}
-                pendingResume={pendingResume}
-              />
-            </div>
+                </div>
+              ) : null}
+            </article>
+          </PopoverAnchor>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {card.statusKind !== "backlog" && card.statusKind !== "done" ? (
+            <ContextMenuItem onSelect={chat.open}>{t("task.openInChat")}</ContextMenuItem>
           ) : null}
-        </article>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem
-          className="text-[var(--color-error)]"
-          disabled={!card.actions.canDelete}
-          onSelect={() => {
-            onDeleteTask(card.id);
-          }}
-        >
-          {t("board.deleteTask")}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+          <ContextMenuItem
+            className="text-[var(--color-error)]"
+            disabled={!card.actions.canDelete}
+            onSelect={() => {
+              onDeleteTask(card.id);
+            }}
+          >
+            {t("board.deleteTask")}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      <TaskSessionPicker
+        sessions={chat.sessions}
+        defaultIntent="ordinary"
+        nativeWindowsAvailable={false}
+        pendingSessionID={null}
+        onOpen={chat.select}
+      />
+    </Popover>
   );
 });
 
