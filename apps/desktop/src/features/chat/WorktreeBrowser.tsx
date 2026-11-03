@@ -1,11 +1,17 @@
 import { ArrowRightLeft, MessageCircle, Plus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import type * as Atom from "effect/reactivity/Atom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence } from "motion/react";
 import { useAtomValue } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type WorktreeDeletePreviewOperation, type WorktreeSwitch } from "@/api";
+import {
+  DirtyStateKind,
+  hasDeletableWorktreeBranch,
+  errorMessage,
+  type WorktreeDeletePreviewOperation,
+  type WorktreeSwitch,
+} from "@/api";
 import { CopyableValue } from "@/shared/copyable-value";
 import {
   useAppServices,
@@ -16,6 +22,7 @@ import {
 } from "@/app-facade";
 import {
   ActionableListRow,
+  AnimatedReveal,
   Badge,
   EmptyState,
   ErrorState,
@@ -32,7 +39,11 @@ import { worktreeRow } from "./worktreePresentation";
 import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
 import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
-export function WorktreeBrowser({
+export function WorktreeBrowser(props: Parameters<typeof WorktreeBrowserDestination>[0]) {
+  return <WorktreeBrowserDestination key={props.sessionID} {...props} />;
+}
+
+function WorktreeBrowserDestination({
   projectID,
   sessionID,
   onCreate,
@@ -49,13 +60,33 @@ export function WorktreeBrowser({
   onSwitch(operation: WorktreeSwitch): void;
   navigator: SidebarPageNavigator;
   switchPending?: boolean;
-  refreshOpenWorktreeList(sessionID: string): void;
+  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
 }>) {
   const { t } = useTranslation();
-  const { nativeBridge } = useAppServices();
+  const { nativeBridge, api } = useAppServices();
+  const client = useQueryClient();
+  const { push } = useStatusController();
   const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
   const query = useWorktreeList(sessionID);
-  const [selected, setSelected] = useState<WorktreeDeletePreviewOperation | null>(null);
+  const [deletionModel] = useState(() =>
+    createWorktreeDelete({ api, client, sessionID, refreshOpenWorktreeList, push, t }),
+  );
+  const deletionActions = useWorktreeDelete(deletionModel);
+  const selected = useAtomValue(deletionModel.selector);
+  const previewQuery = useAtomValue(deletionModel.preview);
+  const deletion = useAtomValue(deletionModel.deletion);
+  const busySelectors = useAtomValue(deletionModel.busySelectors);
+  useEffect(() => {
+    if (query.isError && query.data !== undefined) {
+      push({
+        id: crypto.randomUUID(),
+        tone: "danger",
+        title: t("chat.worktree.title"),
+        body: errorMessage(query.error),
+      });
+    }
+  }, [query.isError, query.error, query.data, push, t]);
+  const [includeBranch, setIncludeBranch] = useState(true);
   const rows = useRef<HTMLDivElement>(null);
   const headerElement = useRef<HTMLDivElement | null>(null);
   const lastFocused = useRef<HTMLElement | null>(null);
@@ -109,133 +140,147 @@ export function WorktreeBrowser({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [navigator]);
-  const content = (deletion: DeletionPresentation | null) => {
-    const deleteButton = (operation: WorktreeDeletePreviewOperation) => (
-      <WorktreeDeleteButton
-        open={selected?.selector === operation.selector}
-        onOpenChange={(open) => {
-          setSelected(open ? operation : null);
+  const preview = previewQuery?.data;
+  const canIncludeBranch = preview !== undefined && hasDeletableWorktreeBranch(preview);
+  const cleanliness = preview?.cleanliness;
+  const deleteButton = (operation: WorktreeDeletePreviewOperation) => (
+    <WorktreeDeleteButton
+      includeBranch={includeBranch}
+      disabled={deletion.isPending}
+      canIncludeBranch={canIncludeBranch}
+      onIncludeBranchChange={setIncludeBranch}
+      open={selected === operation.selector && previewQuery?.isSuccess === true}
+      onOpenChange={(open) => {
+        if (open) {
+          if (!deletion.isPending) deletionActions.select(operation.selector);
+        } else if (selected === operation.selector) {
+          deletionActions.select(null);
+        }
+      }}
+      cleanliness={
+        cleanliness === undefined || cleanliness.kind === DirtyStateKind.DIRTY_STATE_CLEAN
+          ? null
+          : cleanliness
+      }
+      confirm={() => {
+        deletionActions.confirm(
+          includeBranch && canIncludeBranch ? "confirm_and_branch" : "confirm_without_branch",
+        );
+      }}
+    />
+  );
+  if (query.isError && query.data === undefined)
+    return (
+      <ErrorState
+        surface="plain"
+        body={errorMessage(query.error)}
+        title={t("states.error")}
+        retryLabel={t("app.retry")}
+        onRetry={() => {
+          query.refresh();
         }}
-        preview={deletion?.preview.data}
-        pending={deletion?.pending ?? false}
-        confirm={(choice) => deletion?.confirm(choice)}
       />
     );
-    if (query.isError || deletion?.preview.isError)
-      return (
-        <ErrorState
-          surface="plain"
-          body={errorMessage(query.isError ? query.error : deletion?.preview.error)}
-          title={t("states.error")}
-          retryLabel={t("app.retry")}
-          onRetry={() => {
-            if (query.isError) query.refresh();
-            else deletion?.retry(undefined);
-          }}
-        />
-      );
-    if (query.data === undefined) return <LoadingState surface="plain" appearanceDelayMs={0} />;
-    const { target, worktrees } = query.data;
-    return (
-      <div
-        className="grid min-w-0 gap-[var(--space-2)]"
-        ref={rows}
-        onFocusCapture={(event) => {
-          lastFocused.current = event.target;
-        }}
-      >
-        {worktrees.length === 0 ? (
-          <EmptyState fullPage={false} title={t("chat.worktree.empty")} body={null} />
-        ) : null}
+  if (query.data === undefined) return <LoadingState surface="plain" appearanceDelayMs={0} />;
+  const { target, worktrees } = query.data;
+  return (
+    <div
+      className="grid min-w-0 gap-[var(--space-2)]"
+      ref={rows}
+      onFocusCapture={(event) => {
+        lastFocused.current = event.target;
+      }}
+    >
+      {worktrees.length === 0 ? (
+        <EmptyState fullPage={false} title={t("chat.worktree.empty")} body={null} />
+      ) : null}
+      <AnimatePresence initial={false}>
         {worktrees.map((entry) => {
           const row = worktreeRow(entry, target.workspaceName);
+          const deleting = row.delete !== undefined && busySelectors.has(row.delete.selector);
           return (
-            <ActionableListRow
+            <AnimatedReveal
               key={row.key}
-              selected={row.selected}
-              layout="stacked"
-              subtitle={
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="min-w-0">
-                        <CopyableValue
-                          accessibleLabel={t("chat.worktree.copyPath", { path: row.path })}
-                          clipboardValue={row.path}
-                          copySucceeded={{ id: "worktree-copy-path", title: t("chat.worktree.pathCopied") }}
-                          copyFailed={{ id: "worktree-copy-path", title: t("chat.worktree.copyFailed") }}
-                          className="block w-full font-mono"
-                          size="xs"
-                          unpadded
+              enter={false}
+              variant="collapse-center"
+              className="min-w-0 overflow-hidden"
+            >
+              <ActionableListRow
+                selected={row.selected}
+                layout="stacked"
+                subtitle={
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="min-w-0">
+                          <CopyableValue
+                            accessibleLabel={t("chat.worktree.copyPath", { path: row.path })}
+                            clipboardValue={row.path}
+                            copySucceeded={{ id: "worktree-copy-path", title: t("chat.worktree.pathCopied") }}
+                            copyFailed={{ id: "worktree-copy-path", title: t("chat.worktree.copyFailed") }}
+                            className="block w-full font-mono"
+                            size="xs"
+                            unpadded
+                          >
+                            <span className="block truncate">{row.ref ?? row.path}</span>
+                          </CopyableValue>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("chat.worktree.copyPath", { path: row.path })}</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                }
+                selectionControl={
+                  <div className="flex min-w-0 flex-1 items-center gap-[var(--space-1)]">
+                    <div className="min-w-0 truncate text-sm font-medium">{row.title}</div>
+                    {row.selected && (
+                      <Badge className="shrink-0" size="compact" tone="info">
+                        {t("chat.worktree.current")}
+                      </Badge>
+                    )}
+                    {row.badges.map(({ label, tone }) => (
+                      <Badge key={label} className="shrink-0" size="compact" tone={tone}>
+                        {t(`chat.worktree.${label}`)}
+                      </Badge>
+                    ))}
+                  </div>
+                }
+                actions={
+                  deleting ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <>
+                      {row.originSessionID === undefined ? null : (
+                        <WorktreeOriginSessionAction
+                          currentSessionID={sessionID}
+                          projectID={projectID}
+                          nativeWindowsAvailable={nativeWindowsAvailable}
+                          onOpenSession={onOpenSession}
+                          originSessionID={row.originSessionID}
+                        />
+                      )}
+                      {row.switch === undefined ? null : (
+                        <IconTooltipButton
+                          size="icon-sm"
+                          label={t(switchPending ? "chat.worktree.switchPending" : "chat.worktree.switch")}
+                          disabled={switchPending}
+                          onClick={() => {
+                            if (row.switch !== undefined) onSwitch(row.switch);
+                          }}
                         >
-                          <span className="block truncate">{row.ref ?? row.path}</span>
-                        </CopyableValue>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("chat.worktree.copyPath", { path: row.path })}</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              }
-              selectionControl={
-                <div className="flex min-w-0 flex-1 items-center gap-[var(--space-1)]">
-                  <div className="min-w-0 truncate text-sm font-medium">{row.title}</div>
-                  {row.selected && (
-                    <Badge className="shrink-0" size="compact" tone="info">
-                      {t("chat.worktree.current")}
-                    </Badge>
-                  )}
-                  {row.badges.map(({ label, tone }) => (
-                    <Badge key={label} className="shrink-0" size="compact" tone={tone}>
-                      {t(`chat.worktree.${label}`)}
-                    </Badge>
-                  ))}
-                </div>
-              }
-              actions={
-                <>
-                  {row.originSessionID === undefined ? null : (
-                    <WorktreeOriginSessionAction
-                      currentSessionID={sessionID}
-                      projectID={projectID}
-                      nativeWindowsAvailable={nativeWindowsAvailable}
-                      onOpenSession={onOpenSession}
-                      originSessionID={row.originSessionID}
-                    />
-                  )}
-                  {row.switch === undefined ? null : (
-                    <IconTooltipButton
-                      size="icon-sm"
-                      label={t(switchPending ? "chat.worktree.switchPending" : "chat.worktree.switch")}
-                      disabled={switchPending}
-                      onClick={() => {
-                        if (row.switch !== undefined) onSwitch(row.switch);
-                      }}
-                    >
-                      {switchPending ? <Spinner size="sm" /> : <ArrowRightLeft size={16} />}
-                    </IconTooltipButton>
-                  )}
-                  {row.delete === undefined ? null : deleteButton(row.delete)}
-                </>
-              }
-            />
+                          {switchPending ? <Spinner size="sm" /> : <ArrowRightLeft size={16} />}
+                        </IconTooltipButton>
+                      )}
+                      {row.delete === undefined ? null : deleteButton(row.delete)}
+                    </>
+                  )
+                }
+              />
+            </AnimatedReveal>
           );
         })}
-      </div>
-    );
-  };
-  return selected === null ? (
-    content(null)
-  ) : (
-    <WorktreeDeletionSelection
-      key={selected.selector}
-      sessionID={sessionID}
-      selector={selected.selector}
-      close={() => {
-        setSelected((current) => (current === selected ? null : current));
-      }}
-      refreshOpenWorktreeList={refreshOpenWorktreeList}
-      content={content}
-    />
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -281,29 +326,4 @@ function WorktreeOriginSessionAction({
       <MessageCircle size={16} />
     </IconTooltipButton>
   );
-}
-
-type DeletionPresentation = Readonly<{
-  preview: Atom.Type<ReturnType<typeof createWorktreeDelete>["preview"]>;
-  pending: boolean;
-}> &
-  ReturnType<typeof useWorktreeDelete>;
-
-function WorktreeDeletionSelection({
-  content,
-  ...selection
-}: Pick<
-  Parameters<typeof createWorktreeDelete>[0],
-  "sessionID" | "selector" | "close" | "refreshOpenWorktreeList"
-> &
-  Readonly<{ content(state: DeletionPresentation): ReactElement }>) {
-  const { api } = useAppServices();
-  const client = useQueryClient();
-  const { push } = useStatusController();
-  const { t } = useTranslation();
-  const [model] = useState(() => createWorktreeDelete({ ...selection, api, client, push, t }));
-  const actions = useWorktreeDelete(model);
-  const preview = useAtomValue(model.preview);
-  const deletion = useAtomValue(model.deletion);
-  return content({ ...actions, preview, pending: deletion.isPending });
 }

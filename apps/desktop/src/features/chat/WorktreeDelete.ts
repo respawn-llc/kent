@@ -25,8 +25,6 @@ export function createWorktreeDelete({
   client,
   api,
   sessionID,
-  selector,
-  close,
   refreshOpenWorktreeList,
   push,
   t,
@@ -34,28 +32,51 @@ export function createWorktreeDelete({
   client: QueryClient;
   api: ApiService;
   sessionID: string;
-  selector: string;
-  close(): void;
-  refreshOpenWorktreeList(sessionID: string): void;
+  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
   push: StatusController["push"];
   t: TFunction;
 }>) {
-  const request = createWorktreeSelectorRequest(sessionID, selector);
-  const previewObserver = new QueryObserver(client, {
-    ...worktreeDeletePreviewQueryOptions(api, request),
-    enabled: false,
+  const selector = Atom.make<string | null>(null);
+  const selection = Atom.make((get) => {
+    const selected = get(selector);
+    if (selected === null) return null;
+    const request = createWorktreeSelectorRequest(sessionID, selected);
+    const observer = new QueryObserver(client, {
+      ...worktreeDeletePreviewQueryOptions(api, request),
+      enabled: false,
+    });
+    return {
+      preview: queryAtom(observer),
+      load: Atom.make((loadGet) =>
+        Effect.gen(function* () {
+          yield* Effect.addFinalizer(() =>
+            Effect.promise(async () => disposeWorktreeDeletePreview(client, request)),
+          );
+          yield* Effect.tryPromise(async () => freshFetchWorktreeDeletePreview(client, api, request)).pipe(
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                push({
+                  id: crypto.randomUUID(),
+                  tone: "danger",
+                  title: t("chat.worktree.delete"),
+                  body: worktreeErrorMessage(error, t),
+                });
+                loadGet.set(selector, null);
+              }),
+            ),
+          );
+        }),
+      ),
+    };
   });
-  const preview = queryAtom(previewObserver);
-  const load = Atom.make(
-    Effect.gen(function* () {
-      yield* Effect.addFinalizer(() =>
-        Effect.promise(async () => disposeWorktreeDeletePreview(client, request)),
-      );
-      yield* Effect.tryPromise(async () => freshFetchWorktreeDeletePreview(client, api, request)).pipe(
-        Effect.ignore,
-      );
-    }),
-  );
+  const preview = Atom.make((get) => {
+    const current = get(selection);
+    return current === null ? null : get(current.preview);
+  });
+  const load = Atom.make((get) => {
+    const current = get(selection);
+    if (current !== null) get(current.load);
+  });
   const mutation = createWorktreeDeletion({
     client,
     api,
@@ -63,25 +84,26 @@ export function createWorktreeDelete({
     refreshOpenWorktreeList,
     push,
     t,
-    close,
   });
   const confirm = Atom.fn<WorktreeDeleteConfirmationChoice>()(
     (choice, get) =>
       Effect.gen(function* () {
-        const result = previewObserver.getCurrentResult();
-        if (!result.isSuccess || get(mutation.deletion).isPending) return;
+        const result = get(preview);
+        if (result === null || !result.isSuccess || get(mutation.requestPending)) return;
+        get.set(selector, null);
         yield* Effect.promise(async () => mutation.submit({ preview: result.data, choice }));
       }),
     { concurrent: true },
   );
-  const retry = Atom.fn<undefined>()(
-    () =>
-      Effect.tryPromise(async () => freshFetchWorktreeDeletePreview(client, api, request)).pipe(
-        Effect.ignore,
-      ),
-    { concurrent: true },
-  );
-  return { preview, deletion: mutation.deletion, load, confirm, retry };
+  const busySelectors = Atom.make((get): ReadonlySet<string> => {
+    const busy = new Set<string>();
+    const deletion = get(mutation.deletion);
+    if (deletion.isPending) busy.add(deletion.variables.preview.deletionSelector);
+    const selected = get(selector);
+    if (get(preview)?.isPending === true && selected !== null) busy.add(selected);
+    return busy;
+  });
+  return { selector, preview, deletion: mutation.deletion, busySelectors, load, confirm };
 }
 
 type DeleteRequest = Readonly<{ preview: WorktreeDeletePreview; choice: WorktreeDeleteConfirmationChoice }>;
@@ -93,20 +115,14 @@ export function createWorktreeDeletion({
   refreshOpenWorktreeList,
   push,
   t,
-  close,
-}: Omit<Parameters<typeof createWorktreeDelete>[0], "selector" | "close"> &
-  Readonly<{
-    close?(): void;
-  }>) {
+}: Parameters<typeof createWorktreeDelete>[0]) {
   const mutationKey = ["worktree-delete", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
     mutationKey,
     mutationFn: async ({ preview, choice }: DeleteRequest) => api.deleteWorktree(sessionID, preview, choice),
     retry: false,
     networkMode: "always",
-    onSuccess: (result) => {
-      if (observer.hasListeners()) close?.();
-      refreshOpenWorktreeList(sessionID);
+    onSuccess: async (result) => {
       const warnings: string[] = [];
       if (result.cleanup?.kind === BranchCleanupOutcomeKind.WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED) {
         warnings.push(
@@ -125,6 +141,7 @@ export function createWorktreeDeletion({
           title: t("chat.worktree.delete"),
           body: warnings.join("\n"),
         });
+      await refreshOpenWorktreeList(sessionID);
     },
     onError: (error) => {
       push({
@@ -151,7 +168,7 @@ export function useWorktreeDelete(model: ReturnType<typeof createWorktreeDelete>
   useAtomMount(model.deletion);
   useAtomMount(model.load);
   return {
+    select: useAtomSet(model.selector, { mode: "value" }),
     confirm: useAtomSet(model.confirm, { mode: "value" }),
-    retry: useAtomSet(model.retry, { mode: "value" }),
   };
 }

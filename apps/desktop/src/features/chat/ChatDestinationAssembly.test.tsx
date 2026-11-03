@@ -28,6 +28,7 @@ import { row } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { appI18n } from "@/i18n";
+import * as ui from "@/ui";
 
 import {
   opening,
@@ -368,6 +369,10 @@ function ContextualWorktrees() {
 }
 
 it("keeps transcript and composer usable through a sidebar-owned Worktree refresh failure", async () => {
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+  onTestFinished(() => {
+    notice.mockRestore();
+  });
   const view = sessionWithPrompts(undefined, { kind: "session", ...sessionTarget }, <ContextualWorktrees />);
   const list = vi.spyOn(view.services.api, "listWorktrees");
   const user = userEvent.setup({ delay: null });
@@ -389,20 +394,26 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
   await waitFor(() => {
     expect(view.client.isFetching()).toBe(0);
   });
+  const noticesBeforeRefresh = notice.mock.calls.length;
   list.mockRejectedValueOnce(new Error("sidebar read unavailable"));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
-  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(notice).toHaveBeenCalledTimes(noticesBeforeRefresh + 1);
+  });
+  expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
   expect(screen.getByRole("textbox")).toHaveValue("retained input");
   expect(screen.getByText("Message 1")).toBeInTheDocument();
   const calls = list.mock.calls.length;
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   await waitFor(() => {
-    expect(screen.queryByTestId("error-state") === null).toBe(true);
+    expect(view.client.isFetching()).toBe(0);
   });
   expect(list).toHaveBeenCalledTimes(calls + 1);
   list.mockRejectedValueOnce(new Error("sidebar failed again"));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
-  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(notice).toHaveBeenCalledTimes(noticesBeforeRefresh + 2);
+  });
   await user.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
   expect(screen.getByRole("textbox")).toHaveValue("retained input");
   expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();

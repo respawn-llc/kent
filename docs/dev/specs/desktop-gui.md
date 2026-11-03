@@ -56,6 +56,17 @@
 
 - Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Loading buttons must crossfade between their action label and a replacing spinner without changing width. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
 
+## Worktree deletion
+
+- The Worktree list destination must own deletion preparation, confirmation choices, and request state. The confirmation popup must only present those values and forward operator actions.
+- The popup must use ordinary hover-away and click-away dismissal. Its controls must be Confirm and Include branch, without a Close action or a Clean status label.
+- Include branch must default to selected when the list destination opens. Its choice must remain in memory across popup openings and deletions within that destination, and must reset when a new list destination opens. The choice must not be saved to settings or disk.
+- When Include branch is unavailable, confirmation must retain the branch. When the operator clears Include branch, confirmation must retain the branch, including a branch created by Kent.
+- Confirm must close the popup immediately and submit the captured deletion choice. Closing the popup or navigating away must not cancel an accepted deletion.
+- Preparation and deletion must replace only the affected row's actions with a spinner. The popup must have no loading state. Other Delete actions must be unavailable while a deletion is pending.
+- Refresh must keep loaded rows mounted without a full-list loading state. Successful deletion must remove its row with a smooth exit that settles immediately when reduced motion is enabled.
+- Deletion preparation, deletion, and refresh failures with a loaded list must use temporary error notifications without replacing the list. Failed deletion must restore the affected row's actions. Reopening the popup must permit a new attempt.
+
 ## Transcript configuration notices
 
 - Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.

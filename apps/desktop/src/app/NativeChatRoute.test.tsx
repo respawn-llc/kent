@@ -1,5 +1,5 @@
 import { afterEach, expect, it, mock, vi } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { useSidebarRoots } from "@/app-facade";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
@@ -28,7 +28,6 @@ await mock.module("@/features/chat", () => ({
 const { NativeChatRoute } = await import("./NativeChatRoute");
 
 afterEach(() => {
-  cleanup();
   vi.restoreAllMocks();
 });
 
