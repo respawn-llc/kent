@@ -192,12 +192,12 @@ func (c *remoteControlConn) callBinary(
 	}
 	if err := c.conn.Send(ctx, frame); err != nil {
 		c.removePending(id)
-		return err
+		return errors.Join(err, ctx.Err())
 	}
 	select {
 	case response := <-responseCh:
 		if response.err != nil {
-			return response.err
+			return errors.Join(response.err, ctx.Err())
 		}
 		if response.binary == nil {
 			return fmt.Errorf("operation %s received no result", operation.Name)
