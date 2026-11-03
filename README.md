@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme/kent-readme.webp" alt="Kent taking a task through implementation, review, and repair" width="900">
+  <img src="https://kent.sh/readme/kent-readme.webp" alt="Kent taking a task through implementation, review, and repair" width="900">
 </p>
 
 <h1 align="center">Kent</h1>
