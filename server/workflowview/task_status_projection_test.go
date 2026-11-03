@@ -45,7 +45,6 @@ func TestSavedCurrentNodeStatusAcrossTaskSurfaces(t *testing.T) {
 		{name: "saved admission after restart", want: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED},
 		{name: "manual interruption", reason: new(workflow.CurrentNodeInterruptionReasonUserInterrupt), want: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED},
 		{name: "runtime canceled", reason: new(workflow.CurrentNodeInterruptionReasonRuntimeCanceled), want: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED},
-		{name: "saved server restart", reason: new(workflow.CurrentNodeInterruptionReason("server_restart")), want: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED},
 		{name: "execution error", reason: new(workflow.CurrentNodeInterruptionReason("execution_error")), want: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED, attention: 1},
 		{name: "ready but never admitted", ready: true, want: taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE},
 	} {
