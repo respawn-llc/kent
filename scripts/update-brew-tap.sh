@@ -198,7 +198,7 @@ cleanup() {
 trap cleanup EXIT
 
 binary_sha256() {
-	curl -fsSL "${release_base}/$1" -o "$tmp_file"
+	curl -fsSL "${release_base}/$1" -o "$tmp_file" || return
 	sha256_of "$tmp_file"
 }
 
