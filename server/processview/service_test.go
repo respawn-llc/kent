@@ -495,7 +495,7 @@ func TestServiceKillProcessHonorsCancellationAndSignalsManagerEntry(t *testing.T
 
 func TestServiceListProcessesMembershipAndFilters(t *testing.T) {
 	fixture := newProcessViewFixture(t)
-	for _, stepID := range []string{"step-a", "step-b"} {
+	for _, stepID := range []string{processViewTestStepID, "22222222-2222-4222-8222-222222222222"} {
 		if result := fixture.startCommand(t, stepID, "sleep 30", stepID); result.IsError {
 			t.Fatalf("start: %+v", result)
 		}
