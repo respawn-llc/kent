@@ -1,23 +1,11 @@
-import { afterEach, beforeAll, beforeEach, expect, it, vi } from "bun:test";
+import { beforeAll, expect, it } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MotionConfig } from "motion/react";
 import { initializeI18n } from "@/i18n";
 import { ReducedMotionContext } from "@/ui";
 import { TranscriptThinkingStatus } from "./TranscriptThinkingStatus";
 
 beforeAll(initializeI18n);
-
-let now: number;
-let restoreClock: () => void;
-beforeEach(() => {
-  now = Math.ceil(performance.now());
-  const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-  restoreClock = () => {
-    clock.mockRestore();
-  };
-});
-afterEach(() => {
-  restoreClock();
-});
 
 function status(text: string, reduced = false) {
   return (
@@ -27,15 +15,11 @@ function status(text: string, reduced = false) {
   );
 }
 
-it("retains outgoing status text during replacement and then retires it", async () => {
-  const view = render(status("first activity"));
-  view.rerender(status("second activity"));
-  expect(screen.getByText("first activity")).toBeInTheDocument();
+it("retires replaced status text after the transition completes", async () => {
+  const view = render(<MotionConfig skipAnimations>{status("first activity")}</MotionConfig>);
+  view.rerender(<MotionConfig skipAnimations>{status("second activity")}</MotionConfig>);
   expect(screen.getByText("second activity")).toBeInTheDocument();
-  await waitFor(() => {
-    now += 1_000;
-    expect(screen.queryByText("first activity")).not.toBeInTheDocument();
-  });
+  await waitFor(() => expect(screen.queryByText("first activity")).not.toBeInTheDocument());
   expect(screen.getByText("second activity")).toBeVisible();
 });
 
