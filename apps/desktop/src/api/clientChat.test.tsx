@@ -730,7 +730,9 @@ describe("Desktop Chat read client", () => {
         transcriptCloseReason: TranscriptCloseReason.SUBSCRIBER_OVERFLOW,
       }),
     );
-    await waitFor(() => expect(completions).toHaveLength(1));
+    await waitFor(() => {
+      expect(completions).toHaveLength(1);
+    });
 
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ sequence: 1, kind: "hydration" });
