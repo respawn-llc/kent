@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { NativeMainNavigation } from "@app/native-bridge";
 import { useStableCallback } from "@/ui";
 import { ChatDestination } from "@/features/chat";
@@ -15,6 +15,7 @@ export function NativeChatRoute({
   sessionID,
 }: Readonly<{ projectID: string; sessionID: string }>) {
   const { nativeBridge } = useAppServices();
+  const mainPaneRef = useRef<HTMLDivElement>(null);
   const { push } = useStatusController();
   const { t } = useTranslation();
   const reportFailure = useStableCallback((error: unknown, title: string) => {
@@ -55,8 +56,8 @@ export function NativeChatRoute({
     [projectID, requestMainNavigation, openChildSession],
   );
   return (
-    <SidebarProvider policy={sidebarDestinationPolicy}>
-      <NativeChatFrame sessionID={sessionID}>
+    <SidebarProvider policy={sidebarDestinationPolicy} mainPaneRef={mainPaneRef}>
+      <NativeChatFrame sessionID={sessionID} mainPaneRef={mainPaneRef}>
         <SidebarRootOwner>
           <ChatDestination
             opening={{ kind: "session", projectID, sessionID }}
@@ -69,10 +70,20 @@ export function NativeChatRoute({
   );
 }
 
-function NativeChatFrame({ children, sessionID }: Readonly<{ children: ReactNode; sessionID: string }>) {
+function NativeChatFrame({
+  children,
+  sessionID,
+  mainPaneRef,
+}: Readonly<{ children: ReactNode; sessionID: string; mainPaneRef: RefObject<HTMLDivElement | null> }>) {
   return (
     <WindowChromeFrame defaultTitle={sessionID}>
-      <div className="min-h-0 min-w-0 flex-1 overflow-visible">{children}</div>
+      <div
+        className="min-h-0 min-w-0 flex-1 overflow-visible"
+        ref={mainPaneRef}
+        data-testid="app-main-content"
+      >
+        {children}
+      </div>
       <SidebarHost />
     </WindowChromeFrame>
   );
