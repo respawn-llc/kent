@@ -675,6 +675,8 @@
 - The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
 - The status must be informational only. It must not change Worktree deletion admission.
 - Non-terminal Task ownership alone must not block ordinary Worktree deletion. Deletion must leave the ongoing Task's managed binding and recovery evidence intact.
+- If a linked Worktree directory is absent, deletion must remove its stale Git registration and removable Kent information without requiring forced folder removal.
+- If Git recognizes a linked Worktree whose directory exists without its `.git` marker, delete preview must report unknown cleanliness without a failed Git command diagnostic. Deletion must leave the directory untouched unless forced folder removal is explicitly authorized. Authorized deletion must remove the directory and stale Git registration for both Kent-registered and External Worktrees.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It must not wait for or stop that work.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant. Durable target/reminder state changes before physical deletion.
 - If human input becomes accepted first, that delete attempt fails. If deletion retires and retargets first, later input activates or attaches to a Runtime on the new target.

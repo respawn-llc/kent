@@ -369,16 +369,27 @@ func TestGitInspectorFindCreatedWorktreeUsesCanonicalRoot(t *testing.T) {
 }
 
 func TestGitInspectorRemoveUsesForceWhenRequested(t *testing.T) {
-	workspaceRoot := filepath.Join(t.TempDir(), "workspace")
+	workspaceRoot := t.TempDir()
+	initGitRepo(t, workspaceRoot)
 	worktreeRoot := filepath.Join(t.TempDir(), "linked")
-	runner := &stubGitCommandRunner{}
-	inspector := NewGitInspector(runner)
+	runGit(t, workspaceRoot, "worktree", "add", "-b", "feature/remove-force", worktreeRoot)
+	contentPath := filepath.Join(worktreeRoot, "user-content.txt")
+	if err := os.WriteFile(contentPath, []byte("preserve"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inspector := NewGitInspector(nil)
 
+	if err := inspector.Remove(context.Background(), workspaceRoot, worktreeRoot, false); err == nil {
+		t.Fatal("unforced removal succeeded for a dirty worktree")
+	}
+	if _, err := os.Stat(contentPath); err != nil {
+		t.Fatalf("unforced removal changed user content: %v", err)
+	}
 	if err := inspector.Remove(context.Background(), workspaceRoot, worktreeRoot, true); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if got, want := runner.args, []string{"worktree", "remove", "--force", canonicalTestPath(t, worktreeRoot)}; !slices.Equal(got, want) {
-		t.Fatalf("git args=%v want=%v", got, want)
+	if _, err := os.Stat(worktreeRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("forced removal left the folder: %v", err)
 	}
 }
 
