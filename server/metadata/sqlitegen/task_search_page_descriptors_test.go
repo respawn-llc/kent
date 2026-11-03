@@ -607,6 +607,7 @@ func taskSearchPageDescriptorArgs(params ListTaskSearchPageDescriptorsParams) []
 
 func createTaskSearchPageDescriptorFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,
@@ -692,6 +693,7 @@ VALUES (100, 'TAS-1');`); err != nil {
 
 func createTaskSearchPageDescriptorFilteringFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,
@@ -884,6 +886,7 @@ INSERT INTO task_search_short_id_fts (rowid, short_id) VALUES
 
 func createTaskSearchHighCardinalityFixture(t *testing.T, db *sql.DB, taskCount int) {
 	t.Helper()
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,

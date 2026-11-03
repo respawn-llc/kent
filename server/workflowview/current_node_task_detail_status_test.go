@@ -82,7 +82,7 @@ func TestTaskDetailProjectsCurrentNodeAndDirectRetainedSession(t *testing.T) {
 		detail.CurrentNodes[0].SessionId == nil ||
 		*detail.CurrentNodes[0].SessionId != sessionID.String() ||
 		detail.RetainedSessionCount != 1 ||
-		detail.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
+		detail.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED ||
 		detail.Actions.CanDelete ||
 		detail.Actions.CanStart {
 		t.Fatalf("task detail = %+v, want Current Node and directly retained Session", detail)
@@ -337,6 +337,7 @@ func TestTaskListPaginatesStableSortAndEvaluatesOffsetAgainstEachRequest(t *test
 		fixture.startTask(t, "List B"),
 		fixture.startTask(t, "List C"),
 	}
+	fixture.makeCurrentNodeReady(t, started[0].task.ID)
 	for _, task := range started {
 		fixture.setTaskUpdatedAt(t, task.task.ID, 2_000)
 	}
@@ -560,6 +561,7 @@ func TestProjectWideTaskListPreservesCardinalityOwnedRowVisibility(t *testing.T)
 func TestTaskListDefaultSortUsesCurrentStatusBeforeActivity(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	active := fixture.startTask(t, "Active")
+	fixture.makeCurrentNodeReady(t, active.task.ID)
 	interrupted := fixture.startTask(t, "Interrupted")
 	if err := fixture.store.InterruptCurrentNode(
 		fixture.ctx,

@@ -7,6 +7,13 @@
 {{.Indent}}        CAST(json_extract(value, '$.has_waiting_approval') AS INTEGER) AS has_waiting_approval
 {{.Indent}}    FROM json_each({{.LiveTaskStatesJSON}})
 {{.Indent}}),
+{{.Indent}}saved_admissions AS (
+{{.Indent}}    SELECT DISTINCT current_node.task_id
+{{.Indent}}    FROM task_current_nodes current_node
+{{.Indent}}    JOIN workflow_nodes node ON node.id = current_node.node_id
+{{.Indent}}    WHERE current_node.scheduling_state = 'admitted'
+{{.Indent}}      AND node.kind IN ('agent', 'script')
+{{.Indent}}),
 {{.Indent}}effective_status AS (
 {{.Indent}}    SELECT
 {{.Indent}}        durable.task_id,
@@ -18,6 +25,7 @@
 {{.Indent}}              OR durable.kind = 'waiting_approval' THEN 'waiting_approval'
 {{.Indent}}            WHEN COALESCE(live.has_running, 0) != 0 THEN 'running'
 {{.Indent}}            WHEN COALESCE(live.has_queued, 0) != 0 THEN 'queued'
+{{.Indent}}            WHEN saved.task_id IS NOT NULL THEN 'interrupted'
 {{.Indent}}            WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 'active'
 {{.Indent}}            ELSE durable.kind
 {{.Indent}}        END AS kind,
@@ -28,6 +36,7 @@
 {{.Indent}}              OR durable.kind = 'waiting_approval' THEN 3
 {{.Indent}}            WHEN COALESCE(live.has_running, 0) != 0 THEN 5
 {{.Indent}}            WHEN COALESCE(live.has_queued, 0) != 0 THEN 6
+{{.Indent}}            WHEN saved.task_id IS NOT NULL THEN 4
 {{.Indent}}            WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 8
 {{.Indent}}            ELSE durable.primary_status_rank
 {{.Indent}}        END AS primary_status_rank,
@@ -52,4 +61,5 @@
 {{.Indent}}        END AS attention_types_json
 {{.Indent}}    FROM workflow_task_status_records durable
 {{.Indent}}    LEFT JOIN live_task_states live ON live.task_id = durable.task_id
+{{.Indent}}    LEFT JOIN saved_admissions saved ON saved.task_id = durable.task_id
 {{.Indent}}){{.Suffix}}

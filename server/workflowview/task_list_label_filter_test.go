@@ -367,7 +367,7 @@ func TestCurrentNodeTaskListDependencyFilterRunsBeforeSortAndPagination(t *testi
 		ProjectId:        &projectID,
 		WorkflowId:       proto.String(workflowID.String()),
 		ColumnKeys:       []string{"agent"},
-		StatusKinds:      []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE},
+		StatusKinds:      []taskpb.TaskStatusKind{taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED},
 		LabelFilter:      alphaFilter,
 		DependencyFilter: &unblocked,
 		Sort: []*taskpb.ListSort{{

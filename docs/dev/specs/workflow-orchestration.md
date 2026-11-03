@@ -586,6 +586,8 @@
 - Desktop shows Task-wide Interrupt when several Exact Execution Scopes are live or a Script Node is live.
 - Task status is structured and independent of a specific client. Each client renders and localizes it.
 - One primary status uses this precedence: done, live question, live or persisted workflow approval, running, queued, interrupted, backlog, active.
+- All interruption causes must use the same interrupted status and offer Resume. When a server restart stops a Current Node's running or queued execution, that Node must show interrupted and offer Resume.
+- An interruption reason must be optional. Manual interruption and server restart must not expose copyable error diagnostics. Interruptions caused by errors must include their diagnostic details.
 - Running and live-Question status require matching Exact Execution Scope evidence. `queued` requires either a matching queued Exact Execution Scope or Workflow Execution's live automatic-concurrency queue ownership. `running` means an agent loop or Script process is actively executing. `waiting_question` is not running and is not interruptible. Durable Current Node scheduling state and interruption metadata never prove liveness.
 - Task information exposes `can_delete` from the same live state. Delete treats this as a hint and checks Quiescence again before making changes.
 - When parallel branches differ, Task status must report every applicable attention kind and its Session and Current Node references.
