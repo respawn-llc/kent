@@ -1375,54 +1375,25 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 		t.Fatalf("SubmitUserMessage through activated runtime: %v", err)
 	}
 
-	committedStore, err := session.Open(fixture.store.Dir(), fixture.metadata.AuthoritativeSessionStoreOptions()...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	eventLog, err := committedStore.MaterializeEventLog()
-	if err != nil {
-		t.Fatalf("MaterializeEventLog: %v", err)
-	}
-	window, err := eventLog.ReadRecentRecords(128)
-	if err != nil {
-		t.Fatalf("ReadRecentRecords: %v", err)
-	}
-	var toolResult string
-	for _, record := range window.Records {
-		payload, payloadErr := record.Payload()
-		if payloadErr != nil {
-			t.Fatalf("read event payload: %v", payloadErr)
-		}
-		message, ok := payload.(session.MessageRecord)
-		if !ok {
-			continue
-		}
-		if message.Role != session.MessageRoleTool ||
-			message.ToolCallID == nil || *message.ToolCallID != "call-active-shell" ||
-			message.Content == nil {
-			continue
-		}
-		if err := json.Unmarshal([]byte(*message.Content), &toolResult); err != nil {
-			t.Fatalf("decode exec_command result: %v", err)
-		}
-		break
-	}
-	if toolResult == "" {
-		t.Fatal("activated runtime transcript missing exec_command result")
-	}
-	if !strings.Contains(toolResult, "active") {
-		t.Fatalf("exec_command output = %q, want active output from request shell settings", toolResult)
-	}
-	if strings.Contains(toolResult, "\x1b[") {
-		t.Fatalf("exec_command output retained ANSI despite active builtin postprocessing: %q", toolResult)
-	}
-
 	processes := background.List()
 	if len(processes) != 1 {
 		t.Fatalf("supplied manager process count = %d, want 1 active background process", len(processes))
 	}
 	if processes[0].OwnerSessionID != sessionID {
 		t.Fatalf("background process owner session = %q, want activated session %q", processes[0].OwnerSessionID, sessionID)
+	}
+	poll, err := background.WriteStdin(context.Background(), shelltool.WriteRequest{
+		SessionID: processes[0].ID,
+		YieldTime: 250 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("poll shell through supplied manager: %v", err)
+	}
+	if !strings.Contains(poll.Output, "active") {
+		t.Fatalf("polled shell output = %q, want active output from request shell settings", poll.Output)
+	}
+	if strings.Contains(poll.Output, "\x1b[") {
+		t.Fatalf("polled shell output retained ANSI despite active builtin postprocessing: %q", poll.Output)
 	}
 }
 

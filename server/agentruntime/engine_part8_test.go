@@ -57,7 +57,7 @@ func (c *backgroundCompletionGatedClient) Generate(ctx context.Context, req llm.
 			return llm.Response{}, err
 		}
 		input, err := json.Marshal(map[string]any{
-			"session_id": processID, "yield_time_ms": 15000, "max_output_tokens": 21,
+			"session_id": processID, "yield_time_ms": 15000,
 		})
 		if err != nil {
 			return llm.Response{}, err
@@ -238,7 +238,7 @@ func TestMultipleBackgroundShellNoticesFlushTogetherOnFirstAvailableSlot(t *test
 	}
 }
 
-func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
+func TestCompletedWriteStdinPollConsumesPendingBackgroundNotice(t *testing.T) {
 	store := mustCreateTestSession(t)
 	fifoPath := filepath.Join(t.TempDir(), "release-command")
 	if err := unix.Mkfifo(fifoPath, 0o600); err != nil {
@@ -285,7 +285,7 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	}}, manager: manager, pollStarted: make(chan struct{}), completed: completed}
 	registry := newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: shelltool.NewExecCommandToolWithPostprocessor(store.Meta().WorkspaceRoot, 16_000, 40, manager, store.Meta().SessionID, postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))},
-		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(16_000, 40, manager, nil)},
+		tools.HandlerRegistration{ID: toolspec.ToolWriteStdin, Handler: shelltool.NewWriteStdinTool(manager)},
 	)
 	eng := mustNewTestEngine(t, store, client, registry, Config{Model: "gpt-6-sol"})
 	forwardBackgroundEvents(t, manager, eng, store.Meta().SessionID, completed)
@@ -329,17 +329,17 @@ func TestCompletedWriteStdinGuardConsumesPendingBackgroundNotice(t *testing.T) {
 	}
 	completion, ok := eng.transcriptRuntimeState().ToolCompletionSnapshot("call_stdin_1")
 	if !ok {
-		t.Fatal("expected persisted guarded poll completion")
+		t.Fatal("expected persisted completed poll")
 	}
-	if !completion.IsError {
-		t.Fatalf("guarded poll completion = %+v, want error result", completion)
+	if completion.IsError {
+		t.Fatalf("completed poll returned an error: %+v", completion)
 	}
 	var payload string
 	if err := json.Unmarshal(completion.Output, &payload); err != nil {
 		t.Fatalf("decode guarded poll result: %v", err)
 	}
-	if payload == "" {
-		t.Fatal("guarded poll must retain its plaintext failure explanation")
+	if !strings.Contains(payload, "exited with code 0") || !strings.Contains(payload, "1234567890") {
+		t.Fatalf("completed poll lost its terminal shell facts or command output: %q", payload)
 	}
 	if completion.Presentation == nil ||
 		completion.Presentation.MovedToBackground ||

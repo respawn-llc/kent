@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"core/server/tools"
 	"core/shared/textutil"
@@ -87,6 +88,17 @@ func truncateWithTemplate(s string, maxLen int, bannerTemplate string) (string, 
 	headLen, tailLen := truncationSegmentLengths(len(s), maxLen)
 	removed := len(s) - headLen - tailLen
 	return fmt.Sprintf("%s%s%s", s[:headLen], fmt.Sprintf(bannerTemplate, removed), s[len(s)-tailLen:]), true, removed
+}
+
+func truncateOutputTail(s string, maxLen int) (string, bool) {
+	if len(s) <= maxLen {
+		return s, false
+	}
+	start := len(s) - maxLen
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:], true
 }
 
 func truncationSegmentLengths(total int, maxLen int) (int, int) {

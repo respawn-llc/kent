@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -1839,7 +1840,26 @@ func TestIdleSessionStartsBackgroundContinuation(t *testing.T) {
 		t.Fatal("terminal background event was not delivered")
 	}
 
-	client.await(t)
+	request := client.await(t)
+	foundBackgroundNotice := false
+	for _, item := range request.Items {
+		if item.Type != llm.ResponseItemTypeMessage || item.Role == nil || *item.Role != llm.RoleDeveloper ||
+			item.MessageType == nil || *item.MessageType != llm.MessageTypeBackgroundNotice {
+			continue
+		}
+		foundBackgroundNotice = true
+		if item.Content == nil || !strings.Contains(*item.Content, "Shell 1000 exited with code 0") ||
+			!strings.Contains(*item.Content, "done") {
+			t.Fatalf("background continuation did not receive the shell-owned completion detail: %+v", item)
+		}
+		if strings.Contains(*item.Content, "Background shell") || strings.Contains(*item.Content, "Exit code:") ||
+			strings.Contains(*item.Content, event.Snapshot.LogPath) {
+			t.Fatalf("background continuation added redundant status or a path for full output: %q", *item.Content)
+		}
+	}
+	if !foundBackgroundNotice {
+		t.Fatalf("background continuation request did not contain a background notice: %+v", request.Items)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for fixture.authority.sessionExecution(sessionID) != nil {
 		if time.Now().After(deadline) {

@@ -13,7 +13,6 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type uiConnectionRemovalPhase uint8
@@ -422,11 +421,7 @@ func (m *uiModel) closeConnectionRemovalFlow() tea.Cmd {
 func (l uiViewLayout) renderConnectionRemoval(width, height int, style uiStyles) []string {
 	state := l.model.connectionRemoval
 	if state.isLoading() || state.isRemoving() {
-		spinner := lipgloss.NewStyle().Foreground(uiPalette(l.model.theme).primary).Render(
-			pendingToolSpinnerFrame(l.model.spinnerFrame),
-		)
-		placed := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, spinner)
-		return l.renderChatContentLines(strings.Split(placed, "\n"), width, style)
+		return l.renderCenteredSpinner(width, height, style)
 	}
 	if state.picker == nil {
 		panic("connection removal surface is missing its picker")

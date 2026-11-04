@@ -351,6 +351,8 @@ func prepareSessionUIRun(
 		initialInput:                 initialState.Input,
 		sessionTitle:                 textutil.Pointer(plan.SessionTitle),
 		modelContractLocked:          plan.ModelContractLocked,
+		chatSettings:                 plan.ChatSettings,
+		chatSettingsErr:              plan.ChatSettingsErr,
 		configuredModelName:          plan.ConfiguredModelName,
 		statusConfig:                 plan.StatusConfig,
 		initialTransientStatus:       catalog.status,

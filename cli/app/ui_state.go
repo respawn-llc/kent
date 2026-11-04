@@ -16,6 +16,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -40,20 +41,24 @@ type uiModel struct {
 }
 
 type uiRuntimeFeatureState struct {
-	workspaceContext    uiWorkspaceContext
-	chatMutations       apicontract.ChatMutationService
-	chatSettings        apicontract.ChatSettingsService
-	sessionControls     apicontract.RuntimeControlService
-	sessionLiveControls apicontract.RuntimeLiveControlService
-	pendingWorkClient   apicontract.RuntimePendingWorkService
-	createSession       func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
-	observeSession      func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
-	sessionObservation  *runtimeLaunchPlan
-	observationContext  context.Context
-	observationScope    context.Context
-	cancelObservation   context.CancelFunc
-	engine              clientui.RuntimeClient
-	view                tui.Model
+	workspaceContext      uiWorkspaceContext
+	chatMutations         apicontract.ChatMutationService
+	chatSettings          apicontract.ChatSettingsService
+	sessionSettings       *chatsettingspb.Settings
+	sessionSettingsErr    error
+	agentPicker           *uiAgentPicker
+	sessionControls       apicontract.RuntimeControlService
+	sessionLiveControls   apicontract.RuntimeLiveControlService
+	pendingWorkClient     apicontract.RuntimePendingWorkService
+	createSession         func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
+	observeSession        func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
+	sessionObservation    *runtimeLaunchPlan
+	sessionObservationErr error
+	observationContext    context.Context
+	observationScope      context.Context
+	cancelObservation     context.CancelFunc
+	engine                clientui.RuntimeClient
+	view                  tui.Model
 
 	processClient         clientui.ProcessClient
 	processClientExplicit bool

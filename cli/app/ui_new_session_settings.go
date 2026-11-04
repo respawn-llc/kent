@@ -31,6 +31,7 @@ func (uiNewSettingsFailed) isNewSettingsLoad()  {}
 func (uiNewSettingsReady) isNewSettingsLoad()   {}
 
 type newSessionSettingsLoadedMsg struct {
+	picker    *uiAgentPicker
 	target    *chatpb.NewChatTarget
 	catalog   *settingspb.NewChatCatalog
 	readiness *authpb.BootstrapStatus
@@ -64,6 +65,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 	target.settingsLoad = uiNewSettingsLoading{}
 	creation := target.creation
 	settings := m.chatSettings
+	picker := m.agentPicker
 	request := &settingspb.ReadRequest{Target: &settingspb.ReadRequest_NewChat{NewChat: &settingspb.NewChatTarget{
 		ProjectId: creation.ProjectId, WorkspaceId: creation.WorkspaceId,
 	}}}
@@ -78,7 +80,7 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 		request.GetNewChat().Invocation.ThinkingLevel = initial.Thinking
 	}
 	load := func() tea.Msg {
-		result := newSessionSettingsLoadedMsg{target: creation, retry: retry}
+		result := newSessionSettingsLoadedMsg{target: creation, retry: retry, picker: picker}
 		response, err := settings.ReadChatSettings(context.Background(), request)
 		if err != nil {
 			result.err = err
@@ -113,7 +115,7 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	if msg.err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: msg.err}
 		m.restoreNavigationPrompt()
-		return m.showTransientStatusNotice(uiStatusNotice{Text: msg.err.Error(), Kind: uiStatusNoticeError})
+		return m.agentSettingsFailureNotice(msg.err, uiAgentPickerLoad)
 	}
 	target.settingsLoad = uiNewSettingsReady{choices: msg.catalog.Choices, readiness: msg.readiness}
 	if target.creation.InitialSettings == nil {
@@ -127,12 +129,12 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	defaults, err := protoapi.SessionSettingsFromProto(choice.Defaults)
 	if err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: err}
-		return m.showTransientStatusNotice(uiStatusNotice{Text: err.Error(), Kind: uiStatusNoticeError})
+		return m.agentSettingsFailureNotice(err, uiAgentPickerLoad)
 	}
 	source, err := protoapi.SessionSourceReportFromProto(choice.Source)
 	if err != nil {
 		target.settingsLoad = uiNewSettingsFailed{err: err}
-		return m.showTransientStatusNotice(uiStatusNotice{Text: err.Error(), Kind: uiStatusNoticeError})
+		return m.agentSettingsFailureNotice(err, uiAgentPickerLoad)
 	}
 	m.statusConfig.Settings = defaults
 	m.statusConfig.Source = source
@@ -211,7 +213,7 @@ func (m *uiModel) gateNewSessionInput(text string, intent newSessionInputIntent)
 		return false, nil
 	case uiNewSettingsFailed:
 		if intent != newSessionInputEnter {
-			return true, m.showTransientStatusNotice(uiStatusNotice{Text: state.err.Error(), Kind: uiStatusNoticeError})
+			return true, m.agentSettingsFailureNotice(state.err, uiAgentPickerLoad)
 		}
 		retry := &newSessionSettingsRetry{text: text, draftToken: m.mainInputDraftToken}
 		if command.Handled {

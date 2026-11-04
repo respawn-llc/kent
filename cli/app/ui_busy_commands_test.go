@@ -25,6 +25,7 @@ func TestDefaultRegistryBusyContract(t *testing.T) {
 		"ps": commands.ActiveRunPolicyAllowed, "worktree": commands.ActiveRunPolicyAllowed,
 		"copy": commands.ActiveRunPolicyAllowed, "back": commands.ActiveRunPolicyAllowed,
 		"review": commands.ActiveRunPolicyAllowed, "init": commands.ActiveRunPolicyAllowed,
+		"agent": commands.ActiveRunPolicyAllowed,
 	}
 	for _, command := range registry.Commands() {
 		policy, ok := want[command.Name]

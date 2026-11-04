@@ -147,6 +147,9 @@ func enabledChatSettingsOperation(
 
 func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 	if msg.err != nil {
+		if _, agent := msg.operation.GetOperation().(*chatsettingspb.MutationOperation_AgentRole); agent {
+			return m.agentSettingsFailureNotice(msg.err, uiAgentPickerApply)
+		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return m.sendTransientStatusWithNoticeID(errText, uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
 	}
@@ -173,6 +176,10 @@ func (m *uiModel) applyChatSettingsDone(msg chatSettingsDoneMsg) tea.Cmd {
 }
 
 func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings) {
+	if m.newSessionTarget() == nil {
+		m.sessionSettings = settings
+		m.sessionSettingsErr = nil
+	}
 	m.modelName = settings.SelectedAgent.Model
 	m.thinkingLevel = settings.SelectedAgent.Thinking
 	m.fastModeAvailable = settings.Fast != nil
@@ -180,7 +187,7 @@ func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings)
 	m.reviewerMode = supervisorRuntimeMode(settings.Supervisor.Value)
 	m.reviewerEnabled = settings.Supervisor.Value != chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
 	m.questionsEnabled = settings.Questions.Enabled
-	m.modelContractLocked = settings.AgentLocked
+	m.modelContractLocked = settings.CachingLocked
 	m.status.snapshot.AgentRole = textutil.OptionalTrimmedString(config.NormalizeSubagentSelector(settings.SelectedAgent.Role))
 }
 

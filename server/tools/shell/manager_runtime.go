@@ -334,7 +334,7 @@ func (m *Manager) fallbackOrBareBackgroundEvent(eventType EventType, snapshot Sn
 }
 
 func (m *Manager) fallbackBackgroundEvent(eventType EventType, snapshot Snapshot, warning postprocess.Warning) (Event, error) {
-	preview, _, truncated, err := readBackgroundSummaryFromFile(snapshot.LogPath, defaultLimit, BackgroundOutputDefault, !snapshot.RawOutput)
+	preview, truncated, err := readBackgroundSummaryFromFile(snapshot.LogPath, defaultLimit, BackgroundOutputDefault, !snapshot.RawOutput)
 	if err != nil {
 		warning, err = mergeOperationalWarning(warning, fmt.Sprintf("failed to read output preview: %v", err))
 		if err != nil {
@@ -489,21 +489,31 @@ func (c *terminalEventCache) fallbackEvent(cause error) Event {
 }
 
 func (m *Manager) collectUntil(ctx context.Context, entry *processEntry, deadline time.Time) ([]byte, error) {
+	return m.observeUntil(ctx, entry, deadline, true)
+}
+
+func (m *Manager) waitUntil(ctx context.Context, entry *processEntry, deadline time.Time) error {
+	_, err := m.observeUntil(ctx, entry, deadline, false)
+	return err
+}
+
+func (m *Manager) observeUntil(ctx context.Context, entry *processEntry, deadline time.Time, collect bool) ([]byte, error) {
 	var collected bytes.Buffer
-	for {
+	collectPending := func() {
 		pending := entry.drainPending()
-		if len(pending) > 0 {
+		if collect && len(pending) > 0 {
 			_, _ = collected.Write(pending)
 		}
+	}
+	for {
+		collectPending()
 		if !entry.isRunning() {
 			select {
 			case <-entry.outputFinalized:
 			case <-ctx.Done():
 				return collected.Bytes(), ctx.Err()
 			}
-			if pending := entry.drainPending(); len(pending) > 0 {
-				_, _ = collected.Write(pending)
-			}
+			collectPending()
 			return collected.Bytes(), nil
 		}
 		remaining := time.Until(deadline)

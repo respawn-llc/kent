@@ -54,7 +54,7 @@ func TestNewSessionSettingsFailureRepaintsNativeComposer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(analysis.Screen.RenderText(), failure.Error()) {
+		if model.transientStatus == "" || !strings.Contains(analysis.Screen.RenderText(), model.transientStatus) {
 			t.Fatalf("settings failure absent from visible terminal: %s", analysis.Screen.RenderText())
 		}
 	}

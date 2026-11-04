@@ -1,88 +1,165 @@
 <p align="center">
-  <img src="./docs/public/kent-social-preview.webp" alt="Kent" width="900">
+  <img src="https://kent.sh/readme/kent-readme.webp" alt="Kent taking a task through implementation, review, and repair" width="900">
 </p>
 
-<p align="center">
-  <strong>Kent is a high-performance coding agent for professional Agentic Engineers focusing on output quality and long-running tasks.</strong>
-</p>
+<h1 align="center">Kent</h1>
 
 <p align="center">
-  <a href="https://kent.sh/quickstart/">Quickstart</a>
+  <a href="https://kent.sh/quickstart/">🚀 Quickstart</a>
   ·
-  <a href="https://kent.sh/docs/">Docs</a>
+  <a href="https://kent.sh/docs/">📖 Docs</a>
   ·
-  <a href="https://github.com/respawn-llc/kent/releases">Releases</a>
+  <a href="https://github.com/respawn-llc/kent/releases">📦 Releases</a>
 </p>
 
-Kent is a coding agent for professional engineers. It gives frontier coding models the features that empower them to produce their best output: from contextual reminders and harness awareness to token-optimized searches and async execution loops, then wraps that in a UI built for engineers who want to ship real products and work across multiple large codebases.
+<p align="center"><sub><sup><sub><strong>Kent</strong> (Russian: Кент, [kʲent]) - prison slang for “bro”.</sub></sup></sub></p>
 
-Codex and Claude Code are good defaults for quick demos and vibe-coding. Kent is for the moment you want the model to work freely but safely, for hours, on large codebases, as your pair programmer & collaborator.
+Kent is a new approach to agentic SWE that allows you to let agents take over the **entire process** of building software - from idea to production deployment - **without human involvement**. It's a way to build enterprise-grade, high-quality, tested, reviewed, deployed software while humans focus on **making decisions** - what we do best.
 
-Try it if you have ever lost work quality after compaction, watched an agent hide the command that mattered, babysat a long refactor with "continue" or ralph loops or fixed broken code after the agent ignored repository rules.
+### Stop babysitting agents
 
-<p align="center">
-  <img src="./docs/public/readme/kent-demo-hero.webp" alt="Kent running a coding task in the terminal" width="900">
-</p>
+Regular coding agents require you to manage every step the agent takes - planning, subagents, verification, CI, review, goals, design, approvals, and more. Kent allows you to ensure quality code is shipped without your constant supervision.
 
-## Why Kent
+![Repeated chat corrections with illustrative human-time gaps compared with Kent handling 38 workflow steps](docs/public/readme/steering-comparison.webp)
 
-### Keeps going when the context gets hard
+### Automate SWE with Agentic Graphs
 
-Compared to other harnesses, Kent has significantly higher compaction quality with its carryover prompts and a multi-step algorithm that **lets the model decide** when and what to compact.
-The expensive failure is when model half-remembers a decision, forgets an in-flight edit, or restarts a plan after a bad summary. Kent is designed to make 35+ compactions survivable.
+LLMs are non-deterministic. Agents break rules, ship slop, skip verification, lie about results, hallucinate, and make harmful assumptions in pursuit of rewards and benchmark scores. **Kent gives you a way to prevent that.** Design automated, cyclic graphs for your entire SWE process, receiving only production-ready, enterprise-grade software as output.
 
-<p align="center">
-  <img src="./docs/public/readme/kent-compaction.webp" alt="Kent showing a model-requested compaction handoff in the terminal" width="900">
-</p>
+![Scattered human follow-up responsibilities compared with a branching Kent workflow under human direction and approval](docs/public/readme/review-comparison.webp)
 
-### Quality is first-class
+### The opposite of vibe-coding
 
-- Kent teaches the model to **ask you questions** instead of bulldozing through changes to produce slop. Expect to make important product decisions, learn about caveats, perform refactoring, and ship high-quality code with Kent.
-- Kent runs a **customizable supervisor agent** in parallel with the main agent. The supervisor reviews the agent's changes and steers it to follow instructions and do its best work.
-- Subagents are real Kent runs. The model delegates to **customizable agent roles, runs everything in async shells**, sleeps and wakes up in a natural, **0-token ralph loop** until the task is done, no matter the scope.
+Humans’ job is decision making, which is hard enough, so let Kent do the rest. Transition to being a **manager** instead of reviewing code, fixing issues, looking for slop, or doing manual QA.
 
-### Token-efficient & cheap
+Kent is how **serious software engineering** is done with agents.
 
-- Smart tool processing. Use **built-in shell optimizers** natively or **connect tools like `rtk`**, and unlike other popular coding agents, the model controls how the output is optimized.
-- Unlike harnesses which overload models, Kent ships just **three tools** that enable the model to do everything: `patch`, `shell`, and `ask`. Everything else is smart, contextual, composable, non-blocking.
-- Efficient shells. **Tools run async** with the main model: no timeouts, no retries, and compact file-based inspection of shell outputs lead to **1.6-2x token savings**.
-- Cache invalidation tracking. Unlike some harnesses that drain your limits in minutes due to a caching bug, with Kent **you know about every unwanted cache miss**. Not that they will happen, with Kent's **snapshot-based cache preservation** mechanisms.
-- **Shell-native, scriptable search/read stack** with optimized `rg` config enables **40% more efficient searches** instead of clunky Search, Glob, Grep, Read, Scroll chains.
+![An agent assumes a failing test is stale. Tests pass after its patch, but a production alert reports a TypeError in AccountDataSource.tsx:42. Kent asks how to protect existing users.](docs/public/readme/decision-comparison.webp)
 
-<p align="center">
-  <img src="./docs/public/readme/kent-shells.webp" alt="Kent showing async background shell processes in the terminal" width="900">
-</p>
+### Scale to hundreds of agents
 
-### Everything is customizable & transparent
+After you start using Kent, you will realize you can now ship 10x as much software at higher quality than ever before. You will become **hungry for more**.
 
-- Unlike popular harnesses, Kent supports customizing **subagent roles**, **compaction algorithms**, web search, supervisor and main model **system prompts**, skills, tools, reminders, caching, and more.
-- With local overrides of everything, create **per-project system prompts**, skill bundles, subagent roles and share the setup with your team via a single `.toml` file.
-- The default UI is **fast, non-flickering, native transcript**. Unlike some providers, Kent's detailed mode lets you **inspect every input and output** so there's no surprises, ever.
+Kent is a combination of a desktop app, a remote server, a traditional TUI, and a CLI - with UX designed to enable you to manage a **hundred parallel agents at once**.
 
-### True Sandboxing & Parallelization
+And the best part? You no longer need frontier models when you can delegate easy work to local models and hard work to cheap, fast models, which will verify and fix it - instead of hoping the model does it right.
 
-- Kent runs a single 50mb **server process that orchestrates all your agents** & shells. Unlike other harnesses which embed an unreliable custom sandbox, you can run Kent **completely isolated** (e.g. via Docker) and connect to it from your favorite terminal - no SSH, no tmux.
-- Git worktrees are first-class. Run 10+ agents in parallel via **auto-managed worktrees with customizable setup logic**. Unlike other harnesses, the agent knows how to handle the worktree and won't break your repo.
+![Kent Desktop Kanban board](docs/public/readme/kent-kanban.webp)
 
-<p align="center">
-  <img src="./docs/public/readme/kent-worktrees.webp" alt="Kent switching Git worktrees from the terminal" width="900">
-</p>
+### Everything you expect from a coding agent
 
-## Philosophy
+Kent supports your existing token subscriptions (when you inevitably want more), comes with a great traditional chat UX, great performance (20 MB of RAM per agent), and a custom harness optimized for SWE, collaborative work, and token efficiency. Kent workers complete goals, work overnight, use worktrees, and talk to each other without your supervision.
 
-Kent is intentionally narrow. It optimizes for engineers who want collaborative workflows, token efficiency, and quality outputs. As such, there will not be:
+![Kent Desktop Chat completing a release task](docs/public/readme/kent-chat.webp)
 
-- MCP support; MCP is suboptimal for shell-enabled agents, use [mcporter](https://github.com/openclaw/mcporter) or native CLIs.
-- Plan mode; just prompt the model to plan with you. Kent is built for collaborative work and can plan without any explicit nudges or restrictions.
-- WebFetch tool; teach the agent to use [r.jina.ai](jina.ai/reader), browser control CLI, or curl.
+<details>
+<summary>Still not convinced? Full list of features:</summary>
 
-Ready to try? Head over to the [quickstart](https://kent.sh/quickstart/) guide.
+- Agentic Graphs (aka workflows).
+- Visual graph editor.
+- Agent-assisted workflow authoring.
+- Workflow validation.
+- Conditional workflow transitions.
+- Parallel workflow branches and joins.
+- Review and repair loops.
+- Human approval gates.
+- Questions, answerable by agents and humans.
+- Script nodes for graphs.
+- Structured outputs between workflow steps.
+- Per-step agent roles and reasoning levels.
+- Agent-selected roles and reasoning at serial workflow handoffs.
+- Fresh, continued, and compacted context between workflow steps.
+- Supervisor review of agent work and follow-up suggestions.
+- Custom subagent roles.
+- Asynchronous subagent delegation.
+- Subagent steering and continuation.
+- Configurable subagent delegation depth.
+- Persistent goals with automatic follow-up turns.
+- Automatic wake-ups after background processes finish.
+- Proactive compaction to let agents choose when they hand off the work.
+- Speculative compaction to save tokens and keep the cache warm.
+- Active-request carryover during compaction.
+- Manual compaction with custom instructions.
+- Context-window usage tracking.
+- Context-aware runtime reminders.
+- Prompt-cache-aware configuration snapshots.
+- Cache-miss diagnostics with token estimates.
+- Asynchronous shell execution.
+- Parallel shell processes.
+- Concurrent model-issued tool calls.
+- Interactive shell input.
+- Full, file-backed shell output logs.
+- Model-compatible patch and edit tools.
+- Built-in shell output optimization (a la rtk).
+- Custom shell post-processing hooks (to use tools such as rtk).
+- Optimized repository search through ripgrep.
+- Kent-managed Git worktrees.
+- Project-specific worktree setup.
+- Workflow-selected worktree creation.
+- Multi-project task management.
+- Kanban task boards.
+- Project-wide task lists across workflows.
+- Task dependencies.
+- Task labels and board filters.
+- Cross-project task search.
+- Task comments and activity.
+- Manual task transitions.
+- Desktop notification inbox and notifications from agents.
+- Headless runs through the CLI.
+- Structured JSON output for headless automation.
+- Task and session observation through CLI wait/watch commands.
+- Global, project, and private configuration.
+- Custom agent system prompts.
+- Global and project AGENTS.md instructions.
+- Skills and reusable slash commands.
+- Skill and command imports from Claude Code, Codex, Cursor, and Grok.
+- Per-agent models, connections, tools, and reasoning levels.
+- Multiple provider connections and account load balancing.
+- Session-sticky provider connections with load balancing.
+- Automatic failover on exhausted quotas or credits.
+- Subscription usage and reset displays.
+- Detailed tool-input and output transcripts.
+- Message steering and queuing.
+- Conversation editing and forking.
+- Saved-session resumption.
+- Prompt history.
+- Built-in code review.
+- Image and PDF viewing for multimodal models.
+- Native web search with supported providers.
+- Desktop speech-to-text dictation using subscription allowance.
+- Native desktop chat windows.
+- Clipboard image input.
+- Light, dark, and system themes.
+- Automatic session naming.
+- Lifecycle hooks for notifications and integrations.
+- Background server service.
+- Remote server connections.
+- Server deployment in containers or VMs.
+- Work running independently of connected clients.
+- Operating-system sleep prevention during active work.
 
-## Why no Anthropic/Gemini model support?
+</details>
 
-- Anthropic and Gemini disallow use of third-party harnesses with subscriptions. Using them can get you banned, asking for their support will get people behind Kent sued. Please do not ask for support here.
-- Using models with API keys can be supported, but the priority is low due to high costs of testing and significant effort to optimize the harness for different models. Please create or upvote an issue if you want to use Kent with a new provider or model. Kent already supports OpenAI Responses-compatible APIs, local models, and OpenAI API keys.
+### Installation
 
-## License
+Kent is FOSS and takes 10 minutes to get started with. Follow the [Quickstart](https://kent.sh/quickstart/) guide to try it.
 
-Kent is licensed under `AGPL-3.0-only`. See [LICENSE](./LICENSE).
+**Platforms:** macOS (Apple Silicon), Linux and Windows (x64). Server and TUI also support Linux and Windows ARM64.
+
+### Models and subscriptions
+
+**Subscriptions**
+
+| Supported | In progress | Against ToS |
+| --- | --- | --- |
+| ChatGPT | OpenCode | Claude |
+| Grok Build | DeepSeek Coding Plan | Gemini |
+| GLM Coding Plan | Kimi Coding Plan | Muse Code |
+
+**API access:** OpenAI, xAI, and OpenAI Responses-compatible endpoints, including local model servers.
+
+See [authentication and connections](https://kent.sh/authentication/) for setup.
+
+### License
+
+[AGPL-3.0-only](https://github.com/respawn-llc/kent/blob/main/LICENSE).

@@ -63,6 +63,8 @@ type execPresentation struct {
 	outputPath        string
 	output            visibleShellOutput
 	exitCode          int
+	truncated         bool
+	backgrounded      bool
 	movedToBackground bool
 }
 
@@ -72,7 +74,9 @@ func projectExecResult(result ExecResult) execPresentation {
 		wallTime:          result.WallTime,
 		outputPath:        strings.TrimSpace(result.OutputPath),
 		output:            newVisibleShellOutput(result.Output, result.Warning),
+		backgrounded:      result.Backgrounded,
 		movedToBackground: result.MovedToBackground,
+		truncated:         result.Truncated,
 	}
 	if result.ExitCode == nil {
 		presentation.kind = execPresentationRunning
@@ -115,13 +119,8 @@ type backgroundInlinePreview struct {
 type backgroundNoticeOutput struct {
 	visible        visibleShellOutput
 	inlinePreview  *backgroundInlinePreview
-	logLineCount   *int
 	truncated      bool
 	previewRemoved int
-}
-
-func (o backgroundNoticeOutput) shouldRenderNoOutputCompletion(exitCode *int) bool {
-	return exitCode != nil && !o.visible.HasVisibleContent()
 }
 
 func (s BackgroundNoticeSummary) RuntimePreview() (string, int) {
@@ -155,35 +154,40 @@ func SummarizeBackgroundEvent(evt Event, opts BackgroundNoticeOptions) (Backgrou
 	if state == "" {
 		state = "completed"
 	}
-	detail := []string{fmt.Sprintf("Background shell %s %s.", evt.Snapshot.ID, state)}
+	var detail string
 	if evt.Snapshot.ExitCode != nil {
-		detail = append(detail, fmt.Sprintf("Exit code: %d", *evt.Snapshot.ExitCode))
-	}
-	if strings.TrimSpace(evt.Snapshot.LogPath) != "" && output.logLineCount != nil {
-		lineCountText := fmt.Sprintf("%d lines", *output.logLineCount)
-		if *output.logLineCount == 1 {
-			lineCountText = "1 line"
+		commandOutput := output.visible.command
+		if output.inlinePreview != nil {
+			commandOutput = output.inlinePreview.text
 		}
-		detail = append(detail, fmt.Sprintf("Output file (%s): %s", lineCountText, evt.Snapshot.LogPath))
-	}
-	if warning := output.visible.Warning(); warning != nil {
-		detail = append(detail, warning.Text())
-	}
-	if output.inlinePreview != nil {
-		detail = append(detail, "Output:")
-		detail = append(detail, output.inlinePreview.text)
-	}
-	if output.shouldRenderNoOutputCompletion(evt.Snapshot.ExitCode) {
-		detail = append(detail, fmt.Sprintf("Exit code %d, no output.", *evt.Snapshot.ExitCode))
+		presentation := execPresentation{
+			kind:       execPresentationBackgroundCompleted,
+			sessionID:  strings.TrimSpace(evt.Snapshot.ID),
+			outputPath: strings.TrimSpace(evt.Snapshot.LogPath),
+			output:     newVisibleShellOutput(commandOutput, output.visible.Warning()),
+			exitCode:   *evt.Snapshot.ExitCode,
+			truncated:  output.truncated,
+		}
+		detail = renderCompletedShellResult(presentation, completedShellRenderOptions{
+			hideCommandOutput: mode == BackgroundOutputConcise,
+		})
+	} else {
+		sections := []string{fmt.Sprintf("Background shell %s %s.", evt.Snapshot.ID, state)}
+		if warning := output.visible.Warning(); warning != nil {
+			sections = append(sections, warning.Text())
+		}
+		if output.inlinePreview != nil {
+			sections = append(sections, output.inlinePreview.text)
+		}
+		detail = strings.Join(sections, "\n")
 	}
 	summary := fmt.Sprintf("Background shell %s %s", evt.Snapshot.ID, state)
 	if evt.Snapshot.ExitCode != nil {
 		summary = fmt.Sprintf("%s (exit %d)", summary, *evt.Snapshot.ExitCode)
 	}
 	return BackgroundNoticeSummary{
-		DetailText:    strings.Join(detail, "\n"),
+		DetailText:    detail,
 		CondensedText: summary,
-		LineCount:     valueOrZero(output.logLineCount),
 		Truncated:     output.truncated,
 		LogPath:       evt.Snapshot.LogPath,
 		output:        output,
@@ -215,12 +219,8 @@ func projectBackgroundNoticeOutput(evt Event, maxChars int, mode BackgroundOutpu
 		previewRemoved: completion.removed,
 	}
 	path := strings.TrimSpace(evt.Snapshot.LogPath)
-	if path != "" {
-		scanMode := mode
-		if completion.source == completionOutputFinalized {
-			scanMode = BackgroundOutputConcise
-		}
-		preview, lineCount, truncated, err := readBackgroundSummaryFromFile(path, maxChars, scanMode, !evt.Snapshot.RawOutput)
+	if completion.source == completionOutputFallback && path != "" && mode != BackgroundOutputConcise {
+		preview, truncated, err := readBackgroundSummaryFromFile(path, maxChars, mode, !evt.Snapshot.RawOutput)
 		if err != nil {
 			warning, warningErr := postprocess.NewWarning(fmt.Sprintf("failed to read output preview: %v", err))
 			if warningErr != nil {
@@ -228,15 +228,10 @@ func projectBackgroundNoticeOutput(evt Event, maxChars int, mode BackgroundOutpu
 			}
 			output.visible.warning = postprocess.MergeWarnings(output.visible.warning, warning)
 		} else {
-			if lineCount > 0 {
-				output.logLineCount = &lineCount
-			}
-			if completion.source == completionOutputFallback && mode != BackgroundOutputConcise {
-				output.visible.command = limitModelVisibleFallbackOutput(preview, evt.Snapshot.RawOutput)
-				output.truncated = output.truncated || truncated
-				if truncated && output.previewRemoved == 0 {
-					output.previewRemoved = 1
-				}
+			output.visible.command = limitModelVisibleFallbackOutput(preview, evt.Snapshot.RawOutput)
+			output.truncated = output.truncated || truncated
+			if truncated && output.previewRemoved == 0 {
+				output.previewRemoved = 1
 			}
 		}
 	}
@@ -283,17 +278,10 @@ func InvariantFailureBackgroundNotice(evt Event, cause error) BackgroundNoticeSu
 	}
 }
 
-func valueOrZero(value *int) int {
-	if value == nil {
-		return 0
-	}
-	return *value
-}
-
-func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOutputMode, sanitize bool) (string, int, bool, error) {
+func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOutputMode, sanitize bool) (string, bool, error) {
 	fp, err := os.Open(path)
 	if err != nil {
-		return "", 0, false, err
+		return "", false, err
 	}
 	defer fp.Close()
 	builder := newBackgroundPreviewBuilder(maxChars, mode, sanitize)
@@ -308,9 +296,9 @@ func readBackgroundSummaryFromFile(path string, maxChars int, mode BackgroundOut
 		}
 		if errors.Is(readErr, io.EOF) {
 			builder.Finish()
-			return builder.Preview(), builder.LineCount(), builder.Truncated(), nil
+			return builder.Preview(), builder.Truncated(), nil
 		}
-		return "", 0, false, readErr
+		return "", false, readErr
 	}
 }
 
@@ -321,10 +309,7 @@ type backgroundPreviewBuilder struct {
 	carry             []byte
 	prevCR            bool
 	totalBytes        int
-	lineCount         int
-	hasContent        bool
 	hasVisibleContent bool
-	lastNewline       bool
 	fullMode          bool
 	full              []byte
 	head              []byte
@@ -412,7 +397,6 @@ func (b *backgroundPreviewBuilder) emitBytes(data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	b.hasContent = true
 	if !b.hasVisibleContent && strings.TrimSpace(string(data)) != "" {
 		b.hasVisibleContent = true
 	}
@@ -437,14 +421,6 @@ func (b *backgroundPreviewBuilder) emitBytes(data []byte) {
 	if len(b.tail) > headTailSize {
 		b.tail = append([]byte(nil), b.tail[len(b.tail)-headTailSize:]...)
 	}
-	for _, v := range data {
-		if v == '\n' {
-			b.lineCount++
-			b.lastNewline = true
-			continue
-		}
-		b.lastNewline = false
-	}
 }
 
 func (b *backgroundPreviewBuilder) Preview() string {
@@ -465,16 +441,6 @@ func (b *backgroundPreviewBuilder) Preview() string {
 	head := string(b.head[:headLen])
 	tail := string(b.tail[len(b.tail)-tailLen:])
 	return fmt.Sprintf("%s%s%s", head, fmt.Sprintf(backgroundTruncationBannerTemplate, removed), tail)
-}
-
-func (b *backgroundPreviewBuilder) LineCount() int {
-	if !b.hasContent {
-		return 0
-	}
-	if b.lastNewline {
-		return b.lineCount
-	}
-	return b.lineCount + 1
 }
 
 func (b *backgroundPreviewBuilder) Truncated() bool {
@@ -509,14 +475,96 @@ func formatExecResponse(result ExecResult) string {
 	return renderExecPresentation(projectExecResult(result))
 }
 
+type completedShellRenderOptions struct {
+	includePollMetadata bool
+	hideCommandOutput   bool
+}
+
+func renderCompletedShellResult(presentation execPresentation, opts completedShellRenderOptions) string {
+	output := presentation.output.Content()
+	if opts.hideCommandOutput {
+		output = ""
+		if warning := presentation.output.Warning(); warning != nil {
+			output = warning.Text()
+		}
+	}
+	hasOutput := presentation.output.HasVisibleContent()
+	if opts.hideCommandOutput && presentation.output.HasCommandContent() {
+		hasOutput = true
+	}
+	showOutputPath := presentation.truncated && hasOutput
+	if opts.hideCommandOutput && presentation.output.HasCommandContent() {
+		showOutputPath = true
+	}
+
+	sections := make([]string, 0, 3)
+	if opts.includePollMetadata {
+		sections = appendPollMetadata(sections, presentation)
+	}
+	if !hasOutput {
+		sections = append(sections, fmt.Sprintf("Shell %s exited with code %d and no output", presentation.sessionID, presentation.exitCode))
+		return strings.Join(sections, "\n")
+	}
+
+	switch presentation.kind {
+	case execPresentationForegroundCompleted:
+		if presentation.exitCode == 0 {
+			if showOutputPath {
+				sections = append(sections, fmt.Sprintf("Shell %s output written to %s:\n%s", presentation.sessionID, presentation.outputPath, output))
+			} else {
+				sections = append(sections, output)
+			}
+		} else {
+			sections = append(sections, formatCompletedOutputHeader(presentation, showOutputPath, opts.includePollMetadata))
+			if output != "" {
+				sections = append(sections, output)
+			}
+		}
+	case execPresentationBackgroundCompleted:
+		sections = append(sections, formatCompletedOutputHeader(presentation, showOutputPath, opts.includePollMetadata))
+		if output != "" {
+			sections = append(sections, output)
+		}
+	default:
+		panic(fmt.Sprintf("unknown completed exec presentation kind %d", presentation.kind))
+	}
+	return strings.Join(sections, "\n")
+}
+
+func formatCompletedOutputHeader(presentation execPresentation, showOutputPath bool, pathAlreadyShown bool) string {
+	if showOutputPath && !pathAlreadyShown && presentation.outputPath != "" {
+		return fmt.Sprintf("Shell %s exited with code %d, output written to %s:", presentation.sessionID, presentation.exitCode, presentation.outputPath)
+	}
+	return fmt.Sprintf("Shell %s exited with code %d, output:", presentation.sessionID, presentation.exitCode)
+}
+
+func appendPollMetadata(sections []string, presentation execPresentation) []string {
+	sections = append(sections, fmt.Sprintf("Wall time: %.4f seconds", presentation.wallTime.Seconds()))
+	if presentation.outputPath != "" {
+		sections = append(sections, fmt.Sprintf("Output file: %s", presentation.outputPath))
+	}
+	return sections
+}
+
 func renderExecPresentation(presentation execPresentation) string {
 	output := presentation.output.Content()
 	switch presentation.kind {
 	case execPresentationRunning:
 		sections := make([]string, 0, 2)
 		if presentation.movedToBackground {
-			sections = append(sections, formatBackgroundTransitionLine(presentation.sessionID, presentation.output.HasCommandContent()))
-		} else if presentation.sessionID != "" {
+			sections = append(sections, formatBackgroundTransitionLine(presentation.sessionID, presentation.wallTime))
+			if presentation.outputPath != "" {
+				sections = append(sections, fmt.Sprintf("Output file: %s", presentation.outputPath))
+			}
+			if warning := presentation.output.Warning(); warning != nil {
+				sections = append(sections, warning.Text())
+			}
+			return strings.Join(sections, "\n")
+		}
+		if presentation.backgrounded {
+			sections = appendPollMetadata(sections, presentation)
+		}
+		if presentation.sessionID != "" {
 			sections = append(sections, fmt.Sprintf("Process running with session ID %s", presentation.sessionID))
 		}
 		if output == "" {
@@ -526,23 +574,9 @@ func renderExecPresentation(presentation execPresentation) string {
 		}
 		return strings.Join(sections, "\n")
 	case execPresentationForegroundCompleted:
-		if output == "" {
-			return fmt.Sprintf("Exit code %d, no output.", presentation.exitCode)
-		}
-		if presentation.exitCode == 0 {
-			return output
-		}
-		return fmt.Sprintf("Exit code %d, output:\n%s", presentation.exitCode, output)
+		return renderCompletedShellResult(presentation, completedShellRenderOptions{})
 	case execPresentationBackgroundCompleted:
-		if output == "" {
-			return fmt.Sprintf("Exit code %d, no output.", presentation.exitCode)
-		}
-		sections := []string{fmt.Sprintf("Wall time: %.4f seconds", presentation.wallTime.Seconds())}
-		if presentation.outputPath != "" {
-			sections = append(sections, fmt.Sprintf("Output file: %s", presentation.outputPath))
-		}
-		sections = append(sections, fmt.Sprintf("Exit code %d, output:", presentation.exitCode), output)
-		return strings.Join(sections, "\n")
+		return renderCompletedShellResult(presentation, completedShellRenderOptions{includePollMetadata: true})
 	default:
 		panic(fmt.Sprintf("unknown exec presentation kind %d", presentation.kind))
 	}
@@ -559,16 +593,7 @@ func formatToolError(warning postprocess.Warning, toolError string) string {
 	return strings.Join(sections, "\n")
 }
 
-func formatBackgroundTransitionLine(sessionID string, hasOutput bool) string {
+func formatBackgroundTransitionLine(sessionID string, wallTime time.Duration) string {
 	sessionID = strings.TrimSpace(sessionID)
-	switch {
-	case sessionID != "" && hasOutput:
-		return fmt.Sprintf("Process moved to background with ID %s. Output:", sessionID)
-	case sessionID != "":
-		return fmt.Sprintf("Process moved to background with ID %s.", sessionID)
-	case hasOutput:
-		return "Process moved to background. Output:"
-	default:
-		return "Process moved to background."
-	}
+	return fmt.Sprintf("Shell moved to background with ID %s after %.1fs", sessionID, wallTime.Seconds())
 }
