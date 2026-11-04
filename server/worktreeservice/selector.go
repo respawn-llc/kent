@@ -176,17 +176,23 @@ func topologyRoot(entry *worktreepb.TopologyEntry) string {
 }
 
 func topologyWorktreeID(entry *worktreepb.TopologyEntry) *string {
+	facts := topologyKentFacts(entry)
+	if facts == nil {
+		return nil
+	}
+	return &facts.WorktreeId
+}
+
+func topologyKentFacts(entry *worktreepb.TopologyEntry) *worktreepb.KentFacts {
 	switch {
 	case entry == nil:
 		return nil
 	case entry.GetMainWorkspace() != nil, entry.GetExternal() != nil:
 		return nil
 	case entry.GetRegistered() != nil:
-		value := entry.GetRegistered().GetKent().GetWorktreeId()
-		return &value
+		return entry.GetRegistered().GetKent()
 	case entry.GetMissing() != nil:
-		value := entry.GetMissing().GetKent().GetWorktreeId()
-		return &value
+		return entry.GetMissing().GetKent()
 	default:
 		return nil
 	}

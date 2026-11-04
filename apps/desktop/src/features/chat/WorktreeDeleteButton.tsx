@@ -1,11 +1,14 @@
 import { Trash2 } from "lucide-react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorktreeDeletePreview } from "@/api";
 import {
   Button,
   Checkbox,
-  HoverPopover,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -26,17 +29,15 @@ type Props = Readonly<{
 
 export function WorktreeDeleteButton(props: Props) {
   const { t } = useTranslation();
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
-    <HoverPopover
-      open={props.open}
-      onOpenChange={props.onOpenChange}
-      trigger={({ ref, ...triggerProps }) => (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
+    <Popover open={props.open} onOpenChange={props.onOpenChange}>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
               <Button
-                {...triggerProps}
-                ref={ref ?? null}
+                ref={trigger}
                 disabled={props.disabled}
                 size="icon-sm"
                 variant="ghost"
@@ -44,14 +45,20 @@ export function WorktreeDeleteButton(props: Props) {
               >
                 <Trash2 size={16} />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("chat.worktree.delete")}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
-    >
-      <WorktreeDeleteContent {...props} />
-    </HoverPopover>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t("chat.worktree.delete")}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <PopoverContent
+        align="start"
+        onOpenAutoFocus={(event) => {
+          if (document.activeElement !== trigger.current) event.preventDefault();
+        }}
+      >
+        <WorktreeDeleteContent {...props} />
+      </PopoverContent>
+    </Popover>
   );
 }
 

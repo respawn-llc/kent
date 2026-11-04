@@ -184,6 +184,8 @@ message ListProjection {
   optional DeletePreviewOperation delete_preview = 4;
   optional string fallback_identity = 5 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   bool is_in_use = 6;
+  optional string origin_session_name = 7 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional int64 origin_session_short_id = 8 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }
 
 message ListEntry {

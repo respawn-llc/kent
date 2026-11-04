@@ -1,5 +1,7 @@
 ## Authority, connection, and shared behavior
 
+- Tooltips must not intercept pointer or scroll input. Tooltips must dismiss when their containing scroll surface scrolls.
+
 - Across all destinations, the global sidebar owner selects shifting only when the measured main pane has at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
 
 - Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets must use their canonical values.
@@ -58,13 +60,17 @@
 
 ## Worktree deletion
 
+- The origin Session action must display the Session name when present, otherwise its numeric Session ID, otherwise its UUID. Opening the origin Session must use its canonical Session ID.
+
 - The Worktree list destination must own deletion preparation, confirmation choices, and request state. The confirmation popup must only present those values and forward operator actions.
-- The popup must use ordinary hover-away and click-away dismissal. Its controls must be Confirm and Include branch, without a Close action or a Clean status label.
+- The operator must click Delete to start deletion preparation and open the confirmation popup. Hovering Delete must not start preparation or open the popup. The operator must click Confirm separately to submit deletion.
+- The popup must use click-away and Escape dismissal. Its controls must be Confirm and Include branch, without a Close action or a Clean status label.
 - Include branch must default to selected when the list destination opens. Its choice must remain in memory across popup openings and deletions within that destination, and must reset when a new list destination opens. The choice must not be saved to settings or disk.
 - When Include branch is unavailable, confirmation must retain the branch. When the operator clears Include branch, confirmation must retain the branch, including a branch created by Kent.
 - Confirm must close the popup immediately and submit the captured deletion choice. Closing the popup or navigating away must not cancel an accepted deletion.
 - Preparation and deletion must replace only the affected row's actions with a spinner. The popup must have no loading state. Other Delete actions must be unavailable while a deletion is pending.
 - Refresh must keep loaded rows mounted without a full-list loading state. Successful deletion must remove its row with a smooth exit that settles immediately when reduced motion is enabled.
+- Removing a Worktree must not reset the list's scroll position. Restoring focus after removal must not scroll the list to the focused control.
 - Deletion preparation, deletion, and refresh failures with a loaded list must use temporary error notifications without replacing the list. Failed deletion must restore the affected row's actions. Reopening the popup must permit a new attempt.
 
 ## Transcript configuration notices

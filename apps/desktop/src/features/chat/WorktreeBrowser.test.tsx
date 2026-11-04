@@ -328,6 +328,39 @@ it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444
   },
 );
 
+it.each([
+  { name: "Review changes", shortID: 42n, expected: "Review changes" },
+  { name: undefined, shortID: 42n, expected: "42" },
+  { name: undefined, shortID: undefined, expected: "44444444-4444-4444-8444-444444444444" },
+])("labels the origin Session as $expected while navigating by UUID", async ({ name, shortID, expected }) => {
+  const originSessionID = "44444444-4444-4444-8444-444444444444";
+  const entry = worktreeBrowserFixtureEntry("registered", false);
+  if (entry.topology?.topology.case !== "registered" || entry.topology.topology.value.kent === undefined)
+    throw new Error("Expected registered fixture");
+  if (entry.projection === undefined) throw new Error("Expected Worktree projection");
+  entry.topology.topology.value.kent.originSessionId = originSessionID;
+  entry.projection.originSessionName = name;
+  entry.projection.originSessionShortId = shortID;
+  const services = createTestServices([worktreeBrowserFixtureRoute([entry])]);
+  const onOpenSession = vi.fn();
+  render(
+    <BrowserProviders services={services}>
+      <WorktreeBrowser
+        projectID="project-1"
+        sessionID="33333333-3333-4333-8333-333333333333"
+        onOpenSession={onOpenSession}
+      />
+    </BrowserProviders>,
+  );
+  const user = userEvent.setup({ delay: null });
+  await user.click(
+    await screen.findByRole("button", {
+      name: appI18n.t("chat.worktree.openOriginSession", { sessionID: expected }),
+    }),
+  );
+  expect(onOpenSession).toHaveBeenCalledWith(originSessionID);
+});
+
 it.each(["registered", "missing"] as const)("copies the full %s path from its subtitle", async (kind) => {
   const user = userEvent.setup({ delay: null });
   const entry = worktreeBrowserFixtureEntry(kind, true);
@@ -688,14 +721,14 @@ it("reports failed deletion preview with a toast and permits reopening without c
   notice.mockRestore();
 });
 
-it("keeps Worktree rows mounted while opening a deletion preview", async () => {
+it("starts deletion preparation only after a click and keeps Worktree rows mounted", async () => {
   const services = createTestServices([
     worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("registered", false)]),
     ...worktreeCommandFixtureRoutes(),
   ]);
   const previewReady = deferred<undefined>();
   const readPreview = services.api.previewWorktreeDelete.bind(services.api);
-  vi.spyOn(services.api, "previewWorktreeDelete").mockImplementation(async (...args) => {
+  const preview = vi.spyOn(services.api, "previewWorktreeDelete").mockImplementation(async (...args) => {
     await previewReady.promise;
     return readPreview(...args);
   });
@@ -708,13 +741,22 @@ it("keeps Worktree rows mounted while opening a deletion preview", async () => {
   const path = screen.getByRole("button", {
     name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }),
   });
-  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
+  const remove = vi.spyOn(services.api, "deleteWorktree");
+  const deleteButton = screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") });
+  const user = userEvent.setup({ delay: null });
+  await user.hover(deleteButton);
+  expect(preview).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("spinner")).not.toBeInTheDocument();
+  await user.click(deleteButton);
   expect(screen.getByTestId("spinner")).toBeInTheDocument();
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   await act(async () => {
     previewReady.resolve(undefined);
   });
   await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") });
+  expect(preview).toHaveBeenCalledTimes(1);
+  expect(remove).not.toHaveBeenCalled();
   expect(
     screen.getByRole("button", { name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }) }),
   ).toBe(path);
@@ -843,6 +885,69 @@ it("closes confirmation eagerly and keeps deletion loading local to its row thro
   });
   await waitFor(() => expect(path).not.toBeInTheDocument());
   expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.switch") })).toBe(unaffected);
+});
+
+it("preserves the list scroll position when its focused bottom Worktree disappears", async () => {
+  const services = createTestServices([
+    worktreeBrowserFixtureRoute([
+      worktreeBrowserFixtureEntry("mainWorkspace", false),
+      worktreeBrowserFixtureEntry("registered", false),
+    ]),
+    ...worktreeCommandFixtureRoutes(),
+  ]);
+  const client = new QueryClient();
+  render(
+    <div data-testid="worktree-scroll" style={{ overflow: "auto", height: 100 }}>
+      <BrowserProviders services={services}>
+        <QueryClientProvider client={client}>
+          <Browser
+            projectID="project-1"
+            sessionID="33333333-3333-4333-8333-333333333333"
+            navigator={createTestSidebarNavigator()}
+            onCreate={vi.fn()}
+            onSwitch={vi.fn()}
+            onOpenSession={vi.fn()}
+            refreshOpenWorktreeList={async () => {
+              await replaceWorktreeListRead(client, services.api, "33333333-3333-4333-8333-333333333333");
+            }}
+          />
+        </QueryClientProvider>
+      </BrowserProviders>
+    </div>,
+  );
+  const paths = await screen.findAllByRole("button", {
+    name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }),
+  });
+  const first = screen.getAllByRole("button", { name: appI18n.t("chat.worktree.switch") })[0];
+  const bottom = paths[1];
+  if (first === undefined || bottom === undefined) throw new Error("Expected two Worktrees");
+  const scroller = screen.getByTestId("worktree-scroll");
+  scroller.scrollTop = 600;
+  const focus = first.focus.bind(first);
+  // Happy DOM does not implement native focus scrolling.
+  Object.defineProperty(first, "focus", {
+    configurable: true,
+    value: (options?: FocusOptions) => {
+      if (options?.preventScroll !== true) scroller.scrollTop = 0;
+      focus(options);
+    },
+  });
+  const previous = client.getQueryData<WorktreeList>(
+    queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"),
+  );
+  if (previous === undefined) throw new Error("Expected loaded Worktrees");
+  vi.spyOn(services.api, "listWorktrees").mockResolvedValue({
+    ...previous,
+    worktrees: previous.worktrees.slice(0, 1),
+  });
+  const user = userEvent.setup({ delay: null });
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
+  await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") }));
+  await waitFor(() => expect(bottom).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(first).toHaveFocus();
+  });
+  expect(scroller.scrollTop).toBe(600);
 });
 
 it("finishes an accepted deletion and its refresh after leaving the list destination", async () => {

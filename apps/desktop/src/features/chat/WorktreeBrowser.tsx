@@ -95,7 +95,7 @@ function WorktreeBrowserDestination({
     const action =
       rows.current?.querySelector<HTMLButtonElement>("button:not(:disabled)") ??
       headerElement.current?.querySelector<HTMLButtonElement>("button:not(:disabled)");
-    action?.focus();
+    action?.focus({ preventScroll: true });
   }, []);
   const enter = useCallback(
     (header: HTMLDivElement | null) => {
@@ -250,13 +250,14 @@ function WorktreeBrowserDestination({
                     <Spinner size="sm" />
                   ) : (
                     <>
-                      {row.originSessionID === undefined ? null : (
+                      {row.originSession === undefined ? null : (
                         <WorktreeOriginSessionAction
                           currentSessionID={sessionID}
                           projectID={projectID}
                           nativeWindowsAvailable={nativeWindowsAvailable}
                           onOpenSession={onOpenSession}
-                          originSessionID={row.originSessionID}
+                          originSessionID={row.originSession.id}
+                          originSessionLabel={row.originSession.label}
                         />
                       )}
                       {row.switch === undefined ? null : (
@@ -290,12 +291,14 @@ function WorktreeOriginSessionAction({
   nativeWindowsAvailable,
   onOpenSession,
   originSessionID,
+  originSessionLabel,
 }: Readonly<{
   currentSessionID: string;
   projectID: string;
   nativeWindowsAvailable: boolean;
   onOpenSession(sessionID: string): void | Promise<void>;
   originSessionID: string;
+  originSessionLabel: string;
 }>) {
   const { t } = useTranslation();
   const nativeChat = useNativeChatOpening();
@@ -303,7 +306,7 @@ function WorktreeOriginSessionAction({
   const isCurrentSession = originSessionID === currentSessionID;
   const label = t(
     isCurrentSession ? "chat.worktree.currentOriginSession" : "chat.worktree.openOriginSession",
-    { sessionID: originSessionID },
+    { sessionID: originSessionLabel },
   );
   const tooltip = nativeWindowsAvailable ? t("app.shiftClickToOpenInNewWindow", { action: label }) : label;
   return (

@@ -394,10 +394,8 @@ func (s *Service) RemovePendingWork(ctx context.Context, req *runtimepb.RemovePe
 }
 
 func (s *Service) RecordPromptHistory(ctx context.Context, req *promptpb.RecordHistoryRequest) error {
-	return s.withRuntime(ctx, req.SessionId, func(_ context.Context, _ *runtime.Engine) error {
-		_, err := s.recordPromptHistory(ctx, strings.TrimSpace(req.SessionId), req.Text)
-		return err
-	})
+	_, err := s.recordPromptHistory(ctx, req.SessionId, req.Text)
+	return err
 }
 
 func (s *Service) recordPromptHistory(ctx context.Context, sessionID string, text string) (metadata.PromptHistoryRecord, error) {

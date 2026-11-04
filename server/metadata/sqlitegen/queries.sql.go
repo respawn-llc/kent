@@ -584,6 +584,22 @@ func (q *Queries) CountExecutableCurrentNodesByWorkspace(ctx context.Context, wo
 	return current_node_count, err
 }
 
+const countInProgressTasksByManagedWorktree = `-- name: CountInProgressTasksByManagedWorktree :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN workflow_task_status_records status ON status.task_id = t.id
+WHERE t.managed_worktree_id = ?1
+  AND status.kind NOT IN ('backlog', 'done')
+`
+
+func (q *Queries) CountInProgressTasksByManagedWorktree(ctx context.Context, managedWorktreeID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countInProgressTasksByManagedWorktree, managedWorktreeID)
+	var ref_count int64
+	err := recordQueryError(ctx, row.Scan(&ref_count), countInProgressTasksByManagedWorktree, 1)
+
+	return ref_count, err
+}
+
 const countManagedOwnedWorktreesByWorkspace = `-- name: CountManagedOwnedWorktreesByWorkspace :one
 SELECT CAST(COUNT(*) AS INTEGER) AS worktree_count
 FROM worktrees
@@ -8261,6 +8277,25 @@ type MoveProjectLabelOrdinalsToTemporaryBandParams struct {
 func (q *Queries) MoveProjectLabelOrdinalsToTemporaryBand(ctx context.Context, arg MoveProjectLabelOrdinalsToTemporaryBandParams) error {
 	_, err := q.db.ExecContext(ctx, moveProjectLabelOrdinalsToTemporaryBand, arg.TemporaryBandOffset, arg.ProjectID)
 	err = recordQueryError(ctx, err, moveProjectLabelOrdinalsToTemporaryBand, 2)
+	return err
+}
+
+const moveTaskToWorkflow = `-- name: MoveTaskToWorkflow :exec
+UPDATE tasks
+SET project_workflow_link_id = ?1,
+    workflow_revision_seen = ?2
+WHERE id = ?3
+`
+
+type MoveTaskToWorkflowParams struct {
+	ProjectWorkflowLinkID string
+	WorkflowRevisionSeen  int64
+	ID                    string
+}
+
+func (q *Queries) MoveTaskToWorkflow(ctx context.Context, arg MoveTaskToWorkflowParams) error {
+	_, err := q.db.ExecContext(ctx, moveTaskToWorkflow, arg.ProjectWorkflowLinkID, arg.WorkflowRevisionSeen, arg.ID)
+	err = recordQueryError(ctx, err, moveTaskToWorkflow, 3)
 	return err
 }
 

@@ -406,6 +406,8 @@
 ## Manual Movement
 
 - Manual movement acts on the Task, never on one Current Node. A successful move must replace every origin Current Node.
+- `kent task move <task> <target-node-id>` must allow movement between Workflows linked to the same Project only when the Task's sole Current Node and the destination are Start or Terminal Nodes. Kent must reject cross-Workflow movement for in-progress Tasks and executable destinations. Migration must not start executable work.
+- Cross-Workflow movement must not change the Task's identity, Short ID, content, comments, labels, dependencies, associated Sessions, source Workspace, or execution target. After all Tasks leave a Workflow, those Tasks and their Sessions must survive unlinking or deleting that Workflow.
 - Moving a Backlog Task through its Start Node's outgoing Transition uses Task Start. It cannot serve as a manual override.
 - Dropping a Task onto any Node that is already Current is a no-op, including a drop from one parallel card copy onto another Current Node in the same parallel group.
 - A manual move to an Agent or Script Node selects a usable incoming Transition that contains the destination. The Transition may originate from a Node outside the Current Nodes.
@@ -674,7 +676,7 @@
 - The `In Use` indicator must use the existing compact neutral badge treatment after the current and topology indicators. It must coexist with existing status information. Worktree selection and switch/delete actions must stay available.
 - The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
 - The status must be informational only. It must not change Worktree deletion admission.
-- Non-terminal Task ownership alone must not block ordinary Worktree deletion. Deletion must leave the ongoing Task's managed binding and recovery evidence intact.
+- Task ownership alone must not block ordinary Worktree deletion. Deletion must remove the Worktree registration and managed binding when every owning Task is Not Started or Done, without deleting those Tasks. Deletion must leave other owning Tasks' managed bindings and recovery evidence intact.
 - If a linked Worktree directory is absent, deletion must remove its stale Git registration and removable Kent information without requiring forced folder removal.
 - If Git recognizes a linked Worktree whose directory exists without its `.git` marker, delete preview must report unknown cleanliness without a failed Git command diagnostic. Deletion must leave the directory untouched unless forced folder removal is explicitly authorized. Authorized deletion must remove the directory and stale Git registration for both Kent-registered and External Worktrees.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It must not wait for or stop that work.

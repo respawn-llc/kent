@@ -75,7 +75,7 @@ function useTooltipController({
     delay: { open: delayDuration ?? providerDelay },
     handleClose: safePolygon({ requireIntent: false }),
   });
-  const dismiss = useDismiss(context, { referencePress: true });
+  const dismiss = useDismiss(context, { referencePress: true, ancestorScroll: true });
   return {
     context,
     nodeId,
@@ -181,7 +181,7 @@ function TooltipContent({
         role="tooltip"
         inert={!context.open}
         style={floatingStyles}
-        className="z-50"
+        className="pointer-events-none z-50"
       >
         <div
           {...props}

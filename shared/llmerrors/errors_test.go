@@ -10,6 +10,32 @@ import (
 	"core/shared/textutil"
 )
 
+func TestMessageLimitClassification(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		providerType string
+		providerCode string
+		code         UnifiedErrorCode
+		status       *int
+		wantLimit    bool
+		wantFatal    bool
+	}{
+		{"message limit", "response.incomplete", "max_messages", UnifiedErrorCodeUnknown, textutil.Value(200), true, false},
+		{"other incomplete", "response.incomplete", "max_output_tokens", UnifiedErrorCodeUnknown, textutil.Value(200), false, true},
+		{"different event", "response.failed", "max_messages", UnifiedErrorCodeUnknown, textutil.Value(200), false, false},
+		{"authentication", "response.incomplete", "max_messages", UnifiedErrorCodeAuthentication, textutil.Value(200), true, true},
+		{"bad request", "response.incomplete", "max_messages", UnifiedErrorCodeUnknown, textutil.Value(400), true, true},
+		{"contract", "response.incomplete", "max_messages", UnifiedErrorCodeProviderContract, textutil.Value(200), true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := fmt.Errorf("wrapped: %w", &ProviderAPIError{ProviderType: test.providerType, ProviderCode: test.providerCode, Code: test.code, StatusCode: test.status})
+			if IsMessageLimitError(err) != test.wantLimit || IsNonRetriableModelError(err) != test.wantFatal {
+				t.Fatalf("limit=%v fatal=%v", IsMessageLimitError(err), IsNonRetriableModelError(err))
+			}
+		})
+	}
+}
+
 func TestConnectionDiagnosticsPreserveNonRefreshFailures(t *testing.T) {
 	connectionID := config.ConnectionID("removed-connection")
 	configurationFailure := errors.New("selected connection is no longer configured")

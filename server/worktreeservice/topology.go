@@ -103,6 +103,9 @@ func (s *Service) projectWorktreeList(ctx context.Context, entries []*worktreepb
 	if err != nil {
 		return nil, err
 	}
+	if err := s.projectWorktreeOriginSessions(ctx, projected); err != nil {
+		return nil, err
+	}
 	if s.runtimeActivitySnapshotReader == nil {
 		return nil, errors.New("worktree Runtime activity snapshot reader is required")
 	}
@@ -141,6 +144,36 @@ func (s *Service) projectWorktreeList(ctx context.Context, entries []*worktreepb
 		entry.Projection.IsInUse = taskCount > 0 || hasActiveSession
 	}
 	return projected, nil
+}
+
+func (s *Service) projectWorktreeOriginSessions(ctx context.Context, entries []*worktreepb.ListEntry) error {
+	bySession := make(map[string][]*worktreepb.ListProjection)
+	var sessionIDs []string
+	for _, entry := range entries {
+		facts := topologyKentFacts(entry.Topology)
+		if facts == nil || facts.OriginSessionId == nil {
+			continue
+		}
+		id := *facts.OriginSessionId
+		if _, exists := bySession[id]; !exists {
+			sessionIDs = append(sessionIDs, id)
+		}
+		bySession[id] = append(bySession[id], entry.Projection)
+	}
+	if len(sessionIDs) == 0 {
+		return nil
+	}
+	sessions, err := s.metadata.Queries().ListSessionNamesByIDs(ctx, sessionIDs)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		for _, projection := range bySession[session.ID] {
+			projection.OriginSessionName = metadata.OptionalString(session.Name)
+			projection.OriginSessionShortId = metadata.OptionalInt64(session.ShortID)
+		}
+	}
+	return nil
 }
 
 func projectListEntry(topology *worktreepb.TopologyEntry, selector string, isCurrent bool, sessionScoped bool) (*worktreepb.ListEntry, error) {

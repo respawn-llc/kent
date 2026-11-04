@@ -1653,6 +1653,86 @@ func TestMaterializeInitialTaskWorktreeHandlesRootCollisionAndReportsBranchColli
 	}
 }
 
+func TestDeleteWorktreeRemovesNotStartedTaskRegistration(t *testing.T) {
+	for _, scenario := range []struct {
+		name            string
+		missing         bool
+		returnedToStart bool
+	}{
+		{name: "initial checkout"},
+		{name: "missing initial checkout", missing: true},
+		{name: "returned to start", returnedToStart: true},
+		{name: "missing checkout after return to start", missing: true, returnedToStart: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			env := newServiceTestEnv(t)
+			task, workflowStore := createTaskWorktreeTestTask(t, env)
+			revision := resolveTaskWorktreeTestHEAD(t, env, env.workspaceRoot)
+			created, err := materializeInitialTaskWorktree(env.ctx, env.service, InitialTaskWorktreeMaterializationRequest{
+				TaskID:         task.ID,
+				ResolvedTarget: revision,
+			})
+			if err != nil {
+				t.Fatalf("MaterializeInitialTaskWorktree: %v", err)
+			}
+			definition, _, err := workflowStore.GetDefinition(env.ctx, task.WorkflowID)
+			if err != nil {
+				t.Fatalf("GetDefinition: %v", err)
+			}
+			startID := taskWorktreeNodeIDByKind(t, definition, workflow.NodeKindStart)
+			if scenario.returnedToStart {
+				lockTaskWorktreeExecutionTarget(t, env, workflowStore, task, created, revision)
+				if _, err := workflowfixture.MoveTask(t, env.ctx, env.store, workflowStore, workflowstore.ManualMoveRequest{
+					TaskID:       task.ID,
+					TargetNodeID: startID,
+				}); err != nil {
+					t.Fatalf("move task back to Start: %v", err)
+				}
+			}
+			if scenario.missing {
+				runGit(t, env.workspaceRoot, "worktree", "remove", taskWorktreeRoot(created.Worktree))
+			}
+
+			if _, err := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, taskWorktreeID(created.Worktree))); err != nil {
+				t.Fatalf("DeleteWorktree: %v", err)
+			}
+			list, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{
+				SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: env.session.Meta().SessionID}},
+			})
+			if err != nil {
+				t.Fatalf("ListWorktrees: %v", err)
+			}
+			if len(list.Worktrees) != 1 || list.Worktrees[0].Topology.GetMainWorkspace() == nil {
+				t.Fatalf("worktrees after deletion = %+v, want only main workspace", list.Worktrees)
+			}
+			after, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+			if err != nil {
+				t.Fatalf("GetTask after deletion: %v", err)
+			}
+			if after.ManagedWorktreeID.Valid || after.Title != task.Title || after.Body != task.Body {
+				t.Fatalf("task after deletion = %+v, want preserved content without a managed worktree", after)
+			}
+			if scenario.returnedToStart && after.ExecutionTargetCommitOid.String != revision.CommitOID {
+				t.Fatalf("execution target commit = %+v, want retained %q", after.ExecutionTargetCommitOid, revision.CommitOID)
+			}
+			if scenario.returnedToStart {
+				err := env.service.InspectLockedTaskWorktree(env.ctx, LockedTaskWorktreeRestoreRequest{TaskID: task.ID})
+				var unavailable *LockedTaskWorktreeError
+				if !errors.As(err, &unavailable) {
+					t.Fatalf("deleted target inspection = %v, want explicit replacement selection", err)
+				}
+			}
+			nodes, err := workflowStore.ListCurrentNodes(env.ctx, task.ID)
+			if err != nil || len(nodes) != 1 || nodes[0].Reference.NodeID != startID {
+				t.Fatalf("task current nodes = %+v, error=%v, want Not Started", nodes, err)
+			}
+			if exists, err := env.service.git.BranchExists(env.ctx, env.workspaceRoot, taskWorktreeBranch(created.Worktree)); err != nil || !exists {
+				t.Fatalf("retained branch exists=%v, error=%v", exists, err)
+			}
+		})
+	}
+}
+
 func TestDeleteWorktreeRequiresExplicitTargetSelectionForNonTerminalTask(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, created, _ := materializeAndLockTaskWorktree(t, env)

@@ -1108,6 +1108,12 @@ FROM task_records
 WHERE id = sqlc.arg(id)
 LIMIT 1;
 
+-- name: MoveTaskToWorkflow :exec
+UPDATE tasks
+SET project_workflow_link_id = sqlc.arg(project_workflow_link_id),
+    workflow_revision_seen = sqlc.arg(workflow_revision_seen)
+WHERE id = sqlc.arg(id);
+
 -- name: ListTasksByIDs :many
 SELECT
     id,
@@ -1616,6 +1622,13 @@ JOIN workflow_nodes node ON node.id = current_node.node_id
 WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
   AND t.id != sqlc.arg(task_id)
   AND node.kind != 'terminal';
+
+-- name: CountInProgressTasksByManagedWorktree :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN workflow_task_status_records status ON status.task_id = t.id
+WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
+  AND status.kind NOT IN ('backlog', 'done');
 
 -- name: CountNonTerminalTasksBySourceWorkspace :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
