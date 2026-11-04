@@ -14,7 +14,10 @@ export function AnimatedText({ text, className }: Readonly<{ text: string; class
           initial={{ opacity: 0, filter: "blur(var(--space-1))" }}
           animate={{ opacity: 1, filter: "blur(0px)" }}
           exit={{ opacity: 0, filter: "blur(var(--space-1))" }}
-          transition={{ duration: motionDurationFromCSSVar("--motion-fast", 140) / 1000, ease: "easeOut" }}
+          transition={{
+            duration: (motionDurationFromCSSVar("--motion-fast", 140) * 2) / 1000,
+            ease: "easeOut",
+          }}
         >
           {text}
         </motion.span>
