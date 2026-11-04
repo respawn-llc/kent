@@ -1327,7 +1327,7 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 			ToolCalls: []llm.ToolCall{{
 				ID:    "call-active-shell",
 				Name:  string(toolspec.ToolExecCommand),
-				Input: json.RawMessage(`{"cmd":"printf '\\033[31mactive\\033[0m'; sleep 2","shell":"/bin/sh","login":false,"yield_time_ms":200}`),
+				Input: json.RawMessage(`{"cmd":"printf '\\033[31mactive\\033[0m'; sleep 0.2","shell":"/bin/sh","login":false,"yield_time_ms":200}`),
 			}},
 			Usage: llm.Usage{WindowTokens: 200000},
 		},
@@ -1418,11 +1418,8 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	}
 
 	processes := background.List()
-	if len(processes) != 1 {
-		t.Fatalf("supplied manager process count = %d, want 1 active background process", len(processes))
-	}
-	if processes[0].OwnerSessionID != sessionID {
-		t.Fatalf("background process owner session = %q, want activated session %q", processes[0].OwnerSessionID, sessionID)
+	if len(processes) != 0 {
+		t.Fatalf("supplied manager process count = %d, want no retained foreground process", len(processes))
 	}
 }
 

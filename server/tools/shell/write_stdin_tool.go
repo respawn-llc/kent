@@ -15,10 +15,9 @@ import (
 )
 
 type writeStdinInput struct {
-	SessionID       int    `json:"session_id" jsonschema_description:"Identifier of the running exec_command session."`
-	Chars           string `json:"chars,omitempty" jsonschema_description:"Bytes to write to stdin. May be empty to poll for output."`
-	YieldTimeMS     *int   `json:"yield_time_ms,omitempty" jsonschema_description:"How long to wait in milliseconds for output before yielding."`
-	MaxOutputTokens *int   `json:"max_output_tokens,omitempty" jsonschema_description:"Optional maximum amount of output to return back. Full logs are always still available on disk. Prefer defaults unless you want to read large chunks of text."`
+	SessionID   int    `json:"session_id" jsonschema_description:"Identifier of the running exec_command session."`
+	Chars       string `json:"chars,omitempty" jsonschema_description:"Bytes to write to stdin. May be empty to poll for output."`
+	YieldTimeMS *int   `json:"yield_time_ms,omitempty" jsonschema_description:"How long to wait in milliseconds for output before yielding."`
 }
 
 func WriteStdinStaticContractSource() tools.StaticContractSource {
@@ -33,20 +32,11 @@ const (
 )
 
 type WriteStdinTool struct {
-	outputLimit          int
-	oversizedOutputGuard oversizedOutputGuard
-	background           *Manager
+	background *Manager
 }
 
-func NewWriteStdinTool(outputLimit int, contextWindowTokens int, background *Manager, estimateText func(string) int) *WriteStdinTool {
-	if outputLimit <= 0 {
-		outputLimit = defaultLimit
-	}
-	return &WriteStdinTool{
-		outputLimit:          outputLimit,
-		oversizedOutputGuard: newOversizedOutputGuard(contextWindowTokens, estimateText),
-		background:           background,
-	}
+func NewWriteStdinTool(background *Manager) *WriteStdinTool {
+	return &WriteStdinTool{background: background}
 }
 
 func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, error) {
@@ -72,15 +62,10 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 			yieldTime = writeStdinYieldDuration(*in.YieldTimeMS)
 		}
 	}
-	maxChars := t.outputLimit
-	if in.MaxOutputTokens != nil && *in.MaxOutputTokens > 0 {
-		maxChars = *in.MaxOutputTokens * 4
-	}
 	result, err := t.background.WriteStdin(ctx, WriteRequest{
-		SessionID:      strconv.Itoa(in.SessionID),
-		Input:          in.Chars,
-		YieldTime:      yieldTime,
-		MaxOutputChars: maxChars,
+		SessionID: strconv.Itoa(in.SessionID),
+		Input:     in.Chars,
+		YieldTime: yieldTime,
 	})
 	if err != nil {
 		return ErrorResult(c, formatToolCallError("write_stdin", err)), nil
@@ -102,10 +87,6 @@ func (t *WriteStdinTool) Call(ctx context.Context, c tools.Call) (tools.Result, 
 	var completedBackgroundSessionID *int
 	if result.Backgrounded && !result.Running && result.ExitCode != nil {
 		completedBackgroundSessionID = textutil.Value(in.SessionID)
-	}
-	if guarded, ok := t.oversizedOutputGuard.FailedResult(c, in.MaxOutputTokens, modelVisibleOutput, result.OutputPath, presentation); ok {
-		guarded.CompletedBackgroundSessionID = completedBackgroundSessionID
-		return guarded, nil
 	}
 	toolResult := tools.Result{
 		CallID:                       c.ID,

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"core/server/tools"
-	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/textutil"
 
@@ -344,10 +343,6 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (result Exec
 	if req.Input != "" || req.YieldTime > 0 {
 		yieldTime = normalizeWriteYieldTime(req.YieldTime, defaultWriteYieldTime)
 	}
-	maxOutputChars := req.MaxOutputChars
-	if maxOutputChars <= 0 {
-		maxOutputChars = defaultOutputTokenCap * 4
-	}
 	if req.Input != "" {
 		entry.mu.Lock()
 		stdin := entry.stdin
@@ -366,59 +361,25 @@ func (m *Manager) WriteStdin(ctx context.Context, req WriteRequest) (result Exec
 	}
 
 	start := time.Now()
-	output, err := m.collectUntil(ctx, entry, time.Now().Add(yieldTime))
-	if err != nil {
+	if err := m.waitUntil(ctx, entry, time.Now().Add(yieldTime)); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return ExecResult{}, &PollingCanceledError{SessionID: id, Active: entry.snapshot().Running}
 		}
 		return ExecResult{}, err
 	}
 	snapshot := entry.snapshot()
-	consumedCompletion := false
 	harvestingCompletion := snapshot.Backgrounded && snapshot.ExitCode != nil
-	var warning postprocess.Warning
-	var warningErr error
-	sourceTruncated := false
-	var processed postprocess.Result
-	if harvestingCompletion {
-		fullOutput, readErr := readOutputFileLimited(snapshot.LogPath, maxFullLogPostprocessBytes)
-		if readErr == nil {
-			processed, err = m.applyPostprocessing(ctx, entry, fullOutput, snapshot.ExitCode, true, maxOutputChars)
-			if err != nil {
-				return ExecResult{}, err
-			}
-			consumedCompletion = true
-		} else {
-			var previewTruncated bool
-			preview, _, previewTruncated, previewErr := readBackgroundSummaryFromFile(snapshot.LogPath, maxOutputChars, BackgroundOutputDefault, !snapshot.RawOutput)
-			if previewErr == nil {
-				processed = postprocess.Result{Output: limitModelVisibleFallbackOutput(preview, snapshot.RawOutput)}
-				consumedCompletion = true
-				sourceTruncated = previewTruncated
-				warning, warningErr = mergeOperationalWarning(warning, fmt.Sprintf("full output log skipped: %v", readErr))
-				if warningErr != nil {
-					return ExecResult{}, warningErr
-				}
-			} else {
-				warning, warningErr = mergeOperationalWarning(warning, fmt.Sprintf("failed to read full output log: %v", readErr))
-				if warningErr != nil {
-					return ExecResult{}, warningErr
-				}
-			}
-		}
+	recentOutput, sourceTruncated := entry.recentOutputSnapshot()
+	processed, err := m.applyPostprocessing(ctx, entry, string(recentOutput), snapshot.ExitCode, snapshot.Backgrounded, maxRecentPreviewBytes)
+	if err != nil {
+		return ExecResult{}, err
 	}
-	if !consumedCompletion {
-		processed, err = m.applyPostprocessing(ctx, entry, string(output), snapshot.ExitCode, snapshot.Backgrounded, maxOutputChars)
-		if err != nil {
-			return ExecResult{}, err
-		}
-	}
-	display, displayTruncated, _ := truncateWithTemplate(processed.Output, maxOutputChars, backgroundTruncationBannerTemplate)
+	display, displayTruncated := truncateOutputTail(processed.Output, maxRecentPreviewBytes)
 	awaitTerminalDelivery = harvestingCompletion
 	return ExecResult{
 		SessionID:          id,
 		WallTime:           time.Since(start),
-		Warning:            postprocess.MergeWarnings(warning, processed.Warning),
+		Warning:            processed.Warning,
 		ToolError:          processed.UnrecoverableError,
 		Output:             display,
 		OutputPath:         snapshot.LogPath,
@@ -477,7 +438,7 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 	deadline := time.Now().Add(2 * logWriterFlushDelay)
 	for {
 		snapshot := entry.snapshot()
-		preview, _, _, err := readBackgroundSummaryFromFile(snapshot.LogPath, maxOutputChars, BackgroundOutputDefault, !snapshot.RawOutput)
+		preview, _, err := readBackgroundSummaryFromFile(snapshot.LogPath, maxOutputChars, BackgroundOutputDefault, !snapshot.RawOutput)
 		if err != nil {
 			return "", "", err
 		}

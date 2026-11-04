@@ -99,7 +99,7 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "raw-bg", map[string]any{
 		"cmd":           "printf '\\033[31mhello\\033[0m\\n'; sleep 0.3; printf '\\033[32mdone\\033[0m'",
@@ -166,7 +166,6 @@ func TestShellCompletionPathsLimitCommandOutputLines(t *testing.T) {
 			Command:             []string{"/bin/sh", "-c", command},
 			Workdir:             t.TempDir(),
 			YieldTime:           yield,
-			MaxOutputChars:      16_000,
 			KeepStdinOpen:       stdin,
 		})
 	}
@@ -187,7 +186,7 @@ func TestShellCompletionPathsLimitCommandOutputLines(t *testing.T) {
 	if !interactive.Backgrounded {
 		t.Fatalf("interactive = %+v", interactive)
 	}
-	finished, _ := manager.WriteStdin(context.Background(), WriteRequest{SessionID: interactive.SessionID, Input: "\n", YieldTime: 2 * time.Second, MaxOutputChars: 16_000})
+	finished, _ := manager.WriteStdin(context.Background(), WriteRequest{SessionID: interactive.SessionID, Input: "\n", YieldTime: 2 * time.Second})
 	if finished.Output != want {
 		t.Fatalf("write_stdin = %q; want %q", finished.Output, want)
 	}

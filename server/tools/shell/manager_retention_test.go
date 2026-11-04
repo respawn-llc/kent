@@ -97,10 +97,9 @@ func startAndCompleteRetainedShell(
 	t.Helper()
 	result := startRetainedShell(t, manager, runner, workdir, index)
 	_, err := manager.WriteStdin(context.Background(), WriteRequest{
-		SessionID:      result.SessionID,
-		Input:          "\n",
-		YieldTime:      time.Millisecond,
-		MaxOutputChars: 1_000,
+		SessionID: result.SessionID,
+		Input:     "\n",
+		YieldTime: time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("release retained shell %s: %v", result.SessionID, err)

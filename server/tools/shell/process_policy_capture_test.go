@@ -68,7 +68,7 @@ func TestExecCommandCarriesExecutionCorrelationThroughSnapshotAndTerminalEvent(t
 	if err != nil {
 		t.Fatalf("background process ID: %v", err)
 	}
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 	completed := callWriteStdin(t, stdinTool, "correlated-release", map[string]any{
 		"session_id":    processID,
 		"chars":         "release\n",
@@ -143,7 +143,7 @@ func TestBackgroundProcessKeepsCapturedHookAcrossLaterStartsPollingAndCompletion
 	runnerB := replacementRunner(t, "RUNTIME_B")
 	toolA := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-a", runnerA)
 	toolB := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-b", runnerB)
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	pollTool := NewWriteStdinTool(manager)
 
 	startA := callExecCommand(t, toolA, "a-background", map[string]any{
 		"cmd":           "printf early; sleep 0.2; printf late",
@@ -154,8 +154,8 @@ func TestBackgroundProcessKeepsCapturedHookAcrossLaterStartsPollingAndCompletion
 	if startA.IsError {
 		t.Fatalf("runtime A background start error: %s", string(startA.Output))
 	}
-	if got := decodeStringToolOutput(t, startA); !strings.Contains(got, "RUNTIME_A") {
-		t.Fatalf("runtime A transition output = %q, want captured hook output", got)
+	if got := decodeStringToolOutput(t, startA); strings.Contains(got, "RUNTIME_A") || !strings.Contains(got, "Output file: ") {
+		t.Fatalf("runtime A background transition = %q, want its path without command output", got)
 	}
 	snapshots := manager.List()
 	if len(snapshots) != 1 {
@@ -230,7 +230,7 @@ func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T)
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	tool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "raw-owner", replacementRunner(t, "RUNTIME"))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	pollTool := NewWriteStdinTool(manager)
 
 	foreground := callExecCommand(t, tool, "raw-foreground", map[string]any{
 		"cmd":           "printf '\\033[31mforeground\\033[0m'",
@@ -257,8 +257,8 @@ func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T)
 	if background.IsError {
 		t.Fatalf("raw background error: %s", string(background.Output))
 	}
-	if got := decodeStringToolOutput(t, background); !strings.Contains(got, "\x1b[31mearly\x1b[0m") {
-		t.Fatalf("raw background transition output = %q, want original ANSI", got)
+	if got := decodeStringToolOutput(t, background); strings.Contains(got, "\x1b[31mearly\x1b[0m") || !strings.Contains(got, "Output file: ") {
+		t.Fatalf("raw background transition = %q, want its path without command output", got)
 	}
 	if background.PresentationDelta == nil || !background.PresentationDelta.MovedToBackground {
 		t.Fatalf("raw background result did not report a background transition: %+v", background)
@@ -279,8 +279,8 @@ func TestRawBypassesCapturedPolicyInForegroundBackgroundAndPolling(t *testing.T)
 	if poll.IsError {
 		t.Fatalf("raw polling error: %s", string(poll.Output))
 	}
-	if got := decodeStringToolOutput(t, poll); !strings.Contains(got, "\x1b[32mlate\x1b[0m") {
-		t.Fatalf("raw polling output = %q, want original ANSI", got)
+	if got := decodeStringToolOutput(t, poll); !strings.Contains(got, "\x1b[31mearly\x1b[0m") || !strings.Contains(got, "\x1b[32mlate\x1b[0m") {
+		t.Fatalf("raw polling output = %q, want repeated original ANSI tail", got)
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
 }
@@ -290,7 +290,7 @@ func TestSharedManagerKeepsGlobalLifecycleAcrossCapturedPolicies(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	toolA := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-a", replacementRunner(t, "RUNTIME_A"))
 	toolB := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "owner-b", replacementRunner(t, "RUNTIME_B"))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	pollTool := NewWriteStdinTool(manager)
 	events := make(chan Event, 4)
 	manager.SetEventHandler(func(event Event) bool {
 		if event.Type != EventCompleted && event.Type != EventKilled {
@@ -310,8 +310,8 @@ func TestSharedManagerKeepsGlobalLifecycleAcrossCapturedPolicies(t *testing.T) {
 		if result.IsError {
 			t.Fatalf("%s background start error: %s", name, string(result.Output))
 		}
-		if got := decodeStringToolOutput(t, result); !strings.Contains(got, name) {
-			t.Errorf("%s transition output = %q, want captured policy", name, got)
+		if got := decodeStringToolOutput(t, result); strings.Contains(got, name) || !strings.Contains(got, "Output file: ") {
+			t.Errorf("%s background transition = %q, want its path without command output", name, got)
 		}
 	}
 

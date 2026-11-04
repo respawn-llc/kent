@@ -230,8 +230,6 @@ func TestResolveModelParameterNameAcceptsApprovedAliasesAndGeneratedForms(t *tes
 		{ToolWriteStdin, "yield_ms", "yield_time_ms"},
 		{ToolWriteStdin, "yield-time_ms", "yield_time_ms"},
 		{ToolWriteStdin, "wait_ms", "yield_time_ms"},
-		{ToolWriteStdin, "max_tokens", "max_output_tokens"},
-		{ToolWriteStdin, "output_token_limit", "max_output_tokens"},
 		{ToolViewImage, "file_path", "path"},
 		{ToolViewImage, "image_path", "path"},
 		{ToolViewImage, "file", "path"},

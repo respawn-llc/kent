@@ -181,7 +181,7 @@ func TestUserShellRealProcessLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				result, err := manager.WriteStdin(t.Context(), shelltool.WriteRequest{
-					SessionID: processes[0].ID, YieldTime: 15 * time.Second, MaxOutputChars: 16_000,
+					SessionID: processes[0].ID, YieldTime: 15 * time.Second,
 				})
 				if err != nil || result.Running || result.ExitCode == nil || *result.ExitCode != 0 {
 					t.Fatalf("background result=%+v err=%v", result, err)
