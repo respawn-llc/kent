@@ -45,6 +45,9 @@ func (m *uiModel) applyNewSessionActionDone(msg newSessionActionDoneMsg) tea.Cmd
 		}
 		m.stopSessionObservation()
 		m.setKnownSessionTarget(msg.session.SessionId)
+		m.sessionSettings = nil
+		m.sessionSettingsErr = nil
+		m.sessionObservationErr = nil
 		m.resetPendingWorkRefreshScope(m.presentationTarget.(uiKnownSessionTarget).id)
 		m.reconcileMissingPromptRecoveryScope()
 		m.engine = nil
@@ -86,6 +89,7 @@ func (m *uiModel) observeAdoptedSessionCmd() tea.Cmd {
 	if m.observeSession == nil {
 		return nil
 	}
+	m.sessionObservationErr = nil
 	id := m.presentationTarget.(uiKnownSessionTarget).id
 	parent := m.observationContext
 	if parent == nil {
@@ -115,15 +119,27 @@ func (m *uiModel) applySessionObservationLoaded(msg sessionObservationLoadedMsg)
 	if msg.err != nil {
 		msg.observation.Close()
 		m.stopSessionObservation()
+		m.sessionObservationErr = msg.err
 		m.observeRuntimeRequestResult(msg.err)
-		return m.sendTransientStatusWithNoticeID(msg.err.Error(), uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "")
+		return tea.Batch(
+			m.agentSettingsFailureNotice(msg.err, uiAgentPickerLoad),
+			m.reconcileSpinnerTicking(false),
+		)
 	}
+	m.sessionObservationErr = nil
 	m.sessionObservation = msg.observation
 	m.observeRuntimeRequestResult(nil)
 	return m.installSessionObservation(msg.observation.Wiring, msg.plan)
 }
 
 func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionLaunchPlan) tea.Cmd {
+	m.sessionSettingsErr = plan.ChatSettingsErr
+	if plan.ChatSettings != nil {
+		m.applyChatSettingsProjection(plan.ChatSettings)
+		if m.agentPicker != nil && m.agentPicker.selectedRole == nil {
+			m.focusCurrentAgent()
+		}
+	}
 	m.engine = wiring.runtimeClient
 	m.bindRuntimeConnectionObserver()
 	m.eventDispatcher = wiring.eventDispatcher
@@ -150,7 +166,11 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	m.statusConfig = plan.StatusConfig
 	client := wiring.runtimeClient.(*sessionRuntimeClient)
 	m.ongoingTranscript = newOngoingTranscriptController(m.ongoingSurface, m.ongoingFrameInput, client.admitTranscriptMessageState, m.applyAdmittedTranscriptMessageState)
-	return m.startSessionObservationLoads()
+	var settingsNotice tea.Cmd
+	if m.sessionSettingsErr != nil {
+		settingsNotice = m.agentSettingsFailureNotice(m.sessionSettingsErr, uiAgentPickerLoad)
+	}
+	return tea.Batch(m.startSessionObservationLoads(), settingsNotice)
 }
 
 func (m *uiModel) startSessionObservationLoads() tea.Cmd {

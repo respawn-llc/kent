@@ -21,6 +21,7 @@ const (
 	uiInputModeAsk               uiInputMode = "ask"
 	uiInputModeConnectionRemoval uiInputMode = "connection_removal"
 	uiInputModeStatus            uiInputMode = "status"
+	uiInputModeAgent             uiInputMode = "agent"
 	uiInputModeGoal              uiInputMode = "goal"
 	uiInputModeWorktree          uiInputMode = "worktree"
 	uiInputModeRollbackSelection uiInputMode = "rollback_selection"

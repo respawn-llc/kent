@@ -8,6 +8,19 @@
 - While an overlay change is pending, the overlay ignores input. A failed action shows its error inline while the overlay is open. If the overlay closed, the error appears as a status notice and transcript entry.
 - List selections are identity-stable: refreshes and live updates re-match the selected item by ID, never by index.
 
+## /agent
+
+- `/agent` must open a scrollable Alternate Screen Agent Role picker before or after Session creation. `/model` must be an alias for `/agent`.
+- Both commands must work immediately while the Agent is working, like `/new` and `/back`.
+- Each choice must show the role on its first line and available model and thinking information below it, matching the desktop Agent picker. The picker must initially focus the current Agent and distinguish the current Agent from keyboard selection.
+- The picker must use the shared list keys without a search field. `Esc` or `q` must close the picker without applying a choice.
+- `Enter` must confirm and apply the selected Agent. It must not show a replacement warning or a second confirmation dialog, including while the Session is busy. Replacement must follow the Agent replacement contract in [Core Runtime Tools](core-runtime-tools.md).
+- Selecting the current Agent must close the picker without changing its settings.
+- After replacement, the TUI must immediately show the new Agent's correct model and synchronize its lock state with the replacement result. It must clear the previous Agent's lock state and stale `(model locked)` label. Ordinary model freezing must still apply on the new Agent's next model request.
+- Loading and applying must show a spinner centered in the Alternate Screen surface, without loading text. Applying must keep the picker open until success, then close it.
+- After a failure, `r` or `Enter` must retry.
+- For a locked Workflow Agent, the command must show a refusal in the status line without opening the picker. The client must know the Agent-lock status from loaded Chat state without making a request to decide whether to open the picker.
+
 ## /status
 
 - The Auth section must include the conditional Session Connection row defined in [Provider Connections](provider-connections.md), styled consistently with its other rows. Grok subscription quota access and failures must follow that spec.

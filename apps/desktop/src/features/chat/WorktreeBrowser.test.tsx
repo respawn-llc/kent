@@ -550,7 +550,13 @@ it("refreshes after a completed typed transition without changing Chat target or
   });
   const before = services.transport.descriptorCalls.length;
   const key = queryKeys.chatMainView(target.sessionID);
-  const view = client.getQueryData<WorktreeList>(key);
+  type MainView = Awaited<ReturnType<typeof runtime.api.getMainView>>["mainView"];
+  await waitFor(() => {
+    expect(client.getQueryData<MainView>(key)?.version.sequence).toBe(
+      hydration().RuntimeReadModelUpdate.Version.Sequence,
+    );
+  });
+  const executionTarget = client.getQueryData<MainView>(key)?.executionTarget;
   await act(async () => {
     handler.onEvent({
       sequence: 2,
@@ -568,7 +574,8 @@ it("refreshes after a completed typed transition without changing Chat target or
   await waitFor(() => {
     expect(services.transport.descriptorCalls).toHaveLength(before + 1);
   });
-  expect(client.getQueryData<WorktreeList>(key)).toBe(view);
+  expect(client.getQueryData<MainView>(key)?.sessionID).toBe(target.sessionID);
+  expect(client.getQueryData<MainView>(key)?.executionTarget).toEqual(executionTarget);
   await act(async () => {
     handler.onEvent({
       sequence: 3,

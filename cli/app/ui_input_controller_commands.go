@@ -106,6 +106,8 @@ func (c uiInputController) applyCommandResult(
 		return m, sequenceCmds(prefixCmd, c.startCompaction(submittedText, commandResult.Args))
 	case commands.ActionStatus:
 		return m, sequenceCmds(prefixCmd, c.startStatusFlowCmd())
+	case commands.ActionAgent:
+		return m, sequenceCmds(prefixCmd, m.openAgentPicker())
 	case commands.ActionGoal:
 		next, cmd := c.handleGoalCommand(commandResult.GoalMode, commandResult.GoalObjective)
 		return next, sequenceCmds(prefixCmd, cmd)
