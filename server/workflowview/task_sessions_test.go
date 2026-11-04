@@ -24,6 +24,82 @@ type taskSessionActivitySource struct {
 	calls     *int
 }
 
+func TestTaskSessionsAfterWorkflowMigrationAndSourceDeletion(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	started := fixture.startTask(t, "Retained migrated Session")
+	sessionID := fixture.bindCurrentNodeSession(t, started)
+	readModel := newTaskSessionsForTest(t, fixture, taskSessionActivitySource{})
+	before := listTaskSessionsForTest(t, readModel, string(started.task.ID), 0, 10)
+	if len(before.Items) != 1 || before.Items[0].NodeName == nil {
+		t.Fatalf("source Session projection=%+v", before.Items)
+	}
+	moveToTerminal := func(workflowID runtimeids.WorkflowID) {
+		t.Helper()
+		definition, _, err := fixture.store.GetDefinition(fixture.ctx, workflowID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var terminal workflow.Node
+		for _, node := range definition.Nodes {
+			if node.Kind() == workflow.NodeKindTerminal {
+				terminal = node
+				break
+			}
+		}
+		if terminal == nil {
+			t.Fatal("fixture has no terminal")
+		}
+		prepared, err := fixture.store.PrepareManualMove(fixture.ctx, workflowstore.ManualMoveRequest{
+			TaskID: started.task.ID, TargetNodeID: workflow.NodeIDOf(terminal),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := fixture.store.PlanManualMove(fixture.ctx, prepared, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.store.CommitManualMove(fixture.ctx, plan, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	moveToTerminal(fixture.workflowID)
+	destination := currentNodeViewWorkflow(t, fixture.store, false)
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(fixture.ctx, fixture.binding.ProjectID, destination, workflowstore.WorkflowLinkDefaultAlways); err != nil {
+		t.Fatal(err)
+	}
+	moveToTerminal(destination)
+	migrated := listTaskSessionsForTest(t, readModel, string(started.task.ID), 0, 10)
+	if len(migrated.Items) != 1 || !proto.Equal(before.Items[0], migrated.Items[0]) {
+		t.Fatalf("migration changed historical Session projection: %+v", migrated.Items)
+	}
+	impact, err := fixture.store.PreviewWorkflowDelete(fixture.ctx, fixture.workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := fixture.store.DeleteWorkflow(fixture.ctx, workflowstore.WorkflowDeleteRequest{
+		WorkflowID: fixture.workflowID, Confirmed: true, ExpectedVersion: impact.Version,
+		ExpectedProjectCount: impact.ProjectCount, ExpectedLinkCount: impact.LinkCount, ExpectedTaskCount: impact.TaskCount,
+	})
+	if err != nil || !deleted.Deleted {
+		t.Fatalf("deleted=%+v err=%v", deleted, err)
+	}
+	after := listTaskSessionsForTest(t, readModel, string(started.task.ID), 0, 10)
+	if len(after.Items) != 1 || after.Items[0].SessionId != sessionID.String() {
+		t.Fatalf("retained Session=%+v", after.Items)
+	}
+	// Deleted graph nodes have no display label. The Session keeps its identity
+	// and metadata; migration must not attribute old work to a destination node.
+	expected := proto.Clone(before.Items[0]).(*taskpb.SessionItem)
+	expected.NodeName = nil
+	if !proto.Equal(expected, after.Items[0]) {
+		t.Fatalf("deleted source projection=%+v", after.Items[0])
+	}
+	if _, err := fixture.metadata.ResolvePersistedSession(fixture.ctx, sessionID.String()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (s taskSessionActivitySource) ActiveRuntimeActivitySnapshots(context.Context) ([]runtimeactivity.ActiveSessionSnapshot, error) {
 	if s.calls != nil {
 		(*s.calls)++
