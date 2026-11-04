@@ -360,8 +360,6 @@ export function taskDetail(value: pb.TaskDetailValid): TaskDetail {
       return { ...taskCurrentNode(node), displayName: node.nodeDisplayName };
     }),
     liveSessions: value.liveSessions.map((session) => {
-      if (session.shortId !== undefined && session.shortId <= 0n)
-        throw new ContractError("Task Detail Session numeric ID must be positive.");
       const role = value.currentNodes.find((node) => node.sessionId === session.sessionId)?.effectiveAssignee;
       const displayName =
         session.sessionName ?? role ?? sessionDisplayID(session.sessionId, session.shortId ?? null);

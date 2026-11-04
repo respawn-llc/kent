@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { create } from "@app/server-api-contract";
+import { create, ValidationError } from "@app/server-api-contract";
 import * as pb from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
@@ -21,6 +21,16 @@ async function getTask(task: pb.TaskDetail) {
 }
 
 describe("task detail execution target contract", () => {
+  it.each([0n, -1n])("rejects invalid Session numeric ID %s at the wire boundary", (shortId) => {
+    const task = create(pb.TaskDetailSchema, {
+      ...taskDetailResponse.task,
+      liveSessions: taskDetailResponse.task.liveSessions.map((session) =>
+        create(pb.LiveSessionSchema, { ...session, shortId }),
+      ),
+    });
+    expect(getTask(task)).rejects.toThrow(ValidationError);
+  });
+
   it("maps durable target facts, recorded worktree path, and current executions", async () => {
     const detail = await getTask(taskDetailResponse.task);
     expect(detail.executionTarget).toEqual({
