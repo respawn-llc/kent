@@ -101,6 +101,16 @@ func (s *Service) evaluateDeleteCleanliness(ctx context.Context, entry *worktree
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("worktree topology root is required")
 	}
+	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
+		return &worktreepb.DirtyState{Kind: worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN}, nil
+	} else if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
+		return &worktreepb.DirtyState{Kind: worktreepb.DirtyStateKind_DIRTY_STATE_UNKNOWN}, nil
+	} else if err != nil {
+		return nil, err
+	}
 	dirtyState, err := s.git.ProbeDirtyState(ctx, root)
 	if err == nil {
 		return dirtyState, nil

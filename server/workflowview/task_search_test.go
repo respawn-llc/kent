@@ -301,6 +301,7 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 			name: "active",
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				startTaskSearchTask(t, fixture, task)
+				fixture.makeCurrentNodeReady(t, task.ID)
 			},
 			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE,
 		},

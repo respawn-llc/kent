@@ -75,6 +75,13 @@ type startedCurrentNodeViewTask struct {
 	currentNode workflow.CurrentNodeReference
 }
 
+func (f currentNodeViewFixture) makeCurrentNodeReady(t *testing.T, taskID workflow.TaskID) {
+	t.Helper()
+	if _, err := f.metadata.DB().ExecContext(f.ctx, `UPDATE task_current_nodes SET scheduling_state = 'ready' WHERE task_id = ?`, string(taskID)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type currentNodeViewPrompt struct {
 	authority *sessionruntime.Authority
 	sessionID runtimeids.SessionID

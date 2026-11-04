@@ -341,6 +341,7 @@
 - Full-history fan-out clones use the reassignment instructions because they inherit the source Session's prior assignment context.
 - `compact_and_continue_session` uses the reassignment instructions because it delivers another executable Node assignment.
 - Compaction during an in-progress Current Node and restoration of that same interrupted assignment must use same-assignment continuation instructions. Workflow Pre-Compaction, post-completion compaction, and `compact_and_continue_session` must use new-assignment instructions for the target. The target's prepared context must contain exactly one of these assignment prompt forms.
+- After manual compaction during an active Current Node, the next Agent turn must restore its Workflow instructions before a model request. If the instructions are missing, debug mode must panic. In production, missing instructions must fail the Task through ordinary Workflow failure reporting without crashing the server.
 - A pending compacted context must carry the identity of its in-progress assignment, when present, so later activation can distinguish continuation from a new assignment. Existing pending summaries without that identity must receive new-assignment instructions. Kent must not infer the missing identity or rewrite saved conversation history.
 - Post-completion compaction has no current executable assignment. Its replacement contains the completed-assignment summary and general Workflow instructions without a current-assignment reminder. Every later executable Node entry, including a return to the same Node key, appends reassignment instructions before its first model request.
 - Prompt explains task identity, node role/assignee, selected completion behavior, question behavior, handoff/transition mechanics, task comments, and why ordinary final answers are invalid when the selected mode rejects them.
@@ -585,6 +586,8 @@
 - Desktop shows Task-wide Interrupt when several Exact Execution Scopes are live or a Script Node is live.
 - Task status is structured and independent of a specific client. Each client renders and localizes it.
 - One primary status uses this precedence: done, live question, live or persisted workflow approval, running, queued, interrupted, backlog, active.
+- All interruption causes must use the same interrupted status and offer Resume. When a server restart stops a Current Node's running or queued execution, that Node must show interrupted and offer Resume.
+- An interruption reason must be optional. Manual interruption and server restart must not expose copyable error diagnostics. Interruptions caused by errors must include their diagnostic details.
 - Running and live-Question status require matching Exact Execution Scope evidence. `queued` requires either a matching queued Exact Execution Scope or Workflow Execution's live automatic-concurrency queue ownership. `running` means an agent loop or Script process is actively executing. `waiting_question` is not running and is not interruptible. Durable Current Node scheduling state and interruption metadata never prove liveness.
 - Task information exposes `can_delete` from the same live state. Delete treats this as a hint and checks Quiescence again before making changes.
 - When parallel branches differ, Task status must report every applicable attention kind and its Session and Current Node references.
@@ -672,6 +675,8 @@
 - The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
 - The status must be informational only. It must not change Worktree deletion admission.
 - Non-terminal Task ownership alone must not block ordinary Worktree deletion. Deletion must leave the ongoing Task's managed binding and recovery evidence intact.
+- If a linked Worktree directory is absent, deletion must remove its stale Git registration and removable Kent information without requiring forced folder removal.
+- If Git recognizes a linked Worktree whose directory exists without its `.git` marker, delete preview must report unknown cleanliness without a failed Git command diagnostic. Deletion must leave the directory untouched unless forced folder removal is explicitly authorized. Authorized deletion must remove the directory and stale Git registration for both Kent-registered and External Worktrees.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It must not wait for or stop that work.
 - A targeting Idle Active Session Runtime is retired before its Session is retargeted as dormant. Durable target/reminder state changes before physical deletion.
 - If human input becomes accepted first, that delete attempt fails. If deletion retires and retargets first, later input activates or attaches to a Runtime on the new target.

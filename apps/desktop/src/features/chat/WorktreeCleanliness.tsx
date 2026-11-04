@@ -10,7 +10,7 @@ export function WorktreeCleanliness({
     ? t("chat.worktree.clean")
     : value.kind === DirtyStateKind.DIRTY_STATE_DIRTY
       ? t("chat.worktree.dirty", { count: value.dirtyFileCount })
-      : t("chat.worktree.unknown", { diagnostic: value.unknownCause });
+      : t("chat.worktree.unknown");
   return (
     <p className={clean ? "break-words text-sm" : "break-words text-sm text-[var(--color-warning)]"}>
       {label}

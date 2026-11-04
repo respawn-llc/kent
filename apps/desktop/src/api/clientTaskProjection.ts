@@ -7,6 +7,7 @@ import type {
 } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ContractError } from "./errors";
 import { timestampMillis } from "./clientTime";
+import { sessionDisplayID } from "./sessionIdentity";
 import type {
   TaskStatus,
   TaskDependencyProgress,
@@ -358,12 +359,15 @@ export function taskDetail(value: pb.TaskDetailValid): TaskDetail {
         throw new ContractError("Task Detail Current Node display name is required.");
       return { ...taskCurrentNode(node), displayName: node.nodeDisplayName };
     }),
-    liveSessions: value.liveSessions.map((session) => ({
-      sessionID: session.sessionId,
-      shortID: session.shortId ?? null,
-      sessionName: session.sessionName ?? null,
-      nodeDisplayName: session.nodeDisplayName,
-    })),
+    liveSessions: value.liveSessions.map((session) => {
+      const role = value.currentNodes.find((node) => node.sessionId === session.sessionId)?.effectiveAssignee;
+      const displayName =
+        session.sessionName ?? role ?? sessionDisplayID(session.sessionId, session.shortId ?? null);
+      return {
+        sessionID: session.sessionId,
+        displayName,
+      };
+    }),
     currentScripts: value.currentScripts.map((script) => {
       return {
         currentNode: {

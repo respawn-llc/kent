@@ -1036,6 +1036,13 @@ func (i *GitInspector) Remove(ctx context.Context, workspaceRoot string, worktre
 	if err != nil {
 		return err
 	}
+	if force {
+		if _, err := os.Lstat(filepath.Join(canonicalWorktreeRoot, ".git")); errors.Is(err, os.ErrNotExist) {
+			return i.ForceRemovePrunableWorktree(ctx, canonicalWorkspaceRoot, canonicalWorktreeRoot)
+		} else if err != nil {
+			return err
+		}
+	}
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")

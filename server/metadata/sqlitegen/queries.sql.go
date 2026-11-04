@@ -718,6 +718,13 @@ live_task_states AS (
         CAST(json_extract(value, '$.has_waiting_approval') AS INTEGER) AS has_waiting_approval
     FROM json_each((SELECT live_task_states_json FROM args))
 ),
+saved_admissions AS (
+    SELECT DISTINCT current_node.task_id
+    FROM task_current_nodes current_node
+    JOIN workflow_nodes node ON node.id = current_node.node_id
+    WHERE current_node.scheduling_state = 'admitted'
+      AND node.kind IN ('agent', 'script')
+),
 effective_status AS (
     SELECT
         durable.task_id,
@@ -729,6 +736,7 @@ effective_status AS (
               OR durable.kind = 'waiting_approval' THEN 'waiting_approval'
             WHEN COALESCE(live.has_running, 0) != 0 THEN 'running'
             WHEN COALESCE(live.has_queued, 0) != 0 THEN 'queued'
+            WHEN saved.task_id IS NOT NULL THEN 'interrupted'
             WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 'active'
             ELSE durable.kind
         END AS kind,
@@ -739,6 +747,7 @@ effective_status AS (
               OR durable.kind = 'waiting_approval' THEN 3
             WHEN COALESCE(live.has_running, 0) != 0 THEN 5
             WHEN COALESCE(live.has_queued, 0) != 0 THEN 6
+            WHEN saved.task_id IS NOT NULL THEN 4
             WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 8
             ELSE durable.primary_status_rank
         END AS primary_status_rank,
@@ -763,6 +772,7 @@ effective_status AS (
         END AS attention_types_json
     FROM workflow_task_status_records durable
     LEFT JOIN live_task_states live ON live.task_id = durable.task_id
+    LEFT JOIN saved_admissions saved ON saved.task_id = durable.task_id
 ),
 
 eligible_rows AS (
@@ -7187,6 +7197,13 @@ live_task_states AS (
         CAST(json_extract(value, '$.has_waiting_approval') AS INTEGER) AS has_waiting_approval
     FROM json_each((SELECT live_task_states_json FROM args))
 ),
+saved_admissions AS (
+    SELECT DISTINCT current_node.task_id
+    FROM task_current_nodes current_node
+    JOIN workflow_nodes node ON node.id = current_node.node_id
+    WHERE current_node.scheduling_state = 'admitted'
+      AND node.kind IN ('agent', 'script')
+),
 effective_status AS (
     SELECT
         durable.task_id,
@@ -7198,6 +7215,7 @@ effective_status AS (
               OR durable.kind = 'waiting_approval' THEN 'waiting_approval'
             WHEN COALESCE(live.has_running, 0) != 0 THEN 'running'
             WHEN COALESCE(live.has_queued, 0) != 0 THEN 'queued'
+            WHEN saved.task_id IS NOT NULL THEN 'interrupted'
             WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 'active'
             ELSE durable.kind
         END AS kind,
@@ -7208,6 +7226,7 @@ effective_status AS (
               OR durable.kind = 'waiting_approval' THEN 3
             WHEN COALESCE(live.has_running, 0) != 0 THEN 5
             WHEN COALESCE(live.has_queued, 0) != 0 THEN 6
+            WHEN saved.task_id IS NOT NULL THEN 4
             WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 8
             ELSE durable.primary_status_rank
         END AS primary_status_rank,
@@ -7232,6 +7251,7 @@ effective_status AS (
         END AS attention_types_json
     FROM workflow_task_status_records durable
     LEFT JOIN live_task_states live ON live.task_id = durable.task_id
+    LEFT JOIN saved_admissions saved ON saved.task_id = durable.task_id
 ),
 
 eligible_rows AS (
@@ -7747,6 +7767,13 @@ live_task_states AS (
         CAST(json_extract(value, '$.has_waiting_approval') AS INTEGER) AS has_waiting_approval
     FROM json_each((SELECT live_task_states_json FROM args))
 ),
+saved_admissions AS (
+    SELECT DISTINCT current_node.task_id
+    FROM task_current_nodes current_node
+    JOIN workflow_nodes node ON node.id = current_node.node_id
+    WHERE current_node.scheduling_state = 'admitted'
+      AND node.kind IN ('agent', 'script')
+),
 effective_status AS (
     SELECT
         durable.task_id,
@@ -7758,6 +7785,7 @@ effective_status AS (
               OR durable.kind = 'waiting_approval' THEN 'waiting_approval'
             WHEN COALESCE(live.has_running, 0) != 0 THEN 'running'
             WHEN COALESCE(live.has_queued, 0) != 0 THEN 'queued'
+            WHEN saved.task_id IS NOT NULL THEN 'interrupted'
             WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 'active'
             ELSE durable.kind
         END AS kind,
@@ -7768,6 +7796,7 @@ effective_status AS (
               OR durable.kind = 'waiting_approval' THEN 3
             WHEN COALESCE(live.has_running, 0) != 0 THEN 5
             WHEN COALESCE(live.has_queued, 0) != 0 THEN 6
+            WHEN saved.task_id IS NOT NULL THEN 4
             WHEN durable.kind IN ('running', 'queued', 'waiting_question') THEN 8
             ELSE durable.primary_status_rank
         END AS primary_status_rank,
@@ -7792,6 +7821,7 @@ effective_status AS (
         END AS attention_types_json
     FROM workflow_task_status_records durable
     LEFT JOIN live_task_states live ON live.task_id = durable.task_id
+    LEFT JOIN saved_admissions saved ON saved.task_id = durable.task_id
 )
 
 SELECT

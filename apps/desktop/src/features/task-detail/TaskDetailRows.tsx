@@ -5,7 +5,7 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { TaskDetail } from "@/api";
-import { errorMessage, sessionDisplayID } from "@/api";
+import { errorMessage } from "@/api";
 import {
   useAppServices,
   useNativeChatOpening,
@@ -17,6 +17,7 @@ import {
 import { useOpenExternalLink } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import { taskStatusTone } from "@/shared/task-status";
+import { TaskSessionPicker } from "@/shared/task-session-chat";
 import {
   Button,
   Island,
@@ -25,7 +26,6 @@ import {
   showStatusToast,
   Spinner,
   Popover,
-  PopoverContent,
   PopoverTrigger,
 } from "@/ui";
 import { cx, fieldIslandInputClassName } from "@/ui";
@@ -128,33 +128,16 @@ function TaskSessionOpenAction({
           <span className="min-w-0 truncate">{label}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        collisionPadding={12}
-        level={3}
-        className="w-[min(26rem,calc(100vw-24px))] gap-0 p-[var(--space-2)]"
-      >
-        <div className="grid max-h-[min(20rem,var(--radix-popover-content-available-height))] min-w-0 gap-[var(--space-1)] overflow-y-auto">
-          {sessions.map((session) => {
-            const sessionLabel = session.sessionName ?? sessionDisplayID(session.sessionID, session.shortID);
-            const sessionAction = t("task.openChat", { name: sessionLabel });
-            return (
-              <TaskSessionOpenButton
-                key={session.sessionID}
-                pending={pendingSessionID === session.sessionID}
-                label={sessionLabel}
-                tooltip={actionTooltip(sessionAction)}
-                className="w-full justify-start rounded-[var(--radius-s)] border-0 bg-transparent text-left font-sans text-sm hover:bg-[var(--color-island-2)]"
-                onClick={(event) => {
-                  const intent = event.shiftKey && nativeWindowsAvailable ? "native_window" : pickerIntent;
-                  setOpen(false);
-                  onOpen(session.sessionID, intent);
-                }}
-              />
-            );
-          })}
-        </div>
-      </PopoverContent>
+      <TaskSessionPicker
+        sessions={sessions}
+        defaultIntent={pickerIntent}
+        nativeWindowsAvailable={nativeWindowsAvailable}
+        pendingSessionID={pendingSessionID}
+        onOpen={(sessionID, intent) => {
+          setOpen(false);
+          onOpen(sessionID, intent);
+        }}
+      />
     </Popover>
   );
 }

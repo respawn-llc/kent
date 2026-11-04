@@ -56,6 +56,17 @@
 
 - Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Loading buttons must crossfade between their action label and a replacing spinner without changing width. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
 
+## Worktree deletion
+
+- The Worktree list destination must own deletion preparation, confirmation choices, and request state. The confirmation popup must only present those values and forward operator actions.
+- The popup must use ordinary hover-away and click-away dismissal. Its controls must be Confirm and Include branch, without a Close action or a Clean status label.
+- Include branch must default to selected when the list destination opens. Its choice must remain in memory across popup openings and deletions within that destination, and must reset when a new list destination opens. The choice must not be saved to settings or disk.
+- When Include branch is unavailable, confirmation must retain the branch. When the operator clears Include branch, confirmation must retain the branch, including a branch created by Kent.
+- Confirm must close the popup immediately and submit the captured deletion choice. Closing the popup or navigating away must not cancel an accepted deletion.
+- Preparation and deletion must replace only the affected row's actions with a spinner. The popup must have no loading state. Other Delete actions must be unavailable while a deletion is pending.
+- Refresh must keep loaded rows mounted without a full-list loading state. Successful deletion must remove its row with a smooth exit that settles immediately when reduced motion is enabled.
+- Deletion preparation, deletion, and refresh failures with a loaded list must use temporary error notifications without replacing the list. Failed deletion must restore the affected row's actions. Reopening the popup must permit a new attempt.
+
 ## Transcript configuration notices
 
 - Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.
@@ -307,6 +318,8 @@
 
 ## Labels and board sorting
 
+- An ordinary Board Task card click must open Task Detail. Shift-click must open an existing Task Session in ordinary Chat navigation. The card context menu must offer `Open in Chat` for active and paused Tasks. These Chat entry points must use the same applicable Sessions, direct-open behavior, and multiple-Session picker as Task Detail. Opening Chat must not create a Session or resume the Task. Pending Question actions must be separate.
+
 - Boards have one transparent filter-and-sort row. Its controls appear in this order: `Labels`, `Sort`, `Unblocked`, `Search`. It has no status, attention, or column filter.
 - `Sort` uses an icon followed by text and opens a popover styled like the Label chooser.
 - The Sort popover lists `Updated`, `Created`, `Labels`, and `Short ID`, in that order. An `Asc`/`Desc` segmented selector controls the direction.
@@ -487,7 +500,7 @@
 - Inbox-opened Task Detail can move through the live Inbox order with Previous and Next. After resolution removes the open Task, Next advances to the replacement item. These controls are unavailable outside Inbox.
 - The top Task Detail action opens or focuses the highest-priority unresolved attention. Every unresolved item not awaiting an answer result must offer its applicable inline controls. Preparation failures use the ordinary Task action failure presentation defined by [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - Home Inbox shows only task-scoped attention. It has no Workflow-validity badge or section.
-- Task Detail must label its Session action `Open in Chat`, or `Open in CLI` where Chat is unavailable. With one live Session, it must execute the action directly. With multiple live Sessions, it must show a scrollable popup using the Task search popup's row treatment. Each one-line row must show the Session name, or its ID when unnamed, in the small body font. Activating a row must act only on that Session. Open in CLI must keep its command-copy behavior. The `Interrupt` action must keep its Task-wide behavior without a Session picker.
+- Task Detail must label its Session action `Open in Chat`, or `Open in CLI` where Chat is unavailable. The action must include Sessions referenced by Current Nodes, even when the Task is paused, alongside live Sessions. Opening Chat must not resume the Task or start an Agent. With no applicable Session, the action must be absent. With one applicable Session, it must execute the action directly. With multiple applicable Sessions, it must show a scrollable popup using the Task search popup's row treatment. Each one-line row must show one label in the small body font: the Session name, otherwise its Current Node's Agent role name, otherwise its numeric Session ID. A historical Session without any of those labels must use its UUID. Rows must not show a Node label alongside the Session label. Activating a row must act only on that Session. Open in CLI must keep its command-copy behavior. The `Interrupt` action must keep its Task-wide behavior without a Session picker.
 - Home Inbox items must highlight their complete area on hover, including the Open in Chat action. That action must occupy the header row and reduce only the title's available width. The body must use the full item width. Session list titles and bodies must use the full item width without reserving space for an absent action.
 - Questions support suggestions, freeform commentary, recommendations, pointer or keyboard selection, and ordinary focus navigation. An option Question selects its valid recommended option by default and otherwise selects option 1. Malformed recommendation metadata follows the same option-1 fallback. Live refresh must not change the user's selection or draft. Selection and recommendation are distinct states. A Question with no suggestions has only freeform response and must not offer `Neither`.
 - Runtime Approvals use the actual prompt and approval-specific choices. They select the one-time allow choice when offered and otherwise the first offered choice. They must not offer `Neither`. Deny requires commentary. A consolidated outside-workspace Approval begins with `Agent wants to access a batch of files, but <count> are outside workspace dir:`, shows every unique model-provided path and any different real resolved path as an ordered bullet, and ends with `Allow this access?` before its choices. Workflow transition approval offers only Approve and shows source Node, Transition Key and label, target Nodes, required values, commentary, Workflow Version, and stale warning.

@@ -12,7 +12,7 @@ export const chatToolRowsEnglish = {
   moreLines_other: "{{count}} more lines",
   patchFailed: "Patch failed",
   searchedWeb: 'Searched the web for "{{query}}"',
-  openedWebPage: "Opened {{url}}",
+  openedWebPage: "Read {{url}}",
   foundInWebPage: 'Searched {{url}} for "{{pattern}}"',
   webActivity: "Web",
   image: "image",

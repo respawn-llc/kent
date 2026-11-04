@@ -366,6 +366,7 @@ describe("Desktop Worktree client", () => {
     await client.deleteWorktree("33333333-3333-4333-8333-333333333333", dirty, "confirm_and_branch");
     await client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm");
     await client.deleteWorktree("33333333-3333-4333-8333-333333333333", unknown, "confirm");
+    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm_without_branch");
 
     for (const method of [
       CreateService.method.create,
@@ -435,6 +436,10 @@ describe("Desktop Worktree client", () => {
       {
         forceFolderRemoval: true,
         branchCleanupPolicy: BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED,
+      },
+      {
+        forceFolderRemoval: false,
+        branchCleanupPolicy: BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_RETAIN,
       },
     ]);
     for (const { request } of mutations.slice(5)) {

@@ -35,6 +35,7 @@ import "./board.css";
 import { BoardFilterRow } from "./BoardFilterRow";
 import { BoardQueryProvider } from "./BoardQueryContext";
 import { useBoardNavigation, useCloseBoardTask } from "./BoardNavigation";
+import { BoardTaskChatContext } from "./BoardTaskChat";
 import { useBoard, useBoardTaskActions, useProjectBoardSubscription } from "./useBoardData";
 import { useBoardLoadErrorReporter } from "./useBoardLoadErrorReporter";
 
@@ -285,6 +286,7 @@ function BoardContent({
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
   const {
     openTask,
+    openSession,
     openDependencies: openTaskDependencies,
     selectWorkflow,
     openTasks: openProjectTasks,
@@ -420,26 +422,28 @@ function BoardContent({
             ref={scrollportRef}
             role="list"
           >
-            <BoardRailMotionController
-              activeDrag={activeDrag}
-              board={board}
-              columnDropState={columnDropState}
-              columnIsCollapsed={columnIsCollapsed}
-              dragDisabled={dragDisabled}
-              firstActiveID={firstActive?.id}
-              onCardClick={openTask}
-              onCardDragStart={startActiveDrag}
-              onDeleteTask={deleteTask}
-              onColumnDisclosure={setColumnDisclosure}
-              onInterruptTask={interruptTask}
-              onRegisterColumnScrollport={dragAutoScroll.registerColumnScrollport}
-              pendingCardMove={pendingCardMove}
-              onResumeTask={resumeTask}
-              pendingInterruptTaskIDs={actions.interrupt.pendingTaskIDs}
-              pendingResumeTaskIDs={initiatingAction.pendingResumeTaskIDs}
-              pendingStartMoveTaskIDs={initiatingAction.pendingStartMoveTaskIDs}
-              scrollportRef={scrollportRef}
-            />
+            <BoardTaskChatContext.Provider value={{ openSession, report: reportNavigationError }}>
+              <BoardRailMotionController
+                activeDrag={activeDrag}
+                board={board}
+                columnDropState={columnDropState}
+                columnIsCollapsed={columnIsCollapsed}
+                dragDisabled={dragDisabled}
+                firstActiveID={firstActive?.id}
+                onCardClick={openTask}
+                onCardDragStart={startActiveDrag}
+                onDeleteTask={deleteTask}
+                onColumnDisclosure={setColumnDisclosure}
+                onInterruptTask={interruptTask}
+                onRegisterColumnScrollport={dragAutoScroll.registerColumnScrollport}
+                pendingCardMove={pendingCardMove}
+                onResumeTask={resumeTask}
+                pendingInterruptTaskIDs={actions.interrupt.pendingTaskIDs}
+                pendingResumeTaskIDs={initiatingAction.pendingResumeTaskIDs}
+                pendingStartMoveTaskIDs={initiatingAction.pendingStartMoveTaskIDs}
+                scrollportRef={scrollportRef}
+              />
+            </BoardTaskChatContext.Provider>
           </div>
         </DragDropSurface>
         <BoardHorizontalScrollbar scrollportRef={scrollportRef} />

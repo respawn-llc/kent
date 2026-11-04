@@ -8,6 +8,7 @@ import (
 func TestListWorkflowTaskListRowsUsesProjectLinkAndTaskIndexes(t *testing.T) {
 	db := openSQLiteFixture(t)
 	t.Cleanup(func() { _ = db.Close() })
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE workflows (
 	id TEXT PRIMARY KEY,
@@ -78,10 +79,6 @@ CREATE TABLE workflow_task_status_records (
 	primary_status_rank INTEGER NOT NULL,
 	node_ids_json TEXT NOT NULL,
 	attention_types_json TEXT NOT NULL
-);
-CREATE TABLE task_current_nodes (
-	task_id TEXT NOT NULL,
-	node_id TEXT NOT NULL
 );
 CREATE TABLE task_dependencies (
 	blocker_task_id TEXT NOT NULL,

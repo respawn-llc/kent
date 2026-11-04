@@ -17,7 +17,7 @@ import (
 	"core/shared/toolspec"
 )
 
-func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
+func TestTUIOpeningDormantSessionReadsHistoryWithoutActivatingRuntime(t *testing.T) {
 	_, workspace := newConfiguredAppWorkspace(t)
 	provider, hits := newFakeResponsesServer(t, nil)
 	defer provider.Close()
@@ -40,6 +40,10 @@ func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
 		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(id)),
 	}, io.Discard, "open dormant fixture")
 	defer closeRuntimeLaunchPlan(t, reopened)
+	history := nextTranscriptEvent(t, reopened.Wiring.eventDispatcher.transcriptEvents)
+	if history.Kind != ongoingTranscriptEventHistory || history.Err != nil || history.Page == nil || history.Page.SessionId != id.String() {
+		t.Fatalf("dormant history = %+v", history)
+	}
 	view, err := reopened.Wiring.runtimeClient.RefreshMainView()
 	if err != nil {
 		t.Fatal(err)

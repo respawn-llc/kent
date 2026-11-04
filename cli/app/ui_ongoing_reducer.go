@@ -15,7 +15,7 @@ func (m *uiModel) reduceOngoingMessage(msg tea.Msg) uiFeatureUpdateResult {
 	switch msg := msg.(type) {
 	case ongoingTranscriptEvent:
 		cmd := m.handleOngoingTranscriptEvent(msg)
-		return handledUIFeatureUpdate(m, cmd)
+		return handledUIFeatureUpdate(m, tea.Batch(cmd, m.reconcileSpinnerTicking(false)))
 	case ongoingNormalBufferOwnedMsg:
 		_ = msg
 		return handledUIFeatureUpdate(m, m.reconcileOngoingOwnership())
@@ -33,6 +33,10 @@ func (m *uiModel) reduceOngoingMessage(msg tea.Msg) uiFeatureUpdateResult {
 }
 
 func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea.Cmd {
+	if m != nil && m.eventDispatcher != nil &&
+		(event.Kind == ongoingTranscriptEventHistory || event.Kind == ongoingTranscriptEventClosed) {
+		m.eventDispatcher.initialHistoryPending = false
+	}
 	if m != nil && event.Kind == ongoingTranscriptEventClosed {
 		m.closeOngoingRehydration()
 		return nil
@@ -46,6 +50,19 @@ func (m *uiModel) handleOngoingTranscriptEvent(event ongoingTranscriptEvent) tea
 		recovery tea.Cmd
 	)
 	switch event.Kind {
+	case ongoingTranscriptEventHistory:
+		if event.Err != nil {
+			m.logf("ongoing.history.read.error err=%q", event.Err.Error())
+			return m.batchWithNativeOngoingRepaint(m.sendTransientStatusWithNoticeID(
+				fmt.Sprintf("Could not load conversation history: %v", event.Err),
+				uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, "",
+			))
+		}
+		result, err = m.ongoingTranscript.AcceptHistory(event.Page)
+		if err != nil {
+			return m.handleOngoingSurfaceError(err)
+		}
+		return m.handleOngoingResult(result)
 	case ongoingTranscriptEventCutover:
 		if event.Reason == nil {
 			frame := m.ongoingFrameInput()

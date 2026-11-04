@@ -77,14 +77,7 @@ func (s *Service) executeDeleteLocked(
 		return nil, err
 	}
 	if target != nil {
-		var err error
-		if req.ForceFolderRemoval && entry.GetRegistered() != nil &&
-			entry.GetRegistered().GetGit().PrunableReason != nil {
-			err = s.git.ForceRemovePrunableWorktree(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot)
-		} else {
-			err = s.git.Remove(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot, req.ForceFolderRemoval)
-		}
-		if err != nil {
+		if err := s.git.Remove(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot, req.ForceFolderRemoval); err != nil {
 			return nil, err
 		}
 	}

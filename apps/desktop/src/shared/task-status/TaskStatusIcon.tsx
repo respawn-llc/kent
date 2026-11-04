@@ -7,20 +7,20 @@ import { Spinner } from "@/ui";
 export function TaskStatusIcon({ status }: Readonly<{ status: TaskStatusKind }>): ReactNode {
   switch (status) {
     case "done":
-      return <CheckCircle2 aria-hidden="true" className="text-[var(--color-success)]" size={15} />;
+      return <CheckCircle2 aria-hidden="true" className="shrink-0 text-[var(--color-success)]" size={15} />;
     case "backlog":
-      return <Circle aria-hidden="true" size={15} />;
+      return <Circle aria-hidden="true" className="shrink-0" size={15} />;
     case "active":
-      return <CircleDot aria-hidden="true" className="text-[var(--color-primary)]" size={15} />;
+      return <CircleDot aria-hidden="true" className="shrink-0 text-[var(--color-primary)]" size={15} />;
     case "running":
-      return <Spinner className="size-[15px]" size="sm" strokeWidth={2} />;
+      return <Spinner className="size-[15px] shrink-0" size="sm" strokeWidth={2} />;
     case "queued":
-      return <CirclePause aria-hidden="true" className="text-[var(--color-warning)]" size={15} />;
+      return <CirclePause aria-hidden="true" className="shrink-0 text-[var(--color-warning)]" size={15} />;
     case "waiting_approval":
-      return <CircleDot aria-hidden="true" className="text-[var(--color-secondary)]" size={15} />;
+      return <CircleDot aria-hidden="true" className="shrink-0 text-[var(--color-secondary)]" size={15} />;
     case "interrupted":
-      return <CircleStop aria-hidden="true" className="text-[var(--color-error)]" size={15} />;
+      return <CircleStop aria-hidden="true" className="shrink-0 text-[var(--color-error)]" size={15} />;
     case "waiting_question":
-      return <CircleHelp aria-hidden="true" className="text-[var(--color-primary)]" size={15} />;
+      return <CircleHelp aria-hidden="true" className="shrink-0 text-[var(--color-primary)]" size={15} />;
   }
 }

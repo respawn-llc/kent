@@ -167,7 +167,7 @@ func formatContinueRunCommandWithRoot(executablePath, sessionID, persistenceRoot
 	if root := strings.TrimSpace(persistenceRoot); root != "" {
 		prefix += " --persistence-root " + strconv.Quote(root)
 	}
-	return fmt.Sprintf("%s --continue %s %s", prefix, strconv.Quote(sessionID), strconv.Quote("follow-up"))
+	return fmt.Sprintf("%s --continue %s %s", prefix, strconv.Quote(sessionID), strconv.Quote("prompt"))
 }
 
 func currentExecutablePath() string {

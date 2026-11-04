@@ -103,7 +103,7 @@ func TestBoardProjectsQuiescentCurrentNodeAsDeletable(t *testing.T) {
 	if card.TaskId != string(started.task.ID) ||
 		len(card.ActiveNodeIds) != 1 ||
 		card.ActiveNodeIds[0] != string(fixture.agentNodeID) ||
-		card.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
+		card.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED ||
 		card.Actions.CanStart ||
 		!card.Actions.CanDelete {
 		t.Fatalf("board card = %+v, want deletable quiescent Current Node projection", card)

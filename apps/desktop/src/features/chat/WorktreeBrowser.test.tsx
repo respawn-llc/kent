@@ -11,6 +11,7 @@ import {
   useChatExecutionTarget,
   createRefreshOpenWorktreeList,
   queryKeys,
+  replaceWorktreeListRead,
   SidebarHeaderActionProvider,
   SidebarHeaderActionSlot,
   SidebarRootContext,
@@ -53,7 +54,7 @@ function BrowserProviders({
 }: Readonly<{ services: TestAppServices; children: ReactNode }>) {
   const [roots] = useState(() => createTestSidebarController());
   return (
-    <TestAppProviders services={services}>
+    <TestAppProviders services={services} skipAnimations>
       <RegistryProvider>
         <SidebarRootContext.Provider value={roots}>
           <SidebarRootOwner>
@@ -380,6 +381,7 @@ it("isolates late list delivery after changing Session", async () => {
       descriptor: route.descriptor,
       resultFactory: async (_request, index) => (index === 0 ? old.promise : result),
     },
+    ...worktreeCommandFixtureRoutes(),
   ]);
   const client = new QueryClient();
   const surface = (sessionID: string) => (
@@ -410,6 +412,10 @@ it("isolates late list delivery after changing Session", async () => {
     client.getQueryData<WorktreeList>(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444")),
   ).toBe(current);
   expect(services.transport.descriptorCalls).toHaveLength(2);
+  const preview = vi.spyOn(services.api, "previewWorktreeDelete");
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
+  await screen.findByRole("checkbox");
+  expect(preview.mock.calls[0]?.[0]).toBe("44444444-4444-4444-8444-444444444444");
 });
 
 it("reopening replaces an unfinished read without accepting its late delivery", async () => {
@@ -603,7 +609,7 @@ it("refreshes after a completed typed transition without changing Chat target or
   ).toBe(true);
 });
 
-it("Refresh retains cached data but replaces the visible list on failure until Retry", async () => {
+it("Refresh retains visible rows on failure and reports it with a toast", async () => {
   const route = worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("registered", false)]);
   const result = route.result;
   const refreshing = deferred<typeof result>();
@@ -616,6 +622,7 @@ it("Refresh retains cached data but replaces the visible list on failure until R
       },
     },
   ]);
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   const client = new QueryClient();
   render(
     <BrowserProviders services={services}>
@@ -642,22 +649,25 @@ it("Refresh retains cached data but replaces the visible list on failure until R
     expect(client.getQueryState(key)?.status).toBe("error");
   });
   expect(client.getQueryData<WorktreeList>(key)).toBe(completed);
-  expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.switch") })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.switch") })).toBeEnabled();
+  expect(notice).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   await waitFor(() => {
     expect(client.getQueryState(key)?.status).toBe("success");
   });
   expect(client.getQueryData<WorktreeList>(key)).not.toBe(completed);
   expect(services.transport.descriptorCalls).toHaveLength(3);
+  notice.mockRestore();
 });
 
-it("owns failed deletion preview at the Worktrees page and restores its popup on read-only Retry", async () => {
+it("reports failed deletion preview with a toast and permits reopening without changing the list", async () => {
   const services = createTestServices([
     worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("registered", false)]),
     ...worktreeCommandFixtureRoutes(),
   ]);
   const preview = vi.spyOn(services.api, "previewWorktreeDelete").mockRejectedValueOnce(new Error("offline"));
   const remove = vi.spyOn(services.api, "deleteWorktree");
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
   render(
     <BrowserProviders services={services}>
       <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
@@ -665,17 +675,214 @@ it("owns failed deletion preview at the Worktrees page and restores its popup on
   );
   const user = userEvent.setup({ delay: null });
   await user.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
-  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.switch") })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await waitFor(() => {
+    expect(notice).toHaveBeenCalledTimes(1);
+  });
+  expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.switch") })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
   expect(await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") })).toBeEnabled();
   expect(preview).toHaveBeenCalledTimes(2);
   expect(preview.mock.calls[1]).toEqual(preview.mock.calls[0]);
   expect(remove).not.toHaveBeenCalled();
+  notice.mockRestore();
+});
+
+it("keeps Worktree rows mounted while opening a deletion preview", async () => {
+  const services = createTestServices([
+    worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("registered", false)]),
+    ...worktreeCommandFixtureRoutes(),
+  ]);
+  const previewReady = deferred<undefined>();
+  const readPreview = services.api.previewWorktreeDelete.bind(services.api);
+  vi.spyOn(services.api, "previewWorktreeDelete").mockImplementation(async (...args) => {
+    await previewReady.promise;
+    return readPreview(...args);
+  });
+  render(
+    <BrowserProviders services={services}>
+      <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
+    </BrowserProviders>,
+  );
+  await screen.findByRole("button", { name: appI18n.t("chat.worktree.switch") });
+  const path = screen.getByRole("button", {
+    name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }),
+  });
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
+  expect(screen.getByTestId("spinner")).toBeInTheDocument();
+  expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  await act(async () => {
+    previewReady.resolve(undefined);
+  });
+  await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") });
+  expect(
+    screen.getByRole("button", { name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }) }),
+  ).toBe(path);
+});
+
+it("keeps Include branch only for the current list destination across different deletion selections", async () => {
+  const first = worktreeBrowserFixtureEntry("registered", false);
+  const second = structuredClone(first);
+  if (second.projection?.deletePreview === undefined) throw new Error("Expected deletion selection");
+  if (
+    second.projection.switch === undefined ||
+    second.topology?.topology.case !== "registered" ||
+    second.topology.topology.value.kent === undefined
+  )
+    throw new Error("Expected registered Worktree");
+  second.projection.selector = "second";
+  second.projection.switch.selector = "second";
+  second.projection.deletePreview.selector = "worktree-2";
+  second.topology.topology.value.kent.worktreeId = "worktree-2";
+  const services = createTestServices([
+    worktreeBrowserFixtureRoute([first, second]),
+    ...worktreeCommandFixtureRoutes(),
+  ]);
+  const preview = vi.spyOn(services.api, "previewWorktreeDelete");
+  const remove = vi.spyOn(services.api, "deleteWorktree").mockRejectedValue(new Error("offline"));
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+  const destination = (key: string) => (
+    <BrowserProviders services={services}>
+      <WorktreeBrowser key={key} projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" />
+    </BrowserProviders>
+  );
+  const view = render(destination("first"));
+  const firstDelete = (await screen.findAllByRole("button", { name: appI18n.t("chat.worktree.delete") }))[0];
+  if (firstDelete === undefined) throw new Error("Expected first deletion action");
+  fireEvent.click(firstDelete);
+  const checkbox = await screen.findByRole("checkbox");
+  expect(checkbox).toBeChecked();
+  fireEvent.click(checkbox);
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.confirm") }));
+  await waitFor(() => {
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+  expect(remove.mock.calls[0]?.[2]).toBe("confirm_without_branch");
+  await waitFor(() => {
+    expect(screen.queryByRole("checkbox") === null).toBe(true);
+  });
+  const secondDelete = screen.getAllByRole("button", { name: appI18n.t("chat.worktree.delete") })[1];
+  if (secondDelete === undefined) throw new Error("Expected second deletion action");
+  fireEvent.click(secondDelete);
+  expect(await screen.findByRole("checkbox")).not.toBeChecked();
+  expect(preview.mock.calls[1]?.[1]).toBe("worktree-2");
+  view.rerender(destination("next"));
+  const reopenedDelete = (
+    await screen.findAllByRole("button", { name: appI18n.t("chat.worktree.delete") })
+  )[0];
+  if (reopenedDelete === undefined) throw new Error("Expected new destination deletion action");
+  fireEvent.click(reopenedDelete);
+  expect(await screen.findByRole("checkbox")).toBeChecked();
+  expect(remove).toHaveBeenCalledTimes(1);
+  notice.mockRestore();
+});
+
+it("closes confirmation eagerly and keeps deletion loading local to its row through refresh", async () => {
+  const entry = worktreeBrowserFixtureEntry("registered", false);
+  const services = createTestServices([
+    worktreeBrowserFixtureRoute([entry, worktreeBrowserFixtureEntry("mainWorkspace", false)]),
+    ...worktreeCommandFixtureRoutes(),
+  ]);
+  const client = new QueryClient();
+  const removal = deferred<Awaited<ReturnType<ApiService["deleteWorktree"]>>>();
+  const refreshed = deferred<Awaited<ReturnType<ApiService["listWorktrees"]>>>();
+  const remove = vi.spyOn(services.api, "deleteWorktree").mockReturnValue(removal.promise);
+  const navigator = createTestSidebarNavigator();
+  render(
+    <BrowserProviders services={services}>
+      <QueryClientProvider client={client}>
+        <Browser
+          projectID="project-1"
+          sessionID="33333333-3333-4333-8333-333333333333"
+          navigator={navigator}
+          onCreate={vi.fn()}
+          onSwitch={vi.fn()}
+          onOpenSession={vi.fn()}
+          refreshOpenWorktreeList={async () => {
+            await replaceWorktreeListRead(client, services.api, "33333333-3333-4333-8333-333333333333");
+          }}
+        />
+      </QueryClientProvider>
+    </BrowserProviders>,
+  );
+  const switches = await screen.findAllByRole("button", { name: appI18n.t("chat.worktree.switch") });
+  const unaffected = switches[1];
+  if (unaffected === undefined) throw new Error("Expected second Worktree");
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
+  const confirm = await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") });
+  await waitFor(() => expect(confirm).toBeEnabled());
+  const path = screen.getAllByRole("button", {
+    name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }),
+  })[0];
+  if (path === undefined) throw new Error("Expected Worktree path");
+  const list = vi.spyOn(services.api, "listWorktrees").mockReturnValue(refreshed.promise);
+  fireEvent.click(confirm);
+  await waitFor(() => {
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+  expect(screen.getAllByTestId("spinner")).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: appI18n.t("chat.worktree.switch") })).toEqual([unaffected]);
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.confirm") }) === null).toBe(true);
+  });
+  await act(async () => {
+    removal.resolve({ $typeName: "kent.api.worktree.DeleteSuccess" });
+  });
+  await waitFor(() => {
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+  expect(screen.getAllByTestId("spinner")).toHaveLength(1);
+  expect(unaffected).toBeInTheDocument();
+  await act(async () => {
+    const previous = client.getQueryData<WorktreeList>(
+      queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"),
+    );
+    const remaining = previous?.worktrees[1];
+    if (previous === undefined || remaining === undefined) throw new Error("Expected loaded Worktrees");
+    refreshed.resolve({ ...previous, worktrees: [remaining] });
+  });
+  await waitFor(() => expect(path).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.switch") })).toBe(unaffected);
+});
+
+it("finishes an accepted deletion and its refresh after leaving the list destination", async () => {
+  const services = createTestServices([
+    worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("registered", false)]),
+    ...worktreeCommandFixtureRoutes(),
+  ]);
+  const removal = deferred<Awaited<ReturnType<ApiService["deleteWorktree"]>>>();
+  const remove = vi.spyOn(services.api, "deleteWorktree").mockReturnValue(removal.promise);
+  const refresh = vi.fn();
+  const view = render(
+    <BrowserProviders services={services}>
+      <Browser
+        projectID="project-1"
+        sessionID="33333333-3333-4333-8333-333333333333"
+        navigator={createTestSidebarNavigator()}
+        onCreate={vi.fn()}
+        onSwitch={vi.fn()}
+        onOpenSession={vi.fn()}
+        refreshOpenWorktreeList={refresh}
+      />
+    </BrowserProviders>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.delete") }));
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("chat.worktree.confirm") }));
+  await waitFor(() => {
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+  view.unmount();
+  await act(async () => {
+    removal.resolve({ $typeName: "kent.api.worktree.DeleteSuccess" });
+  });
+  await waitFor(() => {
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+  expect(refresh).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333");
 });
 
 it.each(["operational", "precondition"] as const)(
-  "retains deletion confirmation on %s rejection without rereading or replaying",
+  "closes deletion confirmation on %s rejection without rereading or replaying",
   async (kind) => {
     const services = createTestServices([
       worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("registered", false)]),
@@ -707,7 +914,9 @@ it.each(["operational", "precondition"] as const)(
     await waitFor(() => {
       expect(notice).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByRole("button", { name: appI18n.t("chat.worktree.confirm") })).toBeEnabled();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: appI18n.t("chat.worktree.confirm") }) === null).toBe(true);
+    });
     expect(preview).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledTimes(1);
     notice.mockRestore();

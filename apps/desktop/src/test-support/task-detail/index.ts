@@ -4,9 +4,7 @@ import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/r
 import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import * as taskAttention from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import * as workflow from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
-import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import {
   AnswerService,
   AnswerBatchOutcome,
@@ -45,6 +43,7 @@ export { taskQuestionPage } from "./attention";
 
 export {
   taskActionFixture,
+  pausedTaskFixture,
   backlogTaskFixture,
   taskStartApplied,
   taskStartFailure,
@@ -69,12 +68,7 @@ export {
   taskActivityRoute,
 } from "./reads";
 
-const taskActions = {
-  canStart: false,
-  canInterrupt: true,
-  canResume: false,
-  canDelete: false,
-};
+const taskActions = create(taskRead.TaskActionsSchema, { canInterrupt: true });
 
 export const taskDetailResponse = {
   task: create(taskRead.TaskDetailSchema, {
@@ -105,7 +99,7 @@ export const taskDetailResponse = {
       updatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
     executionTarget: {
-      mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
+      mode: workflow.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
       requestedRef: "HEAD",
       resolvedRef: "refs/heads/main",
       commitOid: "0123456789abcdef0123456789abcdef01234567",
@@ -123,10 +117,12 @@ export const taskDetailResponse = {
       {
         sessionId: "33333333-3333-4333-8333-333333333333",
         sessionName: "Review chat",
+        shortId: 301n,
         nodeDisplayName: "Code Review",
       },
       {
         sessionId: "44444444-4444-4444-8444-444444444444",
+        shortId: 302n,
         nodeDisplayName: "Implementation",
       },
     ],
@@ -223,6 +219,7 @@ export const taskDetailResponseWithAdditionalLiveSession = {
       ...taskDetailResponse.task.liveSessions,
       create(taskRead.LiveSessionSchema, {
         sessionId: "55555555-5555-4555-8555-555555555555",
+        shortId: 303n,
         sessionName: "QA chat",
         nodeDisplayName: "QA",
       }),
@@ -241,7 +238,10 @@ export const taskDetailResponseWithCurrentScript = {
   task: create(taskRead.TaskDetailSchema, {
     ...taskDetailNoInboxResponse.task,
     currentNodes: [
-      create(AttentionCurrentNodeSchema, { nodeId: "node-script", nodeDisplayName: "Run checks" }),
+      create(taskAttention.AttentionCurrentNodeSchema, {
+        nodeId: "node-script",
+        nodeDisplayName: "Run checks",
+      }),
     ],
     liveSessions: [],
     currentScripts: [

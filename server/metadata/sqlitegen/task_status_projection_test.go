@@ -5,6 +5,7 @@ import "testing"
 func TestListWorkflowTaskStatusProjectionByTasksUsesLiveQuestionAndApprovalPrecedence(t *testing.T) {
 	db := openSQLiteFixture(t)
 	t.Cleanup(func() { _ = db.Close() })
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE workflow_task_status_records (
 	task_id TEXT PRIMARY KEY,
@@ -26,13 +27,21 @@ VALUES
 	('queued', 0, 'active', 8, '[]', '[]'),
 	('stale-running', 0, 'running', 5, '[]', '[]'),
 	('stale-queued', 0, 'queued', 6, '[]', '[]'),
-	('stale-question', 0, 'waiting_question', 2, '[]', '["question"]')
+	('stale-question', 0, 'waiting_question', 2, '[]', '["question"]'),
+	('saved-script', 0, 'active', 8, '[]', '[]');
+INSERT INTO workflow_nodes (id, kind) VALUES ('agent', 'agent'), ('script', 'script');
+INSERT INTO task_current_nodes (task_id, node_id, scheduling_state)
+SELECT task_id, 'agent', 'admitted'
+FROM workflow_task_status_records
+WHERE task_id IN ('done', 'question', 'approval-live', 'both-live', 'approval-durable', 'running', 'queued');
+INSERT INTO task_current_nodes (task_id, node_id, scheduling_state)
+VALUES ('saved-script', 'script', 'admitted')
 `); err != nil {
 		t.Fatalf("create status projection fixture: %v", err)
 	}
 
 	rows, err := New(db).ListWorkflowTaskStatusProjectionByTasks(t.Context(), ListWorkflowTaskStatusProjectionByTasksParams{
-		TaskIdsJson: `["approval-durable","approval-live","both-live","done","queued","question","running","stale-question","stale-queued","stale-running"]`,
+		TaskIdsJson: `["approval-durable","approval-live","both-live","done","queued","question","running","saved-script","stale-question","stale-queued","stale-running"]`,
 		LiveTaskStatesJson: `[
 				{"task_id":"approval-durable","has_running":true},
 				{"task_id":"approval-live","has_waiting_approval":true},
@@ -46,8 +55,8 @@ VALUES
 	if err != nil {
 		t.Fatalf("ListWorkflowTaskStatusProjectionByTasks: %v", err)
 	}
-	if len(rows) != 10 {
-		t.Fatalf("status projection rows = %d, want 10: %+v", len(rows), rows)
+	if len(rows) != 11 {
+		t.Fatalf("status projection rows = %d, want 11: %+v", len(rows), rows)
 	}
 	byTask := make(map[string]ListWorkflowTaskStatusProjectionByTasksRow, len(rows))
 	for _, row := range rows {
@@ -65,6 +74,7 @@ VALUES
 		"approval-durable": {kind: "waiting_approval", rank: 3, attention: `["approval"]`},
 		"running":          {kind: "running", rank: 5, attention: "[]"},
 		"queued":           {kind: "queued", rank: 6, attention: "[]"},
+		"saved-script":     {kind: "interrupted", rank: 4, attention: "[]"},
 		"stale-running":    {kind: "active", rank: 8, attention: "[]"},
 		"stale-queued":     {kind: "active", rank: 8, attention: "[]"},
 		"stale-question":   {kind: "active", rank: 8, attention: `[]`},

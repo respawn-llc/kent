@@ -135,7 +135,8 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	if m.sessionPreparationPending() || m.isReviewerActive() || m.hasPendingInputAdmission() {
+	if m.sessionPreparationPending() || m.isReviewerActive() || m.hasPendingInputAdmission() ||
+		(m.eventDispatcher != nil && m.eventDispatcher.initialHistoryPending) {
 		return true
 	}
 	return m.runtimeActivityBusy() && m.activity != uiActivityQuestion

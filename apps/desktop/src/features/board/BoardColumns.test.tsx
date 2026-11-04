@@ -1,7 +1,7 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, mock, vi } from "bun:test";
 import { DragDropSurface } from "@app/ui-kit";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import type * as ReactI18next from "react-i18next";
 
 import type { KanbanCardVM, KanbanColumnVM } from "./BoardColumnViewModel";
@@ -12,6 +12,17 @@ import { TestAppProviders, createTestServices, startupRoutes } from "@/test-supp
 import { startTaskInitiatingAction } from "@/shared/execution-target";
 import type { TaskStartResponse } from "@/api";
 import { deferred } from "@/test-support/chat-runtime";
+import { BoardTaskChatContext } from "./BoardTaskChat";
+
+function BoardChatOwner({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <TestAppProviders services={createTestServices(startupRoutes)}>
+      <BoardTaskChatContext.Provider value={{ openSession: vi.fn(), report: vi.fn() }}>
+        {children}
+      </BoardTaskChatContext.Provider>
+    </TestAppProviders>
+  );
+}
 
 const actualReactI18next: typeof ReactI18next = await import("react-i18next");
 const actualAppFacade = await import("@/app-facade");
@@ -75,6 +86,7 @@ function renderColumn(column: ReactElement) {
     <DragDropSurface onDrop={vi.fn()} onCancel={vi.fn()}>
       {column}
     </DragDropSurface>,
+    { wrapper: BoardChatOwner },
   );
 }
 
@@ -285,6 +297,7 @@ describe("KanbanColumn retained replacement boundary", () => {
             />
           ))}
         </DragDropSurface>,
+        { wrapper: BoardChatOwner },
       );
       const source = screen.getByRole("article", { name: card.title });
       const sourceColumn = screen.getByRole("listitem", { name: column.name });

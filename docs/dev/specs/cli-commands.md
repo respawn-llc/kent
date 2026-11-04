@@ -328,7 +328,7 @@
 - `kent run steer <session-id> <message...>` sends input to an active Session.
 - Run steer requires a Session ID, rejects attempts by a Session to target itself, and prints `ok` when accepted.
 - Headless Run must not echo received Steering text to stdout or stderr. Suppressing this echo must not change Steering delivery, model replies, or pending Question presentation.
-- Run steer never starts or queues work for an idle Session. It fails with the equivalent `kent run --continue <session-id> <message>` command.
+- Run steer never starts or queues work for an idle Session. It fails with a continuation command containing the actual Session selector and the literal placeholder `"prompt"`. The hint must not echo the submitted message.
 - Agent-issued `kent run`, `kent run --continue`, and `kent run steer` must use the shared attribution, formatting, and prompt-history behavior defined in [Core Tools And Runtime Integration](core-runtime-tools.md#core-tools-and-runtime-integration).
 - When invoked by an agent, Run steer must reject malformed invoking-Session identity before submission. An absent or blank invoking-Session identity uses human-steer behavior.
 - `kent run stop <session-id>` interrupts an active Session regardless of client origin.

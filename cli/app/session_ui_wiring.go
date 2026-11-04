@@ -106,9 +106,9 @@ func prepareSharedRuntimeWiring(
 	}
 	var transcriptStream ongoingTranscriptEventStream
 	if lifecycleProxy != nil {
-		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, subscribeTranscript, lifecycleProxy.AcceptTranscript)
+		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, clients.SessionViews.GetSessionTranscriptPage, subscribeTranscript, lifecycleProxy.AcceptTranscript)
 	} else {
-		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, subscribeTranscript)
+		transcriptStream = startSessionTranscriptEvents(ctx, plan.SessionID, clients.SessionViews.GetSessionTranscriptPage, subscribeTranscript)
 	}
 	transcriptEvents := transcriptStream.Events
 	eventDispatcher := newUIEventDispatcher(transcriptEvents)

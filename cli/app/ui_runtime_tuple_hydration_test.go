@@ -432,6 +432,10 @@ func (s *blockingOngoingSurface) Render(ongoing.FrameInput) (ongoing.Result, err
 	return ongoing.Result{}, nil
 }
 
+func (s *blockingOngoingSurface) ApplyHistoryRows(_ []*transcriptpb.CommittedRow, frame ongoing.FrameInput) (ongoing.Result, error) {
+	return s.Render(frame)
+}
+
 func (s *blockingOngoingSurface) Resize(ongoing.Size, ongoing.FrameInput) (ongoing.Result, error) {
 	return ongoing.Result{}, nil
 }

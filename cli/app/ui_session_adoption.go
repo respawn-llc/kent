@@ -174,7 +174,11 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 }
 
 func (m *uiModel) startSessionObservationLoads() tea.Cmd {
+	if m.eventDispatcher != nil && m.eventDispatcher.transcriptEvents != nil {
+		m.eventDispatcher.initialHistoryPending = true
+	}
 	return tea.Batch(
+		m.reconcileSpinnerTicking(false),
 		m.eventDispatcher.wait(),
 		waitRuntimeConnectionStateChange(m.runtimeConnectionEvents, m.observationScope),
 		m.loadPromptHistoryCmd(),

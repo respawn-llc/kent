@@ -16,10 +16,11 @@ type uiDispatchedEventMsg struct {
 }
 
 type uiEventDispatcher struct {
-	attentionEvents     <-chan sessionAttentionEvent
-	transcriptEvents    <-chan ongoingTranscriptEvent
-	lifecycleHookIssues <-chan lifecycleHookIssue
-	lifecycleHookDone   <-chan struct{}
+	attentionEvents       <-chan sessionAttentionEvent
+	transcriptEvents      <-chan ongoingTranscriptEvent
+	initialHistoryPending bool
+	lifecycleHookIssues   <-chan lifecycleHookIssue
+	lifecycleHookDone     <-chan struct{}
 }
 
 func newUIEventDispatcher(transcriptEvents <-chan ongoingTranscriptEvent) *uiEventDispatcher {
