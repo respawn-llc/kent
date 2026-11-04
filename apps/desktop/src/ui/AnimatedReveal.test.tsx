@@ -31,3 +31,25 @@ it("keeps queued content visible when a reduced-motion sheet opens and changes",
     expect(screen.getByText("queued")).toBeVisible();
   });
 });
+
+it("removes exiting content when reduced motion is enabled during its transition", async () => {
+  const content = (visible: boolean, reducedMotion: boolean) => (
+    <ReducedMotionContext value={reducedMotion}>
+      <AnimatePresence initial={false}>
+        {visible && (
+          <AnimatedReveal key="outgoing">
+            <span data-testid="outgoing-content" />
+          </AnimatedReveal>
+        )}
+      </AnimatePresence>
+      <span data-testid="retained-content" />
+    </ReducedMotionContext>
+  );
+  const view = render(content(true, false));
+  const retained = screen.getByTestId("retained-content");
+  view.rerender(content(false, false));
+  expect(screen.getByTestId("outgoing-content")).toBeInTheDocument();
+  view.rerender(content(false, true));
+  expect(screen.queryByTestId("outgoing-content")).not.toBeInTheDocument();
+  expect(screen.getByTestId("retained-content")).toBe(retained);
+});
