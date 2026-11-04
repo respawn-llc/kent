@@ -152,6 +152,11 @@ func IsUsageExhaustionError(err error) bool {
 	return errors.As(err, &providerErr) && providerErr.Code == UnifiedErrorCodeUsageExhausted
 }
 
+func IsMessageLimitError(err error) bool {
+	var providerErr *ProviderAPIError
+	return errors.As(err, &providerErr) && providerErr.ProviderType == providerTypeResponseIncomplete && providerErr.ProviderCode == "max_messages"
+}
+
 func IsNonRetriableModelError(err error) bool {
 	if err == nil {
 		return false
@@ -165,7 +170,7 @@ func IsNonRetriableModelError(err error) bool {
 	}
 	var providerErr *ProviderAPIError
 	if errors.As(err, &providerErr) {
-		if providerErr.ProviderType == providerTypeResponseIncomplete {
+		if providerErr.ProviderType == providerTypeResponseIncomplete && !IsMessageLimitError(err) {
 			return true
 		}
 		if providerErr.Code == UnifiedErrorCodeProviderContract || providerErr.Code == UnifiedErrorCodeEntitlement || providerErr.Code == UnifiedErrorCodeProtocolVersion || providerErr.Code == UnifiedErrorCodeUsageExhausted {
