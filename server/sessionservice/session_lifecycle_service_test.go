@@ -284,6 +284,12 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 	if reopened.Meta().InputDraft != "saved by service" {
 		t.Fatalf("input draft = %q, want %q", reopened.Meta().InputDraft, "saved by service")
 	}
+	id := runtimeids.SessionIDFromProto(store.Meta().SessionID)
+	if err := service.authority.WithCurrentRuntime(t.Context(), id, func(context.Context, *runtime.Engine) error {
+		return nil
+	}); !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
+		t.Fatalf("draft save activated a runtime: %v", err)
+	}
 }
 
 func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
