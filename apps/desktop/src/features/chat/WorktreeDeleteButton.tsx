@@ -68,7 +68,7 @@ function WorktreeDeleteContent({
       {cleanliness === null ? null : <WorktreeCleanliness value={cleanliness} />}
       <label className="flex items-center gap-[var(--space-2)] text-sm">
         <Checkbox
-          checked={includeBranch}
+          checked={includeBranch && canIncludeBranch}
           onCheckedChange={(value) => {
             onIncludeBranchChange(value === true);
           }}

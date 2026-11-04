@@ -7,6 +7,28 @@ import { worktreeCommandFixtureRoutes } from "@/test-support/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
+it("shows that an unavailable branch will be retained without changing the saved choice", async () => {
+  const services = createTestServices(worktreeCommandFixtureRoutes());
+  const onIncludeBranchChange = vi.fn();
+  render(
+    <TestAppProviders services={services} skipAnimations>
+      <WorktreeDeleteButton
+        open
+        onOpenChange={vi.fn()}
+        includeBranch
+        onIncludeBranchChange={onIncludeBranchChange}
+        cleanliness={null}
+        canIncludeBranch={false}
+        confirm={vi.fn()}
+      />
+    </TestAppProviders>,
+  );
+  const checkbox = await screen.findByRole("checkbox");
+  expect(checkbox).toBeDisabled();
+  expect(checkbox).not.toBeChecked();
+  expect(onIncludeBranchChange).not.toHaveBeenCalled();
+});
+
 it("confirms with the selected branch choice and remembers it across popup openings", async () => {
   const services = createTestServices(worktreeCommandFixtureRoutes());
   const confirm = vi.fn();
