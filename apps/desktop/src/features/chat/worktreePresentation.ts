@@ -1,4 +1,4 @@
-import type { ChatExecutionTarget, WorktreeListEntry, WorktreeList } from "@/api";
+import { sessionDisplayID, type ChatExecutionTarget, type WorktreeListEntry, type WorktreeList } from "@/api";
 
 interface WorktreeBadge {
   label: "external" | "missing" | "inUse";
@@ -10,12 +10,22 @@ export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
   const projection = entry.projection;
   const facts = rowFacts(topology, workspaceName, projection.fallbackIdentity);
   const identity = worktreeIdentity(facts);
+  const originSessionID = facts.kent?.originSessionId;
   const { git, indicator } = facts;
   const ref = git?.branchName ?? git?.headObject;
   const topologyIndicator = git?.pathAvailable === false ? ("missing" as const) : indicator;
   return {
     key: projection.selector,
     ...identity,
+    originSession:
+      originSessionID === undefined
+        ? undefined
+        : {
+            id: originSessionID,
+            label:
+              projection.originSessionName ??
+              sessionDisplayID(originSessionID, projection.originSessionShortId ?? null),
+          },
     ref: ref === identity.title ? undefined : ref,
     badges: worktreeBadges(topologyIndicator, projection.isInUse),
     selected: projection.isCurrent,
@@ -39,7 +49,7 @@ function worktreeBadges(indicator: "external" | "missing" | undefined, isInUse: 
 function worktreeIdentity({ title, git, kent }: ReturnType<typeof rowFacts>) {
   const path = git?.canonicalRoot ?? kent?.canonicalRoot;
   if (title === undefined || path === undefined) throw new Error("Worktree identity is required");
-  return { title, path, originSessionID: kent?.originSessionId };
+  return { title, path };
 }
 
 function rowFacts(

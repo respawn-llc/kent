@@ -5,7 +5,9 @@ import type { WorktreeDeletePreview } from "@/api";
 import {
   Button,
   Checkbox,
-  HoverPopover,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -27,16 +29,12 @@ type Props = Readonly<{
 export function WorktreeDeleteButton(props: Props) {
   const { t } = useTranslation();
   return (
-    <HoverPopover
-      open={props.open}
-      onOpenChange={props.onOpenChange}
-      trigger={({ ref, ...triggerProps }) => (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
+    <Popover open={props.open} onOpenChange={props.onOpenChange}>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
               <Button
-                {...triggerProps}
-                ref={ref ?? null}
                 disabled={props.disabled}
                 size="icon-sm"
                 variant="ghost"
@@ -44,14 +42,15 @@ export function WorktreeDeleteButton(props: Props) {
               >
                 <Trash2 size={16} />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("chat.worktree.delete")}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
-    >
-      <WorktreeDeleteContent {...props} />
-    </HoverPopover>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t("chat.worktree.delete")}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <PopoverContent align="start">
+        <WorktreeDeleteContent {...props} />
+      </PopoverContent>
+    </Popover>
   );
 }
 
