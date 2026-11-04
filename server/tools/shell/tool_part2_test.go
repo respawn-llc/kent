@@ -32,7 +32,7 @@ func runCompletionNoticeTest(t *testing.T, execID string, command string, pollID
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
 
-	pollResult := callWriteStdin(t, NewWriteStdinTool(16_000, 200_000, manager, nil), pollID, map[string]any{
+	pollResult := callWriteStdin(t, NewWriteStdinTool(manager), pollID, map[string]any{
 		"session_id":    1000,
 		"yield_time_ms": pollYieldMS,
 	})
@@ -106,9 +106,8 @@ func TestSharedManagerWriteStdinHarvestLeavesProcessOwnerNoticeUnsuppressed(t *t
 		t.Fatalf("owner process must transition to background, got %+v", started)
 	}
 	if _, err := manager.WriteStdin(context.Background(), WriteRequest{
-		SessionID:      started.SessionID,
-		YieldTime:      15 * time.Second,
-		MaxOutputChars: 16_000,
+		SessionID: started.SessionID,
+		YieldTime: 15 * time.Second,
 	}); err != nil {
 		t.Fatalf("harvest owner completion: %v", err)
 	}
@@ -162,9 +161,8 @@ func TestTerminalEventEmissionHoldsPollingInteractionLock(t *testing.T) {
 	pollDone := make(chan struct{})
 	go func() {
 		_, _ = manager.WriteStdin(context.Background(), WriteRequest{
-			SessionID:      "1000",
-			YieldTime:      250 * time.Millisecond,
-			MaxOutputChars: 16_000,
+			SessionID: "1000",
+			YieldTime: 250 * time.Millisecond,
 		})
 		close(pollDone)
 	}()

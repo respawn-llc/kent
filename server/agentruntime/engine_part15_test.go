@@ -349,10 +349,9 @@ func TestCompactionDispatchCapturesShellsStartedAndFinishedDuringIdleInterval(t 
 	}
 
 	finished, err := manager.WriteStdin(context.Background(), shelltool.WriteRequest{
-		SessionID:      finishing.SessionID,
-		Input:          "done\n",
-		YieldTime:      time.Second,
-		MaxOutputChars: 16_000,
+		SessionID: finishing.SessionID,
+		Input:     "done\n",
+		YieldTime: time.Second,
 	})
 	if err != nil {
 		restoreStep()

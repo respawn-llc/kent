@@ -118,7 +118,6 @@ func approvedModelParameterAliases() map[ID][]parameterAliasSpec {
 			{canonical: "session_id", aliases: []string{"process_id", "shell_id"}},
 			{canonical: "chars", aliases: []string{"input", "stdin", "text"}},
 			{canonical: "yield_time_ms", aliases: []string{"yield_ms", "wait_ms"}},
-			{canonical: "max_output_tokens", aliases: []string{"max_tokens", "output_token_limit"}},
 		},
 		ToolViewImage: {
 			{canonical: "path", aliases: []string{"file_path", "image_path", "file", "pdf_path", "filename"}},

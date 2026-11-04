@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -162,78 +161,12 @@ func TestRunningExecCommandGuardPreservesLifecycleAndIndependentPoll(t *testing.
 	}
 	assertOversizedOutputFailure(t, result, snapshot.LogPath)
 	assertGuardedPresentation(t, result, true, true, nil)
-	if poll := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, nil), "later", map[string]any{
-		"session_id": 1000, "yield_time_ms": 15_000, "max_output_tokens": 19,
+	if poll := callWriteStdin(t, NewWriteStdinTool(manager), "later", map[string]any{
+		"session_id": 1000, "yield_time_ms": 15_000,
 	}); poll.IsError {
 		t.Fatalf("independent poll = %s", poll.Output)
 	}
 	if log, err := os.ReadFile(snapshot.LogPath); err != nil || string(log) != output {
 		t.Fatalf("retained output = %q, error=%v", log, err)
-	}
-}
-
-func TestWriteStdinGuardPreservesRunningCompletedEscapedAndIndependentPolls(t *testing.T) {
-	const plain = "12345678901234567890123456789012345678901234567890123456789012345678901234567890"
-	tests := []struct {
-		name, command, output, chars string
-		running, later, guarded      bool
-		estimate                     func(string) int
-	}{
-		{"running", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true, true, nil},
-		{"completed", "sleep 0.1; printf '" + plain + "'", plain, "", false, false, true, nil},
-		{"escaped within plaintext limit", "read line; printf '%s' '" + strings.Repeat(`"\`, 20) + "'; sleep 0.8", strings.Repeat(`"\`, 20), "go\n", true, true, false, nil},
-		{"escaped oversized", "read line; printf '%s' '" + strings.Repeat(`"\`, 40) + "'; sleep 0.8", strings.Repeat(`"\`, 40), "go\n", true, true, true, nil},
-		{"selected higher estimate", "read line; printf '123456789012345678901234567890'; sleep 0.8", "123456789012345678901234567890", "go\n", true, true, true, func(text string) int { return len(text) }},
-		{"selected lower estimate", "read line; printf '" + plain + "'; sleep 0.8", plain, "go\n", true, true, false, func(text string) int { return len(text) / 8 }},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			manager := newShellTestManager(t, 50*time.Millisecond)
-			backgrounded := make(chan Snapshot, 1)
-			manager.SetEventHandler(func(event Event) bool {
-				if event.Type == EventBackgrounded {
-					backgrounded <- event.Snapshot
-				}
-				return true
-			})
-			start := callExecCommand(t, NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 40, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})), "start", map[string]any{
-				"cmd": test.command, "shell": "/bin/sh", "login": false, "tty": true, "yield_time_ms": 50,
-			})
-			if start.IsError {
-				t.Fatalf("start = %s", start.Output)
-			}
-			snapshot := <-backgrounded
-			sessionID, err := strconv.Atoi(snapshot.ID)
-			if err != nil {
-				t.Fatalf("session ID: %v", err)
-			}
-			input := map[string]any{"session_id": sessionID, "yield_time_ms": 15_000, "max_output_tokens": 21}
-			if test.chars != "" {
-				input["chars"], input["yield_time_ms"] = test.chars, 50
-			}
-			result := callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, test.estimate), "poll", input)
-			if test.guarded {
-				assertOversizedOutputFailure(t, result, snapshot.LogPath)
-			} else if result.IsError || !strings.Contains(decodeStringToolOutput(t, result), test.output) {
-				t.Fatalf("output within plaintext limit = %s", result.Output)
-			}
-			if !test.running && result.CompletedBackgroundSessionID == nil {
-				t.Fatal("completed guarded poll lost its background completion identity")
-			}
-			if test.running {
-				current, err := manager.Snapshot(snapshot.ID)
-				if err != nil || !current.Running {
-					t.Fatalf("guarded snapshot = %+v, error=%v", current, err)
-				}
-			}
-			if test.later && callWriteStdin(t, NewWriteStdinTool(16_000, 40, manager, nil), "later", map[string]any{
-				"session_id": sessionID, "yield_time_ms": 15_000, "max_output_tokens": 19,
-			}).IsError {
-				t.Fatal("later independent poll returned an error")
-			}
-			if log, err := os.ReadFile(snapshot.LogPath); err != nil || string(log) != test.output {
-				t.Fatalf("retained output = %q, error=%v", log, err)
-			}
-		})
 	}
 }

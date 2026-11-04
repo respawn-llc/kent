@@ -7,8 +7,10 @@ import (
 	"core/server/tools"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
+	"core/shared/jsoncontract"
 	"core/shared/sessionenv"
 	"core/shared/toolspec"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +31,18 @@ func decodeStringToolOutput(t *testing.T, result tools.Result) string {
 		t.Fatalf("decode string output: %v", err)
 	}
 	return out
+}
+
+func shellLogPathFromOutput(t *testing.T, output string) string {
+	t.Helper()
+	for _, field := range strings.Fields(output) {
+		path := strings.TrimSuffix(field, ":")
+		if strings.HasSuffix(path, ".log") {
+			return path
+		}
+	}
+	t.Fatalf("shell result did not include an output log path: %q", output)
+	return ""
 }
 
 func assertShellError(t *testing.T, result tools.Result, call tools.Call, message string) {
@@ -121,7 +135,7 @@ func TestExecCommandSilentSuccessIsTerminalAndUnambiguous(t *testing.T) {
 	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 20, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
 
 	result := callExecCommand(t, execTool, "silent-success", map[string]any{
-		"cmd":           "true",
+		"cmd":           "printf '  \\n'",
 		"shell":         "/bin/sh",
 		"login":         false,
 		"yield_time_ms": 1_000,
@@ -136,10 +150,451 @@ func TestExecCommandSilentSuccessIsTerminalAndUnambiguous(t *testing.T) {
 	if rendered == "" {
 		t.Fatal("silent terminal completion must render non-empty content")
 	}
+	if !strings.Contains(rendered, "Shell 1000 exited with code 0 and no output") {
+		t.Fatalf("silent completion does not identify the shell and numeric exit status: %q", rendered)
+	}
 	if result.PresentationDelta != nil && result.PresentationDelta.MovedToBackground {
 		t.Fatalf("silent foreground completion must not be marked backgrounded: %+v", result.PresentationDelta)
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
+}
+
+func TestExecCommandForegroundFailureIncludesShellAndExitStatus(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+
+	result := callExecCommand(t, execTool, "foreground-failure", map[string]any{
+		"cmd":           "printf 'failed payload'; exit 7",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"yield_time_ms": 1_000,
+	})
+	if result.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
+	}
+	rendered := decodeStringToolOutput(t, result)
+	if !strings.Contains(rendered, "Shell 1000 exited with code 7") {
+		t.Fatalf("failure output does not identify the shell and numeric exit status: %q", rendered)
+	}
+	if !strings.Contains(rendered, "failed payload") {
+		t.Fatalf("failure output is missing command output: %q", rendered)
+	}
+}
+
+func TestExecCommandSuccessfulForegroundOutputRemainsPlaintext(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+
+	result := callExecCommand(t, execTool, "foreground-success", map[string]any{
+		"cmd":           "printf 'successful payload'",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"yield_time_ms": 1_000,
+	})
+	if result.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
+	}
+	if rendered := decodeStringToolOutput(t, result); rendered != "successful payload" {
+		t.Fatalf("successful foreground output = %q", rendered)
+	}
+}
+
+func TestExecCommandSuccessfulForegroundTruncationIncludesPath(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	content := strings.Repeat("x", 200)
+
+	result := callExecCommand(t, execTool, "foreground-truncated-success", map[string]any{
+		"cmd":               "printf '%s' '" + content + "'",
+		"shell":             "/bin/sh",
+		"login":             false,
+		"yield_time_ms":     1_000,
+		"max_output_tokens": 20,
+	})
+	if result.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
+	}
+	rendered := decodeStringToolOutput(t, result)
+	if !strings.Contains(rendered, "output written to ") || !strings.Contains(rendered, ".log:\n") {
+		t.Fatalf("truncated foreground output does not identify its log: %q", rendered)
+	}
+	if strings.Count(rendered, ".log") != 1 {
+		t.Fatalf("truncated foreground output repeats its log path: %q", rendered)
+	}
+	if strings.Contains(rendered, "exited with code") {
+		t.Fatalf("successful foreground output added an exit-code line: %q", rendered)
+	}
+	if result.PresentationDelta == nil || !result.PresentationDelta.OutputTruncated {
+		t.Fatalf("truncated foreground presentation = %+v", result.PresentationDelta)
+	}
+	path := shellLogPathFromOutput(t, rendered)
+	read := callExecCommand(t, execTool, "foreground-truncated-read", map[string]any{
+		"cmd":           "cat '" + path + "'",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"raw":           true,
+		"yield_time_ms": 1_000,
+	})
+	if read.IsError {
+		t.Fatalf("read truncated foreground log: %s", string(read.Output))
+	}
+	if got := decodeStringToolOutput(t, read); got != content {
+		t.Fatalf("foreground log content = %q, want the original command output", got)
+	}
+}
+
+func TestExecCommandBackgroundTransitionIncludesDurationAndPathWithoutOutput(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+
+	result := callExecCommand(t, execTool, "background-transition", map[string]any{
+		"cmd":           "printf 'early payload'; sleep 1",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"yield_time_ms": 1,
+	})
+	if result.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
+	}
+	rendered := decodeStringToolOutput(t, result)
+	const prefix = "Shell moved to background with ID 1000 after "
+	if !strings.HasPrefix(rendered, prefix) {
+		t.Fatalf("background transition does not report its shell and elapsed duration: %q", rendered)
+	}
+	duration := strings.TrimPrefix(rendered, prefix)
+	duration = duration[:strings.IndexByte(duration, 's')]
+	decimal := strings.IndexByte(duration, '.')
+	if decimal < 0 || len(duration)-decimal-1 != 1 {
+		t.Fatalf("background transition duration is not reported to one decimal place: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Output file: ") || !strings.Contains(rendered, ".log") {
+		t.Fatalf("background transition is missing the output-file path: %q", rendered)
+	}
+	if strings.Count(rendered, ".log") != 1 {
+		t.Fatalf("background transition repeats its output-file path: %q", rendered)
+	}
+	if strings.Contains(rendered, "early payload") {
+		t.Fatalf("background transition includes command output: %q", rendered)
+	}
+	if result.PresentationDelta == nil || !result.PresentationDelta.MovedToBackground {
+		t.Fatalf("background transition presentation = %+v", result.PresentationDelta)
+	}
+}
+
+func TestWriteStdinRunningPollReportsWallTimePathAndOutput(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	stdinTool := NewWriteStdinTool(manager)
+
+	start := callExecCommand(t, execTool, "poll-running-start", map[string]any{
+		"cmd":           "read line; printf 'poll payload'; sleep 1",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"tty":           true,
+		"yield_time_ms": 1,
+	})
+	if start.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+	}
+	snapshot, err := manager.Snapshot("1000")
+	if err != nil || !snapshot.Running {
+		t.Fatalf("expected background shell to be running: %+v, %v", snapshot, err)
+	}
+	poll := callWriteStdin(t, stdinTool, "poll-running-output", map[string]any{
+		"session_id":    1000,
+		"chars":         "\n",
+		"yield_time_ms": 250,
+	})
+	if poll.IsError {
+		t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
+	}
+	rendered := decodeStringToolOutput(t, poll)
+	if !strings.Contains(rendered, "Wall time:") || !strings.Contains(rendered, "Output file: "+snapshot.LogPath) {
+		t.Fatalf("running poll is missing timing or log location: %q", rendered)
+	}
+	if strings.Count(rendered, snapshot.LogPath) != 1 {
+		t.Fatalf("running poll repeats its log path: %q", rendered)
+	}
+	if !strings.Contains(rendered, "poll payload") {
+		t.Fatalf("running poll is missing command output: %q", rendered)
+	}
+}
+
+func TestWriteStdinPollReturnsRepeatableTailAfterNewOutput(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	stdinTool := NewWriteStdinTool(manager)
+
+	start := callExecCommand(t, execTool, "repeatable-tail-start", map[string]any{
+		"cmd":           "printf 'first marker'; read line; printf 'second marker'; sleep 1",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"tty":           true,
+		"yield_time_ms": 1,
+	})
+	if start.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+	}
+
+	poll := func(id string, input map[string]any) string {
+		t.Helper()
+		result := callWriteStdin(t, stdinTool, id, input)
+		if result.IsError {
+			t.Fatalf("unexpected write_stdin error: %s", string(result.Output))
+		}
+		return decodeStringToolOutput(t, result)
+	}
+	first := poll("repeatable-tail-first", map[string]any{"session_id": 1000})
+	second := poll("repeatable-tail-repeat", map[string]any{"session_id": 1000})
+	if !strings.Contains(first, "first marker") || !strings.Contains(second, "first marker") {
+		t.Fatalf("unchanged polls must return the available output tail: first=%q second=%q", first, second)
+	}
+
+	latest := poll("repeatable-tail-latest", map[string]any{
+		"session_id":    1000,
+		"chars":         "continue\n",
+		"yield_time_ms": 250,
+	})
+	if !strings.Contains(latest, "first marker") || !strings.Contains(latest, "second marker") {
+		t.Fatalf("poll after new output must return the latest accumulated tail: %q", latest)
+	}
+}
+
+func TestWriteStdinPollUsesBoundedNewestOutputTail(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	stdinTool := NewWriteStdinTool(manager)
+
+	start := callExecCommand(t, execTool, "bounded-tail-start", map[string]any{
+		"cmd":           "printf 'older marker\\n'; head -c 6000 /dev/zero | tr '\\000' x; printf '\\nnewer marker\\n'; sleep 1",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"yield_time_ms": 1,
+	})
+	if start.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+	}
+	poll := callWriteStdin(t, stdinTool, "bounded-tail-poll", map[string]any{"session_id": 1000})
+	if poll.IsError {
+		t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
+	}
+	rendered := decodeStringToolOutput(t, poll)
+	if !strings.Contains(rendered, "newer marker") || strings.Contains(rendered, "older marker") {
+		t.Fatalf("poll did not return only the newest bounded output tail: %q", rendered)
+	}
+	if poll.PresentationDelta == nil || !poll.PresentationDelta.OutputTruncated {
+		t.Fatalf("bounded tail did not retain truncation metadata: %+v", poll.PresentationDelta)
+	}
+}
+
+func TestWriteStdinCompletionPollUsesBoundedNewestOutputTail(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	stdinTool := NewWriteStdinTool(manager)
+
+	start := callExecCommand(t, execTool, "bounded-completion-start", map[string]any{
+		"cmd":           "read line; printf 'older marker\\n'; head -c 6000 /dev/zero | tr '\\000' x; printf '\\nnewer marker\\n'",
+		"shell":         "/bin/sh",
+		"login":         false,
+		"tty":           true,
+		"yield_time_ms": 1,
+	})
+	if start.IsError {
+		t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+	}
+	poll := callWriteStdin(t, stdinTool, "bounded-completion-poll", map[string]any{
+		"session_id":    1000,
+		"chars":         "continue\n",
+		"yield_time_ms": 250,
+	})
+	if poll.IsError {
+		t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
+	}
+	rendered := decodeStringToolOutput(t, poll)
+	if !strings.Contains(rendered, "newer marker") || strings.Contains(rendered, "older marker") {
+		t.Fatalf("completion poll did not return only the newest bounded output tail: %q", rendered)
+	}
+	if poll.CompletedBackgroundSessionID == nil || *poll.CompletedBackgroundSessionID != 1000 {
+		t.Fatalf("completed poll lost its shell identity: %+v", poll)
+	}
+	if poll.PresentationDelta == nil || !poll.PresentationDelta.OutputTruncated {
+		t.Fatalf("completed bounded tail did not retain truncation metadata: %+v", poll.PresentationDelta)
+	}
+}
+
+func TestExecCommandReadsCompleteShellLogWhileRunningAndAfterCompletion(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		raw     bool
+		concise bool
+	}{
+		{name: "processed output"},
+		{name: "raw concise output", raw: true, concise: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := newBackgroundTestManager(t)
+			completedEvents := make(chan Event, 2)
+			manager.SetEventHandler(func(event Event) bool {
+				if event.Type == EventCompleted || event.Type == EventKilled {
+					completedEvents <- event
+				}
+				return true
+			})
+			runner := postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+			execTool := NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, manager, "", runner)
+			stdinTool := NewWriteStdinTool(manager)
+			content := "\x1b[31mstart\x1b[0m\n" + strings.Repeat("0123456789", 600) + "\nend\n"
+
+			start := callExecCommand(t, execTool, "log-retrieval-start", map[string]any{
+				"cmd":           "printf '%s' '" + content + "'; sleep 3",
+				"shell":         "/bin/sh",
+				"login":         false,
+				"raw":           test.raw,
+				"yield_time_ms": 1,
+			})
+			if start.IsError {
+				t.Fatalf("unexpected exec_command error: %s", string(start.Output))
+			}
+			snapshot, err := manager.Snapshot("1000")
+			if err != nil || !snapshot.Running {
+				t.Fatalf("expected background process to remain running: %+v, %v", snapshot, err)
+			}
+			startText := decodeStringToolOutput(t, start)
+			returnedPath := shellLogPathFromOutput(t, startText)
+			if returnedPath != snapshot.LogPath {
+				t.Fatalf("background result path = %q, manager path = %q", returnedPath, snapshot.LogPath)
+			}
+
+			readRanges := func(path string) string {
+				t.Helper()
+				var read strings.Builder
+				for offset := 0; offset < len(content); {
+					count := min(2_048, len(content)-offset)
+					command := fmt.Sprintf("dd if='%s' bs=1 skip=%d count=%d 2>/dev/null | base64 | tr -d '\\n'", path, offset, count)
+					rangeResult := callExecCommand(t, execTool, fmt.Sprintf("log-range-%d", offset), map[string]any{
+						"cmd":           command,
+						"shell":         "/bin/sh",
+						"login":         false,
+						"raw":           true,
+						"yield_time_ms": 1_000,
+					})
+					if rangeResult.IsError {
+						t.Fatalf("read log range at %d: %s", offset, string(rangeResult.Output))
+					}
+					decoded, err := base64.StdEncoding.DecodeString(decodeStringToolOutput(t, rangeResult))
+					if err != nil {
+						t.Fatalf("decode shell-log range at %d: %v", offset, err)
+					}
+					read.Write(decoded)
+					offset += count
+				}
+				return read.String()
+			}
+			if got := readRanges(returnedPath); got != content {
+				offset := 0
+				for offset < min(len(got), len(content)) && got[offset] == content[offset] {
+					offset++
+				}
+				t.Fatalf("running shell log content differs from original output at byte %d: got %q, want %q (lengths %d and %d)", offset, got[max(0, offset-8):min(len(got), offset+8)], content[max(0, offset-8):min(len(content), offset+8)], len(got), len(content))
+			}
+
+			poll := callWriteStdin(t, stdinTool, "log-retrieval-completion", map[string]any{
+				"session_id":    1000,
+				"yield_time_ms": 15_000,
+			})
+			if poll.IsError {
+				t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
+			}
+			pollText := decodeStringToolOutput(t, poll)
+			pollPath := shellLogPathFromOutput(t, pollText)
+			if pollPath != returnedPath {
+				t.Fatalf("completed poll path = %q, background path = %q", pollPath, returnedPath)
+			}
+			if strings.Contains(pollText, "start") {
+				t.Fatalf("bounded poll unexpectedly includes output older than its tail: %q", pollText)
+			}
+
+			var event Event
+			select {
+			case event = <-completedEvents:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for background completion")
+			}
+			mode := BackgroundOutputDefault
+			if test.concise {
+				mode = BackgroundOutputConcise
+			}
+			summary, err := SummarizeBackgroundEvent(event, BackgroundNoticeOptions{SuccessOutputMode: mode})
+			if err != nil {
+				t.Fatalf("SummarizeBackgroundEvent: %v", err)
+			}
+			if test.concise && !strings.Contains(summary.DetailText, summary.LogPath) {
+				t.Fatalf("concise completion did not expose its log path: %q", summary.DetailText)
+			}
+			logPath := pollPath
+			if test.concise {
+				logPath = shellLogPathFromOutput(t, summary.DetailText)
+			}
+			if got := readRanges(logPath); got != content {
+				offset := 0
+				for offset < min(len(got), len(content)) && got[offset] == content[offset] {
+					offset++
+				}
+				t.Fatalf("completed shell log content differs from original output at byte %d: got %q, want %q (lengths %d and %d)", offset, got[max(0, offset-8):min(len(got), offset+8)], content[max(0, offset-8):min(len(content), offset+8)], len(got), len(content))
+			}
+		})
+	}
+}
+
+func TestWriteStdinPublishedContractDoesNotExposeOutputSize(t *testing.T) {
+	manager := newBackgroundTestManager(t)
+	contracts, err := tools.NewStaticToolContracts(
+		jsoncontract.NewPreparer(false),
+		WriteStdinStaticContractSource(),
+	)
+	if err != nil {
+		t.Fatalf("prepare static write_stdin contract: %v", err)
+	}
+	registry, err := tools.NewStaticToolRegistry(
+		contracts,
+		tools.HandlerRegistration{
+			ID:      toolspec.ToolWriteStdin,
+			Handler: NewWriteStdinTool(manager),
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare write_stdin registry: %v", err)
+	}
+	definitions := registry.Definitions()
+	if len(definitions) != 1 {
+		t.Fatalf("write_stdin definition count = %d, want one", len(definitions))
+	}
+	for _, field := range definitions[0].Schema.Fields() {
+		if field == "max_output_tokens" {
+			t.Fatal("write_stdin schema still publishes max_output_tokens")
+		}
+	}
+	for _, name := range []string{"max_output_tokens", "max_tokens", "output_token_limit"} {
+		if _, ok := toolspec.ResolveModelParameterName(toolspec.ToolWriteStdin, name); ok {
+			t.Fatalf("write_stdin still normalizes the removed output-size parameter %q", name)
+		}
+	}
+	if canonical, ok := toolspec.ResolveModelParameterName(toolspec.ToolExecCommand, "max_tokens"); !ok || canonical != "max_output_tokens" {
+		t.Fatalf("exec_command max_tokens alias = %q, %t; want max_output_tokens, true", canonical, ok)
+	}
+	for _, name := range []string{"max_output_tokens", "max_tokens", "output_token_limit"} {
+		input, err := registry.PrepareInput(toolspec.ToolWriteStdin, json.RawMessage(`{"session_id":1000,"`+name+`":32}`))
+		if err != nil {
+			t.Fatalf("prepare write_stdin input with %q: %v", name, err)
+		}
+		var canonical map[string]json.RawMessage
+		if err := json.Unmarshal(input, &canonical); err != nil {
+			t.Fatalf("decode prepared write_stdin input: %v", err)
+		}
+		if _, exists := canonical["max_output_tokens"]; exists {
+			t.Fatalf("removed write_stdin output-size parameter %q was retained: %s", name, input)
+		}
+	}
 }
 
 func TestExecCommandEmptyDefaultWorkdirReturnsManagerErrorWithoutExecuting(t *testing.T) {
@@ -583,7 +1038,7 @@ func TestWriteStdinPollingPreservesTerminalLifecycleForAllCompletionShapes(t *te
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
 			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-			pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+			pollTool := NewWriteStdinTool(manager)
 
 			start := callExecCommand(t, execTool, "poll-start", map[string]any{
 				"cmd":           tt.command,
@@ -644,7 +1099,7 @@ func TestWriteStdinNonpositiveOutputPollDoesNotWait(t *testing.T) {
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
 			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-			pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+			pollTool := NewWriteStdinTool(manager)
 
 			start := callExecCommand(t, execTool, "short-window-start", map[string]any{
 				"cmd":           "sleep 3",
@@ -688,7 +1143,7 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	pollTool := NewWriteStdinTool(manager)
 
 	start := callExecCommand(t, execTool, "short-poll-start", map[string]any{
 		"cmd":           "sleep 0.15",
@@ -745,7 +1200,7 @@ func TestWriteStdinRejectsShortTimedOutputPolls(t *testing.T) {
 func TestWriteStdinCancellationReportsActiveProcess(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	pollTool := NewWriteStdinTool(manager)
 
 	result, err := manager.Start(context.Background(), ExecRequest{
 		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
@@ -949,69 +1404,6 @@ func TestExecCommandReportsNonZeroExitCode(t *testing.T) {
 	}
 }
 
-func TestWriteStdinWarnsAndRetriesWhenFullLogReadFails(t *testing.T) {
-	workspace := t.TempDir()
-	manager := newShellTestManager(t, 50*time.Millisecond)
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
-
-	result, err := manager.Start(context.Background(), ExecRequest{
-		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
-		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"sh", "-c", "sleep 0.15; printf done"},
-		DisplayCommand:      "delayed-done",
-		Workdir:             workspace,
-		YieldTime:           50 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	if !result.Backgrounded {
-		t.Fatalf("expected backgrounded result, got %+v", result)
-	}
-	logPath := result.OutputPath
-	backupPath := logPath + ".bak"
-	sessionID, err := strconv.Atoi(result.SessionID)
-	if err != nil {
-		t.Fatalf("parse session id: %v", err)
-	}
-
-	testsetup.RequireUntil(t, time.Now().Add(time.Second), 5*time.Millisecond, func() bool {
-		snapshot, snapshotErr := manager.Snapshot(result.SessionID)
-		info, statErr := os.Stat(logPath)
-		return snapshotErr == nil && !snapshot.Running && statErr == nil && info.Size() > 0
-	}, "timed out waiting for completed process output")
-	if err := os.Rename(logPath, backupPath); err != nil {
-		t.Fatalf("rename log away: %v", err)
-	}
-
-	pollInput := map[string]any{
-		"session_id": sessionID,
-	}
-	first := callWriteStdin(t, pollTool, "log-missing-1", pollInput)
-	if first.IsError {
-		t.Fatalf("unexpected first write_stdin error: %s", string(first.Output))
-	}
-	firstText := decodeStringToolOutput(t, first)
-	if !strings.Contains(firstText, "failed to read full output log") {
-		t.Fatalf("expected full-log warning, got %q", firstText)
-	}
-
-	if err := os.Rename(backupPath, logPath); err != nil {
-		t.Fatalf("restore log: %v", err)
-	}
-	second := callWriteStdin(t, pollTool, "log-missing-2", pollInput)
-	if second.IsError {
-		t.Fatalf("unexpected second write_stdin error: %s", string(second.Output))
-	}
-	secondText := decodeStringToolOutput(t, second)
-	if strings.Contains(secondText, "failed to read full output log") {
-		t.Fatalf("did not expect warning after log restored, got %q", secondText)
-	}
-	if !strings.Contains(secondText, "done") {
-		t.Fatalf("expected restored full output, got %q", secondText)
-	}
-}
-
 func TestExecCommandClampsShortYieldTime(t *testing.T) {
 	const commandDelay = 100 * time.Millisecond
 	const clampedForegroundWindow = 2 * time.Second
@@ -1062,7 +1454,7 @@ func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	pollTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	pollTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "poll-duration-exec", map[string]any{
 		"cmd":           "read line; sleep 0.6",
@@ -1076,10 +1468,9 @@ func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 	}
 
 	pollInput := map[string]any{
-		"session_id":        1000,
-		"chars":             "\n",
-		"yield_time_ms":     300,
-		"max_output_tokens": 32,
+		"session_id":    1000,
+		"chars":         "\n",
+		"yield_time_ms": 300,
 	}
 	start := time.Now()
 	pollResult := callWriteStdin(t, pollTool, "poll-duration-poll", pollInput)
@@ -1097,8 +1488,12 @@ func TestWriteStdinPollHonorsRequestedDuration(t *testing.T) {
 	if pollResult.CompletedBackgroundSessionID != nil {
 		t.Fatalf("running session reported completed: %v", pollResult.CompletedBackgroundSessionID)
 	}
-	if decodeStringToolOutput(t, pollResult) == "" {
+	rendered := decodeStringToolOutput(t, pollResult)
+	if rendered == "" {
 		t.Fatal("running polling response must contain presentation")
+	}
+	if !strings.Contains(rendered, "Wall time:") || !strings.Contains(rendered, "Output file: ") {
+		t.Fatalf("running polling response is missing timing or log location: %q", rendered)
 	}
 	if snapshot, err := manager.Snapshot("1000"); err != nil || !snapshot.Running {
 		t.Fatalf("expected session to still be running: %+v, %v", snapshot, err)
@@ -1110,7 +1505,7 @@ func TestWriteStdinInputBypassesShortPollError(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	start := callExecCommand(t, execTool, "input-short-poll-start", map[string]any{
 		"cmd":           "IFS= read -r line && [ \"$line\" = continue ]",
@@ -1130,6 +1525,10 @@ func TestWriteStdinInputBypassesShortPollError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("background session ID must be numeric: %v", err)
 	}
+	snapshot, err := manager.Snapshot(snapshots[0].ID)
+	if err != nil {
+		t.Fatalf("background shell snapshot: %v", err)
+	}
 
 	result := callWriteStdin(t, stdinTool, "input-short-poll", map[string]any{
 		"session_id":    sessionID,
@@ -1144,8 +1543,18 @@ func TestWriteStdinInputBypassesShortPollError(t *testing.T) {
 		*result.PresentationDelta.ShellExitCode != 0 {
 		t.Fatalf("completed input result = %+v", result)
 	}
-	if decodeStringToolOutput(t, result) == "" {
+	rendered := decodeStringToolOutput(t, result)
+	if rendered == "" {
 		t.Fatal("completed input response must contain presentation")
+	}
+	if !strings.Contains(rendered, fmt.Sprintf("Shell %s exited with code 0 and no output", snapshot.ID)) {
+		t.Fatalf("completed polling response is missing the shell's exit status: %q", rendered)
+	}
+	if !strings.Contains(rendered, "Wall time:") || !strings.Contains(rendered, "Output file: "+snapshot.LogPath) {
+		t.Fatalf("completed polling response is missing timing or log location: %q", rendered)
+	}
+	if strings.Count(rendered, snapshot.LogPath) != 1 {
+		t.Fatalf("completed polling response repeats its log path: %q", rendered)
 	}
 	waitForManagerCount(t, manager, 0, time.Second)
 }
@@ -1164,7 +1573,7 @@ func TestWriteStdinWhitespaceInputRemainsInputAtLongWaits(t *testing.T) {
 			workspace := t.TempDir()
 			manager := newShellTestManager(t, 50*time.Millisecond)
 			execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-			stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+			stdinTool := NewWriteStdinTool(manager)
 
 			start := callExecCommand(t, execTool, "whitespace-input-start", map[string]any{
 				"cmd":           "read line; sleep 0.6",
@@ -1251,7 +1660,7 @@ func TestWriteStdinRawSessionAddsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "raw-tty-1", map[string]any{
 		"cmd":           "read line; printf '\\033[31m%s\\033[0m' \"$line\"",
@@ -1283,7 +1692,7 @@ func TestWriteStdinSendsInputToInteractiveProcess(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "tty-1", map[string]any{
 		"cmd":           "read line; echo $line",
@@ -1322,7 +1731,7 @@ func TestWriteStdinCompletionTruncationSetsPresentationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "tty-trunc-1", map[string]any{
 		"cmd":           "read line; printf '%s' \"$line\"",
@@ -1335,17 +1744,27 @@ func TestWriteStdinCompletionTruncationSetsPresentationMetadata(t *testing.T) {
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
 
+	snapshot, err := manager.Snapshot("1000")
+	if err != nil {
+		t.Fatalf("background shell snapshot: %v", err)
+	}
 	stdinResult := callWriteStdin(t, stdinTool, "tty-trunc-2", map[string]any{
-		"session_id":        1000,
-		"chars":             strings.Repeat("x", 400) + "\n",
-		"yield_time_ms":     2_000,
-		"max_output_tokens": 10,
+		"session_id":    1000,
+		"chars":         strings.Repeat("x", 6_000) + "\n",
+		"yield_time_ms": 2_000,
 	})
 	if stdinResult.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(stdinResult.Output))
 	}
 	if stdinResult.PresentationDelta == nil || !stdinResult.PresentationDelta.OutputTruncated {
 		t.Fatalf("expected write_stdin truncation presentation delta, got %+v", stdinResult.PresentationDelta)
+	}
+	rendered := decodeStringToolOutput(t, stdinResult)
+	if !strings.Contains(rendered, "Output file: "+snapshot.LogPath) {
+		t.Fatalf("truncated polling response is missing its log path: %q", rendered)
+	}
+	if strings.Count(rendered, snapshot.LogPath) != 1 {
+		t.Fatalf("truncated polling response repeats its log path: %q", rendered)
 	}
 	waitForManagerCount(t, manager, 0, 3*time.Second)
 }
@@ -1354,7 +1773,7 @@ func TestWriteStdinPreservesBackgroundSummaryTruncationMetadata(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "tty-summary-trunc-1", map[string]any{
 		"cmd":           "read line; head -c 2200000 /dev/zero | tr '\\0' x",
@@ -1368,10 +1787,9 @@ func TestWriteStdinPreservesBackgroundSummaryTruncationMetadata(t *testing.T) {
 	}
 
 	stdinResult := callWriteStdin(t, stdinTool, "tty-summary-trunc-2", map[string]any{
-		"session_id":        1000,
-		"chars":             "go\n",
-		"yield_time_ms":     5_000,
-		"max_output_tokens": 10,
+		"session_id":    1000,
+		"chars":         "go\n",
+		"yield_time_ms": 5_000,
 	})
 	if stdinResult.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(stdinResult.Output))

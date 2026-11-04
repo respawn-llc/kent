@@ -58,7 +58,7 @@ func TestBackgroundEventCompletionOutputApplicability(t *testing.T) {
 	}
 }
 
-func TestBackgroundNoticeFinalizedOutputKeepsRetainedLogMetadata(t *testing.T) {
+func TestBackgroundNoticeFinalizedOutputUsesCompletionContent(t *testing.T) {
 	lines := strings.Repeat("line\n", 100)
 	logPath := writeBackgroundNoticeLog(t, []byte(lines))
 	exitCode := 0
@@ -68,14 +68,12 @@ func TestBackgroundNoticeFinalizedOutputKeepsRetainedLogMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
 	}
-	if summary.output.inlinePreview == nil {
-		t.Fatal("expected finalized output inline preview")
+	preview, removed := summary.RuntimePreview()
+	if preview != "semantic replacement" || removed != 0 {
+		t.Fatalf("finalized completion preview = %q, removed = %d", preview, removed)
 	}
-	if summary.output.logLineCount == nil || *summary.output.logLineCount != 100 {
-		t.Fatalf("retained log line count = %v, want 100", summary.output.logLineCount)
-	}
-	if summary.LineCount != 100 {
-		t.Fatalf("summary line count = %d, want 100", summary.LineCount)
+	if !strings.Contains(summary.DetailText, "semantic replacement") || strings.Contains(summary.DetailText, logPath) {
+		t.Fatalf("finalized notice did not use completion content: %q", summary.DetailText)
 	}
 	if summary.Truncated {
 		t.Fatal("semantic replacement must not inherit retained-log truncation")
@@ -85,15 +83,101 @@ func TestBackgroundNoticeFinalizedOutputKeepsRetainedLogMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent concise: %v", err)
 	}
-	if concise.output.inlinePreview != nil {
-		t.Fatal("concise mode must suppress only command inline preview")
-	}
-	if concise.output.logLineCount == nil || *concise.output.logLineCount != 100 {
-		t.Fatalf("concise retained log line count = %v, want 100", concise.output.logLineCount)
+	if strings.Contains(concise.DetailText, "semantic replacement") || !strings.Contains(concise.DetailText, logPath) {
+		t.Fatalf("concise finalized notice did not replace command output with its path: %q", concise.DetailText)
 	}
 }
 
-func TestBackgroundNoticeWarningOnlyOutputDoesNotClaimLogContent(t *testing.T) {
+func TestBackgroundNoticeUsesSharedCompletedShellPresentation(t *testing.T) {
+	logPath := writeBackgroundNoticeLog(t, []byte("failed payload\n"))
+	exitCode := 7
+	event := newFinalizedBackgroundEvent(EventCompleted, completedBackgroundSnapshot(logPath, &exitCode), "failed payload", nil, false)
+
+	summary, err := SummarizeBackgroundEvent(event, BackgroundNoticeOptions{SuccessOutputMode: BackgroundOutputDefault})
+	if err != nil {
+		t.Fatalf("SummarizeBackgroundEvent: %v", err)
+	}
+	if !strings.Contains(summary.DetailText, "Shell 1000 exited with code 7") {
+		t.Fatalf("completion detail does not identify the shell's numeric exit status: %q", summary.DetailText)
+	}
+	if strings.Count(summary.DetailText, "failed payload") != 1 {
+		t.Fatalf("completion detail does not deliver command output once: %q", summary.DetailText)
+	}
+	if strings.Contains(summary.DetailText, "Background shell") || strings.Contains(summary.DetailText, "Exit code:") {
+		t.Fatalf("completion detail repeats lifecycle or exit facts: %q", summary.DetailText)
+	}
+	if strings.Contains(summary.DetailText, logPath) {
+		t.Fatalf("completion detail exposes a path for full output: %q", summary.DetailText)
+	}
+}
+
+func TestBackgroundNoticeTruncatedCompletionExposesPathOnce(t *testing.T) {
+	longOutput := "start-" + strings.Repeat("x", 200) + "-end"
+	logPath := writeBackgroundNoticeLog(t, []byte(longOutput+"\n"))
+	exitCode := 5
+	event := newFinalizedBackgroundEvent(EventCompleted, completedBackgroundSnapshot(logPath, &exitCode), longOutput, nil, false)
+
+	summary, err := SummarizeBackgroundEvent(event, BackgroundNoticeOptions{MaxChars: 80, SuccessOutputMode: BackgroundOutputDefault})
+	if err != nil {
+		t.Fatalf("SummarizeBackgroundEvent: %v", err)
+	}
+	preview, removed := summary.RuntimePreview()
+	if preview == "" || removed <= 0 || !summary.Truncated {
+		t.Fatalf("truncated completion preview = %q, removed = %d, truncated = %t", preview, removed, summary.Truncated)
+	}
+	if strings.Count(summary.DetailText, logPath) != 1 {
+		t.Fatalf("truncated completion must expose its path once: %q", summary.DetailText)
+	}
+	if !strings.Contains(summary.DetailText, "Shell 1000 exited with code 5") {
+		t.Fatalf("truncated completion does not identify its shell and exit status: %q", summary.DetailText)
+	}
+	if strings.Contains(summary.DetailText, "Output file (") {
+		t.Fatalf("truncated completion retained a redundant line-count header: %q", summary.DetailText)
+	}
+}
+
+func TestBackgroundNoticeConciseSuccessUsesPathInsteadOfOutput(t *testing.T) {
+	logPath := writeBackgroundNoticeLog(t, []byte("successful payload\n"))
+	exitCode := 0
+	event := newFinalizedBackgroundEvent(EventCompleted, completedBackgroundSnapshot(logPath, &exitCode), "successful payload", nil, false)
+
+	summary, err := SummarizeBackgroundEvent(event, BackgroundNoticeOptions{SuccessOutputMode: BackgroundOutputConcise})
+	if err != nil {
+		t.Fatalf("SummarizeBackgroundEvent: %v", err)
+	}
+	if !strings.Contains(summary.DetailText, logPath) {
+		t.Fatalf("concise completion did not expose the output-file path: %q", summary.DetailText)
+	}
+	if strings.Contains(summary.DetailText, "successful payload") || strings.Contains(summary.DetailText, "no output") {
+		t.Fatalf("concise completion did not omit nonempty output honestly: %q", summary.DetailText)
+	}
+	if strings.Contains(summary.DetailText, "Background shell") || strings.Contains(summary.DetailText, "Exit code:") {
+		t.Fatalf("concise completion repeats lifecycle or exit facts: %q", summary.DetailText)
+	}
+}
+
+func TestBackgroundNoticeConciseFailureKeepsOutputAndWarning(t *testing.T) {
+	logPath := writeBackgroundNoticeLog(t, []byte("failure payload\n"))
+	warning, err := postprocess.NewWarning("recoverable warning")
+	if err != nil {
+		t.Fatalf("NewWarning: %v", err)
+	}
+	exitCode := 7
+	event := newFinalizedBackgroundEvent(EventCompleted, completedBackgroundSnapshot(logPath, &exitCode), "failure payload", warning, false)
+
+	summary, err := SummarizeBackgroundEvent(event, BackgroundNoticeOptions{SuccessOutputMode: BackgroundOutputConcise})
+	if err != nil {
+		t.Fatalf("SummarizeBackgroundEvent: %v", err)
+	}
+	if !strings.Contains(summary.DetailText, "failure payload") || !strings.Contains(summary.DetailText, warning.Text()) {
+		t.Fatalf("concise failure hid command output or its warning: %q", summary.DetailText)
+	}
+	if !strings.Contains(summary.DetailText, "Shell 1000 exited with code 7") {
+		t.Fatalf("concise failure does not identify its shell and exit status: %q", summary.DetailText)
+	}
+}
+
+func TestBackgroundNoticeWarningOnlyOutputRemainsVisible(t *testing.T) {
 	logPath := writeBackgroundNoticeLog(t, nil)
 	warning, err := postprocess.NewWarning("recoverable warning")
 	if err != nil {
@@ -106,17 +190,10 @@ func TestBackgroundNoticeWarningOnlyOutputDoesNotClaimLogContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
 	}
-	if !summary.output.visible.HasVisibleContent() {
-		t.Fatal("warning-only completion must be visible output")
-	}
-	if summary.output.visible.Warning() == nil {
-		t.Fatal("warning-only completion must retain typed warning")
-	}
-	if summary.output.visible.HasCommandContent() {
-		t.Fatal("warning-only completion must not acquire command output")
-	}
-	if summary.output.logLineCount != nil {
-		t.Fatalf("warning-only completion must not claim retained log content: %+v", summary.output)
+	if !strings.Contains(summary.DetailText, warning.Text()) ||
+		strings.Contains(summary.DetailText, "and no output") ||
+		strings.Contains(summary.DetailText, logPath) {
+		t.Fatalf("warning-only completion was hidden or claimed command-log content: %q", summary.DetailText)
 	}
 }
 
@@ -129,14 +206,8 @@ func TestBackgroundNoticeWhitespaceLogRendersNoOutputCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
 	}
-	if summary.output.logLineCount == nil || *summary.output.logLineCount != 1 {
-		t.Fatalf("whitespace log metadata = %+v, want one retained line", summary.output)
-	}
-	if !summary.output.shouldRenderNoOutputCompletion(&exitCode) {
-		t.Fatalf("whitespace-only completion must render explicit no-output state: %+v", summary.output)
-	}
-	if sections := len(strings.Split(summary.DetailText, "\n")); sections != 4 {
-		t.Fatalf("whitespace completion detail sections = %d, want 4", sections)
+	if !strings.Contains(summary.DetailText, "Shell 1000 exited with code 0 and no output") {
+		t.Fatalf("whitespace-only completion did not render an explicit empty result: %q", summary.DetailText)
 	}
 }
 
@@ -163,10 +234,8 @@ func TestBackgroundNoticeFallbackCarriesTruncationWithoutFinalizedState(t *testi
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
 	}
-	if summary.output.inlinePreview == nil {
-		t.Fatal("expected fallback inline preview")
-	}
-	if !summary.output.truncated || !summary.Truncated {
+	preview, removed := summary.RuntimePreview()
+	if preview == "" || removed <= 0 || !summary.Truncated {
 		t.Fatal("expected fallback truncation")
 	}
 }
@@ -180,11 +249,9 @@ func TestBackgroundNoticeConciseFallbackRetainsVisibleCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SummarizeBackgroundEvent: %v", err)
 	}
-	if summary.output.inlinePreview != nil {
-		t.Fatal("concise mode must suppress the fallback inline preview")
-	}
-	if !summary.output.visible.HasCommandContent() || summary.output.shouldRenderNoOutputCompletion(&exitCode) {
-		t.Fatalf("concise fallback must retain semantic output while suppressing its preview: %+v", summary.output)
+	if !strings.Contains(summary.DetailText, logPath) || strings.Contains(summary.DetailText, "output\n") ||
+		strings.Contains(summary.DetailText, "no output") {
+		t.Fatalf("concise fallback did not replace output with its path: %q", summary.DetailText)
 	}
 }
 

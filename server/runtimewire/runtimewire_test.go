@@ -108,7 +108,7 @@ func TestRuntimeWireAdvertisesOnlyCanonicalToolAndParameterNames(t *testing.T) {
 			"raw": true, "yield_time_ms": true, "max_output_tokens": true,
 		},
 		toolspec.ToolWriteStdin: {
-			"session_id": true, "chars": true, "yield_time_ms": true, "max_output_tokens": true,
+			"session_id": true, "chars": true, "yield_time_ms": true,
 		},
 		toolspec.ToolViewImage: {"path": true, "raw": true},
 		toolspec.ToolPatch:     {"patch": true},
@@ -1263,7 +1263,7 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 	}
 	for processID := range expectedByProcessID {
 		if _, err := manager.WriteStdin(context.Background(), shelltool.WriteRequest{
-			SessionID: processID, Input: "\n", YieldTime: time.Millisecond, MaxOutputChars: 1_000,
+			SessionID: processID, Input: "\n", YieldTime: time.Millisecond,
 		}); err != nil {
 			t.Fatalf("release background process %s: %v", processID, err)
 		}

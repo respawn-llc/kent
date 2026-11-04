@@ -49,9 +49,8 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 	writeDone := make(chan error, 1)
 	go func() {
 		_, err := manager.WriteStdin(context.Background(), WriteRequest{
-			SessionID:      started.SessionID,
-			YieldTime:      15 * time.Second,
-			MaxOutputChars: 16_000,
+			SessionID: started.SessionID,
+			YieldTime: 15 * time.Second,
 		})
 		writeDone <- err
 	}()
@@ -119,9 +118,8 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 	writeDone := make(chan error, 1)
 	go func() {
 		_, err := manager.WriteStdin(ctx, WriteRequest{
-			SessionID:      started.SessionID,
-			YieldTime:      15 * time.Second,
-			MaxOutputChars: 16_000,
+			SessionID: started.SessionID,
+			YieldTime: 15 * time.Second,
 		})
 		writeDone <- err
 	}()

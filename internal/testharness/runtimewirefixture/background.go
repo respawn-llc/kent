@@ -52,7 +52,7 @@ func BackgroundCompletionEvent(t testing.TB, ctx context.Context, id string, own
 		panic("background shell fixture completed before background transition")
 	}
 	if _, err := manager.WriteStdin(ctx, shelltool.WriteRequest{
-		SessionID: result.SessionID, Input: "\n", YieldTime: time.Millisecond, MaxOutputChars: 1_000,
+		SessionID: result.SessionID, Input: "\n", YieldTime: time.Millisecond,
 	}); err != nil {
 		panic(fmt.Sprintf("release background shell fixture: %v", err))
 	}
