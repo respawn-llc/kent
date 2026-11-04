@@ -1,4 +1,5 @@
 import { Trash2 } from "lucide-react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WorktreeDeletePreview } from "@/api";
@@ -28,6 +29,7 @@ type Props = Readonly<{
 
 export function WorktreeDeleteButton(props: Props) {
   const { t } = useTranslation();
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <TooltipProvider>
@@ -35,6 +37,7 @@ export function WorktreeDeleteButton(props: Props) {
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
               <Button
+                ref={trigger}
                 disabled={props.disabled}
                 size="icon-sm"
                 variant="ghost"
@@ -47,7 +50,12 @@ export function WorktreeDeleteButton(props: Props) {
           <TooltipContent>{t("chat.worktree.delete")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <PopoverContent align="start">
+      <PopoverContent
+        align="start"
+        onOpenAutoFocus={(event) => {
+          if (document.activeElement !== trigger.current) event.preventDefault();
+        }}
+      >
         <WorktreeDeleteContent {...props} />
       </PopoverContent>
     </Popover>

@@ -7,6 +7,32 @@ import { worktreeCommandFixtureRoutes } from "@/test-support/api";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
+it("does not steal focus when a delayed preview opens after focus moved away", async () => {
+  const services = createTestServices(worktreeCommandFixtureRoutes());
+  function Preview({ open }: { open: boolean }) {
+    return (
+      <TestAppProviders services={services} skipAnimations>
+        <button type="button">Elsewhere</button>
+        <WorktreeDeleteButton
+          open={open}
+          onOpenChange={vi.fn()}
+          includeBranch={false}
+          onIncludeBranchChange={vi.fn()}
+          cleanliness={null}
+          canIncludeBranch={false}
+          confirm={vi.fn()}
+        />
+      </TestAppProviders>
+    );
+  }
+  const { rerender } = render(<Preview open={false} />);
+  const elsewhere = screen.getByRole("button", { name: "Elsewhere" });
+  elsewhere.focus();
+  rerender(<Preview open />);
+  await screen.findByRole("checkbox");
+  expect(elsewhere).toHaveFocus();
+});
+
 it("shows that an unavailable branch will be retained without changing the saved choice", async () => {
   const services = createTestServices(worktreeCommandFixtureRoutes());
   const onIncludeBranchChange = vi.fn();

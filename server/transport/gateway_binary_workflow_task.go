@@ -8,6 +8,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
+	definitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
@@ -222,6 +223,12 @@ func binaryTaskDeleteFailure(request *taskpb.DeleteRequest, err error) proto.Mes
 }
 
 func binaryTaskEntityFailure[Request interface{ GetTaskId() string }](request Request, err error) proto.Message {
+	switch {
+	case errors.Is(err, workflowstore.ErrManualMoveDestinationUnlinked), errors.Is(err, workflowstore.ErrManualMoveDestinationExecutable):
+		return &definitionpb.RequestValidationDetails{Code: definitionpb.RequestValidationCode_REQUEST_VALIDATION_CODE_INVALID_VALUE, Field: "target_node_id"}
+	case errors.Is(err, workflowstore.ErrManualMoveSourceInProgress):
+		return &definitionpb.RequestValidationDetails{Code: definitionpb.RequestValidationCode_REQUEST_VALIDATION_CODE_INVALID_VALUE, Field: "task_id"}
+	}
 	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, serverapi.ErrWorkflowTaskNotFound) {
 		id := request.GetTaskId()
 		return &taskpb.TaskNotFoundDetails{TaskId: &id}

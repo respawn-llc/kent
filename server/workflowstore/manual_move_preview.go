@@ -178,24 +178,27 @@ func manualMoveDefinition(ctx context.Context, q *sqlitegen.Queries, task sqlite
 	}
 	if target.WorkflowID != task.WorkflowID {
 		if _, err := q.GetActiveProjectWorkflowLinkByWorkflow(ctx, sqlitegen.GetActiveProjectWorkflowLinkByWorkflowParams{ProjectID: task.ProjectID, WorkflowID: target.WorkflowID}); err != nil {
-			return workflow.Definition{}, WorkflowRecord{}, fmt.Errorf("destination workflow must be linked to the task's project: %w", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				return workflow.Definition{}, WorkflowRecord{}, ErrManualMoveDestinationUnlinked
+			}
+			return workflow.Definition{}, WorkflowRecord{}, err
 		}
 		if target.Kind != string(workflow.NodeKindStart) && target.Kind != string(workflow.NodeKindTerminal) {
-			return workflow.Definition{}, WorkflowRecord{}, errors.New("cross-workflow moves require a Backlog or terminal destination")
+			return workflow.Definition{}, WorkflowRecord{}, ErrManualMoveDestinationExecutable
 		}
 		nodes, err := q.ListTaskCurrentNodes(ctx, task.ID)
 		if err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
 		if len(nodes) != 1 {
-			return workflow.Definition{}, WorkflowRecord{}, errors.New("only Backlog or terminal tasks can move between workflows")
+			return workflow.Definition{}, WorkflowRecord{}, ErrManualMoveSourceInProgress
 		}
 		source, err := q.GetWorkflowNode(ctx, nodes[0].NodeID)
 		if err != nil {
 			return workflow.Definition{}, WorkflowRecord{}, err
 		}
 		if source.Kind != string(workflow.NodeKindStart) && source.Kind != string(workflow.NodeKindTerminal) {
-			return workflow.Definition{}, WorkflowRecord{}, errors.New("only Backlog or terminal tasks can move between workflows")
+			return workflow.Definition{}, WorkflowRecord{}, ErrManualMoveSourceInProgress
 		}
 	}
 	return workflowDefinitionFromQueries(ctx, q, target.WorkflowID)

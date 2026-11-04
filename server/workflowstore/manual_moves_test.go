@@ -139,13 +139,13 @@ func TestManualMoveAcrossWorkflowsRejectsInProgressAndExecutableTargets(t *testi
 		t.Fatal(err)
 	}
 	target := workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindStart))
-	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target}); err == nil {
-		t.Fatal("accepted unlinked destination")
+	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target}); !errors.Is(err, ErrManualMoveDestinationUnlinked) {
+		t.Fatalf("unlinked destination: %v", err)
 	}
 	linkWorkflow(t, ctx, store, binding.ProjectID, destination, false)
 	executable := workflow.NodeIDOf(nodeByKey(t, definition, "implement"))
-	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: executable}); err == nil {
-		t.Fatal("accepted executable destination")
+	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: executable}); !errors.Is(err, ErrManualMoveDestinationExecutable) {
+		t.Fatalf("executable destination: %v", err)
 	}
 	prepared, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target})
 	if err != nil {
@@ -156,8 +156,8 @@ func TestManualMoveAcrossWorkflowsRejectsInProgressAndExecutableTargets(t *testi
 		t.Fatal(err)
 	}
 	started := startTask(t, ctx, store, task.ID)
-	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target}); err == nil {
-		t.Fatal("accepted in-progress source")
+	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target}); !errors.Is(err, ErrManualMoveSourceInProgress) {
+		t.Fatalf("in-progress source: %v", err)
 	}
 	if _, err := store.CommitManualMove(ctx, plan, nil); err == nil {
 		t.Fatal("accepted stale Backlog plan after Task Start")

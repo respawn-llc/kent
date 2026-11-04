@@ -41,6 +41,60 @@ type taskStartResolutionFailureService struct {
 	failure error
 }
 
+type taskMoveValidationService struct {
+	apicontract.WorkflowService
+	failure error
+}
+
+func (s *taskMoveValidationService) PreviewWorkflowTaskMove(context.Context, *taskpb.MovePreviewRequest) (*taskpb.MovePreviewSuccess, error) {
+	return nil, s.failure
+}
+
+func (s *taskMoveValidationService) MoveWorkflowTask(context.Context, *taskpb.MoveRequest) (*taskpb.MoveSuccess, error) {
+	return nil, s.failure
+}
+
+func TestTaskMoveValidationRoundTrip(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		failure error
+		field   string
+	}{
+		{"unlinked destination", workflowstore.ErrManualMoveDestinationUnlinked, "target_node_id"},
+		{"executable destination", workflowstore.ErrManualMoveDestinationExecutable, "target_node_id"},
+		{"in-progress source", workflowstore.ErrManualMoveSourceInProgress, "task_id"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			app, _ := newGatewayTestCore(t, true, true)
+			defer func() { _ = app.Close() }()
+			gateway, err := NewGateway(&gatewayCloseDependencies{
+				GatewayDependencies: app,
+				workflow:            &taskMoveValidationService{WorkflowService: app.WorkflowClient(), failure: test.failure},
+			}, gatewayTestIdentity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(gateway.Handler())
+			defer server.Close()
+			conn := dialGateway(t, server)
+			defer func() { _ = conn.Close() }()
+			handshakeGateway(t, conn)
+			taskID, nodeID := uuid.NewString(), uuid.NewString()
+			service := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService")
+			var preview taskpb.MovePreviewResult
+			callGatewayDescriptor(t, conn, "preview", service.Methods().ByName("PreviewMove"), &taskpb.MovePreviewRequest{TaskId: taskID, TargetNodeId: nodeID}, &preview)
+			if preview.GetError().GetInvalidRequest().GetField() != test.field {
+				t.Fatalf("preview=%v", &preview)
+			}
+			var move taskpb.MoveResult
+			callGatewayDescriptor(t, conn, "move", service.Methods().ByName("Move"), &taskpb.MoveRequest{TaskId: taskID, TargetNodeId: nodeID}, &move)
+			if move.GetError().GetInvalidRequest().GetField() != test.field {
+				t.Fatalf("move=%v", &move)
+			}
+		})
+	}
+}
+
 func (s *taskStartResolutionFailureService) StartWorkflowTask(context.Context, *taskpb.StartRequest) (*taskpb.StartSuccess, error) {
 	return nil, s.failure
 }
