@@ -406,6 +406,8 @@
 ## Manual Movement
 
 - Manual movement acts on the Task, never on one Current Node. A successful move must replace every origin Current Node.
+- `kent task move <task> <target-node-id>` must allow movement between Workflows linked to the same Project only when the Task's sole Current Node and the destination are Start or Terminal Nodes. Kent must reject cross-Workflow movement for in-progress Tasks and executable destinations. Migration must not start executable work.
+- Cross-Workflow movement must not change the Task's identity, Short ID, content, comments, labels, dependencies, associated Sessions, source Workspace, or execution target. After all Tasks leave a Workflow, those Tasks and their Sessions must survive unlinking or deleting that Workflow.
 - Moving a Backlog Task through its Start Node's outgoing Transition uses Task Start. It cannot serve as a manual override.
 - Dropping a Task onto any Node that is already Current is a no-op, including a drop from one parallel card copy onto another Current Node in the same parallel group.
 - A manual move to an Agent or Script Node selects a usable incoming Transition that contains the destination. The Transition may originate from a Node outside the Current Nodes.

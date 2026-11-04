@@ -10,7 +10,6 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
-	"core/shared/runtimeids"
 )
 
 type ManualMovePreviewOutcome string
@@ -141,7 +140,7 @@ func (s *Store) resolveManualMove(ctx context.Context, q *sqlitegen.Queries, req
 			}, nil
 		}
 	}
-	definition, _, err := workflowDefinitionFromQueries(ctx, q, runtimeids.WorkflowID(task.WorkflowID))
+	definition, _, err := manualMoveDefinition(ctx, q, task, req.TargetNodeID)
 	if err != nil {
 		return ManualMovePreview{}, err
 	}
@@ -170,6 +169,36 @@ func (s *Store) resolveManualMove(ctx context.Context, q *sqlitegen.Queries, req
 	default:
 		return ManualMovePreview{Outcome: ManualMovePreviewOutcomeBlocked, Blocker: ManualMoveBlockerUnsupportedDestination}, nil
 	}
+}
+
+func manualMoveDefinition(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord, targetID workflow.NodeID) (workflow.Definition, WorkflowRecord, error) {
+	target, err := q.GetWorkflowNode(ctx, string(targetID))
+	if err != nil {
+		return workflow.Definition{}, WorkflowRecord{}, err
+	}
+	if target.WorkflowID != task.WorkflowID {
+		if _, err := q.GetActiveProjectWorkflowLinkByWorkflow(ctx, sqlitegen.GetActiveProjectWorkflowLinkByWorkflowParams{ProjectID: task.ProjectID, WorkflowID: target.WorkflowID}); err != nil {
+			return workflow.Definition{}, WorkflowRecord{}, fmt.Errorf("destination workflow must be linked to the task's project: %w", err)
+		}
+		if target.Kind != string(workflow.NodeKindStart) && target.Kind != string(workflow.NodeKindTerminal) {
+			return workflow.Definition{}, WorkflowRecord{}, errors.New("cross-workflow moves require a Backlog or terminal destination")
+		}
+		nodes, err := q.ListTaskCurrentNodes(ctx, task.ID)
+		if err != nil {
+			return workflow.Definition{}, WorkflowRecord{}, err
+		}
+		if len(nodes) != 1 {
+			return workflow.Definition{}, WorkflowRecord{}, errors.New("only Backlog or terminal tasks can move between workflows")
+		}
+		source, err := q.GetWorkflowNode(ctx, nodes[0].NodeID)
+		if err != nil {
+			return workflow.Definition{}, WorkflowRecord{}, err
+		}
+		if source.Kind != string(workflow.NodeKindStart) && source.Kind != string(workflow.NodeKindTerminal) {
+			return workflow.Definition{}, WorkflowRecord{}, errors.New("only Backlog or terminal tasks can move between workflows")
+		}
+	}
+	return workflowDefinitionFromQueries(ctx, q, target.WorkflowID)
 }
 
 func (s *Store) resolveManualMoveExecutablePreview(

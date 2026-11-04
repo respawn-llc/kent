@@ -13,6 +13,164 @@ import (
 	"core/shared/runtimeids"
 )
 
+func TestManualMoveBacklogAcrossLinkedWorkflows(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	source := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	sourceLink := linkWorkflow(t, ctx, store, binding.ProjectID, source, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	destination := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	destinationLink := linkWorkflow(t, ctx, store, binding.ProjectID, destination, false)
+	definition, _, err := store.GetDefinition(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := nodeByKind(t, definition, workflow.NodeKindStart)
+	prepared, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(target)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := store.PlanManualMove(ctx, prepared, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.CommitManualMove(ctx, plan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Mutation.Created) != 1 || result.Mutation.Created[0].Reference.NodeID != workflow.NodeIDOf(target) {
+		t.Fatalf("destination=%+v", result)
+	}
+	moved, err := store.queries.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.WorkflowID != destination || moved.ShortID != task.ShortID || moved.ID != string(task.ID) {
+		t.Fatalf("moved task=%+v", moved)
+	}
+	unlinked, err := store.UnlinkProjectWorkflow(ctx, sourceLink.ID, destinationLink.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unlinked.Blockers) != 0 {
+		t.Fatalf("unlink blocked: %+v", unlinked)
+	}
+}
+
+func TestManualMoveTerminalAcrossWorkflowsPreservesTaskAfterBoardDeletion(t *testing.T) {
+	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	source := createValidWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, source, true)
+	tag, err := store.CreateProjectLabel(ctx, binding.ProjectID, "Migration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := createTask(t, ctx, store, CreateTaskRequest{ProjectID: binding.ProjectID, Title: "Retained Task", Body: "Retained content", LabelIDs: []string{tag.ID.String()}})
+	started := startTask(t, ctx, store, task.ID)
+	sessionID := associateTaskSessionForTest(t, ctx, store, binding, cfg, started.Mutation.Created[0].Reference, time.Now())
+	sessionCount, err := store.CountTaskSessions(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := store.AddComment(ctx, task.ID, "Retained context", "user", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, _, err := store.GetDefinition(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := moveTask(t, store, ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindTerminal))}); err != nil {
+		t.Fatal(err)
+	}
+	destination := createValidWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, destination, true)
+	peer := createDefaultTask(t, ctx, store, binding.ProjectID)
+	if _, err := store.AddTaskDependency(ctx, TaskDependencyAddRequest{BlockerTaskID: task.ID, BlockedTaskID: peer.ID}); err != nil {
+		t.Fatal(err)
+	}
+	definition, _, err = store.GetDefinition(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := moveTask(t, store, ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindTerminal))}); err != nil {
+		t.Fatal(err)
+	}
+	impact, err := store.PreviewWorkflowDelete(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := store.DeleteWorkflow(ctx, confirmedWorkflowDeleteRequest(impact, false))
+	if err != nil || !deleted.Deleted {
+		t.Fatalf("delete=%+v err=%v", deleted, err)
+	}
+	retained, err := store.queries.GetTask(ctx, string(task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retained.WorkflowID != destination || retained.Title != task.Title || retained.Body != task.Body || retained.ShortID != task.ShortID {
+		t.Fatalf("retained=%+v", retained)
+	}
+	comments, err := store.ListComments(ctx, task.ID)
+	if err != nil || len(comments) != 1 || comments[0].ID != comment.ID {
+		t.Fatalf("comments=%+v err=%v", comments, err)
+	}
+	owner, err := store.TaskIDForSession(ctx, sessionID)
+	if err != nil || owner == nil || *owner != task.ID {
+		t.Fatalf("Session owner=%v err=%v", owner, err)
+	}
+	if count, err := store.CountTaskSessions(ctx, task.ID); err != nil || count != sessionCount {
+		t.Fatalf("Sessions=%d err=%v", count, err)
+	}
+	assertTaskDependencyCount(t, store, task.ID, peer.ID, 1)
+	tags, err := store.GetTaskLabelIDs(ctx, task.ID)
+	if err != nil || len(tags) != 1 || tags[0] != tag.ID {
+		t.Fatalf("labels=%v err=%v", tags, err)
+	}
+}
+
+func TestManualMoveAcrossWorkflowsRejectsInProgressAndExecutableTargets(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	source := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	linkWorkflow(t, ctx, store, binding.ProjectID, source, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	destination := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")
+	definition, _, err := store.GetDefinition(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindStart))
+	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target}); err == nil {
+		t.Fatal("accepted unlinked destination")
+	}
+	linkWorkflow(t, ctx, store, binding.ProjectID, destination, false)
+	executable := workflow.NodeIDOf(nodeByKey(t, definition, "implement"))
+	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: executable}); err == nil {
+		t.Fatal("accepted executable destination")
+	}
+	prepared, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := store.PlanManualMove(ctx, prepared, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := startTask(t, ctx, store, task.ID)
+	if _, err := store.PrepareManualMove(ctx, ManualMoveRequest{TaskID: task.ID, TargetNodeID: target}); err == nil {
+		t.Fatal("accepted in-progress source")
+	}
+	if _, err := store.CommitManualMove(ctx, plan, nil); err == nil {
+		t.Fatal("accepted stale Backlog plan after Task Start")
+	}
+	nodes, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != len(started.Mutation.Created) || !nodes[0].Reference.Equal(started.Mutation.Created[0].Reference) {
+		t.Fatalf("changed rejected task: %+v", nodes)
+	}
+}
+
 func TestApplyManualMoveRejectsAgentPlacementWithoutAssignmentPreparation(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createChainedContextModeWorkflow(t, ctx, store, workflow.ContextModeNewSession, "coder")

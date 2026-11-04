@@ -8280,6 +8280,25 @@ func (q *Queries) MoveProjectLabelOrdinalsToTemporaryBand(ctx context.Context, a
 	return err
 }
 
+const moveTaskToWorkflow = `-- name: MoveTaskToWorkflow :exec
+UPDATE tasks
+SET project_workflow_link_id = ?1,
+    workflow_revision_seen = ?2
+WHERE id = ?3
+`
+
+type MoveTaskToWorkflowParams struct {
+	ProjectWorkflowLinkID string
+	WorkflowRevisionSeen  int64
+	ID                    string
+}
+
+func (q *Queries) MoveTaskToWorkflow(ctx context.Context, arg MoveTaskToWorkflowParams) error {
+	_, err := q.db.ExecContext(ctx, moveTaskToWorkflow, arg.ProjectWorkflowLinkID, arg.WorkflowRevisionSeen, arg.ID)
+	err = recordQueryError(ctx, err, moveTaskToWorkflow, 3)
+	return err
+}
+
 const reconcileSessionEventLog = `-- name: ReconcileSessionEventLog :execrows
 UPDATE sessions
 SET

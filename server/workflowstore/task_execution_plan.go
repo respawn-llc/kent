@@ -33,6 +33,7 @@ type taskExecutionPlan struct {
 	approval        *workflow.PendingApproval
 	joinArrival     *sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams
 	joinBefore      []sqlitegen.TaskActiveFanoutBranch
+	destination     *WorkflowRecord
 }
 
 type TaskStartPlan struct{ plan taskExecutionPlan }
@@ -163,6 +164,15 @@ func (s *Store) PlanManualMove(ctx context.Context, prepared ManualMovePreparati
 		return ManualMovePlan{}, errors.New("workflow changed during Manual Move preparation")
 	}
 	plan := taskExecutionPlan{task: task, workflowVersion: record.Version, sources: current.currentNodes}
+	if !current.noOp {
+		_, destination, err := manualMoveDefinition(ctx, s.queries, task, current.request.TargetNodeID)
+		if err != nil {
+			return ManualMovePlan{}, err
+		}
+		if destination.ID != task.WorkflowID {
+			plan.destination = &destination
+		}
+	}
 	plan.sources, err = s.listTaskCurrentNodes(ctx, s.queries, prepared.request.TaskID)
 	if err != nil {
 		return ManualMovePlan{}, err
@@ -399,6 +409,15 @@ func (s *Store) commitTaskExecution(
 	if err != nil {
 		return empty, attention, err
 	}
+	if plan.destination != nil {
+		_, destination, err := manualMoveDefinition(ctx, q, task, plan.targets[0].Reference.NodeID)
+		if err != nil {
+			return empty, attention, err
+		}
+		if destination.ID != plan.destination.ID || destination.Version != plan.destination.Version {
+			return empty, attention, errors.New("destination workflow changed after move preparation")
+		}
+	}
 	now := s.now().UTC()
 	if plan.executionTarget != nil {
 		if err := applyPreparedExecutionTargetMutation(ctx, q, task, *plan.executionTarget, now.UnixMilli()); err != nil {
@@ -465,6 +484,16 @@ func (s *Store) commitTaskExecution(
 	}
 	if action == taskExecutionMove || (plan.joinArrival != nil && len(targets) != 0) {
 		if _, err := q.DeleteTaskActiveFanout(ctx, task.ID); err != nil {
+			return empty, attention, err
+		}
+	}
+	if plan.destination != nil {
+		destination := plan.destination
+		link, err := q.GetActiveProjectWorkflowLinkByWorkflow(ctx, sqlitegen.GetActiveProjectWorkflowLinkByWorkflowParams{ProjectID: task.ProjectID, WorkflowID: destination.ID})
+		if err != nil {
+			return empty, attention, err
+		}
+		if err := q.MoveTaskToWorkflow(ctx, sqlitegen.MoveTaskToWorkflowParams{ID: task.ID, WorkflowRevisionSeen: destination.Version, ProjectWorkflowLinkID: link.ID}); err != nil {
 			return empty, attention, err
 		}
 	}
