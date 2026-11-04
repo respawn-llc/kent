@@ -499,10 +499,7 @@ func renderCompletedShellResult(presentation execPresentation, opts completedShe
 
 	sections := make([]string, 0, 3)
 	if opts.includePollMetadata {
-		sections = append(sections, fmt.Sprintf("Wall time: %.4f seconds", presentation.wallTime.Seconds()))
-		if presentation.outputPath != "" {
-			sections = append(sections, fmt.Sprintf("Output file: %s", presentation.outputPath))
-		}
+		sections = appendPollMetadata(sections, presentation)
 	}
 	if !hasOutput {
 		sections = append(sections, fmt.Sprintf("Shell %s exited with code %d and no output", presentation.sessionID, presentation.exitCode))
@@ -541,6 +538,14 @@ func formatCompletedOutputHeader(presentation execPresentation, showOutputPath b
 	return fmt.Sprintf("Shell %s exited with code %d, output:", presentation.sessionID, presentation.exitCode)
 }
 
+func appendPollMetadata(sections []string, presentation execPresentation) []string {
+	sections = append(sections, fmt.Sprintf("Wall time: %.4f seconds", presentation.wallTime.Seconds()))
+	if presentation.outputPath != "" {
+		sections = append(sections, fmt.Sprintf("Output file: %s", presentation.outputPath))
+	}
+	return sections
+}
+
 func renderExecPresentation(presentation execPresentation) string {
 	output := presentation.output.Content()
 	switch presentation.kind {
@@ -557,10 +562,7 @@ func renderExecPresentation(presentation execPresentation) string {
 			return strings.Join(sections, "\n")
 		}
 		if presentation.backgrounded {
-			sections = append(sections, fmt.Sprintf("Wall time: %.4f seconds", presentation.wallTime.Seconds()))
-			if presentation.outputPath != "" {
-				sections = append(sections, fmt.Sprintf("Output file: %s", presentation.outputPath))
-			}
+			sections = appendPollMetadata(sections, presentation)
 		}
 		if presentation.sessionID != "" {
 			sections = append(sections, fmt.Sprintf("Process running with session ID %s", presentation.sessionID))
