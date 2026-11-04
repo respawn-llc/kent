@@ -158,7 +158,7 @@ func (s *Service) retainManagedTaskWorktreeRecord(ctx context.Context, record *m
 	if record == nil {
 		return false, nil
 	}
-	taskManagers, err := s.metadata.Queries().CountNonTerminalTasksByManagedWorktree(ctx, sql.NullString{
+	taskManagers, err := s.metadata.Queries().CountInProgressTasksByManagedWorktree(ctx, sql.NullString{
 		String: strings.TrimSpace(record.ID),
 		Valid:  strings.TrimSpace(record.ID) != "",
 	})

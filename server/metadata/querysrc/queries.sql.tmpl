@@ -1617,6 +1617,13 @@ WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
   AND t.id != sqlc.arg(task_id)
   AND node.kind != 'terminal';
 
+-- name: CountInProgressTasksByManagedWorktree :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN workflow_task_status_records status ON status.task_id = t.id
+WHERE t.managed_worktree_id = sqlc.arg(managed_worktree_id)
+  AND status.kind NOT IN ('backlog', 'done');
+
 -- name: CountNonTerminalTasksBySourceWorkspace :one
 SELECT CAST(COUNT(DISTINCT t.id) AS INTEGER) AS task_count
 FROM tasks t

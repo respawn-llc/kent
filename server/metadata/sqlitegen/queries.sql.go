@@ -584,6 +584,22 @@ func (q *Queries) CountExecutableCurrentNodesByWorkspace(ctx context.Context, wo
 	return current_node_count, err
 }
 
+const countInProgressTasksByManagedWorktree = `-- name: CountInProgressTasksByManagedWorktree :one
+SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
+FROM tasks t
+JOIN workflow_task_status_records status ON status.task_id = t.id
+WHERE t.managed_worktree_id = ?1
+  AND status.kind NOT IN ('backlog', 'done')
+`
+
+func (q *Queries) CountInProgressTasksByManagedWorktree(ctx context.Context, managedWorktreeID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countInProgressTasksByManagedWorktree, managedWorktreeID)
+	var ref_count int64
+	err := recordQueryError(ctx, row.Scan(&ref_count), countInProgressTasksByManagedWorktree, 1)
+
+	return ref_count, err
+}
+
 const countManagedOwnedWorktreesByWorkspace = `-- name: CountManagedOwnedWorktreesByWorkspace :one
 SELECT CAST(COUNT(*) AS INTEGER) AS worktree_count
 FROM worktrees
