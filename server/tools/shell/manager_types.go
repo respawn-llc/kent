@@ -189,18 +189,6 @@ type BackgroundNoticeSummary struct {
 	output        backgroundNoticeOutput
 }
 
-type OutputChunk struct {
-	ProcessID       string
-	OffsetBytes     int64
-	NextOffsetBytes int64
-	Text            string
-}
-
-type OutputSubscription interface {
-	Next(ctx context.Context) (OutputChunk, error)
-	Close() error
-}
-
 type BackgroundOutputMode string
 
 const (

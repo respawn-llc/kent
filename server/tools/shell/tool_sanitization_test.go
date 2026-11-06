@@ -123,19 +123,6 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 		t.Fatalf("recent output lost ANSI: %q", snapshot.RecentOutput)
 	}
 
-	sub, err := manager.SubscribeOutput(context.Background(), "1000", 0)
-	if err != nil {
-		t.Fatalf("SubscribeOutput: %v", err)
-	}
-	defer func() { _ = sub.Close() }()
-	chunk, err := sub.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if !strings.Contains(chunk.Text, "\x1b[31mhello\x1b[0m") {
-		t.Fatalf("stream chunk lost ANSI: %q", chunk.Text)
-	}
-
 	pollResult := callWriteStdin(t, stdinTool, "raw-bg-poll", map[string]any{
 		"session_id":    1000,
 		"yield_time_ms": 15_000,
