@@ -337,25 +337,22 @@ func testChatActionInvocationSelection(t *testing.T, alreadyLoaded bool) {
 			t.Fatal(err)
 		}
 	}
-	planned, err := service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
+	overrides := serverapi.RunPromptOverrides{
+		AgentRole: textutil.Value("worker"), ThinkingLevel: "high", Tools: "patch",
+	}
+	_, err = service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
 		Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
-		Overrides: serverapi.RunPromptOverrides{
-			AgentRole: textutil.Value("worker"), ThinkingLevel: "high", Tools: "patch",
-		},
+		Overrides: overrides,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	preparation, err := protoapi.SessionRuntimePreparationToProto(activation.SessionRuntimePreparationOptions)
+	invocation, err := protoapi.RunPromptOverridesToProto(overrides)
 	if err != nil {
 		t.Fatal(err)
 	}
 	target := chatCommandTarget(id.String())
-	target.GetSession().Preparation = preparation
+	target.GetSession().Invocation = invocation
 	result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
 		QueueItemId: runtimeids.NewQueueItemID().String(),
 		Target:      target,

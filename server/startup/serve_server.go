@@ -603,12 +603,6 @@ func (d *startupGatewayDependencies) SessionLifecycleClient() apicontract.Sessio
 	}
 	return nil
 }
-func (d *startupGatewayDependencies) SessionRuntimeClient() apicontract.SessionRuntimeService {
-	if c := d.activeCore(); c != nil {
-		return c.SessionRuntimeClient()
-	}
-	return nil
-}
 func (d *startupGatewayDependencies) SessionTranscriptClient() apicontract.SessionTranscriptService {
 	if c := d.activeCore(); c != nil {
 		return c.SessionTranscriptClient()

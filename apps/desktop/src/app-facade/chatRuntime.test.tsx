@@ -359,10 +359,8 @@ describe("mounted Chat Runtime owner", () => {
       reads: [first.promise, second.promise],
       pages: [Promise.resolve(transcriptPage(null))],
     });
-    const activateRuntime = vi.fn();
-    const api = { ...fixture.api, activateRuntime };
     const queryClient = new QueryClient();
-    const owner = new RuntimeHarness(api, target, queryClient, runtimeHost());
+    const owner = new RuntimeHarness(fixture.api, target, queryClient, runtimeHost());
 
     const initialReadStarted = new Promise<void>((resolve) => {
       const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
@@ -384,7 +382,6 @@ describe("mounted Chat Runtime owner", () => {
     expect(fixture.getTranscriptPage).toHaveBeenCalledTimes(1);
     expect(fixture.subscribeTranscript).toHaveBeenCalledTimes(1);
     await onOwnerSnapshot(owner, (snapshot) => snapshot.transcript.opening.kind === "ready");
-    expect(activateRuntime).not.toHaveBeenCalled();
 
     await act(async () => {
       owner.retryMainView();

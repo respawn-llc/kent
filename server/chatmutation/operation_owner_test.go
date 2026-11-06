@@ -157,7 +157,7 @@ type lifecyclePlanner struct {
 func (p lifecyclePlanner) Open(
 	ctx context.Context,
 	_ runtimeids.SessionID,
-	_ *serverapi.SessionRuntimePreparationOptions,
+	_ *serverapi.RunPromptOverrides,
 ) error {
 	p.recorder.operationStage("Runtime opening", ctx)
 	return nil

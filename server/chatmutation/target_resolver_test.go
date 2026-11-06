@@ -86,8 +86,7 @@ func TestNewChatResolutionCarriesCanonicalInvocationPreparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resolved.Created || resolved.Preparation == nil || resolved.Preparation.ActiveSettings.Model != "gpt-5.6-sol" ||
-		resolved.Preparation.ActiveSettings.ThinkingLevel != "ultra" {
+	if !resolved.Created || resolved.Invocation == nil || resolved.Invocation.Model != "gpt-5.6-sol" {
 		t.Fatalf("canonical created target = %+v", resolved)
 	}
 	record, err := store.ResolvePersistedSession(t.Context(), resolved.SessionID.String())
@@ -163,8 +162,7 @@ func TestNewChatResolutionAppliesCapturedWorktreeBeforePreparation(t *testing.T)
 		t.Fatal(err)
 	}
 	if capture.request == nil || capture.request.SessionId.GetSessionId() != resolved.SessionID.String() ||
-		capture.request.Selector != *newChat.WorktreeSelector || capture.request.TargetWorkspace.WorkspaceId != newChat.WorkspaceId ||
-		resolved.Preparation == nil {
+		capture.request.Selector != *newChat.WorktreeSelector || capture.request.TargetWorkspace.WorkspaceId != newChat.WorkspaceId {
 		t.Fatalf("captured Worktree was not applied: request=%+v target=%+v", capture.request, resolved)
 	}
 }

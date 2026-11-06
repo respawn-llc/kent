@@ -9,12 +9,14 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
+	"core/shared/textutil"
 )
 
 type shellPreparationClient struct {
@@ -124,7 +126,7 @@ func TestNewSessionShellAdmissionPreservesDraftAndAdoptsCreatedSession(t *testin
 func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
 	model := newProjectedStaticUIModel()
 	model.presentationTarget = uiKnownSessionTarget{id: ongoingTestSessionID(),
-		preparation: &sessionlaunchpb.SessionRuntimePreparationOptions{ThinkingOverrideExplicit: true}}
+		invocation: &invocationpb.RunPromptOverrides{ThinkingLevel: textutil.Value("high")}}
 	chat := &shellPreparationClient{inputError: serverapi.ErrRuntimeUnavailable}
 	model.chatMutations = chat
 	activation, err := chatActivationFromInput(runtimeinput.Shell("pwd"))
@@ -138,9 +140,53 @@ func TestRuntimeClientConsumesLaunchIntentOnFailedFirstDispatch(t *testing.T) {
 		t.Fatal(result.err)
 	}
 	if len(chat.inputs) != 1 || len(chat.compactions) != 1 ||
-		chat.inputs[0].Target.GetSession().Preparation == nil ||
-		chat.compactions[0].Target.GetSession().Preparation != nil {
+		chat.inputs[0].Target.GetSession().Invocation == nil ||
+		chat.compactions[0].Target.GetSession().Invocation != nil {
 		t.Fatalf("launch choices must be consumed even when first dispatch fails: %+v", chat.inputs)
+	}
+}
+
+func TestRuntimeClientKeepsInvocationUntilDispatchAcrossObservation(t *testing.T) {
+	for _, observation := range []struct {
+		name  string
+		apply func(*uiModel, string)
+	}{
+		{name: "Main View", apply: func(model *uiModel, id string) {
+			model.applyRuntimeSessionMetadata(&runtimepb.SessionView{SessionId: id})
+		}},
+		{name: "transcript hydration", apply: func(model *uiModel, id string) {
+			model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{SessionId: id})
+		}},
+	} {
+		t.Run(observation.name, func(t *testing.T) {
+			model := newProjectedStaticUIModel()
+			id := ongoingTestSessionID()
+			model.presentationTarget = uiKnownSessionTarget{id: id,
+				invocation: &invocationpb.RunPromptOverrides{ThinkingLevel: textutil.Value("high")}}
+			chat := &shellPreparationClient{inputError: serverapi.ErrRuntimeUnavailable}
+			model.chatMutations = chat
+			observation.apply(model, id.String())
+			action := chatInputAction{
+				input:       &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "original choices"}},
+				queueItemID: runtimeids.NewQueueItemID(),
+			}
+			model.captureChatAction(action, nil)()
+			if len(chat.inputs) != 1 || chat.inputs[0].Target.GetSession().GetInvocation().GetThinkingLevel() != "high" {
+				t.Fatalf("observation discarded the unconsumed invocation: %+v", chat.inputs)
+			}
+			observation.apply(model, id.String())
+			model.captureChatAction(action, nil)()
+			if len(chat.inputs) != 2 || chat.inputs[1].Target.GetSession().Invocation != nil {
+				t.Fatalf("reconnecting restored consumed invocation: %+v", chat.inputs)
+			}
+			model.presentationTarget = uiKnownSessionTarget{id: id,
+				invocation: &invocationpb.RunPromptOverrides{ThinkingLevel: textutil.Value("high")}}
+			observation.apply(model, runtimeids.NewSessionID().String())
+			model.captureChatAction(action, nil)()
+			if len(chat.inputs) != 3 || chat.inputs[2].Target.GetSession().Invocation != nil {
+				t.Fatalf("Session replacement inherited another Session's invocation: %+v", chat.inputs)
+			}
+		})
 	}
 }
 

@@ -27,7 +27,6 @@ import (
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/config"
-	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -256,15 +255,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wire, err := protoapi.SessionRuntimeActivateToProto(activation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			decoded, err := protoapi.SessionRuntimeActivateFromProto(wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := fixture.api.ActivateSessionRuntime(t.Context(), decoded); err != nil {
+			if err := fixture.api.ActivateSessionRuntime(t.Context(), activation); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -839,7 +830,7 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 
 }
 
-func TestActivateSessionRuntimePreservesDefaultRoleIdentityAcrossTransport(t *testing.T) {
+func TestActivateSessionRuntimePreservesDefaultRoleIdentity(t *testing.T) {
 	for _, role := range []*string{nil, textutil.Value(config.DefaultSubagentRole)} {
 		fixture := newSessionRuntimeFixture(t)
 		fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
@@ -856,10 +847,6 @@ func TestActivateSessionRuntimePreservesDefaultRoleIdentityAcrossTransport(t *te
 		state := sessiontest.CompleteChatSettingsState(t, config.DefaultSubagentRole, settings.Reviewer.Frequency, settings.ThinkingLevel, false, true, true)
 		state.AgentRole = role
 		selection, err := AgentSelectionFromState(&state)
-		if err != nil {
-			t.Fatal(err)
-		}
-		selection, err = protoapi.SessionRuntimeAgentSelectionFromProto(protoapi.SessionRuntimeAgentSelectionToProto(selection))
 		if err != nil {
 			t.Fatal(err)
 		}

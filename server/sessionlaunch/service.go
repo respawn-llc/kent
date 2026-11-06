@@ -2,7 +2,6 @@ package sessionlaunch
 
 import (
 	"context"
-	"core/server/sessionruntime"
 	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
@@ -591,25 +590,15 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 			Selection:       protoapi.ConnectionSelectionToProto(result.Plan.ConnectionScope.Selection),
 			UnavailableRole: result.Plan.ConnectionScope.UnavailableRole,
 		},
-		ShortId:                  protoapi.SessionShortIDToProto(result.Identity.ShortID),
-		SessionId:                result.Plan.Descriptor.SessionID().String(),
-		ActiveSettings:           settings,
-		EnabledToolIds:           enabledToolIDs,
-		SessionName:              textutil.Pointer(result.Plan.SessionName),
-		ModelContractLocked:      result.Plan.ModelContractLocked,
-		QuestionsEnabled:         result.Plan.QuestionsEnabled,
-		AutoCompactionEnabled:    result.Plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: result.Plan.ThinkingOverrideExplicit,
-		Source:                   source,
-	}
-	selection, err := sessionruntime.AgentSelectionFromState(result.Plan.ActivationAgentSelection)
-	if err != nil {
-		return nil, err
-	}
-	plan.ActivationAgentSelection = protoapi.SessionRuntimeAgentSelectionToProto(selection)
-	plan.ExplicitToolSelection, err = protoapi.ToolSelectionToProto(result.Plan.ExplicitToolSelection)
-	if err != nil {
-		return nil, err
+		ShortId:               protoapi.SessionShortIDToProto(result.Identity.ShortID),
+		SessionId:             result.Plan.Descriptor.SessionID().String(),
+		ActiveSettings:        settings,
+		EnabledToolIds:        enabledToolIDs,
+		SessionName:           textutil.Pointer(result.Plan.SessionName),
+		ModelContractLocked:   result.Plan.ModelContractLocked,
+		QuestionsEnabled:      result.Plan.QuestionsEnabled,
+		AutoCompactionEnabled: result.Plan.AutoCompactionEnabled,
+		Source:                source,
 	}
 	if result.Plan.ConfiguredModelName != "" {
 		plan.ConfiguredModelName = &result.Plan.ConfiguredModelName

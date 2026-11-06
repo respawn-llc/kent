@@ -27,7 +27,7 @@ type TargetResolutionService interface {
 }
 
 type RuntimeOpeningService interface {
-	Open(context.Context, runtimeids.SessionID, *serverapi.SessionRuntimePreparationOptions) error
+	Open(context.Context, runtimeids.SessionID, *serverapi.RunPromptOverrides) error
 }
 
 type RuntimeAdmissionService interface {
@@ -244,7 +244,7 @@ func (s *Service) openRuntime(
 	if s == nil || s.runtimes == nil {
 		return target, errors.New("Session Runtime planner is required")
 	}
-	return target, s.runtimes.Open(scope.Context(), target.SessionID, target.Preparation)
+	return target, s.runtimes.Open(scope.Context(), target.SessionID, target.Invocation)
 }
 
 func goalSetSuccessRejected(

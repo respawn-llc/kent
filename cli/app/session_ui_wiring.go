@@ -70,18 +70,7 @@ func prepareSharedRuntimeWiring(
 	clients sessionUIClients,
 	plan sessionLaunchPlan,
 ) (*runtimeWiring, func(), error) {
-	toolIDs := make([]string, len(plan.EnabledTools))
-	for index, id := range plan.EnabledTools {
-		toolIDs[index] = string(id)
-	}
-	preparation, err := protoapi.SessionRuntimePreparationToProto(serverapi.SessionRuntimePreparationOptions{
-		ConnectionScope: plan.ConnectionScope,
-		ActiveSettings:  plan.ActiveSettings, EnabledToolIDs: toolIDs,
-		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit,
-		AgentSelection:           plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,
-		Source: plan.Source,
-	})
+	invocation, err := protoapi.RunPromptOverridesToProto(plan.Invocation)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -135,7 +124,7 @@ func prepareSharedRuntimeWiring(
 		controls:               clients.RuntimeControls,
 		liveControls:           clients.RuntimeLiveControls,
 		pendingWork:            clients.PendingWork,
-		preparation:            preparation,
+		invocation:             invocation,
 		attentionNotifications: clients.AttentionNotifications,
 		eventDispatcher:        eventDispatcher,
 		requestTranscriptOpen:  requestTranscriptOpen,

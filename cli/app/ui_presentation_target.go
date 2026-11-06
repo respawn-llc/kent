@@ -4,7 +4,7 @@ import (
 	"context"
 	"core/shared/apicontract"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	"core/shared/runtimeids"
 )
 
@@ -22,8 +22,8 @@ type uiNewSessionTarget struct {
 func (uiNewSessionTarget) isUIPresentationTarget() {}
 
 type uiKnownSessionTarget struct {
-	id          runtimeids.SessionID
-	preparation *sessionlaunchpb.SessionRuntimePreparationOptions
+	id         runtimeids.SessionID
+	invocation *invocationpb.RunPromptOverrides
 }
 
 func (uiKnownSessionTarget) isUIPresentationTarget() {}
@@ -45,6 +45,9 @@ func (m *uiModel) setKnownSessionTarget(id string) {
 	parsed, err := runtimeids.ParseSessionID(id)
 	if err != nil {
 		panic(err)
+	}
+	if current, ok := m.presentationTarget.(uiKnownSessionTarget); ok && current.id == parsed {
+		return
 	}
 	m.presentationTarget = uiKnownSessionTarget{id: parsed}
 }

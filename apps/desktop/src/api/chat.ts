@@ -11,7 +11,6 @@ import {
   TranscriptCloseReason,
 } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import { activateRuntime } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
 import { context, createChatSettingsApi } from "./chatSettings";
 import { createChatGoalApi } from "./chatGoal";
@@ -159,9 +158,6 @@ export function createChatApi(transport: RpcTransport): ChatApi {
         }),
       );
       return transcriptPage(requireUnarySuccess(method, result).transcript, sessionId);
-    },
-    async activateRuntime(target) {
-      return activateRuntime(transport, target);
     },
     subscribeTranscript(target, reportOverflow) {
       return subscriptionStream<ChatTranscriptObservation>((emit) => {

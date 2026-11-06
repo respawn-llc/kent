@@ -55,9 +55,7 @@ type sessionLaunchPlan struct {
 	ChatSettingsErr            error
 	QuestionsEnabled           bool
 	AutoCompactionEnabled      bool
-	ThinkingOverrideExplicit   bool
-	ActivationAgentSelection   *serverapi.SessionRuntimeAgentSelection
-	ExplicitToolSelection      *config.ToolSelection
+	Invocation                 serverapi.RunPromptOverrides
 	StatusConfig               uiStatusConfig
 	ExecutionTarget            *worktreepb.SessionExecutionTarget
 	Source                     config.SourceReport
@@ -204,16 +202,6 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	}
 	cfg := p.server.Connection()
 	activeSettings := interactivePresentationSettings(p.server, settings)
-	activationAgentSelection, err := protoapi.SessionRuntimeAgentSelectionFromProto(
-		resp.Plan.ActivationAgentSelection,
-	)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
-	explicitTools, err := protoapi.ToolSelectionFromProto(resp.Plan.ExplicitToolSelection)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
 	scopeSelection := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
 	var chatSettings *chatsettingspb.Settings
 	var chatSettingsErr error
@@ -229,21 +217,19 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		}
 	}
 	return sessionLaunchPlan{
-		ChatSettings:             chatSettings,
-		ChatSettingsErr:          chatSettingsErr,
-		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
-		Mode:                     req.Mode,
-		SessionID:                resp.Plan.SessionId,
-		ActiveSettings:           activeSettings,
-		EnabledTools:             enabledTools,
-		ConfiguredModelName:      textutil.Pointer(resp.Plan.ConfiguredModelName),
-		SessionTitle:             textutil.Pointer(resp.Plan.SessionName),
-		ModelContractLocked:      resp.Plan.ModelContractLocked,
-		QuestionsEnabled:         resp.Plan.QuestionsEnabled,
-		AutoCompactionEnabled:    resp.Plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: resp.Plan.ThinkingOverrideExplicit,
-		ActivationAgentSelection: activationAgentSelection,
-		ExplicitToolSelection:    explicitTools,
+		ChatSettings:          chatSettings,
+		ChatSettingsErr:       chatSettingsErr,
+		ConnectionScope:       config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
+		Mode:                  req.Mode,
+		SessionID:             resp.Plan.SessionId,
+		ActiveSettings:        activeSettings,
+		EnabledTools:          enabledTools,
+		ConfiguredModelName:   textutil.Pointer(resp.Plan.ConfiguredModelName),
+		SessionTitle:          textutil.Pointer(resp.Plan.SessionName),
+		ModelContractLocked:   resp.Plan.ModelContractLocked,
+		QuestionsEnabled:      resp.Plan.QuestionsEnabled,
+		AutoCompactionEnabled: resp.Plan.AutoCompactionEnabled,
+		Invocation:            overrides,
 		StatusConfig: uiStatusConfig{
 			WorkspaceRoot:   executionTarget.EffectiveWorkdir,
 			ExecutionTarget: executionTarget,

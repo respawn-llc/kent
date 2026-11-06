@@ -257,7 +257,6 @@ export type ChatApi = Readonly<{
     target: ChatSessionTarget,
     cursor?: Readonly<{ direction: "older" | "newer"; value: number }>,
   ): Promise<ChatTranscriptPage>;
-  activateRuntime(target: ChatSessionTarget): Promise<void>;
   subscribeTranscript(
     target: ChatSessionTarget,
     reportOverflow: () => Promise<void>,

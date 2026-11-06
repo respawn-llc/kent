@@ -22,11 +22,10 @@ import (
 	"core/server/workflowstore"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 
-	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -206,11 +205,11 @@ func (d *gatewayConcurrencyDependencies) DebugEnabled() bool {
 }
 
 type gatewayCloseTracker struct {
-	active             atomic.Int32
-	entered            chan struct{}
-	canceled           chan string
-	exited             chan string
-	allowActivationEnd chan struct{}
+	active       atomic.Int32
+	entered      chan struct{}
+	canceled     chan string
+	exited       chan string
+	allowReadEnd chan struct{}
 }
 
 type gatewayCloseWorkflowService struct {
@@ -230,36 +229,36 @@ func (s *gatewayCloseWorkflowService) GetWorkflowTask(ctx context.Context, _ *ta
 	return &taskpb.GetSuccess{}, ctx.Err()
 }
 
-type gatewayCloseRuntimeService struct {
-	apicontract.SessionRuntimeService
+type gatewayCloseSessionReadService struct {
+	apicontract.SessionViewService
 	tracker *gatewayCloseTracker
 }
 
-func (s *gatewayCloseRuntimeService) ActivateSessionRuntime(ctx context.Context, _ serverapi.SessionRuntimeActivateRequest) error {
+func (s *gatewayCloseSessionReadService) GetSessionMainView(ctx context.Context, _ *sessionpb.MainViewRequest) (*sessionpb.MainViewSuccess, error) {
 	s.tracker.active.Add(1)
 	s.tracker.entered <- struct{}{}
 	defer func() {
 		s.tracker.active.Add(-1)
-		s.tracker.exited <- "runtime"
+		s.tracker.exited <- "read"
 	}()
 	<-ctx.Done()
-	s.tracker.canceled <- "runtime"
-	<-s.tracker.allowActivationEnd
-	return nil
+	s.tracker.canceled <- "read"
+	<-s.tracker.allowReadEnd
+	return nil, ctx.Err()
 }
 
 type gatewayCloseDependencies struct {
 	GatewayDependencies
 	workflow apicontract.WorkflowService
-	runtime  apicontract.SessionRuntimeService
+	reads    apicontract.SessionViewService
 }
 
 func (d *gatewayCloseDependencies) WorkflowClient() apicontract.WorkflowService {
 	return d.workflow
 }
 
-func (d *gatewayCloseDependencies) SessionRuntimeClient() apicontract.SessionRuntimeService {
-	return d.runtime
+func (d *gatewayCloseDependencies) SessionViewClient() apicontract.SessionViewService {
+	return d.reads
 }
 
 func TestGatewayConcurrentUnaryResponsesAreCorrelated(t *testing.T) {
@@ -532,18 +531,18 @@ func TestGatewayCloseCancelsAndDrainsHandlers(t *testing.T) {
 	store := createGatewayAuthoritativeSession(t, appCore)
 
 	tracker := &gatewayCloseTracker{
-		entered:            make(chan struct{}, 2),
-		canceled:           make(chan string, 2),
-		exited:             make(chan string, 2),
-		allowActivationEnd: make(chan struct{}),
+		entered:      make(chan struct{}, 2),
+		canceled:     make(chan string, 2),
+		exited:       make(chan string, 2),
+		allowReadEnd: make(chan struct{}),
 	}
-	var allowActivationEndOnce sync.Once
-	allowActivationEnd := func() {
-		allowActivationEndOnce.Do(func() { close(tracker.allowActivationEnd) })
+	var allowReadEndOnce sync.Once
+	allowReadEnd := func() {
+		allowReadEndOnce.Do(func() { close(tracker.allowReadEnd) })
 	}
-	runtime := &gatewayCloseRuntimeService{
-		SessionRuntimeService: appCore.SessionRuntimeClient(),
-		tracker:               tracker,
+	reads := &gatewayCloseSessionReadService{
+		SessionViewService: appCore.SessionViewClient(),
+		tracker:            tracker,
 	}
 	workflow := &gatewayCloseWorkflowService{
 		WorkflowService: appCore.WorkflowClient(),
@@ -552,7 +551,7 @@ func TestGatewayCloseCancelsAndDrainsHandlers(t *testing.T) {
 	deps := &gatewayCloseDependencies{
 		GatewayDependencies: appCore,
 		workflow:            workflow,
-		runtime:             runtime,
+		reads:               reads,
 	}
 	gateway, err := NewGateway(deps, gatewayTestIdentity())
 	if err != nil {
@@ -564,18 +563,14 @@ func TestGatewayCloseCancelsAndDrainsHandlers(t *testing.T) {
 	conn := dialGateway(t, server)
 	defer func() { _ = conn.Close() }()
 	handshakeGateway(t, conn)
-	t.Cleanup(allowActivationEnd)
+	t.Cleanup(allowReadEnd)
 
 	sendGatewayDescriptor(t, conn, "workflow",
 		taskpb.File_kent_api_workflow_task_read_proto.Services().ByName("TaskReadService").Methods().ByName("Get"),
 		&taskpb.GetRequest{TaskId: proto.String("task-1")})
-	activation, err := protoapi.SessionRuntimeActivateToProto(gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sendGatewayDescriptor(t, conn, "runtime",
-		sessionlaunchpb.File_kent_api_session_launch_session_lifecycle_proto.Services().ByName("SessionRuntimeService").Methods().ByName("Activate"),
-		activation)
+	sendGatewayDescriptor(t, conn, "read",
+		sessionpb.File_kent_api_session_session_proto.Services().ByName("ReadService").Methods().ByName("GetMainView"),
+		&sessionpb.MainViewRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
 	for i := 0; i < 2; i++ {
 		select {
 		case <-tracker.entered:
@@ -599,16 +594,16 @@ func TestGatewayCloseCancelsAndDrainsHandlers(t *testing.T) {
 	if _, ok := canceled["workflow"]; !ok {
 		t.Fatal("workflow handler context was not canceled")
 	}
-	if _, ok := canceled["runtime"]; !ok {
-		t.Fatal("runtime handler context was not canceled")
+	if _, ok := canceled["read"]; !ok {
+		t.Fatal("read handler context was not canceled")
 	}
 	waitForGatewayCloseEvent(t, tracker.exited, "workflow")
 	if got := tracker.active.Load(); got != 1 {
-		t.Fatalf("active handler count after cancellation = %d, want runtime handler still admitted", got)
+		t.Fatalf("active handler count after cancellation = %d, want read handler still admitted", got)
 	}
 
-	allowActivationEnd()
-	waitForGatewayCloseEvent(t, tracker.exited, "runtime")
+	allowReadEnd()
+	waitForGatewayCloseEvent(t, tracker.exited, "read")
 	if got := tracker.active.Load(); got != 0 {
 		t.Fatalf("active handler count after cleanup started = %d, want 0", got)
 	}

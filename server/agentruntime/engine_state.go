@@ -358,6 +358,12 @@ func (e *Engine) SetThinkingLevel(ctx context.Context, level string) error {
 		return errors.New("thinking level is required")
 	}
 	_, err := awaitEngineRuntimeOperation(ctx, e, func(context.Context) (struct{}, error) {
+		e.mu.Lock()
+		model := e.cfg.Model
+		e.mu.Unlock()
+		if err := llm.ValidateModelReasoningEffort(model, normalized); err != nil {
+			return struct{}{}, err
+		}
 		return struct{}{}, e.setThinkingValue(normalized)
 	})
 	return err

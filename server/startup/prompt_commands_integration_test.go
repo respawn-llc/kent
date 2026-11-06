@@ -20,12 +20,11 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	authpb "core/shared/protoapi/gen/kent/api/auth"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	promptcommandpb "core/shared/protoapi/gen/kent/api/prompt_command"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
-	"core/shared/textutil"
 
 	"core/shared/runtimeids"
 	"github.com/google/uuid"
@@ -140,33 +139,16 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	if err != nil {
 		t.Fatalf("PlanSession: %v", err)
 	}
-	activeSettings, err := protoapi.SessionSettingsFromProto(plan.Plan.ActiveSettings)
-	if err != nil {
-		t.Fatalf("convert active settings: %v", err)
-	}
-	source, err := protoapi.SessionSourceReportFromProto(plan.Plan.Source)
-	if err != nil {
-		t.Fatalf("convert source report: %v", err)
-	}
-	enabledToolIDs := make([]string, 0, len(plan.Plan.EnabledToolIds))
-	for _, generatedToolID := range plan.Plan.EnabledToolIds {
-		toolID := protoapi.SessionToolIDFromProto(generatedToolID)
-		enabledToolIDs = append(enabledToolIDs, string(toolID))
-	}
-	err = remote.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, plan.Plan.SessionId), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: activeSettings,
-			EnabledToolIDs:        enabledToolIDs,
-			QuestionsEnabled:      textutil.Value(plan.Plan.QuestionsEnabled),
-			AutoCompactionEnabled: textutil.Value(plan.Plan.AutoCompactionEnabled),
-			Source:                source},
-	})
-	if err != nil {
-		t.Fatalf("ActivateSessionRuntime: %v", err)
-	}
-	if _, err := remote.SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: plan.Plan.SessionId,
-		Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_PromptCommand{PromptCommand: &runtimepb.PromptCommandInput{Name: "prompt:remote_demo", Arguments: "hello world"}}},
+	if _, err := remote.Steer(context.Background(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
+			SessionId: requestfixture.Selector(t, plan.Plan.SessionId),
+		}}},
+		Activation: &chatpb.Activation{Input: &chatpb.Activation_Command{Command: &chatpb.CommandInvocation{
+			CatalogIdentity: "prompt:remote_demo", Token: "/prompt:remote_demo", SeparatorWhitespace: " ", Arguments: "hello world",
+		}}},
 	}); err != nil {
-		t.Fatalf("SubmitUserTurn: %v", err)
+		t.Fatalf("Steer: %v", err)
 	}
 	var body json.RawMessage
 	testsetup.RequireUntil(t, time.Now().Add(10*time.Second), 10*time.Millisecond, func() bool {

@@ -23,7 +23,6 @@ import (
 	"core/server/core"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
-	"core/server/sessionruntime"
 	"core/server/sessionstore"
 
 	"core/shared/apicontract"
@@ -93,7 +92,7 @@ type gatewayChatLifecyclePlanner struct{}
 func (p gatewayChatLifecyclePlanner) Open(
 	context.Context,
 	runtimeids.SessionID,
-	*serverapi.SessionRuntimePreparationOptions,
+	*serverapi.RunPromptOverrides,
 ) error {
 	return nil
 }
@@ -525,71 +524,9 @@ func activateGatewayController(t *testing.T, appCore *core.Core, sessionID strin
 	}
 }
 
-func gatewayRuntimeActivateRequest(appCore *core.Core, sessionID string) serverapi.SessionRuntimeActivateRequest {
-	id, err := runtimeids.ParseSessionID(strings.TrimSpace(sessionID))
-	if err != nil {
-		panic(err)
-	}
-	settings := appCore.Config().Settings
-	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-6-sol"
-	}
-	settings = testsetup.ProviderSettings(settings)
-	return serverapi.SessionRuntimeActivateRequest{
-		SessionID: id, SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                appCore.Config().Source},
-	}
-}
-
 func waitForGatewayCondition(t *testing.T, label string, condition func() bool) {
 	t.Helper()
 	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), 10*time.Millisecond, condition, "timed out waiting for %s", label)
-}
-
-type gatewayRuntimeClientOverride struct {
-	*core.Core
-	runtimeClient apicontract.SessionRuntimeService
-}
-
-func (d *gatewayRuntimeClientOverride) SessionRuntimeClient() apicontract.SessionRuntimeService {
-	return d.runtimeClient
-}
-
-type closedAuthoritySessionRuntimeClient struct {
-	apicontract.SessionRuntimeService
-}
-
-func (closedAuthoritySessionRuntimeClient) ActivateSessionRuntime(
-	context.Context,
-	serverapi.SessionRuntimeActivateRequest,
-) error {
-	return sessionruntime.ErrAuthorityClosed
-}
-
-func TestGatewayActivationTransportsClosedAuthorityAsRuntimeUnavailable(t *testing.T) {
-	appCore, _ := newGatewayTestCore(t, true, true)
-	defer func() { _ = appCore.Close() }()
-	store := createGatewayAuthoritativeSession(t, appCore)
-
-	runtimeClient := closedAuthoritySessionRuntimeClient{SessionRuntimeService: appCore.SessionRuntimeClient()}
-	gateway, err := NewGateway(&gatewayRuntimeClientOverride{Core: appCore, runtimeClient: runtimeClient}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatalf("NewGateway: %v", err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
-	remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
-	if err != nil {
-		t.Fatalf("DialRemoteURL: %v", err)
-	}
-	defer func() { _ = remote.Close() }()
-
-	err = remote.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
-	if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
-		t.Fatalf("activation error = %v, want runtime unavailable", err)
-	}
 }
 
 func TestGatewayDisconnectKeepsRuntimeAvailable(t *testing.T) {
@@ -604,10 +541,23 @@ func TestGatewayDisconnectKeepsRuntimeAvailable(t *testing.T) {
 	store := createGatewayAuthoritativeSession(t, appCore)
 
 	first := dialGatewayRemote(t, server)
-	err = first.ActivateSessionRuntime(t.Context(), gatewayRuntimeActivateRequest(appCore, store.Meta().SessionID))
-	if err != nil {
-		t.Fatal(err)
+	accepted, err := first.Steer(t.Context(), &chatpb.SteerRequest{
+		QueueItemId: runtimeids.NewQueueItemID().String(),
+		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
+			SessionId: requestfixture.Selector(t, store.Meta().SessionID),
+		}}},
+		Activation: &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: "true"}}},
+	})
+	if err != nil || accepted.GetAccepted() == nil {
+		t.Fatalf("activate through Chat: %v, %v", accepted, err)
 	}
+	waitForGatewayCondition(t, "idle Runtime after Shell", func() bool {
+		view, err := first.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view.GetMainView().GetActivity().GetState() == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
+	})
 	if err := first.Close(); err != nil {
 		t.Fatalf("close first gateway connection: %v", err)
 	}
