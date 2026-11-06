@@ -261,6 +261,7 @@ type processEntry struct {
 	killRequested         bool
 	terminalEvent         *terminalEventCache
 	terminalDelivered     bool
+	accessOrder           atomic.Uint64
 	mu                    sync.Mutex
 	interactMu            sync.Mutex
 	publishedSnapshot     atomic.Pointer[Snapshot]
@@ -401,11 +402,10 @@ func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	stdin, log := p.detachResourcesLocked()
 	p.mu.Unlock()
 	closeDetachedResources(stdin, log)
-	p.finalizeOutput()
 	p.mu.Lock()
-	p.running = false
 	snapshot := p.publishSnapshotLocked()
 	p.mu.Unlock()
+	p.finalizeOutput()
 	return snapshot
 }
 

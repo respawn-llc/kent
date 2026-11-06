@@ -178,7 +178,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - `/ps` shows background processes whose owning Session belongs to the selected Project and operates on processes selected from that list.
 - Process recent-output previews are UTF-8 text. A preview leaves valid UTF-8 unchanged and converts each contiguous run of invalid bytes to one Unicode replacement character. This preview projection must not change raw shell output, saved logs, or Inline Output.
 - Background process IDs are unique for one server lifetime. Their Session association controls Project list membership, notices, and history. Process Get, Inline Output, and termination use the process ID without requiring an attached Project or revalidating Project membership.
-- Kent exposes at most 1,000 completed background processes per server lifetime. Completing another process removes the completed process with the oldest direct-access time and its saved log and completion output from `/ps` and process controls.
+- Kent must keep at most 1,000 completed background processes per server lifetime, except processes whose terminal notices await delivery. When completed processes exceed this limit, Kent must remove the already-delivered completed process with the oldest direct-access time and its saved log and completion output from `/ps` and process controls.
+- If no already-delivered completed process is eligible for removal, Kent must temporarily exceed the limit without discarding pending terminal notices. Kent must panic in debug mode and report an operator diagnostic in production mode for this overflow.
 - Kent performs terminal event creation, delivery/finalization, and only then retention eviction and artifact cleanup.
 - Direct process access refreshes completed-process recency. Listing `/ps` has no effect on recency.
 - The completed-process retention limit never removes a running process.
