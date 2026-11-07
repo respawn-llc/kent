@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/agentruntime"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runtimewire"
@@ -1145,12 +1145,11 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
-	err = api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, otherSession.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			EnabledToolIDs:        []string{string(toolspec.ToolEdit), string(toolspec.ToolExecCommand)},
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
+	err = api.ActivateSessionRuntime(context.Background(), launch.SessionPlan{
+		Descriptor: descriptor, ActiveSettings: settings,
+		EnabledTools:     []toolspec.ID{toolspec.ToolEdit, toolspec.ToolExecCommand},
+		QuestionsEnabled: true, AutoCompactionEnabled: true,
+		Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("activate retargeted Session Runtime: %v", err)

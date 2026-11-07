@@ -35,6 +35,15 @@ import (
 	"core/shared/toolspec"
 )
 
+func activationDescriptor(t testing.TB, id runtimeids.SessionID) session.SessionDescriptor {
+	t.Helper()
+	descriptor, err := session.NewOpenSessionDescriptor(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return descriptor
+}
+
 func TestSyncExecutionTargetAfterCompactionDeliversSwitch(t *testing.T) {
 	previousSwitch, previousCompaction := prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt
 	prompts.WorktreeModePrompt, prompts.WorktreePostCompactionPrompt = "{{branch}}", "{{cwd}}"
@@ -68,9 +77,8 @@ func TestSyncExecutionTargetAfterCompactionDeliversSwitch(t *testing.T) {
 				settings := testsetup.ProviderSettings(config.DefaultOnboardingSettings())
 				settings.CompactionMode = config.CompactionModeLocal
 				settings.Reviewer.Frequency = "off"
-				request := serverapi.SessionRuntimeActivateRequest{
-					SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: new(true), AutoCompactionEnabled: new(true),
-						ActiveSettings: settings, Source: config.SourceReport{Sources: map[string]config.Origin{}}},
+				request := launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), QuestionsEnabled: true, AutoCompactionEnabled: true,
+					ActiveSettings: settings, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 				}
 				err := fixture.api.ActivateSessionRuntime(t.Context(), request)
 				if err != nil {
@@ -184,11 +192,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		activation, err := ActivationRequestFromSessionPlan(plan)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = fixture.api.ActivateSessionRuntime(t.Context(), activation)
+		err = fixture.api.ActivateSessionRuntime(t.Context(), plan)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -251,11 +255,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 			if !reflect.DeepEqual(reopened.EnabledTools, []toolspec.ID{toolspec.ToolPatch}) {
 				t.Fatalf("reopen with tools %q changed the first list: %v", tools, reopened.EnabledTools)
 			}
-			activation, err := ActivationRequestFromSessionPlan(reopened)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := fixture.api.ActivateSessionRuntime(t.Context(), activation); err != nil {
+			if err := fixture.api.ActivateSessionRuntime(t.Context(), reopened); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -329,11 +329,7 @@ func TestLaunchRetainsFirstExplicitToolListAcrossReopening(t *testing.T) {
 		if forkPlan.ModelContractLocked {
 			t.Fatal("interactive fork started with its source's generation snapshot")
 		}
-		forkActivation, err := ActivationRequestFromSessionPlan(forkPlan)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := fixture.api.ActivateSessionRuntime(t.Context(), forkActivation); err != nil {
+		if err := fixture.api.ActivateSessionRuntime(t.Context(), forkPlan); err != nil {
 			t.Fatal(err)
 		}
 		if err := fixture.authority.WithCurrentRuntime(t.Context(), childID, func(ctx context.Context, engine *runtimepkg.Engine) error {
@@ -394,11 +390,7 @@ func TestOlderSessionAdoptsToolListAtCompactionBoundary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		request, err := ActivationRequestFromSessionPlan(plan)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := fixture.api.ActivateSessionRuntime(t.Context(), request); err != nil {
+		if err := fixture.api.ActivateSessionRuntime(t.Context(), plan); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -623,12 +615,6 @@ func TestAppendRecoveredWarningIfNeededSurfacesProviderError(t *testing.T) {
 	}
 }
 
-func TestActivateSessionRuntimeRejectsPathLikeSessionID(t *testing.T) {
-	if _, err := runtimeids.ParseSessionSelector("../session-1"); err == nil {
-		t.Fatal("path-like value entered the typed activation request")
-	}
-}
-
 func TestActivateSessionRuntimeRetainsTargetWhenProjectionFails(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	id, err := runtimeids.ParseSessionID(fixture.store.Meta().SessionID)
@@ -638,9 +624,7 @@ func TestActivateSessionRuntimeRetainsTargetWhenProjectionFails(t *testing.T) {
 	if err := fixture.metadata.Close(); err != nil {
 		t.Fatal(err)
 	}
-	err = fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: id, SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true)},
-	})
+	err = fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, id), QuestionsEnabled: true, AutoCompactionEnabled: true})
 	var target *serverapi.SessionTargetError
 	if err == nil || !errors.As(err, &target) || target.SessionID() == nil || *target.SessionID() != id || target.Projection() != nil {
 		t.Fatalf("activation projection failure lost canonical target: %v", err)
@@ -669,12 +653,9 @@ func TestServicePassesRuntimeClientFactoryIntoInteractiveRuntime(t *testing.T) {
 	settings.ModelContextWindow = 40
 	settings.CompactionMode = config.CompactionModeNative
 	settings.Reviewer.Frequency = "off"
-	err := fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			ActiveSettings:        settings,
-			EnabledToolIDs:        []string{string(toolspec.ToolExecCommand)},
-			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
+	err := fixture.api.ActivateSessionRuntime(context.Background(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), QuestionsEnabled: true,
+		AutoCompactionEnabled: true,
+		ActiveSettings:        settings, EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -746,29 +727,17 @@ func TestActivateSessionRuntimeUsesTypedQuestionAndAutoCompactionSettings(t *tes
 		}),
 	})
 	settings := sessionRuntimeFastSettings(false)
-	identity := fixture.store.Identity()
-	if identity.ShortID == nil {
-		t.Fatal("fresh Session has no assigned number")
+	err := fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, fixture.store.Identity().ID), ActiveSettings: settings,
+		QuestionsEnabled:      false,
+		AutoCompactionEnabled: false,
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
+	})
+	if err != nil {
+		t.Fatalf("ActivateSessionRuntime: %v", err)
 	}
-	for _, raw := range []string{identity.ID.String(), "000" + identity.ShortID.String()} {
-		selector, err := runtimeids.ParseSessionSelector(raw)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-			SessionID: selector, SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-				QuestionsEnabled:      textutil.Value(false),
-				AutoCompactionEnabled: textutil.Value(false),
-				Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
-		})
-		if err != nil {
-			t.Fatalf("ActivateSessionRuntime: %v", err)
-		}
-		engine := currentSessionRuntimeEngine(t, fixture.authority, fixture.store.Meta().SessionID)
-		if engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
-			t.Fatalf("runtime settings = questions %t auto-compaction %t, want false/false", engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
-		}
-
+	engine := currentSessionRuntimeEngine(t, fixture.authority, fixture.store.Meta().SessionID)
+	if engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
+		t.Fatalf("runtime settings = questions %t auto-compaction %t, want false/false", engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
 	}
 }
 
@@ -788,21 +757,17 @@ func TestActivateSessionRuntimeCommitsPlannedAgentSelection(t *testing.T) {
 	settings := sessionRuntimeFastSettings(true)
 	settings.Reviewer.Frequency = "all"
 	settings.ThinkingLevel = "high"
-	err = fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			QuestionsEnabled:      textutil.Value(false),
-			AutoCompactionEnabled: textutil.Value(false),
-			AgentSelection: &serverapi.SessionRuntimeAgentSelection{
-				AgentRole: textutil.Value("worker"),
-				Baseline: serverapi.SessionRuntimeChatSettings{
-					Supervisor:     "all",
-					Thinking:       "high",
-					Fast:           true,
-					Questions:      false,
-					AutoCompaction: false,
-				},
+	err = fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), ActiveSettings: settings,
+		QuestionsEnabled:      false,
+		AutoCompactionEnabled: false, ActivationAgentSelection: &session.ChatSettingsState{
+			AgentRole: textutil.Value("worker"), Settings: &session.ChatSettingsOverrides{
+				Supervisor:     new("all"),
+				Thinking:       new("high"),
+				Fast:           new(true),
+				Questions:      new(false),
+				AutoCompaction: new(false),
 			},
-			Source: config.SourceReport{Sources: map[string]config.Origin{}}},
+		}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -846,14 +811,7 @@ func TestActivateSessionRuntimePreservesDefaultRoleIdentity(t *testing.T) {
 		settings := sessionRuntimeFastSettings(false)
 		state := sessiontest.CompleteChatSettingsState(t, config.DefaultSubagentRole, settings.Reviewer.Frequency, settings.ThinkingLevel, false, true, true)
 		state.AgentRole = role
-		selection, err := AgentSelectionFromState(&state)
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-			SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings, QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
-				AgentSelection: selection, Source: config.SourceReport{Sources: map[string]config.Origin{}}},
-		})
+		err := fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), ActiveSettings: settings, QuestionsEnabled: true, AutoCompactionEnabled: true, ActivationAgentSelection: &state, Source: config.SourceReport{Sources: map[string]config.Origin{}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -885,21 +843,17 @@ func TestActivateSessionRuntimeReplacesReadyRuntimeAfterAgentSelection(t *testin
 	)
 
 	settings := sessionRuntimeFastSettings(true)
-	err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			AgentSelection: &serverapi.SessionRuntimeAgentSelection{
-				AgentRole: textutil.Value("worker"),
-				Baseline: serverapi.SessionRuntimeChatSettings{
-					Supervisor:     settings.Reviewer.Frequency,
-					Thinking:       settings.ThinkingLevel,
-					Fast:           true,
-					Questions:      true,
-					AutoCompaction: true,
-				},
+	err := fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), ActiveSettings: settings,
+		QuestionsEnabled:      true,
+		AutoCompactionEnabled: true, ActivationAgentSelection: &session.ChatSettingsState{
+			AgentRole: textutil.Value("worker"), Settings: &session.ChatSettingsOverrides{
+				Supervisor:     new(settings.Reviewer.Frequency),
+				Thinking:       new(settings.ThinkingLevel),
+				Fast:           new(true),
+				Questions:      new(true),
+				AutoCompaction: new(true),
 			},
-			Source: config.SourceReport{Sources: map[string]config.Origin{}}},
+		}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -921,11 +875,10 @@ func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSetti
 		settings.Questions, settings.AutoCompaction = textutil.Value(false), textutil.Value(false)
 	})
 
-	err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: sessionRuntimeFastSettings(false),
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
+	err := fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), ActiveSettings: sessionRuntimeFastSettings(false),
+		QuestionsEnabled:      true,
+		AutoCompactionEnabled: true,
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -937,7 +890,7 @@ func TestActivateSessionRuntimeUsesLatestPersistedQuestionAndAutoCompactionSetti
 
 }
 
-func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testing.T) {
+func TestActivateSessionRuntimeRevalidatesSettingsChangedAfterPlanning(t *testing.T) {
 	fixture := newSessionRuntimeFixture(t)
 	fixture.api = NewAPI(fixture.metadata, fixture.authority, APIOptions{
 		RuntimeClientFactory: runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) {
@@ -945,37 +898,35 @@ func TestActivateSessionRuntimeUsesLatestPersistedCompleteChatSettings(t *testin
 		}),
 	})
 	sessiontest.CommitChatSettingsTestState(t, fixture.store, func(settings *session.ChatSettingsOverrides) {
-		settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction = textutil.Value("all"), textutil.Value("high"), textutil.Value(true), textutil.Value(false), textutil.Value(false)
+		settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction = new("off"), new("low"), new(false), new(true), new(true)
 	})
-	stale := sessionRuntimeFastSettings(false)
-	stale.Reviewer.Frequency = "off"
-	stale.ThinkingLevel = "low"
-
-	err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: stale,
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
+	cfg := fixture.config
+	cfg.Settings = sessionRuntimeFastSettings(false)
+	planner := launch.Planner{
+		Config: cfg, ContainerDir: filepath.Dir(fixture.store.Dir()),
+		StoreOptions:      fixture.metadata.AuthoritativeSessionStoreOptions(),
+		PersistedSessions: fixture.metadata, ExecutionTargets: fixture.metadata,
+		SessionProjects: fixture.metadata, ManagedWorktreeRoots: fixture.metadata,
+	}
+	plan, err := planner.PlanSession(t.Context(), launch.SessionRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.OpenExistingSessionLaunchIntent(fixture.store.Identity().ID),
 	})
 	if err != nil {
-		t.Fatalf("ActivateSessionRuntime: %v", err)
+		t.Fatal(err)
+	}
+	sessiontest.CommitChatSettingsTestState(t, fixture.store, func(settings *session.ChatSettingsOverrides) {
+		settings.Supervisor, settings.Thinking, settings.Fast, settings.Questions, settings.AutoCompaction = new("all"), new("high"), new(true), new(false), new(false)
+	})
+	if err := fixture.api.ActivateSessionRuntime(t.Context(), plan); err != nil {
+		t.Fatal(err)
 	}
 	engine := currentSessionRuntimeEngine(t, fixture.authority, fixture.store.Meta().SessionID)
-	if engine.ReviewerFrequency() != "all" ||
-		engine.ThinkingLevel() != "high" ||
-		!engine.FastModeEnabled() ||
-		engine.QuestionsEnabled() ||
-		engine.AutoCompactionEnabled() {
-		t.Fatalf(
-			"runtime settings = supervisor %q thinking %q fast %t questions %t auto-compaction %t",
-			engine.ReviewerFrequency(),
-			engine.ThinkingLevel(),
-			engine.FastModeEnabled(),
-			engine.QuestionsEnabled(),
-			engine.AutoCompactionEnabled(),
-		)
+	if engine.ReviewerFrequency() != "all" || engine.ThinkingLevel() != "high" ||
+		!engine.FastModeEnabled() || engine.QuestionsEnabled() || engine.AutoCompactionEnabled() {
+		t.Fatalf("activation ignored settings saved after planning: supervisor=%s thinking=%s fast=%t questions=%t auto-compaction=%t",
+			engine.ReviewerFrequency(), engine.ThinkingLevel(), engine.FastModeEnabled(), engine.QuestionsEnabled(), engine.AutoCompactionEnabled())
 	}
-
 }
 
 func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *testing.T) {
@@ -989,12 +940,11 @@ func TestActivateSessionRuntimePreservesExplicitThinkingOverPersistedSetting(t *
 	settings := sessionRuntimeFastSettings(false)
 	settings.ThinkingLevel = "high"
 
-	err := fixture.api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			QuestionsEnabled:         textutil.Value(true),
-			AutoCompactionEnabled:    textutil.Value(true),
-			ThinkingOverrideExplicit: true,
-			Source:                   config.SourceReport{Sources: map[string]config.Origin{}}},
+	err := fixture.api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), ActiveSettings: settings,
+		QuestionsEnabled:         true,
+		AutoCompactionEnabled:    true,
+		ThinkingOverrideExplicit: true,
+		Source:                   config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -1017,11 +967,10 @@ func sessionRuntimeFastSettings(enabled bool) config.Settings {
 
 func activateSessionRuntimeForFastTest(t *testing.T, api *API, sessionID string, label string, settings config.Settings) {
 	t.Helper()
-	err := api.ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, sessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
+	err := api.ActivateSessionRuntime(t.Context(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, sessionID)), ActiveSettings: settings,
+		QuestionsEnabled:      true,
+		AutoCompactionEnabled: true,
+		Source:                config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime %s: %v", label, err)
@@ -1078,20 +1027,17 @@ func TestActivateSessionRuntimeAllowsNativeEditInSiblingWorkspace(t *testing.T) 
 			return client, nil
 		}),
 	})
-	err = fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			ActiveSettings: testsetup.ProviderSettings(config.Settings{
-				Model:              "gpt-6-sol",
-				ThinkingLevel:      "medium",
-				ModelContextWindow: 200000,
-				AllowNonCwdEdits:   false,
-				Reviewer:           config.ReviewerSettings{Frequency: "off"},
-				Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
-				Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-			}),
-			EnabledToolIDs: []string{string(toolspec.ToolEdit)},
-			Source:         config.SourceReport{Sources: map[string]config.Origin{}}},
+	err = fixture.api.ActivateSessionRuntime(context.Background(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), QuestionsEnabled: true,
+		AutoCompactionEnabled: true,
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
+			Model:              "gpt-6-sol",
+			ThinkingLevel:      "medium",
+			ModelContextWindow: 200000,
+			AllowNonCwdEdits:   false,
+			Reviewer:           config.ReviewerSettings{Frequency: "off"},
+			Timeouts:           config.Timeouts{ModelRequestSeconds: 1},
+			Shell:              config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		}), EnabledTools: []toolspec.ID{toolspec.ToolEdit}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -1191,14 +1137,12 @@ func TestActivateSessionRuntimeDeniesEditInForeignManagedWorktree(t *testing.T) 
 		ManagedWorktreeBaseDir: managedBase,
 		RuntimeClientFactory:   runtimewire.RuntimeClientFactoryFunc(func(context.Context, runtimewire.RuntimeClientRequest) (llm.Client, error) { return client, nil }),
 	})
-	err = fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true),
-			ActiveSettings: testsetup.ProviderSettings(config.Settings{
-				Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
-				Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
-				Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-			}),
-			EnabledToolIDs: []string{string(toolspec.ToolEdit)}, Source: config.SourceReport{Sources: map[string]config.Origin{}}},
+	err = fixture.api.ActivateSessionRuntime(context.Background(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), QuestionsEnabled: true, AutoCompactionEnabled: true,
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
+			Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
+			Reviewer: config.ReviewerSettings{Frequency: "off"}, Timeouts: config.Timeouts{ModelRequestSeconds: 1},
+			Shell: config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		}), EnabledTools: []toolspec.ID{toolspec.ToolEdit}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)
@@ -1270,17 +1214,14 @@ func TestActivateSessionRuntimeRejectsManagedWorktreeOutsideServerNamespace(t *t
 	}
 	err = NewAPI(fixture.metadata, fixture.authority, APIOptions{
 		ManagedWorktreeBaseDir: t.TempDir(),
-	}).ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, fixture.store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			ActiveSettings: config.Settings{
-				Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
-				Reviewer: config.ReviewerSettings{Frequency: "off"},
-				Timeouts: config.Timeouts{ModelRequestSeconds: 1},
-				Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-			},
-			EnabledToolIDs: []string{string(toolspec.ToolEdit)},
-			Source:         config.SourceReport{Sources: map[string]config.Origin{}}},
+	}).ActivateSessionRuntime(context.Background(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, fixture.store.Meta().SessionID)), QuestionsEnabled: true,
+		AutoCompactionEnabled: true,
+		ActiveSettings: config.Settings{
+			Model: "gpt-6-sol", ThinkingLevel: "medium", ModelContextWindow: 200000,
+			Reviewer: config.ReviewerSettings{Frequency: "off"},
+			Timeouts: config.Timeouts{ModelRequestSeconds: 1},
+			Shell:    config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		}, EnabledTools: []toolspec.ID{toolspec.ToolEdit}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err == nil {
 		t.Fatal("ActivateSessionRuntime accepted a managed Worktree outside the server namespace")
@@ -1330,21 +1271,18 @@ func TestActivateSessionRuntimeUsesActiveShellPostprocessingWithSuppliedManager(
 	})
 	sessionID := fixture.store.Meta().SessionID
 
-	err = fixture.api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, sessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{QuestionsEnabled: textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			ActiveSettings: testsetup.ProviderSettings(config.Settings{
-				Model:                  "gpt-6-sol",
-				ThinkingLevel:          "medium",
-				ModelContextWindow:     200000,
-				MinimumExecToBgSeconds: 1,
-				ShellOutputMaxChars:    16_000,
-				Reviewer:               config.ReviewerSettings{Frequency: "off"},
-				Timeouts:               config.Timeouts{ModelRequestSeconds: 1},
-				Shell:                  config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
-			}),
-			EnabledToolIDs: []string{string(toolspec.ToolExecCommand)},
-			Source:         config.SourceReport{Sources: map[string]config.Origin{}}},
+	err = fixture.api.ActivateSessionRuntime(context.Background(), launch.SessionPlan{Descriptor: activationDescriptor(t, requestfixture.SessionID(t, sessionID)), QuestionsEnabled: true,
+		AutoCompactionEnabled: true,
+		ActiveSettings: testsetup.ProviderSettings(config.Settings{
+			Model:                  "gpt-6-sol",
+			ThinkingLevel:          "medium",
+			ModelContextWindow:     200000,
+			MinimumExecToBgSeconds: 1,
+			ShellOutputMaxChars:    16_000,
+			Reviewer:               config.ReviewerSettings{Frequency: "off"},
+			Timeouts:               config.Timeouts{ModelRequestSeconds: 1},
+			Shell:                  config.ShellSettings{PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		}), EnabledTools: []toolspec.ID{toolspec.ToolExecCommand}, Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)

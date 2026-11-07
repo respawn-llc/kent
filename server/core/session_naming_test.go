@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/chatfixture"
 	modelstub "core/internal/testharness/pty/blackbox"
-	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
@@ -24,8 +24,7 @@ import (
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
-	"core/shared/textutil"
+
 	"github.com/google/uuid"
 )
 
@@ -105,24 +104,7 @@ func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
 	defer catalogChanges.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	wireSettings, err := protoapi.SessionSettingsToProto(resolved.Config.Settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientSettings, err := protoapi.SessionSettingsFromProto(wireSettings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, id),
-		SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{
-			ActiveSettings: clientSettings, Source: resolved.Config.Source,
-			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false),
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	chatfixture.OpenRuntime(t, app.ChatMutationClient(), app.SessionTranscriptClient(), id)
 	if err := meta.UpdateSessionExecutionTarget(t.Context(), metadata.SessionExecutionTargetUpdate{
 		SessionID: id, Workspace: &metadata.SessionExecutionTargetUpdateWorkspace{ID: binding.WorkspaceID},
 		Worktree: &metadata.SessionExecutionTargetUpdateWorktree{ID: worktreeID},

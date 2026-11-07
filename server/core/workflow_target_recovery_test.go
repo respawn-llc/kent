@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
@@ -23,7 +22,7 @@ import (
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/shared/config"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -305,18 +304,12 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	if retained.Task.ManagedWorktreeID == nil || *retained.Task.ManagedWorktreeID != f.original.ID {
 		t.Fatalf("setup failure changed the original Worktree binding: %+v", retained.Task.ManagedWorktreeID)
 	}
-	cfg := f.app.Config()
-	err = f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, node.SessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
-			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	const message = "Continue on the restored original checkout"
-	submitted := testsetup.Start(func() (*runtimepb.SubmitUserTurnSuccess, error) {
-		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
+	submitted := testsetup.Start(func() (*chatpb.InputMutationSuccess, error) {
+		return f.app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+			QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(node.SessionID.String()),
+			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: message}},
+		})
 	})
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
 	select {
@@ -324,7 +317,7 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 		if outcome.Err != nil {
 			t.Fatal(outcome.Err)
 		}
-		if outcome.Value.GetQueued() == nil || outcome.Value.GetQueued().GetQueueItemId() == "" {
+		if outcome.Value.GetAccepted() == nil || outcome.Value.GetAccepted().GetQueueItem().GetId() == "" {
 			t.Fatalf("Session submission = %+v, want accepted input", outcome.Value)
 		}
 	case <-time.After(10 * time.Second):

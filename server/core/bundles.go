@@ -84,7 +84,6 @@ type RuntimeBundle struct {
 	runtimeControls     apicontract.RuntimeControlService
 	runtimeLiveControls apicontract.RuntimeLiveControlService
 	liveRunObserver     runprompt.LiveRunObserver
-	sessionRuntime      apicontract.SessionRuntimeService
 	sessionTranscript   apicontract.SessionTranscriptService
 }
 
@@ -184,7 +183,6 @@ type bundleCompositionInput struct {
 	attentionService        apicontract.AttentionNotificationService
 	runtimeControlService   *runtimecontrol.Service
 	serverStatusService     *serverstatus.ServerStatusService
-	sessionRuntimeAPI       *sessionruntime.API
 	sessionViewService      *sessionview.Service
 	settingsChanges         *sessionlaunch.SettingsBroadcaster
 	sessionLifecycleService *sessionservice.SessionLifecycleService
@@ -250,7 +248,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Processes:   in.processService,
 		Projects:    newProjectBundle(in.cfg, in.workspaceConfigResolver, in.projectViews),
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
-		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService, in.sessionRuntimeAPI),
+		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.settingsChanges),
 		Workflows:   newWorkflowBundle(in.workflowService),
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
@@ -290,7 +288,7 @@ func newPromptBundle(askService *promptcontrol.AskViewService, approvalService *
 	}
 }
 
-func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.RuntimeRegistry, runtimeAuthority *sessionruntime.Authority, runtimeControlService *runtimecontrol.Service, sessionRuntimeAPI *sessionruntime.API) *RuntimeBundle {
+func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.RuntimeRegistry, runtimeAuthority *sessionruntime.Authority, runtimeControlService *runtimecontrol.Service) *RuntimeBundle {
 	return &RuntimeBundle{
 		background:          background,
 		runtimeRegistry:     runtimeRegistry,
@@ -298,7 +296,6 @@ func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.R
 		runtimeControls:     runtimeControlService,
 		runtimeLiveControls: runtimeControlService,
 		liveRunObserver:     runtimeControlService,
-		sessionRuntime:      sessionRuntimeAPI,
 		sessionTranscript:   runtimeRegistry,
 	}
 }

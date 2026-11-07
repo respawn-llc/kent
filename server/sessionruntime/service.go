@@ -7,15 +7,14 @@ import (
 	"strings"
 
 	"core/server/agentruntime"
+	"core/server/launch"
 	"core/server/metadata"
 	"core/server/runlog"
 	"core/server/runtimewire"
 	"core/server/sessionstore"
 	"core/server/tools"
-	servicecontract "core/shared/apicontract"
 	"core/shared/serverapi"
 	"core/shared/textutil"
-	"core/shared/toolspec"
 )
 
 type API struct {
@@ -77,20 +76,13 @@ func applyAgentSelection(store *session.Store, target *session.ChatSettingsState
 	return result.Changed, err
 }
 
-func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) (err error) {
-	var target serverapi.SessionTarget = serverapi.UnresolvedSessionTarget{}
+func (s *API) ActivateSessionRuntime(ctx context.Context, req launch.SessionPlan) (err error) {
+	sessionID := req.Descriptor.SessionID()
+	var target serverapi.SessionTarget = serverapi.CanonicalSessionTarget{ID: sessionID}
 	defer func() { err = serverapi.WithSessionTarget(target, err) }()
-	if err := req.Validate(); err != nil {
-		return err
-	}
 	if s == nil || s.authority == nil {
 		return errors.New("session runtime authority is required")
 	}
-	sessionID, err := s.metadataStore.ResolveSessionSelector(ctx, req.SessionID)
-	if err != nil {
-		return err
-	}
-	target = serverapi.CanonicalSessionTarget{ID: sessionID}
 	identity, err := s.metadataStore.SessionIdentity(ctx, sessionID)
 	if err != nil {
 		return err
@@ -100,21 +92,10 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		SessionID: sessionID,
 	}, func(activationCtx context.Context, store *session.Store) (*AgentRuntimePlan, AgentResourceSelection, error) {
 		agentSelectionChanged := false
-		if req.AgentSelection != nil {
-			target, targetErr := session.ChatSettingsStateFromRole(
-				req.AgentSelection.AgentRole,
-				session.ChatSettings{
-					Supervisor:     req.AgentSelection.Baseline.Supervisor,
-					Thinking:       req.AgentSelection.Baseline.Thinking,
-					Fast:           req.AgentSelection.Baseline.Fast,
-					Questions:      req.AgentSelection.Baseline.Questions,
-					AutoCompaction: req.AgentSelection.Baseline.AutoCompaction,
-				},
-			)
-			if targetErr != nil {
-				return nil, nil, targetErr
-			}
+		if req.ActivationAgentSelection != nil {
+			target := *req.ActivationAgentSelection
 			target.ConnectionID = store.Meta().ConnectionID
+			var targetErr error
 			agentSelectionChanged, targetErr = applyAgentSelection(store, &target)
 			if targetErr != nil {
 				return nil, nil, targetErr
@@ -130,8 +111,8 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 			Supervisor:     textutil.Value(req.ActiveSettings.Reviewer.Frequency),
 			Thinking:       textutil.Value(req.ActiveSettings.ThinkingLevel),
 			Fast:           textutil.Value(req.ActiveSettings.PriorityRequestMode),
-			Questions:      req.QuestionsEnabled,
-			AutoCompaction: req.AutoCompactionEnabled,
+			Questions:      &req.QuestionsEnabled,
+			AutoCompaction: &req.AutoCompactionEnabled,
 		}
 		effective, resolveErr := session.ResolveEffectiveChatSettings(
 			persisted,
@@ -140,8 +121,8 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 				Supervisor:     req.ActiveSettings.Reviewer.Frequency,
 				Thinking:       req.ActiveSettings.ThinkingLevel,
 				Fast:           req.ActiveSettings.PriorityRequestMode,
-				Questions:      *req.QuestionsEnabled,
-				AutoCompaction: *req.AutoCompactionEnabled,
+				Questions:      req.QuestionsEnabled,
+				AutoCompaction: req.AutoCompactionEnabled,
 			},
 		)
 		if resolveErr != nil {
@@ -150,10 +131,8 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 		req.ActiveSettings.Reviewer.Frequency = effective.Supervisor
 		req.ActiveSettings.ThinkingLevel = effective.Thinking
 		req.ActiveSettings.PriorityRequestMode = effective.Fast
-		questions := effective.Questions
-		autoCompaction := effective.AutoCompaction
-		req.QuestionsEnabled = &questions
-		req.AutoCompactionEnabled = &autoCompaction
+		req.QuestionsEnabled = effective.Questions
+		req.AutoCompactionEnabled = effective.AutoCompaction
 		plan, planErr := s.interactiveRuntimePlan(ctx, req, sessionID.String())
 		if planErr != nil {
 			return nil, nil, planErr
@@ -173,7 +152,7 @@ func (s *API) ActivateSessionRuntime(ctx context.Context, req serverapi.SessionR
 	return err
 }
 
-func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionRuntimeActivateRequest, sessionID string) (AgentRuntimePlan, error) {
+func (s *API) interactiveRuntimePlan(ctx context.Context, req launch.SessionPlan, sessionID string) (AgentRuntimePlan, error) {
 	if s == nil || s.metadataStore == nil {
 		return AgentRuntimePlan{}, errors.New("metadata store is required")
 	}
@@ -200,10 +179,6 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		currentWorktreeRoot = &root
 	}
 	filesystemContext, err := runtimewire.NewFilesystemContext(target.EffectiveWorkdir, executionRoot, projectID)
-	if err != nil {
-		return AgentRuntimePlan{}, err
-	}
-	enabledTools, err := parseToolIDs(req.EnabledToolIDs)
 	if err != nil {
 		return AgentRuntimePlan{}, err
 	}
@@ -235,37 +210,18 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req serverapi.SessionR
 		ConnectionScope:          req.ConnectionScope,
 		MainWorkspaceRoot:        target.WorkspaceRoot,
 		Settings:                 req.ActiveSettings,
-		EnabledTools:             enabledTools,
+		EnabledTools:             req.EnabledTools,
 		FilesystemContext:        tools.FilesystemContext{Access: filesystemContext.Access, ManagedWorktree: managedWorktreePathContext},
 		Sources:                  req.Source.Sources,
 		ExplicitToolSelection:    req.ExplicitToolSelection,
-		QuestionsEnabled:         req.QuestionsEnabled,
-		AutoCompactionEnabled:    req.AutoCompactionEnabled,
+		QuestionsEnabled:         &req.QuestionsEnabled,
+		AutoCompactionEnabled:    &req.AutoCompactionEnabled,
 		ClientFactory:            s.runtimeClientFactory,
 		StartLogLines:            startLogLines,
 		RecoveredWarningProvider: s.recoveredWarningProvider,
 	})
 }
 
-var errUnknownToolID = errors.New("unknown tool id")
-
-func parseToolIDs(raw []string) ([]toolspec.ID, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	ids := make([]toolspec.ID, 0, len(raw))
-	for _, item := range raw {
-		id, ok := toolspec.ParseID(item)
-		if !ok {
-			return nil, fmt.Errorf("%w %q", errUnknownToolID, item)
-		}
-		ids = append(ids, id)
-	}
-	return ids, nil
-}
-
 func runtimeUnavailableErr(sessionID string) error {
 	return errors.Join(serverapi.ErrRuntimeUnavailable, fmt.Errorf("session %q has no active runtime available", strings.TrimSpace(sessionID)))
 }
-
-var _ servicecontract.SessionRuntimeService = (*API)(nil)

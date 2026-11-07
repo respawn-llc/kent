@@ -418,7 +418,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		attentionService:        runtimeRegistry,
 		runtimeControlService:   runtimeControlService,
 		serverStatusService:     serverStatusService,
-		sessionRuntimeAPI:       sessionRuntimeAPI,
 		sessionViewService:      sessionViewService,
 		sessionLifecycleService: sessionLifecycleService,
 		updateStatusService:     updateStatusService,

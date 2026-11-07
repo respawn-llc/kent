@@ -8,7 +8,6 @@ import (
 	"core/server/launch"
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
-	"core/shared/apicontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -25,13 +24,13 @@ type PersistedSessionPlanner interface {
 type RuntimePlanner struct {
 	authority     *sessionruntime.Authority
 	sessionLaunch SessionRuntimePlannerResolver
-	runtimeAPI    apicontract.SessionRuntimeService
+	runtimeAPI    *sessionruntime.API
 }
 
 func NewRuntimePlanner(
 	authority *sessionruntime.Authority,
 	sessionLaunch SessionRuntimePlannerResolver,
-	runtimeAPI apicontract.SessionRuntimeService,
+	runtimeAPI *sessionruntime.API,
 ) *RuntimePlanner {
 	return &RuntimePlanner{
 		authority:     authority,
@@ -83,12 +82,8 @@ func (p *RuntimePlanner) Open(
 	if err != nil {
 		return err
 	}
-	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
-	if err != nil {
-		return err
-	}
 	if p.runtimeAPI == nil {
 		return errors.New("Session Runtime service is required")
 	}
-	return p.runtimeAPI.ActivateSessionRuntime(ctx, activation)
+	return p.runtimeAPI.ActivateSessionRuntime(ctx, planned.Plan)
 }

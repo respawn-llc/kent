@@ -923,11 +923,13 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 	activateSettings.Reviewer.Frequency = "off"
 	activateSettings = testsetup.WithResponsesProvider(activateSettings, "http://127.0.0.1:1/v1")
 	activateSettings.Shell.PostprocessingMode = config.ShellPostprocessingModeBuiltin
-	err = runtimeService.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, forkID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: activateSettings,
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                config.SourceReport{}},
+	descriptor, err := session.NewOpenSessionDescriptor(forkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runtimeService.ActivateSessionRuntime(context.Background(), launch.SessionPlan{
+		Descriptor: descriptor, ActiveSettings: activateSettings,
+		QuestionsEnabled: true, AutoCompactionEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("ActivateSessionRuntime: %v", err)

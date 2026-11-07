@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/net/websocket"
 
+	"core/internal/testharness/chatfixture"
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
@@ -48,7 +49,6 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
-	"core/shared/textutil"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -508,20 +508,8 @@ func newGatewayTestAuthSupport(t *testing.T, root string, ready bool) serverboot
 
 func activateGatewayController(t *testing.T, appCore *core.Core, sessionID string) {
 	t.Helper()
-	settings := appCore.Config().Settings
-	if strings.TrimSpace(settings.Model) == "" {
-		settings.Model = "gpt-6-sol"
-	}
-	settings = testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, settings)
-	err := appCore.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, strings.TrimSpace(sessionID)), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                appCore.Config().Source},
-	})
-	if err != nil {
-		t.Fatalf("ActivateSessionRuntime: %v", err)
-	}
+	testsetup.WriteProviderSettings(t, appCore.Config().PersistenceRoot, appCore.Config().Settings)
+	chatfixture.OpenRuntime(t, appCore.ChatMutationClient(), appCore.SessionTranscriptClient(), sessionID)
 }
 
 func waitForGatewayCondition(t *testing.T, label string, condition func() bool) {

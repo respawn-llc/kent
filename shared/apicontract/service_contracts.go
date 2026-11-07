@@ -198,10 +198,6 @@ type SessionLifecycleService interface {
 	DeleteSession(ctx context.Context, req *sessionlaunchpb.SessionDeleteRequest) (*sessionlaunchpb.SessionDeleteSuccess, error)
 }
 
-type SessionRuntimeService interface {
-	ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) error
-}
-
 type SessionViewService interface {
 	GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error)
 	GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error)

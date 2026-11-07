@@ -21,7 +21,6 @@ import (
 	"core/server/launch"
 	"core/server/runprompt"
 	"core/server/sessionlaunch"
-	"core/server/sessionruntime"
 	"core/server/sessionstore"
 	"core/shared/apicontract"
 	"core/shared/config"
@@ -284,11 +283,8 @@ func TestRunThinkingPreparedActivationUsesPersistedSelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if activation.ThinkingOverrideExplicit || activation.AgentSelection != nil ||
+	activation := planned.Plan
+	if activation.ThinkingOverrideExplicit || activation.ActivationAgentSelection != nil ||
 		activation.ActiveSettings.ThinkingLevel != "high" || activation.ActiveSettings.Model != "gpt-5.6-sol" {
 		t.Fatalf("activation did not consume saved selection: %+v", activation)
 	}
@@ -322,19 +318,23 @@ func testChatActionInvocationSelection(t *testing.T, alreadyLoaded bool) {
 		t.Fatal(err)
 	}
 	if alreadyLoaded {
-		planned, err := service.PlanLaunchSession(t.Context(), sessionlaunch.PlanRequest{
-			Mode: launch.ModeInteractive, Intent: serverapi.OpenExistingSessionLaunchIntent(id),
-			Overrides: serverapi.RunPromptOverrides{AgentRole: textutil.Value("worker"), ThinkingLevel: "low", Tools: "patch"},
+		invocation, err := protoapi.RunPromptOverridesToProto(serverapi.RunPromptOverrides{
+			AgentRole: textutil.Value("worker"), ThinkingLevel: "low", Tools: "patch",
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		activation, err := sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
-		if err != nil {
-			t.Fatal(err)
+		target := chatCommandTarget(id.String())
+		target.GetSession().Invocation = invocation
+		result, err := app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+			QueueItemId: runtimeids.NewQueueItemID().String(), Target: target,
+			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "load initial choices"}},
+		})
+		if err != nil || result.GetAccepted() == nil {
+			t.Fatalf("initial Chat admission: %v, %v", result, err)
 		}
-		if err := app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), activation); err != nil {
-			t.Fatal(err)
+		if request := <-requests; request.Model != "gpt-5-mini" || request.Reasoning.Effort != "low" {
+			t.Fatalf("Chat ignored initial selection: %+v", request)
 		}
 	}
 	overrides := serverapi.RunPromptOverrides{

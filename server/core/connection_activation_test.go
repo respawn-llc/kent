@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"core/internal/testharness/requestfixture"
+	"core/internal/testharness/chatfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	"core/server/llm"
@@ -17,8 +17,6 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
-	"core/shared/serverapi"
-	"core/shared/textutil"
 )
 
 func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
@@ -42,13 +40,7 @@ func TestConnectionReplacementIsHydratedAfterCoreActivation(t *testing.T) {
 	if err := store.SetConnectionID("removed"); err != nil {
 		t.Fatal(err)
 	}
-	err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
-			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(true)},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	chatfixture.OpenRuntime(t, app.ChatMutationClient(), app.SessionTranscriptClient(), store.Meta().SessionID)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	subscription, err := app.SessionTranscriptClient().SubscribeSessionTranscript(ctx, &transcriptpb.SubscribeRequest{SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: store.Meta().SessionID}}})
