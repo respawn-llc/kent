@@ -546,6 +546,7 @@ func TestWorkflowMoveFromDoneRetainsFailedCandidateWithoutAdoption(t *testing.T)
 func TestWorkflowMoveClientCancellationDoesNotCancelReplacementSetup(t *testing.T) {
 	f := newTaskRecoveryFixture(t)
 	f.makeOriginalUnavailable(t)
+	logs := testsetup.CaptureSlogRecords(t)
 	attempts := filepath.Join(t.TempDir(), "attempts")
 	release := filepath.Join(t.TempDir(), "release")
 	f.setup(t, fmt.Sprintf("printf x >> %q\nwhile [ ! -f %q ]; do sleep 0.01; done\nexit 1\n", attempts, release))
@@ -564,19 +565,27 @@ func TestWorkflowMoveClientCancellationDoesNotCancelReplacementSetup(t *testing.
 		return err == nil && len(data) == 1
 	}, "replacement setup did not start")
 	cancel()
+	select {
+	case outcome := <-result:
+		if !errors.Is(outcome.Err, context.Canceled) || outcome.Value != nil {
+			t.Fatalf("canceled Move observer = %+v, %v", outcome.Value, outcome.Err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("canceled Move observer did not detach from accepted setup")
+	}
 	if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case outcome := <-result:
-		var retained *worktreecontract.SetupRetainedError
-		if !errors.As(outcome.Err, &retained) || outcome.Value.GetApplied() != nil ||
-			retained.Details.RecoveryDisposition != worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
-			t.Fatalf("accepted Move lost its setup outcome after client cancellation: %+v, %v", outcome.Value, outcome.Err)
+	testsetup.RequireUntil(t, time.Now().Add(10*time.Second), 10*time.Millisecond, func() bool {
+		for _, record := range logs.Records() {
+			diagnostic, ok := record.Fields["error"].(error)
+			var retained *worktreecontract.SetupRetainedError
+			if ok && errors.As(diagnostic, &retained) {
+				return retained.Details.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
+			}
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("accepted Move did not finish")
-	}
+		return false
+	}, "accepted setup failure did not retain its diagnostic after observer cancellation")
 	if target := f.assertEvidence(t); target.Task.ManagedWorktreeID == nil || *target.Task.ManagedWorktreeID != f.original.ID {
 		t.Fatal("failed candidate was adopted after client cancellation")
 	}
