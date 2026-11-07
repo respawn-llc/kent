@@ -1,8 +1,12 @@
 import { expect, it } from "bun:test";
-import { create, ValidationError } from "@app/server-api-contract";
+import { toBinary } from "@bufbuild/protobuf";
+import { create, operationName } from "@app/server-api-contract";
+import { ResultSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import * as wf from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 import { ApiClient } from "./client";
+import { completeDescriptorResponse } from "./descriptorRpc";
+import { ContractError } from "./errors";
 
 const workflowID = "11111111-1111-4111-8111-111111111111";
 
@@ -50,15 +54,24 @@ it("preserves validation codes, messages, and issue order", async () => {
 
 it.each([wf.ValidationErrorCode.UNSPECIFIED, 999999])(
   "rejects malformed validation code %s",
-  async (code: number) => {
+  (code: number) => {
     const error = create(wf.WorkflowValidationErrorSchema, {
       code,
       message: "server diagnostic",
       workflowId: workflowID,
     });
-    const result = await clientWithErrors([error])
-      .validateWorkflow(workflowID, "execution")
-      .catch((failure: unknown) => failure);
-    expect(result).toBeInstanceOf(ValidationError);
+    const descriptor = wf.WorkflowDefinitionService.method.validate;
+    const response = create(descriptor.output, {
+      outcome: { case: "success", value: { valid: false, errors: [error] } },
+    });
+    // Serialize without output validation so rejection occurs on incoming bytes.
+    const payload = toBinary(descriptor.output, response);
+    expect(() =>
+      completeDescriptorResponse(descriptor, "validation-response", {
+        kind: "result",
+        correlation: "validation-response",
+        result: create(ResultSchema, { operation: operationName(descriptor), payload }),
+      }),
+    ).toThrow(ContractError);
   },
 );
