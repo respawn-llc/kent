@@ -191,9 +191,8 @@ func (s *API) interactiveRuntimePlan(ctx context.Context, req launch.SessionPlan
 			req.ActiveSettings.Model,
 		),
 		fmt.Sprintf(
-			"config.settings files=%+v created=%t",
+			"config.settings files=%+v",
 			req.Source.Files,
-			req.Source.CreatedDefaultConfig,
 		),
 	}
 	for _, line := range runlog.FormatConfigSourceLines(req.Source.Sources) {

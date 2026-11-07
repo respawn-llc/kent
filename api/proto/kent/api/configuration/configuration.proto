@@ -314,7 +314,6 @@ message Settings {
 }
 
 message SourceReport {
-  bool created_default_config = 3;
   repeated SourceFact sources = 10;
   repeated ConfigFileReport files = 11;
   option (buf.validate.message).cel = {
