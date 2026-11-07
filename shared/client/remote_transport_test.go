@@ -312,8 +312,6 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 					Outcome: &serverpb.GetReadinessResult_Success{Success: &serverpb.GetReadinessSuccess{
 						Readiness: &serverpb.Readiness{
 							Ready:           true,
-							ServerId:        "server-1",
-							ServerVersion:   "test",
 							ProtocolVersion: protocol.Version,
 						},
 					}},
@@ -389,8 +387,8 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 	if err := remote.callBinary(context.Background(), method, &emptypb.Empty{}, readiness); err != nil {
 		t.Fatalf("binary GetReadiness: %v", err)
 	}
-	if readiness.GetSuccess().GetReadiness().GetServerId() != "server-1" {
-		t.Fatalf("readiness = %+v, want server-1", readiness)
+	if !readiness.GetSuccess().GetReadiness().GetReady() {
+		t.Fatalf("readiness = %+v, want ready", readiness)
 	}
 	if got := connectionCount.Load(); got != 1 {
 		t.Fatalf("connectionCount = %d, want 1", got)

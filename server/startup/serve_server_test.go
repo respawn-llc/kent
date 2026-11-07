@@ -883,11 +883,8 @@ model = "blocked-model"
 	if !readiness.Ready {
 		t.Fatalf("working server is not ready: %+v", readiness)
 	}
-	if readiness.ServerId == "" || readiness.ProtocolVersion != protocol.Version || readiness.ServerVersion == "" {
-		t.Fatalf("missing readiness identity fields: %+v", readiness)
-	}
-	if readiness.Endpoint == "" {
-		t.Fatalf("expected endpoint in readiness response: %+v", readiness)
+	if readiness.ProtocolVersion != protocol.Version {
+		t.Fatalf("readiness protocol = %q, want %q", readiness.ProtocolVersion, protocol.Version)
 	}
 	if len(readiness.Causes) != 0 {
 		t.Fatalf("unexpected provider-based readiness causes: %+v", readiness.Causes)

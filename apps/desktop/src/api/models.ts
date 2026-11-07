@@ -51,10 +51,7 @@ export type SubagentRoleSummary = Readonly<{
 export type ServerReadiness = Readonly<{
   globalConfigPath: string | null;
   ready: boolean;
-  serverID: string;
-  serverVersion: string;
   protocolVersion: string;
-  endpoint: string;
   subagentRoles: readonly SubagentRoleSummary[];
   causes: readonly ServerCause[];
 }>;

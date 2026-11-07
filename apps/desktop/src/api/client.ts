@@ -427,10 +427,7 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
   return {
     globalConfigPath: readiness.globalConfigPath ?? null,
     ready: readiness.ready,
-    serverID: readiness.serverId,
-    serverVersion: readiness.serverVersion,
     protocolVersion: readiness.protocolVersion,
-    endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({
       code: cause.code,

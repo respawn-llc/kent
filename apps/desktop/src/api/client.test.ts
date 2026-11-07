@@ -78,10 +78,7 @@ describe("ApiClient", () => {
             value: {
               readiness: {
                 ready: false,
-                serverId: "server-1",
-                serverVersion: "1.3.0",
                 protocolVersion,
-                endpoint: "ws://127.0.0.1:53082/rpc",
                 subagentRoles: [{ name: "default" }, { name: "coder" }],
                 causes: [{ code: "unauthenticated", severity: ReadinessSeverity.ERROR }],
               },
@@ -95,8 +92,6 @@ describe("ApiClient", () => {
     const readiness = await client.getReadiness();
     expect(readiness).toMatchObject({
       ready: false,
-      serverID: "server-1",
-      serverVersion: "1.3.0",
       protocolVersion: protocolVersion,
       subagentRoles: [{ name: "default" }, { name: "coder" }],
       causes: [{ code: "unauthenticated", severity: "error" }],

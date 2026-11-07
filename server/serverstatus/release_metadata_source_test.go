@@ -155,7 +155,7 @@ func TestUpdateStatusServiceComparesGitHubReleaseVersions(t *testing.T) {
 			if test.available {
 				versions = result.GetAvailable()
 			}
-			if versions == nil || versions.CurrentVersion != "1.9.0" || versions.LatestVersion != strings.TrimPrefix(test.tag, "v") {
+			if versions == nil || versions.LatestVersion != strings.TrimPrefix(test.tag, "v") {
 				t.Fatalf("result = %v, want available=%v with release %s", result, test.available, test.tag)
 			}
 		})

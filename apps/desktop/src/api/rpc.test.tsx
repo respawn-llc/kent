@@ -185,7 +185,7 @@ describe("RpcWebSocketTransport", () => {
     await socket.setup();
     binaryAck(socket, 1, ServerService.method.getReadiness, { result: readinessResult() });
     expect(readiness).resolves.toMatchObject({
-      outcome: { case: "success", value: { readiness: { serverId: "server-1" } } },
+      outcome: { case: "success", value: { readiness: { ready: true } } },
     });
 
     const concurrentReadiness = callReadiness(transport);
@@ -1090,10 +1090,7 @@ function readinessResult() {
       value: {
         readiness: {
           ready: true,
-          serverId: "server-1",
-          serverVersion: "test",
           protocolVersion: "126",
-          endpoint: "ws://127.0.0.1:53082/rpc",
         },
       },
     },
