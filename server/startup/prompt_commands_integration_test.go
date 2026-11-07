@@ -35,10 +35,7 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	configureServeTestServerPort(t)
 	workspaceA := t.TempDir()
 	workspaceB := t.TempDir()
-	cfg, err := config.Load(workspaceA, workspaceA, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspaceA})
 	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
 	binding, err := store.RegisterWorkspaceBinding(t.Context(), workspaceA)
 	if err != nil {
@@ -97,22 +94,24 @@ func TestRemotePromptCommandStartupCatalogAndInvocationUseImportedServerContent(
 	}
 
 	testsetup.WriteProviderSettings(t, cfg.PersistenceRoot, testsetup.WithResponsesProvider(cfg.Settings, responseServer.URL()))
-	server := newMemoryServeTestServer(t, Request{
+	request := Request{
 		WorkspaceRoot:         workspaceA,
 		WorkspaceRootExplicit: true,
 		LoadOptions: config.LoadOptions{
 			Model: "gpt-6-sol",
 		},
-	}, store)
-	connection, err := server.Config().Settings.SelectedConnection()
+	}
+	cfg = loadServeTestConfig(t, request)
+	server := newMemoryServeTestServer(t, request, store)
+	connection, err := cfg.Settings.SelectedConnection()
 	if err != nil || connection.Endpoint == nil || *connection.Endpoint != responseServer.URL() {
 		t.Fatalf("selected connection = %+v, error = %v", connection, err)
 	}
-	startServingTestServer(t, server)
+	startServingTestServer(t, server, cfg)
 
 	var remote *client.Remote
 	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), 10*time.Millisecond, func() bool {
-		remote, err = client.DialRemoteURLForProjectWorkspace(context.Background(), config.ServerRPCURL(server.Config()), binding.ProjectID, workspaceB)
+		remote, err = client.DialRemoteURLForProjectWorkspace(context.Background(), config.ServerRPCURL(cfg), binding.ProjectID, workspaceB)
 		return err == nil
 	}, "DialRemoteURLForProjectWorkspace")
 	defer func() { _ = remote.Close() }()

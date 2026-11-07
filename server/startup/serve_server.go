@@ -41,19 +41,6 @@ type ServeServer struct {
 	cfg  config.App
 }
 
-func (s *ServeServer) Config() config.App {
-	if s == nil {
-		return config.App{}
-	}
-	if s.Core != nil {
-		return s.Core.Config()
-	}
-	if s.deps != nil {
-		return s.deps.snapshotConfig()
-	}
-	return s.cfg
-}
-
 var localSocketListener = listenLocalSocket
 
 func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {

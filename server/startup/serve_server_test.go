@@ -50,13 +50,26 @@ func releaseServeTestPortForConfig(cfg config.App) {
 	testsetup.ReleaseLoopbackPort(cfg.Settings.ServerHost, cfg.Settings.ServerPort)
 }
 
-func registerServeWorkspace(t *testing.T, workspace string) {
+func loadServeTestConfig(t *testing.T, request Request) config.App {
 	t.Helper()
-	configureServeTestServerPort(t)
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
+	if request.WorkspaceRoot == "" {
+		cfg, err := config.LoadGlobal(request.LoadOptions)
+		if err != nil {
+			t.Fatalf("config.LoadGlobal: %v", err)
+		}
+		return cfg
+	}
+	cfg, err := config.Load(request.WorkspaceRoot, request.WorkspaceRoot, request.LoadOptions)
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
+	return cfg
+}
+
+func registerServeWorkspace(t *testing.T, workspace string) {
+	t.Helper()
+	configureServeTestServerPort(t)
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
 	settingsPath := cfg.Source.File(config.FileGlobal).Path
 	if _, statErr := os.Stat(settingsPath); errors.Is(statErr, os.ErrNotExist) {
 		if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(settingsPath, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
@@ -156,7 +169,8 @@ func TestConfiguredServerRetainsExclusiveRootOwnership(t *testing.T) {
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
 	first := startServeTestServer(t, request)
 
-	competing, err := corepkg.AcquireRootLock(first.Config().PersistenceRoot)
+	cfg := loadServeTestConfig(t, request)
+	competing, err := corepkg.AcquireRootLock(cfg.PersistenceRoot)
 	if competing != nil {
 		_ = competing.Close()
 	}
@@ -181,7 +195,8 @@ func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
 				t.Fatal(err)
 			}
 			server := startServeTestServer(t, Request{})
-			connection, err := server.Config().Settings.SelectedConnection()
+			cfg := loadServeTestConfig(t, Request{})
+			connection, err := cfg.Settings.SelectedConnection()
 			if err != nil || connection.Protocol != config.ConnectionChatGPT {
 				t.Fatalf("converted subscription = %+v, %v", connection, err)
 			}
@@ -189,7 +204,7 @@ func TestStartupConvertsOldSubscriptionAndRequiresSignIn(t *testing.T) {
 			if err != nil || len(state.Connections) != 0 {
 				t.Fatalf("old token survived cutover: %+v, %v", state, err)
 			}
-			id, err := server.Config().Settings.Connection.ConcreteID()
+			id, err := cfg.Settings.Connection.ConcreteID()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,10 +242,7 @@ func TestProviderConversionFailureRetainsSelection(t *testing.T) {
 func TestStartupOffersSetupAfterSettingsRemoved(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	cfg := loadServeTestConfig(t, request)
 	if err := os.Remove(cfg.Source.File(config.FileGlobal).Path); err != nil {
 		t.Fatalf("remove settings: %v", err)
 	}
@@ -240,12 +252,12 @@ func TestStartupOffersSetupAfterSettingsRemoved(t *testing.T) {
 	}
 }
 
-func startServingTestServer(t *testing.T, server *ServeServer) {
+func startServingTestServer(t *testing.T, server *ServeServer, cfg config.App) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		releaseServeTestPortForConfig(server.Config())
+		releaseServeTestPortForConfig(cfg)
 		errCh <- server.Serve(ctx)
 	}()
 	t.Cleanup(func() {
@@ -298,16 +310,17 @@ func TestServeWaitsForContextCancellation(t *testing.T) {
 func TestServeShutdownDisconnectsEstablishedClients(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	served := make(chan error, 1)
 	go func() {
-		releaseServeTestPortForConfig(server.Config())
+		releaseServeTestPortForConfig(cfg)
 		served <- server.Serve(ctx)
 	}()
-	response := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
+	response := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(cfg)+protocol.HealthPath)
 	_ = response.Body.Close()
-	remote, err := client.DialRemoteURL(t.Context(), config.ServerRPCURL(server.Config()))
+	remote, err := client.DialRemoteURL(t.Context(), config.ServerRPCURL(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,10 +348,7 @@ func TestServeShutdownDisconnectsEstablishedClients(t *testing.T) {
 func TestAdmittedCurrentNodeSurvivesCoreReopen(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	request := Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}
-	cfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := loadServeTestConfig(t, request)
 	open := testsetup.StoreOpener(t, cfg.PersistenceRoot)
 	server := newMemoryServeTestServer(t, request, open())
 	taskID, currentNode := createAdmittedCurrentNodeForRecovery(t, server)
@@ -462,9 +472,9 @@ func TestServeRequiresContext(t *testing.T) {
 func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	startServingTestServer(t, server)
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
+	startServingTestServer(t, server, cfg)
 
-	cfg := server.Config()
 	healthResp := requireServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(cfg)+protocol.HealthPath, http.StatusOK)
 	defer func() { _ = healthResp.Body.Close() }()
 	readyResp := requireServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(cfg)+protocol.ReadinessPath, http.StatusOK)
@@ -475,9 +485,10 @@ func TestServeExposesConfiguredHealthEndpoints(t *testing.T) {
 func TestServerMuxStreamsViewedImageOriginal(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
 	metadataStore := server.MetadataStore()
 	imageSession, err := session.Create(
-		filepath.Join(server.Config().PersistenceRoot, "projects", server.ProjectID(), "sessions"),
+		filepath.Join(cfg.PersistenceRoot, "projects", server.ProjectID(), "sessions"),
 		filepath.Base(workspace),
 		workspace,
 		sessioncontract.SessionCategoryMain,
@@ -504,11 +515,11 @@ func TestServerMuxStreamsViewedImageOriginal(t *testing.T) {
 		t.Fatalf("close large original: %v", err)
 	}
 
-	gateway, err := transport.NewGateway(server.Core, newServerIdentity(server.Config()))
+	gateway, err := transport.NewGateway(server.Core, newServerIdentity(cfg))
 	if err != nil {
 		t.Fatalf("create Gateway: %v", err)
 	}
-	imageServer := httptest.NewServer(buildServerMux(server.Core, newServerIdentity(server.Config()), gateway))
+	imageServer := httptest.NewServer(buildServerMux(server.Core, newServerIdentity(cfg), gateway))
 	t.Cleanup(imageServer.Close)
 
 	unrelatedResponse, err := http.Get(imageServer.URL + "/unrelated")
@@ -629,7 +640,7 @@ func (s *zeroOnlySink) Write(data []byte) (int, error) {
 func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	cfg := server.Config()
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
 	socketPath, ok, err := config.ServerLocalRPCSocketPath(cfg.PersistenceRoot)
 	if err != nil {
 		t.Fatalf("ServerLocalRPCSocketPath: %v", err)
@@ -648,7 +659,7 @@ func TestServeExposesDerivedLocalUnixSocketAndCleansStalePath(t *testing.T) {
 		t.Fatalf("close stale unix socket: %v", err)
 	}
 
-	startServingTestServer(t, server)
+	startServingTestServer(t, server, cfg)
 
 	deadline := time.Now().Add(5 * time.Second)
 	var socketErr error
@@ -695,9 +706,8 @@ func TestServeDegradesToTCPWhenDerivedLocalSocketFails(t *testing.T) {
 	t.Cleanup(func() { localSocketListener = originalLocalSocketListener })
 
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	startServingTestServer(t, server)
-
-	cfg := server.Config()
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
+	startServingTestServer(t, server, cfg)
 	healthURL := config.ServerHTTPBaseURL(cfg) + protocol.HealthPath
 	_ = requireServeResponse(t, http.DefaultClient, healthURL, http.StatusOK).Body.Close()
 
@@ -718,9 +728,8 @@ protocol = "chatgpt-codex"
 	server := startServeTestServer(t,
 		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 
-	startServingTestServer(t, server)
-
-	cfg := server.Config()
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
+	startServingTestServer(t, server, cfg)
 	healthURL := config.ServerHTTPBaseURL(cfg) + protocol.HealthPath
 	readyURL := config.ServerHTTPBaseURL(cfg) + protocol.ReadinessPath
 	healthResp := requireServeResponse(t, http.DefaultClient, healthURL, http.StatusOK)
@@ -756,9 +765,10 @@ endpoint = "http://127.0.0.1:11434/v1"
 	server := startServeTestServer(t,
 		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 
-	startServingTestServer(t, server)
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
+	startServingTestServer(t, server, cfg)
 
-	readyURL := config.ServerHTTPBaseURL(server.Config()) + protocol.ReadinessPath
+	readyURL := config.ServerHTTPBaseURL(cfg) + protocol.ReadinessPath
 	client := &http.Client{Timeout: time.Second}
 	resp := requireServeResponse(t, client, readyURL, http.StatusOK)
 	defer func() { _ = resp.Body.Close() }()
@@ -781,10 +791,11 @@ func TestMissingConfigServeStartsBootstrapSurfaceBeforeAuthReady(t *testing.T) {
 	if server.Core != nil || server.deps == nil {
 		t.Fatal("expected missing-config serve startup surface without configured core")
 	}
-	startServingTestServer(t, server)
-	healthResp := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(server.Config())+protocol.HealthPath)
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
+	startServingTestServer(t, server, cfg)
+	healthResp := waitForServeResponse(t, http.DefaultClient, config.ServerHTTPBaseURL(cfg)+protocol.HealthPath)
 	_ = healthResp.Body.Close()
-	remote, err := client.DialConfiguredRemote(context.Background(), server.Config().Connection())
+	remote, err := client.DialConfiguredRemote(context.Background(), cfg.Connection())
 	if err != nil {
 		t.Fatalf("DialConfiguredRemote: %v", err)
 	}
@@ -824,10 +835,7 @@ func TestStartupUsesConfigThatAppearsBeforeRootLock(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("HOME", home)
 	configureServeTestServerPort(t)
-	loadCfg, err := config.Load(workspace, workspace, config.LoadOptions{})
-	if err != nil {
-		t.Fatalf("config.Load: %v", err)
-	}
+	loadCfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
 	if _, err := config.WriteSettingsFileForOnboardingWithOptionsAt(loadCfg.Source.File(config.FileGlobal).Path, config.DefaultOnboardingSettings(), config.OnboardingWriteOptions{}); err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
@@ -862,9 +870,8 @@ model = "blocked-model"
 	server := startServeTestServer(t,
 		Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
 
-	startServingTestServer(t, server)
-
-	cfg := server.Config()
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
+	startServingTestServer(t, server, cfg)
 	healthURL := config.ServerHTTPBaseURL(cfg) + protocol.HealthPath
 	healthResp := waitForServeResponse(t, http.DefaultClient, healthURL)
 	_ = healthResp.Body.Close()
@@ -1001,7 +1008,7 @@ func assertReadinessRoles(t *testing.T, roles []*serverpb.SubagentRoleSummary, w
 func TestServeFailsWhenConfiguredPortIsOccupied(t *testing.T) {
 	workspace := newServeWorkspace(t)
 	server := startServeTestServer(t, Request{WorkspaceRoot: workspace, WorkspaceRootExplicit: true})
-	cfg := server.Config()
+	cfg := loadServeTestConfig(t, Request{WorkspaceRoot: workspace})
 	releaseServeTestPortForConfig(cfg)
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Settings.ServerHost, strconv.Itoa(cfg.Settings.ServerPort)))
 	if err != nil {
