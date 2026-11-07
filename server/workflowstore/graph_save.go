@@ -488,7 +488,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 			trimmed := strings.TrimSpace(*node.GroupID)
 			node.GroupID = &trimmed
 		}
-		node.GroupKey = strings.TrimSpace(node.GroupKey)
 		node.CompletionMode = nodeCompletionMode(node)
 		prepared.nodes[i] = node
 	}

@@ -140,7 +140,6 @@ type NodeRecord struct {
 	Kind               workflow.NodeKind
 	DisplayName        string
 	GroupID            *string
-	GroupKey           string
 	SubagentRole       string
 	CompletionMode     string
 	ScriptPath         string

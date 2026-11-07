@@ -126,7 +126,6 @@ func setWorkflowGraphSaveNodeGroup(nodes []NodeRecord, nodeID workflow.NodeID, g
 		if node.ID == nodeID {
 			if groupID == "" {
 				node.GroupID = nil
-				node.GroupKey = ""
 			} else {
 				node.GroupID = &groupID
 			}
