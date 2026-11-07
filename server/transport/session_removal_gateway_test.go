@@ -14,6 +14,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/core"
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
 	"core/server/sessionstore"
@@ -199,7 +200,9 @@ func newSessionRemovalGatewayFixture(t *testing.T) sessionRemovalGatewayFixture 
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	service := sessionservice.NewGlobalSessionLifecycleService(persistenceRoot, authority, deleteGate)
+	operations := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = operations.Close() })
+	service := sessionservice.NewGlobalSessionLifecycleService(persistenceRoot, authority, deleteGate, operations)
 	return sessionRemovalGatewayFixture{remote: newSessionRemovalGatewayRemote(t, service), authority: authority, metadata: metadataStore, session: persisted, deleteGate: deleteGate}
 }
 

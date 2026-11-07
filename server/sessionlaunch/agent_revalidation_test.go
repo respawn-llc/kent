@@ -15,6 +15,7 @@ import (
 	"core/server/agentruntime"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/registry"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
@@ -31,7 +32,9 @@ import (
 func TestChatSettingsRefreshOnlyWhenAppliedToLiveRuntime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg, service, db, id := agentReplacementFixture(t)
-		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, db)
+		operations := operation.NewOperationOwner()
+		t.Cleanup(func() { _ = operations.Close() })
+		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, db, operations)
 		saveDraft := func() {
 			t.Helper()
 			if _, err := lifecycle.PersistInputDraft(t.Context(), &sessionlaunchpb.SessionPersistInputDraftRequest{
