@@ -17,8 +17,6 @@ import (
 	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/sessionstore"
-	projectpb "core/shared/protoapi/gen/kent/api/project"
-	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
@@ -265,33 +263,6 @@ func lifecycleSessionID(t *testing.T, fixture sessionRuntimeFixture) runtimeids.
 	return sessionID
 }
 
-func lifecycleWorktreeTarget(workspaceRoot, worktreeRoot string) *worktreepb.SessionExecutionTarget {
-	return &worktreepb.SessionExecutionTarget{
-		WorkspaceId:           textutil.Value("workspace-1"),
-		WorkspaceRoot:         workspaceRoot,
-		WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
-		Worktree: &worktreepb.SessionExecutionWorktreeTarget{
-			Id:           "worktree-1",
-			Root:         worktreeRoot,
-			Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
-		},
-		CwdRelpath:       ".",
-		EffectiveWorkdir: worktreeRoot,
-	}
-}
-
-func lifecycleReminder(workspaceRoot, worktreeRoot string) *session.WorktreeReminderState {
-	return &session.WorktreeReminderState{
-		Mode: session.WorktreeReminderModeEnter,
-		WorktreeContext: session.WorktreeContext{
-			Branch:        session.OptionalWorktreeBranch("feature/lifecycle"),
-			WorktreePath:  worktreeRoot,
-			WorkspaceRoot: workspaceRoot,
-			EffectiveCwd:  worktreeRoot,
-		},
-	}
-}
-
 func openLifecycleRuntime(t *testing.T, authority *Authority, sessionID runtimeids.SessionID, plan *AgentRuntimePlan) runtimeids.SessionResourceRef {
 	t.Helper()
 	attachment, err := authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
@@ -303,11 +274,6 @@ func openLifecycleRuntime(t *testing.T, authority *Authority, sessionID runtimei
 		t.Fatalf("open runtime: %v", err)
 	}
 	return attachment
-}
-
-type lifecycleReminderQueueObserver struct {
-	queue func()
-	once  sync.Once
 }
 
 type lifecycleStepProbe struct {
@@ -331,13 +297,6 @@ func (p *lifecycleStepProbe) StepEnded(
 ) error {
 	p.ended <- snapshot
 	return nil
-}
-
-func (o *lifecycleReminderQueueObserver) ObservePersistedStore(_ context.Context, snapshot session.PersistedStoreSnapshot) (session.CommitReceipt, error) {
-	if snapshot.Meta.WorktreeReminder != nil {
-		o.once.Do(o.queue)
-	}
-	return session.CommitReceipt{Committed: true}, nil
 }
 
 type lifecycleRequestCaptureClient chan llm.Request
