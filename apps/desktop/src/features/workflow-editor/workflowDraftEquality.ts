@@ -45,7 +45,6 @@ function workflowNodeMetadataValues(node: WorkflowNode): readonly (string | null
     node.kind,
     node.name,
     node.groupID,
-    node.groupKey,
     node.subagentRole,
     node.completionMode ?? "",
     node.scriptPath ?? "",

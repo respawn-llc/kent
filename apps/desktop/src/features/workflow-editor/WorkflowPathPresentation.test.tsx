@@ -16,7 +16,6 @@ it("collapses a read-only Script path without changing its canonical value", () 
     kind: "script",
     name: "Script",
     groupID: null,
-    groupKey: "",
     subagentRole: "",
     joinInputProviders: [],
     scriptPath: "/Users/engineer/project/build.sh",

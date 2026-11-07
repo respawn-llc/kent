@@ -250,7 +250,6 @@ export function withJoinProvider(
 function workflowNode(id: string, key: string, kind: WorkflowNode["kind"], name: string) {
   return {
     groupID: null,
-    groupKey: "",
     id,
     joinInputProviders: [],
     key,

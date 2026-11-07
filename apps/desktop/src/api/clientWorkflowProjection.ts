@@ -58,7 +58,6 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
       key: group.groupKey,
       name: group.displayName ?? null,
       sortOrder: group.sortOrder,
-      nodeIDs: [],
     })),
     nodes: value.nodes.map((node) => ({
       id: node.id,
@@ -67,7 +66,6 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
       kind: workflowNodeKind.decode(node.kind),
       name: node.displayName,
       groupID: node.groupId ?? null,
-      groupKey: node.groupKey,
       subagentRole: node.subagentRole ?? "",
       completionMode:
         node.completionMode === undefined ? "" : workflowCompletionMode.decode(node.completionMode),

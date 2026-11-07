@@ -350,7 +350,7 @@ describe("ApiClient", () => {
         ],
       },
       workflow: { id: "11111111-1111-4111-8111-111111111111", name: "Delivery", version: 9 },
-      nodeGroups: [{ id: boundaryGraphIDs.nodeGroup, key: "core", name: "Core", nodeIDs: [] }],
+      nodeGroups: [{ id: boundaryGraphIDs.nodeGroup, key: "core", name: "Core" }],
       transitionGroups: [
         {
           description: "Choose this when implementation is complete.",

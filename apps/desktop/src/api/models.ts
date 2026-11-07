@@ -263,7 +263,6 @@ export type WorkflowNodeGroup = Readonly<{
   key: string;
   name: string | null;
   sortOrder: number;
-  nodeIDs: readonly string[];
 }>;
 
 export const workflowNodeKinds = ["agent", "join", "script", "start", "terminal"] as const;
@@ -276,7 +275,6 @@ export type WorkflowNode = Readonly<{
   kind: string;
   name: string;
   groupID: string | null;
-  groupKey: string;
   subagentRole: string;
   completionMode?: string | undefined;
   scriptPath?: string | null | undefined;
