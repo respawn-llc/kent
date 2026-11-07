@@ -27,10 +27,6 @@ type Collector struct {
 }
 
 func (c Collector) CollectBase(req Request) Snapshot {
-	collectedAt := req.CurrentTime
-	if collectedAt.IsZero() {
-		collectedAt = time.Now()
-	}
 	target := ExecutionTarget(req)
 	workdir := Workdir(req.WorkspaceRoot, target)
 	contextInfo := ContextInfo{
@@ -61,7 +57,6 @@ func (c Collector) CollectBase(req Request) Snapshot {
 		compactionCount = int(status.CompactionCount)
 	}
 	return Snapshot{
-		CollectedAt:          collectedAt,
 		Workdir:              filepath.ToSlash(strings.TrimSpace(workdir)),
 		SessionName:          req.SessionName,
 		SessionID:            strings.TrimSpace(req.SessionID),
