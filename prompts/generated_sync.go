@@ -32,14 +32,7 @@ const (
 	readmeFileName      = "README.md"
 	timestampFormat     = "2006-01-02T15-04-05Z"
 
-	// Default-layout paths referenced by the user-facing strings below,
-	// assembled from the identity and directory constants at compile time so
-	// they cannot drift from the real on-disk layout (and with no
-	// init-time/runtime cost). Callers that know the active persistence root
-	// render the equivalent strings from the resolved paths instead.
-	generatedRootDir = brand.PersistenceRoot + "/" + generatedDirName
-	recoveredDir     = brand.PersistenceRoot + "/" + recoveredDirName
-	workspaceSkills  = "<workspace>/" + brand.ConfigDirName + "/" + generatedSkillsDir
+	workspaceSkills = "<workspace>/" + brand.ConfigDirName + "/" + generatedSkillsDir
 )
 
 // generatedReadme renders the generated-root README for a concrete on-disk
@@ -166,41 +159,6 @@ func GeneratedSync(ctx context.Context, opts GeneratedSyncOptions) (GeneratedSyn
 	return result, nil
 }
 
-func GeneratedRoot() (string, error) {
-	layout, err := GeneratedLayoutFor("")
-	if err != nil {
-		return "", err
-	}
-	return layout.GeneratedRoot, nil
-}
-
-func GeneratedSkillsRoot() (string, error) {
-	layout, err := GeneratedLayoutFor("")
-	if err != nil {
-		return "", err
-	}
-	return layout.GeneratedSkillsRoot, nil
-}
-
-// GeneratedSkillsRootFor resolves the generated skills root under the supplied
-// persistence config root. An empty configRoot falls back to the default
-// (<home>/.kent), matching GeneratedSkillsRoot().
-func GeneratedSkillsRootFor(configRoot string) (string, error) {
-	layout, err := GeneratedLayoutFor(configRoot)
-	if err != nil {
-		return "", err
-	}
-	return layout.GeneratedSkillsRoot, nil
-}
-
-func RecoveryRoot() (string, error) {
-	layout, err := GeneratedLayoutFor("")
-	if err != nil {
-		return "", err
-	}
-	return layout.RecoveryRoot, nil
-}
-
 func GeneratedLayoutFor(configRoot string) (GeneratedLayout, error) {
 	paths, err := resolvePathsForRoot("", configRoot)
 	if err != nil {
@@ -214,17 +172,10 @@ func GeneratedLayoutFor(configRoot string) (GeneratedLayout, error) {
 	}, nil
 }
 
-// RecoveredWarning returns the default-root recovery warning (referring to the
-// <home>/.kent layout). Callers that know the active persistence root should
-// prefer RecoveredWarningFor so the remediation points at the right instance.
-func RecoveredWarning() string {
-	return recoveredWarning(generatedRootDir, recoveredDir)
-}
-
 // RecoveredWarningFor renders the recovery warning for the generated/recovery
 // layout under the supplied persistence config root. An empty configRoot falls
-// back to the default (<home>/.kent), matching RecoveredWarning, so the warning
-// follows the selected root the same way generated sync does.
+// back to the default (<home>/.kent), so the warning follows the selected root
+// the same way generated sync does.
 func RecoveredWarningFor(configRoot string) (string, error) {
 	paths, err := resolvePathsForRoot("", configRoot)
 	if err != nil {
