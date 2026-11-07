@@ -52,7 +52,6 @@ type sessionLaunchPlan struct {
 	ChatSettingsErr            error
 	Invocation                 serverapi.RunPromptOverrides
 	StatusConfig               uiStatusConfig
-	ExecutionTarget            *worktreepb.SessionExecutionTarget
 	Source                     config.SourceReport
 	ClientLifecycleCommand     []string
 	ClientLifecycleOpeningKind lifecyclecontract.OpeningKind
@@ -224,8 +223,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 			Source:          source,
 			AuthStatus:      p.server.AuthStatusClient(),
 		},
-		ExecutionTarget: executionTarget,
-		Source:          source,
+		Source: source,
 	}, nil
 }
 
@@ -240,7 +238,7 @@ func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessio
 	return clientui.NormalizeSessionExecutionTarget(resp.MainView.Session.ExecutionTarget), nil
 }
 
-func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
+func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPlan) (*runtimeLaunchPlan, error) {
 	if p == nil || p.server == nil {
 		return nil, io.ErrClosedPipe
 	}
@@ -248,7 +246,7 @@ func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPl
 	if !ok {
 		return nil, errors.New("runtime attachment server is required")
 	}
-	return prepareSharedRuntime(ctx, runtimeServer, plan, diagnosticWriter, startLogLine)
+	return prepareSharedRuntime(ctx, runtimeServer, plan)
 }
 
 func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPickerNotice) (sessionPickerResult, error) {

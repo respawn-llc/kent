@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 
 	"core/cli/app/commands"
@@ -369,7 +368,7 @@ func prepareSessionObservation(ctx context.Context, server interactiveSessionSer
 	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
 		return nil, err
 	}
-	return planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
+	return planner.PrepareRuntime(ctx, plan)
 }
 
 type uiCommandCatalog struct {

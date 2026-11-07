@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"io"
 	"path/filepath"
 	"testing"
 
@@ -28,7 +27,7 @@ func (s sessionUITestServer) SessionUIClients() sessionUIClients {
 
 func TestSessionUIRequiresTranscriptService(t *testing.T) {
 	server := sessionUITestServer{}
-	_, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1"}, io.Discard, "test")
+	_, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1"})
 	if err == nil {
 		t.Fatal("expected missing transcript service error")
 	}
@@ -44,7 +43,7 @@ func TestSessionUIUsesTranscriptBellHook(t *testing.T) {
 		runtimeControl:    &reconnectRetryRuntimeControlClient{},
 	}
 
-	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1", ActiveSettings: settings}, io.Discard, "test")
+	plan, err := prepareSharedRuntime(context.Background(), server, sessionLaunchPlan{SessionID: "session-1", ActiveSettings: settings})
 	if err != nil {
 		t.Fatalf("prepareSharedRuntime: %v", err)
 	}

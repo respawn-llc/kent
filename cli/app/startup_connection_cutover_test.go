@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -64,7 +63,7 @@ func TestInteractiveConnectionFallbackAndSharedCooldown(t *testing.T) {
 		plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
 			Mode:   launchModeInteractive,
 			Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
-		}, io.Discard, "fallback")
+		})
 		t.Cleanup(func() { closeRuntimeLaunchPlan(t, runtimePlan) })
 		plans = append(plans, plan)
 		runtimes = append(runtimes, runtimePlan)

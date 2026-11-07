@@ -4,7 +4,6 @@ import (
 	"context"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"errors"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -35,7 +34,7 @@ type sessionUIClients struct {
 	Worktrees              apicontract.WorktreeService
 }
 
-func prepareSharedRuntime(ctx context.Context, source sessionUISource, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
+func prepareSharedRuntime(ctx context.Context, source sessionUISource, plan sessionLaunchPlan) (*runtimeLaunchPlan, error) {
 	if source == nil {
 		return nil, errors.New("server is required")
 	}
@@ -43,8 +42,6 @@ func prepareSharedRuntime(ctx context.Context, source sessionUISource, plan sess
 	if clients.SessionTranscript == nil {
 		return nil, errors.New("session transcript service is required")
 	}
-	_ = diagnosticWriter
-	_ = startLogLine
 	wiring, stopTranscriptEvents, err := prepareSharedRuntimeWiring(
 		ctx,
 		clients,
