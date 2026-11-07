@@ -13,7 +13,7 @@ type TaskDetailPagingInput = Readonly<{
 }>;
 export function taskDetailPaging({ activity, comments, detailID, selectedTab }: TaskDetailPagingInput) {
   const data = selectedFeed(selectedTab, comments, activity);
-  const firstOffset = data.data?.pages.at(0)?.offset;
+  const firstOffset = data.data?.pageParams.at(0);
   const nextOffset = data.data?.pages.at(-1)?.nextOffset;
   const loadKey = (direction: "previous" | "next", offset: number | null | undefined) =>
     offset === undefined || offset === null

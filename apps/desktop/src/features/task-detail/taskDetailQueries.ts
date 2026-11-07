@@ -1,32 +1,23 @@
-import type { QueryClient } from "@tanstack/react-query";
+import type { InfiniteData, InfiniteQueryObserverOptions, QueryClient } from "@tanstack/react-query";
 import type { OffsetPage } from "@/api";
 import { invalidateProjectTaskSearches, queryKeys } from "@/app-facade";
 
 const taskDetailFeedPageSize = 50;
 const taskDetailFeedMaxPages = 10;
 
-export type TaskDetailFeedPage<T> = OffsetPage<T> &
-  Readonly<{
-    offset: number;
-    totalCount?: number;
-  }>;
-
-export function taskDetailFeedOptions<T>(
+export function taskDetailFeedOptions<Page extends OffsetPage<unknown>>(
   queryKey: readonly unknown[],
   enabled: boolean,
-  loadPage: (offset: number) => Promise<OffsetPage<T>>,
-) {
+  loadPage: (offset: number) => Promise<Page>,
+): InfiniteQueryObserverOptions<Page, Error, InfiniteData<Page, number>, readonly unknown[], number> {
   return {
     queryKey,
-    queryFn: async ({ pageParam }: { pageParam: number }): Promise<TaskDetailFeedPage<T>> => ({
-      ...(await loadPage(pageParam)),
-      offset: pageParam,
-    }),
+    queryFn: async ({ pageParam }: { pageParam: number }) => loadPage(pageParam),
     enabled,
     initialPageParam: 0,
-    getNextPageParam: (lastPage: TaskDetailFeedPage<T>) => lastPage.nextOffset ?? undefined,
-    getPreviousPageParam: (firstPage: TaskDetailFeedPage<T>) =>
-      firstPage.offset === 0 ? undefined : firstPage.offset - taskDetailFeedPageSize,
+    getNextPageParam: (lastPage: Page) => lastPage.nextOffset ?? undefined,
+    getPreviousPageParam: (_firstPage: Page, _pages: Page[], firstPageParam: number) =>
+      firstPageParam === 0 ? undefined : firstPageParam - taskDetailFeedPageSize,
     maxPages: taskDetailFeedMaxPages,
   };
 }
