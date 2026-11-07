@@ -3,6 +3,7 @@ package runtimecontrol
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"core/server/agentruntime"
 	"core/server/sessionstore"
@@ -20,7 +21,7 @@ func (s *Service) AdmitChatQueuedUserInput(
 		return s.authority.QueueAgentInput(runCtx, descriptor, projection.queuedInput(), accept)
 	})
 	if result.Accepted {
-		result.PromptHistoryFailure = s.recordAcceptedUserTurnHistory(canonicalUserTurnRequest(sessionIDText, projection.Input), projection)
+		result.PromptHistoryFailure = s.recordAcceptedUserTurnHistory(strings.TrimSpace(sessionIDText), projection)
 	}
 	return result, err
 }

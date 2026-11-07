@@ -51,14 +51,6 @@ type Service struct {
 	settings       SessionSettingsPublisher
 }
 
-type sessionUserTurnRequest struct {
-	SessionID string
-	Kind      runtimeinput.Kind
-	Text      string
-	Name      string
-	Arguments string
-}
-
 func NewService(authority *sessionruntime.Authority, metadataStore *metadata.Store) *Service {
 	return &Service{authority: authority, metadata: metadataStore}
 }
