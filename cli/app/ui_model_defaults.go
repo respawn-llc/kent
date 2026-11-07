@@ -74,6 +74,7 @@ func newUISessionTransitionFeatureState() uiSessionTransitionFeatureState {
 func newUIStatusFeatureState() uiStatusFeatureState {
 	debug := envFlagEnabled("KENT_DEBUG")
 	return uiStatusFeatureState{
+		status:              uiStatusOverlayState{uiStatusCollection: &uiStatusCollection{}},
 		statusRepository:    status.NewMemoryRepository(),
 		clipboardPaster:     newSystemClipboardPaster(),
 		clipboardTextCopier: newSystemClipboardTextCopier(),

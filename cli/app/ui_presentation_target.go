@@ -50,4 +50,5 @@ func (m *uiModel) setKnownSessionTarget(id string) {
 		return
 	}
 	m.presentationTarget = uiKnownSessionTarget{id: parsed}
+	m.status.uiStatusCollection = &uiStatusCollection{}
 }

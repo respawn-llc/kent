@@ -39,6 +39,7 @@ func TestStatusLineGitStartupUsesRuntimeWorktreeRootBranch(t *testing.T) {
 	close(search.events)
 	model := newProjectedTestUIModel(
 		runtimeClient,
+		WithUISessionID(detailTestSessionID),
 		WithUIPathReferenceSearch(search),
 		WithUIStatusConfig(uiStatusConfig{WorkspaceRoot: workspaceRoot}))
 
@@ -209,7 +210,7 @@ func TestStatusRefreshSectionFailurePreservesProgressiveResults(t *testing.T) {
 	}
 	model := newProjectedStaticUIModel(WithUIStatusCollector(collector))
 	cmd := model.statusRefreshCmd()
-	if !model.status.loading {
+	if len(model.status.pendingSections) == 0 {
 		t.Fatal("refresh did not expose loading while sections were pending")
 	}
 	messages := collectCmdMessages(t, cmd)
@@ -221,7 +222,7 @@ func TestStatusRefreshSectionFailurePreservesProgressiveResults(t *testing.T) {
 	}
 	next, _ := model.Update(environment)
 	model = next.(*uiModel)
-	if !model.status.loading || model.status.snapshot.CollectorWarning == "" {
+	if len(model.status.pendingSections) == 0 || model.status.snapshot.CollectorWarning == "" {
 		t.Fatal("failed section did not expose its warning while other sections remained loading")
 	}
 	for _, message := range messages {
@@ -231,7 +232,7 @@ func TestStatusRefreshSectionFailurePreservesProgressiveResults(t *testing.T) {
 			model = next.(*uiModel)
 		}
 	}
-	if model.status.loading {
+	if len(model.status.pendingSections) > 0 {
 		t.Fatal("loading remained after every section completed")
 	}
 	if !model.status.snapshot.Git.Visible || model.status.snapshot.Git.Branch != collector.gitResult.Git.Branch {

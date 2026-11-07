@@ -29,6 +29,11 @@
 - Grok's quota bar must fill with consumed allowance. If Grok reports Build and Chat contributions that account for total usage, Kent must show one stacked bar with Build first and Chat immediately afterward. Build must use Codex's quota-warning color selected from total shared usage. Chat must always use the secondary color. If the breakdown is missing or incomplete, Kent must show a single total-used bar with Codex's quota colors. The percentage left must come from Grok's reported total usage.
 
 - `/status` is read-only and loads its sections progressively.
+- During a refresh, `/status` must show available section results and warnings until replacement results arrive. Its loading indicator must be active while any status read for the current destination is outstanding.
+- Closing `/status` must hide the overlay without cancelling its reads. Reopening it must show available results and indicate outstanding reads.
+- When the Session, Working Directory, Execution Target, or selected New Session Agent changes, `/status` must discard the previous destination's results. If the overlay is open, it must automatically reload after the new observation or New Session defaults are ready.
+- Reloading settings or authentication for the same destination must not discard available results or outstanding reads. Before initial New Session defaults are ready, `/status` must show loading without reading configuration from another destination.
+- Reads from a previous destination must not change the current destination's results, cached values, or loading state, including after returning to that destination. Reads for the same destination may complete in either order.
 - Content is organized in sections — Session, Git, Context, Auth (account + subscription windows with usage bars and reset times), Config (override sources, supervisor, questions), Skills, AGENTS.md inspection, Warnings. Each section loads independently with a loading placeholder. Section failures become warnings listed in the Warnings section, never a blank overlay. The section set is contracted. Copy and layout are outside the contract.
 - Keys: scroll only (shared conventions), no actions.
 - `/status` must not show server ownership because the TUI is always a client.

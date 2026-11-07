@@ -177,20 +177,19 @@ type uiSessionTransitionFeatureState struct {
 }
 
 type uiStatusFeatureState struct {
-	processList                 uiProcessListState
-	reasoningStatusHeader       string
-	turnQueueHook               turnQueueHook
-	statusConfig                uiStatusConfig
-	statusCollector             uiStatusCollector
-	statusRepository            uiStatusRepository
-	status                      uiStatusOverlayState
-	goal                        uiGoalOverlayState
-	goalRuntimeToken            uint64
-	goalRuntimeMutationSerial   uint64
-	goalRuntimePending          goalRuntimePendingState
-	statusGitBackgroundInFlight bool
-	clipboardPaster             uiClipboardPaster
-	clipboardTextCopier         uiClipboardTextCopier
+	processList               uiProcessListState
+	reasoningStatusHeader     string
+	turnQueueHook             turnQueueHook
+	statusConfig              uiStatusConfig
+	statusCollector           uiStatusCollector
+	statusRepository          uiStatusRepository
+	status                    uiStatusOverlayState
+	goal                      uiGoalOverlayState
+	goalRuntimeToken          uint64
+	goalRuntimeMutationSerial uint64
+	goalRuntimePending        goalRuntimePendingState
+	clipboardPaster           uiClipboardPaster
+	clipboardTextCopier       uiClipboardTextCopier
 
 	transientStatus              string
 	transientStatusKind          uiStatusNoticeKind

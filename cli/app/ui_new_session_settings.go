@@ -323,6 +323,7 @@ func (m *uiModel) mutateNewSessionSettings(operation *settingspb.MutationOperati
 				if selected.AgentRole == operation.AgentRole {
 					return nil
 				}
+				m.status.uiStatusCollection = &uiStatusCollection{}
 				m.newChatTarget().InitialSettings = proto.Clone(candidate.Baseline).(*settingspb.InitialChatSettings)
 				m.projectNewSessionSettings()
 				return m.loadNewSessionSettingsCmd(nil)

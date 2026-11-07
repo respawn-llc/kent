@@ -29,10 +29,6 @@ func NewProjectedUIModel(runtimeClient clientui.RuntimeClient, opts ...UIOption)
 	if m.observationScope == nil {
 		m.bindRuntimeConnectionObserver()
 	}
-	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
-		m.statusGitBackgroundInFlight = true
-		m.startupCmds = append(m.startupCmds, gitStartupCmd)
-	}
 	if m.pathReferenceSearch != nil && strings.TrimSpace(m.statusConfig.WorkspaceRoot) != "" {
 		m.startupCmds = append(m.startupCmds, func() tea.Msg {
 			m.pathReferenceSearch.StartPrewarm(strings.TrimSpace(m.statusConfig.WorkspaceRoot))
@@ -48,6 +44,9 @@ func (m *uiModel) Init() tea.Cmd {
 		waitPathReferenceSearchEvent(m.pathReferenceEvents),
 		tea.SetWindowTitle(m.sessionTitle()),
 		tea.WindowSize(),
+	}
+	if gitStartupCmd := m.statusLineGitRefreshCmd(); gitStartupCmd != nil {
+		cmds = append(cmds, gitStartupCmd)
 	}
 	if m.observationScope == nil {
 		cmds = append(cmds, m.startSessionObservationLoads())
@@ -128,6 +127,9 @@ func finalizeUIUpdate(model *uiModel, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if model == nil {
 		return model, cmd
 	}
+	if statusCmd := model.reconcileStatusDestination(); statusCmd != nil {
+		cmd = tea.Batch(cmd, statusCmd)
+	}
 	if presentationCmd := model.reconcileAskPresentation(); presentationCmd != nil {
 		cmd = tea.Batch(cmd, presentationCmd)
 	}
@@ -153,10 +155,6 @@ func (m *uiModel) setDebugKeyTransientStatus(raw tea.Msg, normalized tea.KeyMsg,
 	m.transientStatusToken++
 	m.transientStatus = fmt.Sprintf("key src=%s raw=%q norm=%q type=%d", source, rawString, normalized.String(), normalized.Type)
 	m.transientStatusKind = uiStatusNoticeInfo
-}
-
-func statusHasAuthData(snapshot uiStatusSnapshot) bool {
-	return snapshot.Auth.Visible || snapshot.Subscription.Applicable || strings.TrimSpace(snapshot.Subscription.Summary) != "" || len(snapshot.Subscription.Windows) > 0
 }
 
 func (m *uiModel) forwardToView(msg tea.Msg) tea.Cmd {
