@@ -210,9 +210,7 @@ func beginGatewayPendingPrompt(t *testing.T, broker *attentionnotify.Broker, ses
 		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: textutil.Value(request.Question)}
 	} else {
 		notification.Question = &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs: []string{request.ToolCallID}, MaterializedAskIDs: []string{request.ToolCallID},
-			CurrentUnresolvedAskIDs: []string{request.ToolCallID}, Preview: request.Question,
-			DisplayCount: 1, MaterializedCount: 1,
+			Preview: request.Question, DisplayCount: 1,
 		}
 	}
 	if err := broker.PublishPending(scope, notification); err != nil {

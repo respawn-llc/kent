@@ -36,11 +36,7 @@ export function emitQuestionBatchRevision(transport: FakeRpcTransport, revision:
           state: {
             case: "question",
             value: {
-              preparedAskIds: ["ask-1"],
-              materializedAskIds: ["ask-1"],
-              currentUnresolvedAskIds: ["ask-1"],
               displayCount: 1,
-              materializedCount: 1,
             },
           },
         },

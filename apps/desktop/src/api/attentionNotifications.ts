@@ -32,13 +32,8 @@ export type AttentionNotificationTarget =
   | Readonly<{ kind: "session_prompt"; projectID: string; sessionID: string }>;
 
 export type AttentionNotificationQuestionState = Readonly<{
-  preparedAskIDs: readonly string[];
-  materializedAskIDs: readonly string[];
-  currentUnresolvedAskIDs: readonly string[];
-  skippedAskIDs: readonly string[];
   preview?: string | undefined;
   displayCount: number;
-  materializedCount: number;
 }>;
 
 export type AttentionNotificationApprovalState = Readonly<{

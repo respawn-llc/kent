@@ -51,14 +51,9 @@ func notifyTranscriptPromptActivation(hook promptAttentionSink, prompt *transcri
 	if transcriptPromptIsApproval(prompt) {
 		notification.Approval = &clientui.AttentionNotificationApprovalState{Message: textutil.Value(projectedPreview)}
 	} else {
-		toolCallID := transcriptPromptToolCallID(prompt)
 		notification.Question = &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs:          []string{toolCallID},
-			MaterializedAskIDs:      []string{toolCallID},
-			CurrentUnresolvedAskIDs: []string{toolCallID},
-			Preview:                 projectedPreview,
-			DisplayCount:            1,
-			MaterializedCount:       1,
+			Preview:      projectedPreview,
+			DisplayCount: 1,
 		}
 	}
 	hook.onAttentionNotification(clientui.AttentionNotificationEvent{

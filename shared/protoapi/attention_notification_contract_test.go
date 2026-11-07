@@ -5,10 +5,49 @@ import (
 	"time"
 
 	"core/shared/protoapi"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestQuestionNotificationDisplayCountMustBePositive(t *testing.T) {
+	for _, count := range []int32{-1, 0, 1, 2} {
+		if err := protoapi.Validate(&attentionpb.QuestionState{DisplayCount: count}); (err == nil) != (count > 0) {
+			t.Errorf("Question display count %d acceptance = %v", count, err)
+		}
+	}
+}
+
+func TestWorkflowQuestionNotificationRequiresQuestionFocus(t *testing.T) {
+	for _, questionFocus := range []bool{true, false} {
+		focus := &taskpb.AttentionNotificationTaskFocus{
+			Kind:  taskpb.AttentionNotificationFocusKind_ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
+			Focus: &taskpb.AttentionNotificationTaskFocus_Approval{Approval: &taskpb.ApprovalFocus{ApprovalId: "approval-1"}},
+		}
+		if questionFocus {
+			focus = &taskpb.AttentionNotificationTaskFocus{
+				Kind:  taskpb.AttentionNotificationFocusKind_ATTENTION_NOTIFICATION_FOCUS_QUESTION,
+				Focus: &taskpb.AttentionNotificationTaskFocus_Question{Question: &taskpb.QuestionFocus{AskIds: []string{"ask-1", "ask-2"}}},
+			}
+		}
+		message := &taskpb.AttentionNotification{
+			Id:         &taskpb.AttentionNotificationID{Kind: taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION, Uuid: "batch-1"},
+			Kind:       taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION,
+			OccurredAt: timestamppb.Now(), Revision: 1,
+			State: &taskpb.AttentionNotification_Question{Question: &attentionpb.QuestionState{DisplayCount: 2}},
+			Target: &taskpb.AttentionNotificationTarget{
+				Kind: taskpb.AttentionNotificationTargetKind_ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
+				Target: &taskpb.AttentionNotificationTarget_WorkflowTask{WorkflowTask: &taskpb.WorkflowTaskAttentionTarget{
+					TaskId: "task-1", WorkflowId: "22222222-2222-4222-8222-222222222222", Focus: focus,
+				}},
+			},
+		}
+		if err := protoapi.Validate(message); (err == nil) != questionFocus {
+			t.Errorf("Question notification with Question focus %t acceptance = %v", questionFocus, err)
+		}
+	}
+}
 
 func TestAttentionNotificationKeyMustBeNonblank(t *testing.T) {
 	for _, value := range []string{" \t ", "approval-key"} {

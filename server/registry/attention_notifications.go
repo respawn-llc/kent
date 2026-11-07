@@ -229,13 +229,8 @@ func (r *RuntimeRegistry) attentionPendingEventFromPrompt(sessionID string, snap
 		}
 	} else {
 		notification.Question = &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs:          []string{snapshot.Request.ToolCallID},
-			MaterializedAskIDs:      []string{snapshot.Request.ToolCallID},
-			CurrentUnresolvedAskIDs: []string{snapshot.Request.ToolCallID},
-			SkippedAskIDs:           []string{},
-			Preview:                 strings.TrimSpace(snapshot.Request.Question),
-			DisplayCount:            1,
-			MaterializedCount:       1,
+			Preview:      strings.TrimSpace(snapshot.Request.Question),
+			DisplayCount: 1,
 		}
 	}
 	return clientui.AttentionNotificationEvent{

@@ -670,12 +670,10 @@ message AttentionNotification {
   };
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.notification_question_focus"
-    message: "Workflow Task question focus must match prepared ask ids"
+    message: "Workflow Task question notifications require a Question focus"
     expression:
       "!has(this.question) || !has(this.target.workflow_task) || "
-      "(has(this.target.workflow_task.focus.question) && "
-      "this.target.workflow_task.focus.question.ask_ids.all(id, id in this.question.prepared_ask_ids) && "
-      "this.question.prepared_ask_ids.all(id, id in this.target.workflow_task.focus.question.ask_ids))"
+      "has(this.target.workflow_task.focus.question)"
   };
 }
 

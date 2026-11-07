@@ -31,30 +31,8 @@ message NotificationID {
 }
 
 message QuestionState {
-  repeated string prepared_ask_ids = 1 [(buf.validate.field).repeated.items.string.min_len = 1];
-  repeated string materialized_ask_ids = 2 [(buf.validate.field).repeated.items.string.min_len = 1];
-  repeated string current_unresolved_ask_ids = 3 [(buf.validate.field).repeated.items.string.min_len = 1];
-  repeated string skipped_ask_ids = 4 [(buf.validate.field).repeated.items.string.min_len = 1];
   string preview = 5;
-  int32 display_count = 6 [(buf.validate.field).int32.gte = 0];
-  int32 materialized_count = 7 [(buf.validate.field).int32.gte = 0];
-
-  option (buf.validate.message).cel = {
-    id: "kent.attention.question_state"
-    message: "question state must contain a consistent non-empty ask batch"
-    expression:
-      "size(this.prepared_ask_ids) > 0 && "
-      "this.prepared_ask_ids.all(id, id.trim() != '') && "
-      "this.materialized_ask_ids.all(id, id.trim() != '') && "
-      "this.current_unresolved_ask_ids.all(id, id.trim() != '') && "
-      "this.skipped_ask_ids.all(id, id.trim() != '') && "
-      "this.display_count > 0 && "
-      "this.materialized_count == size(this.materialized_ask_ids) && "
-      "this.materialized_ask_ids.all(id, id in this.prepared_ask_ids) && "
-      "this.current_unresolved_ask_ids.all(id, id in this.materialized_ask_ids) && "
-      "this.skipped_ask_ids.all(id, id in this.prepared_ask_ids) && "
-      "this.display_count == size(this.prepared_ask_ids) - size(this.skipped_ask_ids)"
-  };
+  int32 display_count = 6 [(buf.validate.field).int32.gt = 0];
 }
 
 message ApprovalState {

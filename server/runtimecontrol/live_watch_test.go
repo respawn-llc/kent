@@ -247,12 +247,8 @@ func TestLiveWatchPromptWakeWinsWhileRunIsBlocked(t *testing.T) {
 				SessionID: store.Meta().SessionID,
 			},
 			Question: &clientui.AttentionNotificationQuestionState{
-				PreparedAskIDs:          []string{"ask-1"},
-				MaterializedAskIDs:      []string{"ask-1"},
-				CurrentUnresolvedAskIDs: []string{"ask-1"},
-				Preview:                 "Continue?",
-				DisplayCount:            1,
-				MaterializedCount:       1,
+				Preview:      "Continue?",
+				DisplayCount: 1,
 			},
 		},
 	); err != nil {

@@ -123,13 +123,8 @@ function attentionNotification(value: pb.AttentionNotificationValid): AttentionN
       return {
         ...base,
         question: {
-          preparedAskIDs: state.preparedAskIds,
-          materializedAskIDs: state.materializedAskIds,
-          currentUnresolvedAskIDs: state.currentUnresolvedAskIds,
-          skippedAskIDs: state.skippedAskIds,
           preview: state.preview,
           displayCount: state.displayCount,
-          materializedCount: state.materializedCount,
         },
       };
     }

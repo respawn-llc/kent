@@ -124,8 +124,8 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 		desktopPending.GetPending().GetTarget().GetSessionPrompt().GetSessionId() != "11111111-1111-4111-8111-111111111111" {
 		t.Fatalf("desktop pending = %+v", desktopPending)
 	}
-	if question := desktopPending.GetPending().GetQuestion(); question == nil || len(question.SkippedAskIds) != 0 {
-		t.Fatalf("ordinary Session question has skipped prompts: %v", desktopPending)
+	if question := desktopPending.GetPending().GetQuestion(); question == nil || question.DisplayCount != 1 {
+		t.Fatalf("ordinary Session question state = %v", desktopPending)
 	}
 	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "ask-1")
 	resolved := nextRegistryAttentionEvent(t, sessionSub).GetResolved()
@@ -205,7 +205,7 @@ func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testi
 		pending.GetPending().GetId().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION {
 		t.Fatalf("pending id = %v", pending.GetPending().GetId())
 	}
-	if pending.GetPending().GetQuestion().GetDisplayCount() != 2 || len(pending.GetPending().GetQuestion().GetCurrentUnresolvedAskIds()) != 1 {
+	if pending.GetPending().GetQuestion().GetDisplayCount() != 2 {
 		t.Fatalf("question state = %+v", pending)
 	}
 	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "ask-1")
@@ -266,7 +266,7 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 		t.Fatalf("pending approval question event = %+v", pending)
 	}
 	question := pending.GetPending().GetQuestion()
-	if question == nil || question.Preview != "Approve protected path?" || len(question.CurrentUnresolvedAskIds) != 1 || question.CurrentUnresolvedAskIds[0] != "approval-1" {
+	if question == nil || question.Preview != req.Question || question.DisplayCount != 1 {
 		t.Fatalf("pending approval question state = %+v", question)
 	}
 	if pending.GetPending().GetApproval() != nil {
@@ -314,9 +314,6 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 	pending := nextRegistryAttentionEvent(t, desktopSub)
 	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING || pending.GetPending().GetQuestion().GetDisplayCount() != 1 {
 		t.Fatalf("pending after skipped first ask = %+v", pending)
-	}
-	if skipped := pending.GetPending().GetQuestion().GetSkippedAskIds(); len(skipped) != 1 || skipped[0] != "ask-1" {
-		t.Fatalf("skipped ask ids = %+v", pending)
 	}
 	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "ask-2")
 	registry.MarkTaskQuestionCleared(*second.QuestionBatch, "ask-2")

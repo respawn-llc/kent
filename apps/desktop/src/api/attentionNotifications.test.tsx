@@ -29,11 +29,7 @@ const question = create(pb.AttentionNotificationSchema, {
   state: {
     case: "question",
     value: {
-      preparedAskIds: ["ask-1", "ask-2"],
-      materializedAskIds: ["ask-1"],
-      currentUnresolvedAskIds: ["ask-1"],
       displayCount: 2,
-      materializedCount: 1,
     },
   },
 });
@@ -136,7 +132,7 @@ describe("attention notification API", () => {
         sequence: 1,
         pending: {
           revision: 1,
-          question: { skippedAskIDs: [], currentUnresolvedAskIDs: ["ask-1"] },
+          question: { displayCount: 2 },
           target: {
             kind: "session_prompt",
             projectID: "project-1",
@@ -181,7 +177,7 @@ describe("attention notification API", () => {
       {
         type: "pending",
         pending: {
-          question: { displayCount: 2, materializedCount: 1 },
+          question: { displayCount: 2 },
           target: { kind: "workflow_task", focus: { kind: "question", askIDs: ["ask-2", "ask-1"] } },
         },
       },
@@ -295,7 +291,7 @@ describe("attention notification API", () => {
     ]);
   });
 
-  it("rejects a Task Question focus that differs from the prepared batch", async () => {
+  it("rejects a Task Question notification with an Approval focus", async () => {
     const { transport, events } = await observe();
     expect(() => {
       pending(
@@ -304,8 +300,8 @@ describe("attention notification API", () => {
           ...question,
           target: taskTarget(
             create(pb.AttentionNotificationTaskFocusSchema, {
-              kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_QUESTION,
-              focus: { case: "question", value: { askIds: ["other-ask"] } },
+              kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
+              focus: { case: "approval", value: { approvalId: "approval-1" } },
             }),
           ),
         }),

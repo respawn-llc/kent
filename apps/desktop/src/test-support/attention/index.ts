@@ -76,13 +76,8 @@ const pendingQuestion = create(pb.AttentionNotificationSchema, {
   state: {
     case: "question",
     value: {
-      preparedAskIds: ["ask-1"],
-      materializedAskIds: ["ask-1"],
-      currentUnresolvedAskIds: ["ask-1"],
-      skippedAskIds: [],
       preview: "Question from agent",
       displayCount: 1,
-      materializedCount: 1,
     },
   },
   target: {
