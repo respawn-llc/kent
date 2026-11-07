@@ -191,6 +191,7 @@
 - Assignee and thinking selectors own Protected Parameters with the lifecycle and edit behavior defined in the terminology specification.
 - Ordinary and protected Parameter Keys must be unique across one Transition contract even while a protected Parameter is dormant.
 - A supplied protected value is ignored only for saved-Session Assignee reuse, sole-role automation, or finite zero/one thinking automation. A value for a selector that is disabled, unavailable, or topology-inapplicable is an unknown Transition Result output.
+- An ignored protected value must not affect the effective selection or enter target inputs, prior Parameter values, prompts, Join requirements, or frozen Approval targets. Manual Move must apply the same rule. Kent must not rewrite existing history.
 - A blank protected Assignee description derives `Override the subagent role for the next node, available roles: <CSV of roles in config.toml that have agent_callable=true>` when Workflow completion instructions are prepared.
 - The derived Assignee list uses the server's loaded configuration and deterministic alphabetical order.
 - A nonblank authored Assignee description takes precedence over the derived description.

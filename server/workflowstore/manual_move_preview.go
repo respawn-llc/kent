@@ -402,18 +402,8 @@ func (s *Store) manualMoveProtectedParameterPolicies(
 			return nil, nil, err
 		}
 		contracts[edge.ID] = planned
-		policy := planned.Consumption
 		for _, parameter := range edge.Parameters {
-			var parameterPolicy workflow.ProtectedParameterConsumptionPolicy
-			switch workflow.CanonicalParameterPurpose(parameter.Purpose) {
-			case workflow.ParameterPurposeTargetAssignee:
-				parameterPolicy = policy.Assignee
-			case workflow.ParameterPurposeTargetThinking:
-				parameterPolicy = policy.Thinking
-			default:
-				continue
-			}
-			if parameterPolicy == workflow.ProtectedParameterConsumptionIgnoreAuthorized {
+			if planned.Consumption.ForParameter(parameter) == workflow.ProtectedParameterConsumptionIgnoreAuthorized {
 				authorized[manualMoveValueIdentity{
 					NodeKey:    workflow.NodeKey(choice.SourceNode),
 					OutputName: parameter.Key,

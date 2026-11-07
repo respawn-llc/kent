@@ -2,175 +2,102 @@ package workflow_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"core/server/workflow"
 )
-
-func TestPlanTargetAgentThinkingSelectionUsesConfiguredFallback(t *testing.T) {
-	role := workflow.TargetAgentRole{
-		Identity:           "coder",
-		ConfiguredThinking: "high",
-		Thinking:           workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}},
-	}
-	selection, err := workflow.PlanTargetAgentThinkingSelection(workflow.TargetAgentThinkingSelectionRequest{
-		TargetRole: role,
-	})
-	if err != nil {
-		t.Fatalf("PlanTargetAgentThinkingSelection: %v", err)
-	}
-	if selection.Value != "high" || selection.Exposed {
-		t.Fatalf("configured thinking = %+v", selection)
-	}
-}
 
 func TestTargetAgentThinkingContractUnionsFiniteRoleCatalogs(t *testing.T) {
 	contract := workflow.UnionTargetAgentThinkingCapabilities([]workflow.TargetAgentRole{
 		{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "medium"}}},
 		{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"medium", "high"}}},
 	})
-	want := []string{"high", "low", "medium"}
-	if !contract.Finite || !contract.ReasoningCapable || len(contract.Levels) != len(want) {
+	if !contract.Finite || !contract.ReasoningCapable || !slices.Equal(contract.Levels, []string{"high", "low", "medium"}) {
 		t.Fatalf("union contract = %+v", contract)
-	}
-	for index, level := range want {
-		if contract.Levels[index] != level {
-			t.Fatalf("union levels = %#v, want %#v", contract.Levels, want)
-		}
 	}
 }
 
-func TestPlanTargetAgentThinkingSelectionResolvesFiniteZeroOneMany(t *testing.T) {
-	tests := []struct {
-		name      string
-		role      workflow.TargetAgentRole
-		roles     []workflow.TargetAgentRole
-		submitted string
-		want      string
-		exposed   bool
-		wantError workflow.TargetAgentSelectionErrorCode
+func TestTransitionSelectionMaterializesThinking(t *testing.T) {
+	finiteEmpty := workflow.ThinkingCapability{ReasoningCapable: true, Finite: true}
+	finiteOne := workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"high"}}
+	finiteMany := workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}}
+	open := workflow.ThinkingCapability{ReasoningCapable: true}
+	for _, test := range []struct {
+		name        string
+		target      workflow.ThinkingCapability
+		other       *workflow.ThinkingCapability
+		disabled    bool
+		configured  string
+		submitted   string
+		description string
+		want        *workflow.ThinkingValue
+		wantError   workflow.TargetAgentSelectionErrorCode
 	}{
-		{
-			name:  "zero levels use configured value",
-			role:  workflow.TargetAgentRole{ConfiguredThinking: "medium", Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true}},
-			roles: []workflow.TargetAgentRole{{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true}}},
-			want:  "medium",
-		},
-		{
-			name:  "one level is automatic",
-			role:  workflow.TargetAgentRole{ConfiguredThinking: "low", Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"high"}}},
-			roles: []workflow.TargetAgentRole{{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"high"}}}},
-			want:  "high",
-		},
-		{
-			name:      "many levels require value",
-			role:      workflow.TargetAgentRole{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}}},
-			roles:     []workflow.TargetAgentRole{{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}}}},
-			submitted: "high",
-			want:      "high",
-			exposed:   true,
-		},
-		{
-			name:      "many levels reject blank value",
-			role:      workflow.TargetAgentRole{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}}},
-			roles:     []workflow.TargetAgentRole{{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}}}},
-			wantError: workflow.TargetAgentSelectionErrorThinkingRequired,
-		},
-		{
-			name:      "finite level rejects target role mismatch",
-			role:      workflow.TargetAgentRole{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low"}}},
-			roles:     []workflow.TargetAgentRole{{Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"low", "high"}}}},
-			submitted: "high",
-			wantError: workflow.TargetAgentSelectionErrorUnsupportedThinking,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			selection, err := workflow.PlanTargetAgentThinkingSelection(workflow.TargetAgentThinkingSelectionRequest{
-				OverrideEnabled: true,
-				TargetRole:      tt.role,
-				EligibleRoles:   tt.roles,
-				SubmittedValue:  tt.submitted,
+		{name: "configured", target: finiteMany, disabled: true, configured: "low", submitted: "high", want: thinkingValuePointer("low")},
+		{name: "non reasoning uses configured", configured: "low", submitted: "ignored", want: thinkingValuePointer("low")},
+		{name: "finite empty uses configured", target: finiteEmpty, configured: "medium", submitted: "ignored", want: thinkingValuePointer("medium")},
+		{name: "finite empty without configured", target: finiteEmpty, submitted: "ignored"},
+		{name: "finite sole automatic", target: finiteOne, submitted: "ignored", want: thinkingValuePointer("high")},
+		{name: "finite sole automatic without value", target: finiteOne, want: thinkingValuePointer("high")},
+		{name: "finite many", target: finiteMany, submitted: "high", want: thinkingValuePointer("high")},
+		{name: "finite many missing", target: finiteMany, wantError: workflow.TargetAgentSelectionErrorThinkingRequired},
+		{name: "finite many unsupported", target: finiteMany, submitted: "custom", wantError: workflow.TargetAgentSelectionErrorUnsupportedThinking},
+		{name: "finite selected role mismatch", target: finiteOne, other: &finiteMany, submitted: "low", wantError: workflow.TargetAgentSelectionErrorUnsupportedThinking},
+		{name: "automatic union level unsupported by selected role", target: finiteEmpty, other: &finiteOne, submitted: "ignored"},
+		{name: "open requires description", target: open, submitted: "custom", wantError: workflow.TargetAgentSelectionErrorThinkingDescriptionRequired},
+		{name: "open requires value", target: open, description: "Provider effort", wantError: workflow.TargetAgentSelectionErrorThinkingRequired},
+		{name: "open accepts custom", target: open, submitted: "custom", description: "Provider effort", want: thinkingValuePointer("custom")},
+		{name: "mixed open union validates finite role", target: finiteOne, other: &open, submitted: "custom", description: "Provider effort", wantError: workflow.TargetAgentSelectionErrorUnsupportedThinking},
+		{name: "mixed open union accepts supported finite value", target: finiteOne, other: &open, submitted: "high", description: "Provider effort", want: thinkingValuePointer("high")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			target := workflow.TargetAgentRole{
+				Identity: "target", QuestionsEnabled: true, ExplicitAgentCallable: true,
+				ConfiguredThinking: test.configured, Thinking: test.target,
+			}
+			catalog := targetAgentCatalogStub{
+				fallback:   map[string]workflow.TargetAgentRole{"target": target},
+				selectable: []workflow.TargetAgentRole{target},
+			}
+			edge := workflow.Edge{}
+			if !test.disabled {
+				edge.ThinkingSelection = workflow.ThinkingSelectionPreviousNode
+			}
+			if test.other != nil {
+				edge.AssigneeSelection = workflow.AssigneeSelectionPreviousNode
+				catalog.selectable = append(catalog.selectable, workflow.TargetAgentRole{
+					Identity: "other", ExplicitAgentCallable: true, Thinking: *test.other,
+				})
+			}
+			plan, err := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
+				Edge: edge, SourceKind: workflow.NodeKindAgent, TargetKind: workflow.NodeKindAgent,
+				TargetRole: "target", Catalog: catalog,
+				Materialization: &workflow.TransitionSelectionMaterializationRequest{
+					SubmittedRole: "target", SubmittedThinking: test.submitted, ThinkingDescription: test.description,
+				},
 			})
-			if tt.wantError != "" {
+			if test.wantError != "" {
 				var selectionErr workflow.TargetAgentSelectionError
-				if err == nil || !errors.As(err, &selectionErr) || selectionErr.Code != tt.wantError {
-					t.Fatalf("error = %v, want %q", err, tt.wantError)
+				if !errors.As(err, &selectionErr) || selectionErr.Code != test.wantError {
+					t.Fatalf("error = %v, want %s", err, test.wantError)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("PlanTargetAgentThinkingSelection: %v", err)
+				t.Fatal(err)
 			}
-			if selection.Value != tt.want || selection.Exposed != tt.exposed {
-				t.Fatalf("selection = %+v, want value %q exposed %v", selection, tt.want, tt.exposed)
+			if plan.ExecutionSelection == nil {
+				t.Fatal("missing execution selection")
+			}
+			got := plan.ExecutionSelection.Thinking
+			if (got == nil) != (test.want == nil) || (got != nil && test.want != nil && *got != *test.want) {
+				t.Fatalf("thinking = %v, want %v", got, test.want)
 			}
 		})
 	}
 }
 
-func TestPlanTargetAgentThinkingSelectionSupportsOpenCatalogOnlyWithAuthoredDescription(t *testing.T) {
-	role := workflow.TargetAgentRole{
-		ConfiguredThinking: "medium",
-		Thinking:           workflow.ThinkingCapability{ReasoningCapable: true, Finite: false},
-	}
-	_, err := workflow.PlanTargetAgentThinkingSelection(workflow.TargetAgentThinkingSelectionRequest{
-		OverrideEnabled: true,
-		TargetRole:      role,
-		EligibleRoles:   []workflow.TargetAgentRole{role},
-		SubmittedValue:  "custom",
-	})
-	var selectionErr workflow.TargetAgentSelectionError
-	if err == nil || !errors.As(err, &selectionErr) || selectionErr.Code != workflow.TargetAgentSelectionErrorThinkingDescriptionRequired {
-		t.Fatalf("error = %v, want authored-description requirement", err)
-	}
-	selection, err := workflow.PlanTargetAgentThinkingSelection(workflow.TargetAgentThinkingSelectionRequest{
-		OverrideEnabled:     true,
-		TargetRole:          role,
-		EligibleRoles:       []workflow.TargetAgentRole{role},
-		SubmittedValue:      "custom",
-		AuthoredDescription: "Choose a provider-specific effort.",
-	})
-	if err != nil {
-		t.Fatalf("PlanTargetAgentThinkingSelection: %v", err)
-	}
-	if selection.Value != "custom" || !selection.Exposed {
-		t.Fatalf("open thinking selection = %+v", selection)
-	}
-}
-
-func TestPlanTargetAgentThinkingSelectionValidatesFinalRoleAgainstMixedCatalog(t *testing.T) {
-	finiteWithoutLevels := workflow.TargetAgentRole{
-		Identity: "finite-empty",
-		Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true},
-	}
-	finiteWithLevel := workflow.TargetAgentRole{
-		Identity: "finite-one",
-		Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"high"}},
-	}
-	selection, err := workflow.PlanTargetAgentThinkingSelection(workflow.TargetAgentThinkingSelectionRequest{
-		OverrideEnabled: true,
-		TargetRole:      finiteWithoutLevels,
-		EligibleRoles:   []workflow.TargetAgentRole{finiteWithoutLevels, finiteWithLevel},
-		SubmittedValue:  "high",
-	})
-	if err != nil || selection.Value != "" || !selection.SubmittedValueIgnored {
-		t.Fatalf("selection = %+v, error = %v, want configured no-thinking fallback", selection, err)
-	}
-
-	open := workflow.TargetAgentRole{
-		Identity: "open",
-		Thinking: workflow.ThinkingCapability{ReasoningCapable: true, Finite: false},
-	}
-	_, err = workflow.PlanTargetAgentThinkingSelection(workflow.TargetAgentThinkingSelectionRequest{
-		OverrideEnabled:     true,
-		TargetRole:          finiteWithLevel,
-		EligibleRoles:       []workflow.TargetAgentRole{open, finiteWithLevel},
-		SubmittedValue:      "custom",
-		AuthoredDescription: "Custom provider value.",
-	})
-	var selectionErr workflow.TargetAgentSelectionError
-	if err == nil || !errors.As(err, &selectionErr) || selectionErr.Code != workflow.TargetAgentSelectionErrorUnsupportedThinking {
-		t.Fatalf("error = %v, want selected finite role validation", err)
-	}
+func thinkingValuePointer(value workflow.ThinkingValue) *workflow.ThinkingValue {
+	return &value
 }

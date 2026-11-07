@@ -643,7 +643,7 @@ func validateAgentRoleRequirement(workflowID runtimeids.WorkflowID, node Node, r
 		ref.Message = fmt.Sprintf("Agent node %s references missing subagent role %s", nodeDisplayName(node), role)
 		return ref, true
 	}
-	_, err := PlanTargetAgentSelection(catalog, TargetAgentSelectionRequest{FallbackRole: role})
+	_, err := configuredTargetAgentSelection(resolveConfiguredTargetRole(catalog, role), role)
 	if err == nil {
 		return ValidationError{}, false
 	}
@@ -720,7 +720,6 @@ func (s *validationState) validateSelectorApplicability(edge Edge, source Node, 
 		TargetKind:                   targetKind,
 		TargetRole:                   targetRole,
 		FanOut:                       len(s.edgesByGroup[edge.TransitionGroupID]) > 1,
-		TargetSessionPolicy:          AssigneeSessionPolicyEstablishTarget,
 		Catalog:                      s.opts.RoleResolver,
 		RequireExecutionDescriptions: s.context == ValidationContextExecution,
 	})
@@ -966,28 +965,21 @@ func (s *validationState) validatePromptPlaceholders() {
 func (s *validationState) promptParameterNameSet(edge Edge, source Node, target Node) map[string]bool {
 	names := edgeParameterNameSet(edge)
 	consumption := PlanTransitionProtectedParameterConsumption(TransitionParameterContractRequest{
-		Edge:                edge,
-		SourceKind:          source.Kind(),
-		TargetKind:          target.Kind(),
-		TargetRole:          NodeSubagentRole(target),
-		FanOut:              len(s.edgesByGroup[edge.TransitionGroupID]) > 1,
-		Catalog:             s.opts.RoleResolver,
-		TargetSessionPolicy: AssigneeSessionPolicyEstablishTarget,
+		Edge:       edge,
+		SourceKind: source.Kind(),
+		TargetKind: target.Kind(),
+		TargetRole: NodeSubagentRole(target),
+		FanOut:     len(s.edgesByGroup[edge.TransitionGroupID]) > 1,
+		Catalog:    s.opts.RoleResolver,
 	})
 	contextSourceKind := CanonicalContextSource(edge.ContextSource).Kind
 	retainedSessionPossible := edge.ContextMode == ContextModeContinueSession &&
 		(contextSourceKind == ContextSourcePreviousTarget || contextSourceKind == ContextSourcePreviousTargetOrNew)
 	for _, parameter := range edge.Parameters {
-		var policy ProtectedParameterConsumptionPolicy
-		switch CanonicalParameterPurpose(parameter.Purpose) {
-		case ParameterPurposeTargetAssignee:
-			policy = consumption.Assignee
-		case ParameterPurposeTargetThinking:
-			policy = consumption.Thinking
-		default:
+		if CanonicalParameterPurpose(parameter.Purpose) == ParameterPurposeOrdinary {
 			continue
 		}
-		if retainedSessionPossible || policy != ProtectedParameterConsumptionRequiredValidate {
+		if retainedSessionPossible || consumption.ForParameter(parameter) != ProtectedParameterConsumptionRequiredValidate {
 			delete(names, strings.TrimSpace(parameter.Key))
 		}
 	}

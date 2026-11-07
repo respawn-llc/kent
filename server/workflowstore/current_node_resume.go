@@ -117,25 +117,15 @@ func resumeTransitionProtectedParameterConsumption(
 		}
 	}
 	request := workflow.TransitionParameterContractRequest{
-		Edge:                  edge,
-		TargetKind:            target.Kind(),
-		TargetRole:            workflow.NodeSubagentRole(target),
-		FanOut:                edgeCount > 1,
-		Catalog:               catalog,
-		TargetSessionPolicy:   workflow.AssigneeSessionPolicyEstablishTarget,
-		TargetSessionResolved: false,
+		Edge:       edge,
+		TargetKind: target.Kind(),
+		TargetRole: workflow.NodeSubagentRole(target),
+		FanOut:     edgeCount > 1,
+		Catalog:    catalog,
 	}
 	if selection := currentNode.AgentExecutionSelection; selection != nil &&
 		selection.Origin == workflow.AssigneeOriginRetainedSession {
-		retainedRole := workflow.TargetAgentRole{Identity: selection.Assignee}
-		if catalog != nil {
-			if resolved, ok := catalog.ResolveConfiguredRole(selection.Assignee); ok {
-				retainedRole = resolved
-			}
-		}
-		request.RetainedTargetRole = &retainedRole
-		request.TargetSessionPolicy = workflow.AssigneeSessionPolicyPreserve
-		request.TargetSessionResolved = true
+		request.RetainedSession = selection
 	}
 	group, err := transitionGroupForEdge(definition, edge)
 	if err != nil {
@@ -161,15 +151,8 @@ func resumeCurrentNodeInputBindings(
 			filtered = append(filtered, binding)
 			continue
 		}
-		switch workflow.CanonicalParameterPurpose(parameter.Purpose) {
-		case workflow.ParameterPurposeTargetAssignee:
-			if consumption.Assignee != workflow.ProtectedParameterConsumptionRequiredValidate {
-				continue
-			}
-		case workflow.ParameterPurposeTargetThinking:
-			if consumption.Thinking != workflow.ProtectedParameterConsumptionRequiredValidate {
-				continue
-			}
+		if consumption.ForParameter(parameter) != workflow.ProtectedParameterConsumptionRequiredValidate {
+			continue
 		}
 		filtered = append(filtered, binding)
 	}

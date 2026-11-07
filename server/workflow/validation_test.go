@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -602,6 +603,72 @@ func TestValidationRejectsPriorReferenceToHiddenSelectorParameter(t *testing.T) 
 
 	result := validateForTask(def)
 	assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+}
+
+func TestPromptSelectorReferencesRequireGuaranteedValues(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		automatic        bool
+		retainedPossible bool
+		allowed          bool
+	}{
+		{name: "required", allowed: true},
+		{name: "automatic", automatic: true},
+		{name: "unknown retained Session", retainedPossible: true},
+	} {
+		for _, purpose := range []workflow.ParameterPurpose{workflow.ParameterPurposeTargetAssignee, workflow.ParameterPurposeTargetThinking} {
+			for _, prior := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/prior=%v", test.name, purpose, prior), func(t *testing.T) {
+					def := parameterWorkflow(t)
+					def.Nodes = append(def.Nodes, testAgentNode(def.ID, "node_audit", "audit", "Audit", workflow.NodeFields{SubagentRole: "coder"}))
+					edgeByIDForValidationTest(t, &def, "edge_implement_done").TargetNodeID = "node_audit"
+					def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{
+						WorkflowID: def.ID, ID: "group_audit_done", SourceNodeID: "node_audit", TransitionID: "finish", DisplayName: "Finish",
+					})
+					def.Edges = append(def.Edges, workflow.Edge{
+						WorkflowID: def.ID, ID: "edge_audit_done", Key: "finish", TransitionGroupID: "group_audit_done",
+						TargetNodeID: "node_done", ContextMode: workflow.ContextModeNewSession,
+					})
+					producer := edgeByIDForValidationTest(t, &def, "edge_plan_implement")
+					producer.Parameters = append(producer.Parameters, workflow.Parameter{Key: "selection", Purpose: purpose})
+					if purpose == workflow.ParameterPurposeTargetAssignee {
+						producer.AssigneeSelection = workflow.AssigneeSelectionPreviousNode
+					} else {
+						producer.ThinkingSelection = workflow.ThinkingSelectionPreviousNode
+					}
+					if test.retainedPossible {
+						producer.ContextMode = workflow.ContextModeContinueSession
+						producer.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourcePreviousTargetOrNew}
+					}
+					if prior {
+						edgeByIDForValidationTest(t, &def, "edge_implement_done").PromptTemplate = "{{.Params.implement.selection}}"
+					} else {
+						producer.PromptTemplate = "{{.Params.selection}}"
+					}
+					capability := workflow.ThinkingCapability{ReasoningCapable: true, Finite: true, Levels: []string{"high"}}
+					if !test.automatic {
+						capability.Levels = append(capability.Levels, "low")
+					}
+					role := workflow.TargetAgentRole{Identity: "coder", ExplicitAgentCallable: true, QuestionsEnabled: true, Thinking: capability}
+					catalog := targetAgentCatalogStub{
+						fallback:   map[string]workflow.TargetAgentRole{"coder": role},
+						selectable: []workflow.TargetAgentRole{role},
+					}
+					if !test.automatic {
+						catalog.selectable = append(catalog.selectable, workflow.TargetAgentRole{Identity: "other", ExplicitAgentCallable: true, Thinking: capability})
+					}
+					result := workflow.ValidateDefinition(normalizeWorkflowEdgeShape(def), workflow.ValidationOptions{
+						Context: workflow.ValidationContextTaskCreation, RoleResolver: catalog,
+					})
+					if test.allowed {
+						assertNoCode(t, result, workflow.CodeInvalidTemplatePlaceholder)
+					} else {
+						assertHasCodes(t, result, workflow.CodeInvalidTemplatePlaceholder)
+					}
+				})
+			}
+		}
+	}
 }
 
 func TestFanoutJoinTopology(t *testing.T) {

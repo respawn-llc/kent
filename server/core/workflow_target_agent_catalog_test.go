@@ -93,15 +93,19 @@ func TestConfigTargetAgentCatalogUsesEffectiveQuestionsForFallbackButSelectionFo
 	if !ok || role.QuestionsEnabled {
 		t.Fatalf("fallback questions = %#v, %v", role, ok)
 	}
-	selection, err := workflow.PlanTargetAgentSelection(catalog, workflow.TargetAgentSelectionRequest{
-		OverrideEnabled: true,
-		SubmittedRole:   "silent",
+	plan, err := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
+		Edge:            workflow.Edge{AssigneeSelection: workflow.AssigneeSelectionPreviousNode},
+		SourceKind:      workflow.NodeKindAgent,
+		TargetKind:      workflow.NodeKindAgent,
+		Catalog:         catalog,
+		Materialization: &workflow.TransitionSelectionMaterializationRequest{SubmittedRole: "silent"},
 	})
 	if err != nil {
 		t.Fatalf("PlanTargetAgentSelection: %v", err)
 	}
-	if !selection.QuestionsRequired {
-		t.Fatal("transition-selected role did not force-enable Questions")
+	if plan.ExecutionSelection == nil || plan.ExecutionSelection.Assignee != "silent" ||
+		plan.ExecutionSelection.Origin != workflow.AssigneeOriginTransitionSelected {
+		t.Fatalf("selection = %+v, want transition-selected silent", plan.ExecutionSelection)
 	}
 }
 
