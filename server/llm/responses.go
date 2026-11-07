@@ -87,10 +87,6 @@ type ResponsesTransport interface {
 	Compact(ctx context.Context, request ResponsesRequest) (ResponsesCompactionResponse, error)
 }
 
-type ResponsesModelContextWindowTransport interface {
-	ResolveModelContextWindow(ctx context.Context, model string) (int, error)
-}
-
 type ResponsesProviderCapabilitiesTransport interface {
 	ProviderCapabilities(ctx context.Context) (ProviderCapabilities, error)
 }
@@ -221,15 +217,4 @@ func (c *ResponsesClient) ProviderCapabilities(ctx context.Context) (ProviderCap
 		return transport.ProviderCapabilities(ctx)
 	}
 	return ProviderCapabilities{}, fmt.Errorf("provider capabilities are not supported by Responses transport %T", c.transport)
-}
-
-func (c *ResponsesClient) ResolveModelContextWindow(ctx context.Context, model string) (int, error) {
-	if c == nil || c.transport == nil {
-		return 0, ErrMissingTransport
-	}
-	resolver, ok := c.transport.(ResponsesModelContextWindowTransport)
-	if !ok {
-		return 0, fmt.Errorf("model context window resolution is not supported by Responses transport")
-	}
-	return resolver.ResolveModelContextWindow(ctx, model)
 }

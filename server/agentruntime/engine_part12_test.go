@@ -267,7 +267,7 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 
-			client := &contextWindowClient{contextWindow: 2_000}
+			client := &fakeClient{}
 			eng := mustNewTestEngine(t, store, client, newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{
 				Model:                 "gpt-6-sol",
 				ContextWindowTokens:   2_000,

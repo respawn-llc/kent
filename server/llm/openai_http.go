@@ -17,7 +17,6 @@ import (
 	"core/shared/modelcontract"
 	"core/shared/textutil"
 
-	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
@@ -68,10 +67,8 @@ type HTTPTransport struct {
 	ProviderCapabilitiesOverride *ProviderCapabilities
 	RequestCapabilities          *ProviderCapabilities
 
-	mu                  sync.RWMutex
-	modelContextWindows map[string]int
-	generationMu        sync.Mutex
-	socket              *responsesGenerationSocket
+	generationMu sync.Mutex
+	socket       *responsesGenerationSocket
 }
 
 func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantRegistration) (*HTTPTransport, error) {
@@ -84,7 +81,6 @@ func NewHTTPTransport(auth DispatchAuthProvider, registration ProviderVariantReg
 		registration:        registration,
 		ProviderIdentifier:  config.Command,
 		ContextWindowTokens: config.DefaultOnboardingSettings().ModelContextWindow,
-		modelContextWindows: make(map[string]int),
 	}, nil
 }
 
@@ -112,8 +108,6 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 	if err != nil {
 		return ResponsesResponse{}, err
 	}
-	windowTokens := t.resolveContextWindowFallback(ctx, request.Model)
-
 	payload, err := t.buildDispatchPayload(request, preparation.mode, preparation.providerCaps, preparation.projection)
 	if err != nil {
 		return ResponsesResponse{}, err
@@ -142,7 +136,7 @@ func (t *HTTPTransport) Generate(ctx context.Context, request ResponsesRequest, 
 		rawResp,
 		turnStateObserver,
 		preparation.variant,
-		windowTokens,
+		t.ContextWindowTokens,
 		callbacks,
 		requestEvidence,
 		attempt,
@@ -384,11 +378,10 @@ func (t *HTTPTransport) Compact(ctx context.Context, request ResponsesRequest) (
 	if err != nil {
 		return ResponsesCompactionResponse{}, err
 	}
-	windowTokens := t.resolveContextWindowFallback(ctx, request.Model)
 	if !preparation.variant.Capabilities.SupportsResponsesCompact {
 		return ResponsesCompactionResponse{}, fmt.Errorf("provider %s does not support remote compaction", preparation.providerCaps.ProviderID)
 	}
-	return preparation.variant.ResponsesPolicy.compact(ctx, t, request, preparation, windowTokens)
+	return preparation.variant.ResponsesPolicy.compact(ctx, t, request, preparation, t.ContextWindowTokens)
 }
 
 func (t *HTTPTransport) identifyProviderError(err error) {
@@ -559,63 +552,6 @@ func requireSingleEncryptedCompactionOutput(items []ResponseItem) (ResponseItem,
 		}
 	}
 	return compactions[0], nil
-}
-
-func (t *HTTPTransport) ResolveModelContextWindow(ctx context.Context, model string) (int, error) {
-	if t.Client == nil {
-		t.Client = NewHTTPClient(120 * time.Second)
-	}
-	if t.ContextWindowTokens > 0 {
-		return t.ContextWindowTokens, nil
-	}
-
-	normalizedModel := strings.ToLower(strings.TrimSpace(model))
-	if normalizedModel == "" {
-		if t.ContextWindowTokens > 0 {
-			return t.ContextWindowTokens, nil
-		}
-		return 0, nil
-	}
-
-	t.mu.RLock()
-	if cached := t.modelContextWindows[normalizedModel]; cached > 0 {
-		t.mu.RUnlock()
-		return cached, nil
-	}
-	t.mu.RUnlock()
-
-	resolved := 0
-	authHeader, mode, err := t.resolveAuth(ctx)
-	if err == nil {
-		variant := t.registration.Variant
-		service := openai.NewModelService(
-			option.WithBaseURL(t.serviceBaseURL()),
-			option.WithHTTPClient(t.Client),
-			option.WithMaxRetries(0),
-		)
-		reqOpts := t.buildRequestOptions(ResponsesRequest{Model: model}, responsesDispatchPreparation{authHeader: authHeader, mode: mode, variant: variant})
-		var rawResp *http.Response
-		reqOpts = append(reqOpts, option.WithResponseInto(&rawResp))
-		modelResponse, modelErr := service.Get(ctx, strings.TrimSpace(model), reqOpts...)
-		if modelErr == nil && modelResponse != nil {
-			resolved = parseContextWindowTokens(modelResponse.RawJSON())
-		}
-		if resolved <= 0 {
-			resolved = parseContextWindowTokensFromHeaders(rawResp)
-		}
-	}
-
-	if resolved <= 0 {
-		if fallbackMeta, ok := LookupModelMetadata(model); ok && fallbackMeta.ContextWindowTokens > 0 {
-			resolved = fallbackMeta.ContextWindowTokens
-		}
-	}
-	if resolved <= 0 {
-		resolved = t.ContextWindowTokens
-	}
-
-	t.cacheModelContextWindow(model, resolved)
-	return resolved, nil
 }
 
 func (t *HTTPTransport) ProviderCapabilities(context.Context) (ProviderCapabilities, error) {

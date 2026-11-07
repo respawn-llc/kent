@@ -787,7 +787,3 @@ type StreamCallbacks struct {
 	OnReasoningSummaryDelta   func(delta ReasoningSummaryDelta)
 	OnStreamActivity          func()
 }
-
-type ModelContextWindowClient interface {
-	ResolveModelContextWindow(ctx context.Context, model string) (int, error)
-}

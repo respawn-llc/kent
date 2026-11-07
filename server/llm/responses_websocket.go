@@ -168,7 +168,7 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	if err := t.socket.SendJSON(ctx, create); err != nil {
 		return result, err
 	}
-	accumulator := newResponseStreamAccumulator(callbacks, t.resolveContextWindowFallback(ctx, request.Model), preparation.variant.ResponsesPolicy)
+	accumulator := newResponseStreamAccumulator(callbacks, t.ContextWindowTokens, preparation.variant.ResponsesPolicy)
 	accumulator.attempt = attempt
 	for {
 		event, err := t.socket.Recv(ctx)

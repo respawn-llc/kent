@@ -14,11 +14,10 @@ var ErrUnexpectedToolResult = errors.New("scripted llm: unexpected tool result")
 var ErrConcurrentCall = errors.New("scripted llm: undeclared concurrent call")
 
 type Script struct {
-	Capabilities        *llm.ProviderCapabilities
-	Steps               []Step
-	Compactions         []llm.CompactionResponse
-	ContextWindowTokens *int
-	AllowConcurrent     bool
+	Capabilities    *llm.ProviderCapabilities
+	Steps           []Step
+	Compactions     []llm.CompactionResponse
+	AllowConcurrent bool
 }
 
 type Step struct {
