@@ -83,7 +83,7 @@ func (m *sessionPickerModel) View() string {
 			if index > 0 {
 				out.WriteString("\n\n")
 			}
-			out.WriteString(m.renderRow(tab, row.index, row.showPreview))
+			out.WriteString(m.renderRow(tab, row.Index, row.ShowPreview))
 		}
 		if tab.nextEdge.request != nil {
 			if len(visible) > 0 {
