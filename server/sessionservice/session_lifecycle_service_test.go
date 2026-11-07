@@ -15,6 +15,7 @@ import (
 	"core/server/agentruntime"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/operation"
 	sessionruntime "core/server/sessionruntime"
 	"core/server/sessionstore"
 	"core/shared/config"
@@ -80,13 +81,13 @@ func userMessageSeqAt(t *testing.T, store *session.Store, n int) int64 {
 	return 0
 }
 
-func newTestSessionLifecycleService(root string, owner *metadata.Store) *SessionLifecycleService {
+func newTestSessionLifecycleService(t *testing.T, root string, owner *metadata.Store) *SessionLifecycleService {
 	authority := sessionruntime.NewAuthority(sessionruntime.AuthorityOptions{
 		PersistenceRoot:               root,
 		ProjectWorkspaceContextReader: owner,
 		StoreOptions:                  owner.AuthoritativeSessionStoreOptions(),
 	})
-	return NewGlobalSessionLifecycleService(root, authority, owner)
+	return newTestGlobalSessionLifecycleService(t, root, authority, owner)
 }
 
 type sessionLifecycleRetargeterStub struct {
@@ -94,17 +95,6 @@ type sessionLifecycleRetargeterStub struct {
 	err       error
 	req       metadata.SessionWorkspaceRetargetRequest
 	scheduled bool
-}
-
-func (s *sessionLifecycleRetargeterStub) ScheduleWorkspaceRetarget(
-	_ context.Context,
-	req metadata.SessionWorkspaceRetargetRequest,
-	_ *sessionlaunchpb.RuntimeStepOrigin,
-	operationID worktreecontract.OperationID,
-) (*worktreepb.ScheduledAcknowledgement, error) {
-	s.req = req
-	s.scheduled = true
-	return &worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()}, s.err
 }
 
 type sessionNavigationTargetResolverStub struct {
@@ -132,12 +122,32 @@ func (s *sessionNavigationTargetResolverStub) ResolveSessionNavigationBinding(ct
 	return s.target, s.err
 }
 
-func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(_ context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+func (s *sessionLifecycleRetargeterStub) RetargetWorkspace(
+	_ operation.OperationScope,
+	req metadata.SessionWorkspaceRetargetRequest,
+	origin *sessionlaunchpb.RuntimeStepOrigin,
+	operationID worktreecontract.OperationID,
+	_ func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
+	scheduled func(*worktreepb.ScheduledAcknowledgement),
+	_ func(error),
+) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	s.req = req
 	if s.err != nil {
 		return nil, s.err
 	}
+	if origin != nil {
+		s.scheduled = true
+		scheduled(&worktreepb.ScheduledAcknowledgement{OperationId: operationID.String()})
+		return nil, nil
+	}
 	return completedWorkspaceRetargetResponse(s.result)
+}
+
+func newTestGlobalSessionLifecycleService(t *testing.T, root string, authority *sessionruntime.Authority, metadata SessionLifecycleMetadata) *SessionLifecycleService {
+	t.Helper()
+	owner := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	return NewGlobalSessionLifecycleService(root, authority, metadata, owner)
 }
 
 func createPersistedSession(t *testing.T) (string, string, *session.Store, *metadata.Store) {
@@ -191,7 +201,7 @@ func TestServiceGetInitialInputPrefersStoredDraft(t *testing.T) {
 		t.Fatalf("set input draft: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
 		SessionId:       proto.String(store.Meta().SessionID),
 		TransitionInput: "transition input",
@@ -225,7 +235,7 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 			if err := store.SetName(textutil.Value("parent session")); err != nil {
 				t.Fatalf("persist parent session: %v", err)
 			}
-			service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+			service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 			_, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 				SessionId: store.Meta().SessionID,
 				Input:     "conflicting parent draft",
@@ -251,7 +261,7 @@ func TestServiceGetInitialInputOverrideReturnsOnlyExactTransitionInput(t *testin
 
 func TestServiceGetInitialInputAllowsEmptySessionID(t *testing.T) {
 	sessionServiceTestPersistence := testsetup.OpenStore(t, t.TempDir())
-	service := newTestSessionLifecycleService(t.TempDir(), sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, t.TempDir(), sessionServiceTestPersistence)
 	resp, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{
 		TransitionInput: "transition input",
 	})
@@ -269,7 +279,7 @@ func TestServicePersistInputDraftWritesBySessionID(t *testing.T) {
 		t.Fatalf("set session name: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 	if _, err := service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
@@ -298,7 +308,7 @@ func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := newTestSessionLifecycleService(root, persistence)
+	service := newTestSessionLifecycleService(t, root, persistence)
 	id, err := runtimeids.ParseSessionID(child.Meta().SessionID)
 	if err != nil {
 		t.Fatal(err)
@@ -329,7 +339,7 @@ func TestPromoteDormantSubagentWithoutRuntime(t *testing.T) {
 
 func TestServiceRestoresAndClearsProtectedDraft(t *testing.T) {
 	_, containerDir, store, sessionServiceTestPersistence := createPersistedSession(t)
-	service := newTestSessionLifecycleService(containerDir, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, containerDir, sessionServiceTestPersistence)
 	protected := "draft A"
 	request := &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId:      store.Meta().SessionID,
@@ -417,7 +427,7 @@ func TestServiceRetargetSessionWorkspacePreservesRuntimeOrigin(t *testing.T) {
 }
 
 func TestServiceRetargetSessionWorkspaceRequiresRetargeter(t *testing.T) {
-	service := NewGlobalSessionLifecycleService(t.TempDir(), nil, testsetup.OpenStore(t, t.TempDir()))
+	service := newTestGlobalSessionLifecycleService(t, t.TempDir(), nil, testsetup.OpenStore(t, t.TempDir()))
 	_, err := service.RetargetSessionWorkspace(context.Background(), &sessionlaunchpb.SessionRetargetWorkspaceRequest{
 		SessionId:     requestfixture.Selector(t, "33333333-3333-4333-8333-333333333333"),
 		WorkspaceRoot: t.TempDir(),
@@ -432,7 +442,7 @@ func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 	if err := store.SetName(textutil.Value("session name")); err != nil {
 		t.Fatalf("set session name: %v", err)
 	}
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 	req := &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "saved by service",
@@ -455,7 +465,7 @@ func TestServicePersistInputDraftPersistsAndDedupes(t *testing.T) {
 
 func TestServiceResolveTransitionOpenSessionRequiresTarget(t *testing.T) {
 	sessionServiceTestPersistence := testsetup.OpenStore(t, t.TempDir())
-	service := newTestSessionLifecycleService(t.TempDir(), sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, t.TempDir(), sessionServiceTestPersistence)
 	response, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		Transition: &sessionlaunchpb.SessionTransition{
 			Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_OPEN_SESSION,
@@ -494,7 +504,7 @@ func TestServiceResolveTransitionOpenSessionAuthorizesProvenanceTargetAndReturns
 		firstStarted: firstStarted,
 		releaseFirst: releaseFirst,
 	}
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence).WithNavigationTargetResolver(resolver)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence).WithNavigationTargetResolver(resolver)
 
 	request := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(child.Meta().SessionID),
@@ -555,7 +565,7 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 		t.Fatalf("EnsureDurable child: %v", err)
 	}
 	resolver := &sessionNavigationTargetResolverStub{}
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence).WithNavigationTargetResolver(resolver)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence).WithNavigationTargetResolver(resolver)
 
 	_, err = service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(child.Meta().SessionID),
@@ -598,7 +608,7 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
+	service := newTestSessionLifecycleService(t, cfg.PersistenceRoot, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -664,7 +674,7 @@ func TestServiceResolveTransitionForkRollbackUsesTargetToken(t *testing.T) {
 	appendSessionMessage(t, store, "step-2", session.MessageRoleUser, "u2")
 	appendSessionMessage(t, store, "step-2", session.MessageRoleAssistant, "a2")
 
-	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
+	service := newTestSessionLifecycleService(t, cfg.PersistenceRoot, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -747,7 +757,7 @@ func TestServiceForkAndCloneLeaveSourceBindingUnchanged(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	service := NewGlobalSessionLifecycleService(cfg.PersistenceRoot, authority, metadataStore).WithConnectionRotation(rotation)
+	service := newTestGlobalSessionLifecycleService(t, cfg.PersistenceRoot, authority, metadataStore).WithConnectionRotation(rotation)
 	directive, err := service.ResolveTransition(t.Context(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: new(source.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -824,7 +834,7 @@ func TestServiceResolveTransitionForkRollbackPreservesExecutionTarget(t *testing
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
+	service := newTestSessionLifecycleService(t, cfg.PersistenceRoot, metadataStore)
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(sess.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -889,7 +899,7 @@ func TestServiceResolveTransitionForkRollbackActivatesChildInPreservedWorktree(t
 		t.Fatalf("UpdateSessionExecutionTarget: %v", err)
 	}
 
-	lifecycle := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
+	lifecycle := newTestSessionLifecycleService(t, cfg.PersistenceRoot, metadataStore)
 	resolved, err := lifecycle.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(sess.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -964,7 +974,7 @@ func TestServiceResolveTransitionForkRollbackRejectsInvalidTargetToken(t *testin
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 	_, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -1000,7 +1010,7 @@ func TestServiceGetInitialInputResolvesSessionAcrossProjects(t *testing.T) {
 		t.Fatalf("set foreign input draft: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 	response, err := service.GetInitialInput(context.Background(), &sessionlaunchpb.SessionInitialInputRequest{SessionId: proto.String(store.Meta().SessionID)})
 	if err != nil {
 		t.Fatalf("GetInitialInput: %v", err)
@@ -1033,7 +1043,7 @@ func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 		t.Fatalf("persist foreign session meta: %v", err)
 	}
 
-	service := newTestSessionLifecycleService(root, sessionServiceTestPersistence)
+	service := newTestSessionLifecycleService(t, root, sessionServiceTestPersistence)
 	_, err = service.PersistInputDraft(context.Background(), &sessionlaunchpb.SessionPersistInputDraftRequest{
 		SessionId: store.Meta().SessionID,
 		Input:     "updated draft",
@@ -1053,7 +1063,7 @@ func TestServicePersistInputDraftResolvesSessionAcrossProjects(t *testing.T) {
 func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testing.T) {
 	currentID := runtimeids.NewSessionID()
 
-	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
+	service := newTestSessionLifecycleService(t, t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 
 	resp, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(currentID.String()),
@@ -1075,7 +1085,7 @@ func TestServiceResolveTransitionLogoutUsesSessionIDWithoutStoreLookup(t *testin
 }
 
 func TestServiceResolveTransitionLogoutReturnsStableDirective(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
+	service := newTestSessionLifecycleService(t, t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 	req := &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId:  proto.String(runtimeids.NewSessionID().String()),
 		Transition: &sessionlaunchpb.SessionTransition{Action: sessionlaunchpb.SessionTransitionAction_SESSION_TRANSITION_ACTION_LOGOUT},

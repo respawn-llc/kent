@@ -228,6 +228,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	gitInspector := worktree.NewGitInspector(nil)
 	sessionWorkspaceRetargeter := sessionservice.NewSessionWorkspaceRetargeter(metadataStore, runtimeAuthority, runtimeRegistry, background)
 	worktreeService := worktree.NewService(metadataStore, gitInspector, runtimeAuthority, runtimeRegistry, background, worktree.ServiceOptions{
+		Operations:                    operationOwner,
 		PersistenceRoot:               cfg.PersistenceRoot,
 		BaseDir:                       cfg.Settings.Worktrees.BaseDir,
 		SessionRetargeter:             sessionWorkspaceRetargeter,
@@ -246,7 +247,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
-	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, metadataStore).
+	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, metadataStore, operationOwner).
 		WithConnectionRotation(connectionRotation).
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).

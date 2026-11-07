@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
 	"core/shared/clientui"
@@ -32,6 +33,35 @@ type transitionAuthority = sessionruntime.WorktreeTransitionAuthority
 type transitionTargetSync = sessionruntime.WorktreeTransitionTargetSync
 
 func (s *Service) EnterWorktree(ctx context.Context, req *worktreepb.EnterRequest) (*worktreepb.ScheduledAcknowledgement, error) {
+	type reply struct {
+		ack *worktreepb.ScheduledAcknowledgement
+		err error
+	}
+	result := make(chan reply, 1)
+	_, err := s.operations.Start(ctx, func(scope operation.OperationScope) error {
+		scheduled := false
+		ack, runErr := s.enterWorktree(scope, req, func(ack *worktreepb.ScheduledAcknowledgement) {
+			scheduled = true
+			result <- reply{ack: ack}
+		})
+		if !scheduled {
+			result <- reply{ack: ack, err: runErr}
+		}
+		return runErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case outcome := <-result:
+		return outcome.ack, outcome.err
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	}
+}
+
+func (s *Service) enterWorktree(scope operation.OperationScope, req *worktreepb.EnterRequest, scheduled func(*worktreepb.ScheduledAcknowledgement)) (*worktreepb.ScheduledAcknowledgement, error) {
+	ctx := scope.Context()
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -55,7 +85,7 @@ func (s *Service) EnterWorktree(ctx context.Context, req *worktreepb.EnterReques
 		return nil, err
 	}
 	if strings.TrimSpace(currentTarget.GetWorkspaceId()) != request.workspace.workspaceID {
-		return s.enterWorktreeAcrossWorkspace(ctx, request, req.Origin)
+		return s.enterWorktreeAcrossWorkspace(scope, request, req.Origin, scheduled)
 	}
 	selector := request.selector
 	return s.runWorktreeTransition(ctx, request, runtimeinput.PendingWorkWorktreeTransition{
@@ -87,9 +117,10 @@ func (s *Service) transitionWorkspaceContext(
 }
 
 func (s *Service) enterWorktreeAcrossWorkspace(
-	ctx context.Context,
+	scope operation.OperationScope,
 	request worktreeTransitionRequest,
 	origin *worktreepb.TransitionRuntimeStepOrigin,
+	scheduled func(*worktreepb.ScheduledAcknowledgement),
 ) (*worktreepb.ScheduledAcknowledgement, error) {
 	if s.sessionRetargeter == nil {
 		return nil, errors.New("session workspace retargeter is required")
@@ -110,8 +141,8 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 			StepId:    strings.TrimSpace(origin.StepId),
 		}
 	}
-	if _, err := s.sessionRetargeter.ScheduleWorkspaceRetargetResolutionWithCompletion(
-		ctx,
+	if _, err := s.sessionRetargeter.RetargetWorkspace(
+		scope,
 		metadata.SessionWorkspaceRetargetRequest{
 			SessionID: request.sessionID, WorkspaceRoot: request.workspace.workspaceRoot,
 			ProjectID: &request.workspace.projectID,
@@ -119,6 +150,7 @@ func (s *Service) enterWorktreeAcrossWorkspace(
 		runtimeOrigin,
 		worktreecontract.OperationID(request.operationID),
 		resolve,
+		scheduled,
 		complete,
 	); err != nil {
 		return nil, err
@@ -186,6 +218,12 @@ func (s *Service) resolveCrossWorkspaceEnter(
 }
 
 func (s *Service) LeaveWorktree(ctx context.Context, req *worktreepb.LeaveRequest) (*worktreepb.ScheduledAcknowledgement, error) {
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*worktreepb.ScheduledAcknowledgement, error) {
+		return s.leaveWorktree(scope.Context(), req)
+	})
+}
+
+func (s *Service) leaveWorktree(ctx context.Context, req *worktreepb.LeaveRequest) (*worktreepb.ScheduledAcknowledgement, error) {
 	id, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err

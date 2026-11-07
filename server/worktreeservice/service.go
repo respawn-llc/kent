@@ -15,6 +15,7 @@ import (
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/mutationlane"
+	"core/server/operation"
 	"core/server/runtimeactivity"
 	"core/server/sessionruntime"
 	"core/server/tools"
@@ -51,7 +52,7 @@ type processSource interface {
 }
 
 type sessionWorkspaceRetargeter interface {
-	ScheduleWorkspaceRetargetResolutionWithCompletion(context.Context, metadata.SessionWorkspaceRetargetRequest, *sessionlaunchpb.RuntimeStepOrigin, worktreecontract.OperationID, func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error), func(error)) (*worktreepb.ScheduledAcknowledgement, error)
+	RetargetWorkspace(operation.OperationScope, metadata.SessionWorkspaceRetargetRequest, *sessionlaunchpb.RuntimeStepOrigin, worktreecontract.OperationID, func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error), func(*worktreepb.ScheduledAcknowledgement), func(error)) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
 }
 
 type runtimeActivitySnapshotReader interface {
@@ -59,6 +60,7 @@ type runtimeActivitySnapshotReader interface {
 }
 
 type ServiceOptions struct {
+	Operations                    *operation.OperationOwner
 	PersistenceRoot               string
 	BaseDir                       string
 	SetupScript                   string
@@ -69,6 +71,7 @@ type ServiceOptions struct {
 }
 
 type Service struct {
+	operations                    *operation.OperationOwner
 	persistenceRoot               string
 	metadata                      *metadata.Store
 	git                           *GitInspector
@@ -352,6 +355,7 @@ func NewService(metadataStore *metadata.Store, gitInspector *GitInspector, autho
 		gitInspector = NewGitInspector(nil)
 	}
 	return &Service{
+		operations:                    opts.Operations,
 		metadata:                      metadataStore,
 		git:                           gitInspector,
 		authority:                     authority,
@@ -1865,7 +1869,13 @@ func nonblankPointer(value string) *string {
 	return &value
 }
 
-func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequest) (resp *worktreepb.CreateSuccess, err error) {
+func (s *Service) CreateWorktree(ctx context.Context, req *worktreepb.CreateRequest) (*worktreepb.CreateSuccess, error) {
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*worktreepb.CreateSuccess, error) {
+		return s.createWorktree(scope.Context(), req)
+	})
+}
+
+func (s *Service) createWorktree(ctx context.Context, req *worktreepb.CreateRequest) (resp *worktreepb.CreateSuccess, err error) {
 	defer func() {
 		if err == nil {
 			return
