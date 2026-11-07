@@ -137,10 +137,9 @@ type runtimeConnectionStateChangedMsg struct {
 }
 
 type runtimeMainViewRefreshedMsg struct {
-	token                    uint64
-	metadataBaselineRevision *uint64
-	view                     *runtimepb.MainView
-	err                      error
+	token uint64
+	view  *runtimepb.MainView
+	err   error
 }
 
 type runtimeMainViewRetryMsg struct {

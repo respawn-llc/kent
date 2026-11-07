@@ -29,6 +29,81 @@ import { executeChatTranscriptPage } from "./chatTranscriptHost";
 import { queryKeys } from "./queryKeys";
 
 describe("Chat Main View admission", () => {
+  it("publishes late same-Session metadata without rolling back live activity", async () => {
+    const late = deferred<ChatMainViewRead>();
+    const fixture = runtimeApi({ reads: [Promise.resolve(mainViewRead()), late.promise] });
+    const client = new QueryClient();
+    const owner = new RuntimeHarness(fixture.api, target, client, runtimeHost());
+    owner.start();
+    await onQueryData(client, queryKeys.chatMainView(target.sessionID), (view) => view !== undefined);
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration() });
+    });
+    owner.forceMainViewRead();
+    await waitFor(() => {
+      expect(fixture.getMainView).toHaveBeenCalledTimes(2);
+    });
+    await act(async () => {
+      fixture.handlers[0]?.onEvent({ sequence: 2, kind: "session_identity", payload: changedIdentity() });
+      fixture.handlers[0]?.onEvent({ ...runtimeUpdate(5, 1, "closing"), sequence: 3 });
+    });
+    await onQueryData(
+      client,
+      queryKeys.chatMainView(target.sessionID),
+      (view) => view?.activity.state === "closing",
+    );
+    expect(client.getQueryData<ChatMainView>(queryKeys.chatMainView(target.sessionID))).toMatchObject({
+      executionTarget: { workspaceID: "workspace-2" },
+      activity: { state: "closing" },
+    });
+    const read = mainViewRead(3);
+    await act(async () => {
+      late.resolve({ ...read, mainView: { ...read.mainView, sessionName: "late metadata" } });
+    });
+    await onQueryData(
+      client,
+      queryKeys.chatMainView(target.sessionID),
+      (view) => view?.sessionName === "late metadata",
+    );
+    expect(client.getQueryData<ChatMainView>(queryKeys.chatMainView(target.sessionID))).toMatchObject({
+      executionTarget: read.mainView.executionTarget,
+      status: read.mainView.status,
+      version: { sequence: 5 },
+      activity: { state: "closing" },
+    });
+    owner.dispose();
+  });
+
+  it("keeps a late read isolated from a different Session destination", async () => {
+    const late = deferred<ChatMainViewRead>();
+    const firstFixture = runtimeApi({ reads: [late.promise] });
+    const nextTarget = { ...target, sessionID: "223e4567-e89b-42d3-a456-426614174000" };
+    const nextRead = mainViewRead();
+    const secondFixture = runtimeApi({
+      reads: [
+        Promise.resolve({ ...nextRead, mainView: { ...nextRead.mainView, sessionID: nextTarget.sessionID } }),
+      ],
+    });
+    const client = new QueryClient();
+    const first = new RuntimeHarness(firstFixture.api, target, client, runtimeHost());
+    first.start();
+    await waitFor(() => {
+      expect(firstFixture.getMainView).toHaveBeenCalledTimes(1);
+    });
+    first.dispose();
+    const second = new RuntimeHarness(secondFixture.api, nextTarget, client, runtimeHost());
+    second.start();
+    await onQueryData(client, queryKeys.chatMainView(nextTarget.sessionID), (view) => view !== undefined);
+    await act(async () => {
+      late.resolve({ ...nextRead, mainView: { ...nextRead.mainView, sessionName: "previous Session" } });
+    });
+    expect(client.getQueryData<ChatMainView>(queryKeys.chatMainView(nextTarget.sessionID))).toMatchObject({
+      sessionID: nextTarget.sessionID,
+      sessionName: nextRead.mainView.sessionName,
+    });
+    second.dispose();
+  });
+
   it("counts active Session processes from hydration and lifecycle events without page reads", async () => {
     const fixture = runtimeApi();
     const owner = new RuntimeHarness(fixture.api, target, new QueryClient(), runtimeHost());
@@ -165,7 +240,6 @@ describe("Chat Main View admission", () => {
     const authoritative = reduceChatProjection(emptyChatProjectionState(), {
       kind: "authoritative-read",
       read,
-      metadataRevisionAtStart: 0,
       goalGenerationAtStart: 0,
       currentGoalGeneration: 0,
     });
@@ -217,7 +291,7 @@ describe("Chat Main View admission", () => {
     });
   });
 
-  it("protects newer transcript metadata and Goal authority from a late read", () => {
+  it("allows late same-Session metadata while preserving Goal authority", () => {
     const seeded = seededProjection();
     const view = seeded.view;
     if (view === null) throw new Error("Seeded Main View is missing.");
@@ -242,12 +316,11 @@ describe("Chat Main View admission", () => {
         ...mainViewRead(3),
         mainView: { ...mainViewRead(3).mainView, sessionName: "stale" },
       },
-      metadataRevisionAtStart: 0,
       goalGenerationAtStart: 0,
       currentGoalGeneration: 1,
     });
 
-    expect(late.state.view?.sessionName).toBe("newer");
+    expect(late.state.view?.sessionName).toBe("stale");
     expect(late.state.view?.version.sequence).toBe(3);
     expect(late.goalFact).toBeNull();
   });
@@ -260,7 +333,6 @@ describe("Chat Main View admission", () => {
     const admitted = reduceChatProjection(observed, {
       kind: "authoritative-read",
       read: mainViewRead(),
-      metadataRevisionAtStart: 0,
       goalGenerationAtStart: 0,
       currentGoalGeneration: 1,
     });

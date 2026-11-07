@@ -46,7 +46,6 @@ func (c *sessionRuntimeClient) admitTranscriptMessageState(message *transcriptpb
 		}
 		applyTranscriptHydrationMetadataToMainView(c.mainView, hydration)
 		c.hasMainView = true
-		c.advanceMetadataRevision()
 		result = runtimeTupleMergeResult{decision: decision, view: proto.CloneOf(c.mainView), project: true}
 	case *transcriptpb.Event_RuntimeReadModelUpdate:
 		candidate := runtimeTupleFromReadModelUpdate(message.Event.GetRuntimeReadModelUpdate())
@@ -57,17 +56,14 @@ func (c *sessionRuntimeClient) admitTranscriptMessageState(message *transcriptpb
 		}
 		result = runtimeTupleMergeResult{decision: decision, view: proto.CloneOf(c.mainView), project: decision == runtimeTupleApply}
 	default:
-		metadataChanged := applyTranscriptMetadataToMainView(c.mainView, message)
+		applyTranscriptMetadataToMainView(c.mainView, message)
 		c.hasMainView = true
-		if metadataChanged {
-			c.advanceMetadataRevision()
-		}
 		result.view = proto.CloneOf(c.mainView)
 	}
 	return result, nil
 }
 
-func applyTranscriptMetadataToMainView(view *runtimepb.MainView, message *transcriptpb.Message) bool {
+func applyTranscriptMetadataToMainView(view *runtimepb.MainView, message *transcriptpb.Message) {
 	switch message.Event.Payload.(type) {
 	case *transcriptpb.Event_SessionStatus:
 		applyTranscriptSessionStatusToRuntimeStatus(view.Status, message.Event.GetSessionStatus())
@@ -77,10 +73,7 @@ func applyTranscriptMetadataToMainView(view *runtimepb.MainView, message *transc
 		view.Status.ContextUsage = proto.CloneOf(message.Event.GetContextUsage())
 	case *transcriptpb.Event_GoalStatus:
 		view.Status.Goal = proto.CloneOf(message.Event.GetGoalStatus())
-	default:
-		return false
 	}
-	return true
 }
 
 func applyTranscriptHydrationMetadataToMainView(view *runtimepb.MainView, hydration *transcriptpb.Hydration) {

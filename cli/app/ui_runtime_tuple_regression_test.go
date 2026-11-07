@@ -7,6 +7,7 @@ import (
 
 	"core/cli/tui/ongoing"
 	"core/shared/protoapi"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -223,7 +224,7 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 	}
 }
 
-func TestRuntimeMainViewRefreshPreservesMetadataChangedAfterRequestStarted(t *testing.T) {
+func TestRuntimeMainViewRefreshAllowsLateSameSessionMetadata(t *testing.T) {
 	v10 := runtimeTupleTestView(10, runtimeTupleTestIdleActivity())
 	v10.Status = &runtimepb.Status{
 		ReviewerFrequency: "stale unary reviewer",
@@ -257,11 +258,37 @@ func TestRuntimeMainViewRefreshPreservesMetadataChangedAfterRequestStarted(t *te
 
 	got := runtimeClient.MainView()
 	assertRuntimeTupleView(t, got, v10)
-	if got.Status.ReviewerFrequency != "fresh transcript reviewer" || got.Status.ThinkingLevel != "fresh transcript thinking" {
-		t.Fatalf("stale unary response replaced newer metadata: %+v", got.Status)
+	if got.Status.ReviewerFrequency != "stale unary reviewer" || got.Status.ThinkingLevel != "stale unary thinking" {
+		t.Fatalf("late same-Session metadata was not applied: %+v", got.Status)
 	}
-	if m.reviewerMode != "fresh transcript reviewer" || m.thinkingLevel != "fresh transcript thinking" {
-		t.Fatalf("UI projected stale unary metadata: reviewer=%q thinking=%q", m.reviewerMode, m.thinkingLevel)
+	if m.reviewerMode != "stale unary reviewer" || m.thinkingLevel != "stale unary thinking" {
+		t.Fatalf("UI did not project late same-Session metadata: reviewer=%q thinking=%q", m.reviewerMode, m.thinkingLevel)
+	}
+}
+
+func TestRuntimeMainViewRefreshCannotChangeAdoptedSession(t *testing.T) {
+	initial := runtimeTupleTestView(9, runtimeTupleTestIdleActivity())
+	client := newTestSessionRuntimeClient(&countingSessionViewClient{view: initial})
+	client.storeMainView(initial)
+	m := newProjectedTestUIModel(client)
+	refresh := m.startRuntimeMainViewRefresh()
+	completion := refresh().(runtimeMainViewRefreshedMsg)
+	nextID := "223e4567-e89b-42d3-a456-426614174000"
+	m.pendingNewChatActions = 1
+	m.applyNewSessionActionDone(newSessionActionDoneMsg{
+		origin: m,
+		chatActionResult: chatActionResult{
+			session: &chatpb.ExistingSessionTarget{SessionId: nextID},
+		},
+	})
+	for _, err := range []error{nil, io.EOF} {
+		completion.err = err
+		if cmd := m.handleRuntimeMainViewRefreshed(completion); cmd != nil {
+			t.Fatal("previous Session completion affected the adopted Session")
+		}
+		if m.currentRuntimeSessionID() != nextID || m.runtimeDisconnectStatusVisible() {
+			t.Fatal("previous Session completion changed the destination or connection status")
+		}
 	}
 }
 

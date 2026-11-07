@@ -153,7 +153,6 @@ export function seededProjection(sequence = 1): ChatProjectionState {
   return reduceChatProjection(emptyChatProjectionState(), {
     kind: "authoritative-read",
     read: mainViewRead(sequence),
-    metadataRevisionAtStart: 0,
     goalGenerationAtStart: 0,
     currentGoalGeneration: 0,
   }).state;
