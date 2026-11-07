@@ -26,7 +26,6 @@ import {
   workflowParameterPurpose,
   workflowSelectorReason,
   workflowThinkingSelection,
-  workflowValidationCode,
   workflowValidationMode,
 } from "./workflowProtoValues";
 
@@ -123,7 +122,7 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
 
 export function workflowValidationError(value: pb.WorkflowValidationError): WorkflowValidationError {
   return {
-    code: workflowValidationCode.decode(value.code),
+    code: value.code,
     message: value.message,
     workflowID: value.workflowId ?? null,
     nodeID: value.nodeId ?? null,

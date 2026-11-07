@@ -391,7 +391,7 @@ describe("ApiClient", () => {
       valid: false,
       errors: [
         {
-          code: "workflow.validation.invalid_node_kind",
+          code: wf.ValidationErrorCode.INVALID_NODE_KIND,
           workflowID: "11111111-1111-4111-8111-111111111111",
           nodeID: boundaryGraphIDs.node,
           transitionGroupID: boundaryGraphIDs.transitionGroup,

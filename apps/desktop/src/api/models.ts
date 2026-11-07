@@ -1,3 +1,4 @@
+import type { ValidationErrorCode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import type { AttentionItem } from "./attention";
 import type { TaskLiveSession } from "./taskDetailModels";
 
@@ -205,7 +206,7 @@ export type PendingAsk = Readonly<{
 export type ApprovalDecision = "allow_once" | "allow_session" | "deny";
 
 export type WorkflowValidationError = Readonly<{
-  code: string;
+  code: ValidationErrorCode;
   message: string;
   workflowID: string | null;
   nodeID: string | null;

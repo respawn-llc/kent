@@ -1,3 +1,4 @@
+export { ValidationErrorCode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 export {
   assertSpeechSize,
   SpeechFailure,
