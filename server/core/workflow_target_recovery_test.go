@@ -20,6 +20,7 @@ import (
 	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/workflow"
+	"core/server/workflowconfig"
 	"core/server/workflowstore"
 	"core/shared/config"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
@@ -110,7 +111,7 @@ func newTaskRecoveryFixtureWithResumeSteps(
 	if err := app.MetadataStore().SetProjectKey(ctx, binding.ProjectID, "REC"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := workflowstore.New(app.MetadataStore(), workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}))
+	store, err := workflowstore.New(app.MetadataStore(), workflowstore.WithRoleResolver(workflowconfig.Catalog{App: resolved.Config}))
 	if err != nil {
 		t.Fatal(err)
 	}

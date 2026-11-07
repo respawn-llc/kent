@@ -157,6 +157,8 @@
 - Each changed save increments the Workflow Version once. A save that changes both details and graph structure also increments it once. A save that changes nothing leaves the Workflow Version unchanged.
 - Pending Approvals store the Workflow Version and branch snapshots the operator is approving.
 - Executable Current Nodes resolve the latest Workflow definition and Runtime Parameter Contract when they start or resume. Kent stores no completed execution contracts as history.
+- When an already-started Agent Current Node resumes after a Workflow edit, Kent must use its saved Agent, model, and thinking selection while executable. When no prior selection exists, Kent must use available saved Session settings and otherwise the current Node's configured fallback Assignee and ordinary defaults. Missing thinking selection is valid. Invalid saved selections must produce errors.
+- If a saved Agent role or its settings are unavailable, Resume must use the saved model and available Session settings with current defaults for missing Agent settings.
 - Script Nodes use the current script path and completion requirements each time they execute.
 
 ## Nodes, Transitions, And Validation
@@ -168,6 +170,7 @@
 - Role configuration must follow [Configuration Resolution](core-runtime-tools.md#configuration-resolution), including Main Workspace private settings for managed Workflow worktrees. Connection selection, saved Session bindings, and incompatible context must follow [Provider Connections](provider-connections.md).
 - Agent Nodes do not own invocation prompts. Each incoming Transition Branch owns its Transition Prompt. Kent provides no Node-level prompt fallback.
 - Every Agent Node's configured fallback Assignee, including default and built-in roles, must have `ask_question` enabled. A Transition-selected Assignee is exempt because Kent force-enables Questions only for that execution path. Validation reports affected fallback Nodes without changing role configuration. Workflow Drafts and Backlog Tasks are allowed. Task Start, Resume, and manual movement to an executable target validate the latest Workflow before target selection, Task movement, or execution. Pending Approval creation validates before freezing its target. Approval must not repeat that graph or configuration validation.
+- Resume must validate an already-started Agent Current Node against its saved or recovered effective selection. Changes to its incoming Assignee or thinking selector, or to an unused configured fallback Assignee, must not by themselves prevent otherwise executable work from resuming. Resume must validate structure, provider and Session ownership, and current outgoing completion requirements.
 - Every Agent Node has a required configured Assignee.
 - Each eligible incoming serial Transition Branch independently may override that fallback by selecting the effective Assignee through a protected required Transition Parameter.
 - An eligible Transition without the override uses the target Agent Node's configured Assignee, so separate incoming Transitions may mix override-enabled and fallback-only behavior.
@@ -477,7 +480,8 @@
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.
 - Applying a Transition materializes each branch's declared Parameters for its target. Prompt rendering uses those values and never searches discarded execution history.
 - Built-in [Session references](workflow-editor.md#session-references) resolve the Task's existing Session associations when the prompt is rendered.
-- If the latest Workflow definition requires an already-current executable Node to have a Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. Kent must not reconstruct discarded Workflow history. Another selected parallel Current Node is independently admissible.
+- If the latest Workflow definition requires an already-current executable Node to have an ordinary Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. A protected Assignee or thinking Parameter required by a Workflow edit must not by itself prevent Resume. Kent must not reconstruct discarded Workflow history. Another selected parallel Current Node is independently admissible.
+- For Resume, Kent must derive missing exposed protected prompt inputs from the saved or recovered effective selection without changing historical Transition values or prior Parameters. Hidden automatic selections must stay hidden. If effective thinking has no named value, Kent must render `model default` only when a thinking placeholder added by a Workflow edit requires a value.
 - The Start Node's outgoing Transition cannot declare Parameters and should use task fields such as `.TaskTitle` and `.TaskBody`.
 - Kent derives Parameter flow and completion requirements from Transition Branch declarations, Workflow structure, and Join sources.
 

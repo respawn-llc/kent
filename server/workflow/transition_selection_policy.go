@@ -95,14 +95,27 @@ func resolveTransitionSelectionPolicy(request TransitionParameterContractRequest
 		CanonicalAssigneeSelection(request.Edge.AssigneeSelection) == AssigneeSelectionPreviousNode
 	policy.thinkingOverride = eligible &&
 		CanonicalThinkingSelection(request.Edge.ThinkingSelection) == ThinkingSelectionPreviousNode
+	policy.resolveConsumption(request.RetainedSession != nil)
+	return policy
+}
+
+// Resume uses the actual saved model's capabilities, not an edited fallback
+// role or the union of models that could be chosen on a new entry.
+func resumeProtectedParameterConsumption(request TransitionParameterContractRequest, effectiveRole TargetAgentRole) ProtectedParameterConsumption {
+	policy := resolveTransitionSelectionPolicy(request)
+	policy.thinking = resolveThinkingSelectionPolicy([]TargetAgentRole{effectiveRole})
+	policy.resolveConsumption(request.RetainedSession != nil)
+	return policy.consumption
+}
+
+func (policy *transitionSelectionPolicy) resolveConsumption(retainedSession bool) {
 	policy.consumption = ProtectedParameterConsumption{
 		Assignee: selectorConsumption(policy.assigneeOverride, policy.assignee.applicability),
 		Thinking: selectorConsumption(policy.thinkingOverride, policy.thinking.applicability),
 	}
-	if policy.assigneeOverride && request.RetainedSession != nil {
+	if policy.assigneeOverride && retainedSession {
 		policy.consumption.Assignee = ProtectedParameterConsumptionIgnoreAuthorized
 	}
-	return policy
 }
 
 func resolveConfiguredTargetRole(catalog TargetAgentCatalog, name string) *TargetAgentRole {

@@ -270,6 +270,7 @@ type CurrentNodeStartContext struct {
 	Node                           NodeRecord
 	CurrentNode                    workflow.CurrentNode
 	EnteringEdge                   workflow.Edge
+	SourceNodeKind                 workflow.NodeKind
 	ContextMode                    workflow.ContextMode
 	SourceSessionID                *runtimeids.SessionID
 	PromptSessionID                *runtimeids.SessionID

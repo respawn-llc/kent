@@ -40,6 +40,7 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowattention"
+	"core/server/workflowconfig"
 	"core/server/workflowexecution"
 	"core/server/workflowrunner"
 	"core/server/workflowstore"
@@ -267,7 +268,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		_ = metadataStore.Close()
 		_ = background.Close()
 	}
-	workflowRoleResolver := configRoleResolver{app: cfg}
+	workflowRoleResolver := workflowconfig.Catalog{App: cfg}
 	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflowRoleResolver))
 	if err != nil {
 		cleanupNewFailure()

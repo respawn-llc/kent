@@ -1,4 +1,4 @@
-package core
+package workflowconfig_test
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/workflow"
+	"core/server/workflowconfig"
 	"core/shared/config"
 	"core/shared/toolspec"
 )
@@ -22,7 +23,7 @@ func TestWorkflowCatalogUsesEnvironmentModelAboveRoleDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	role, ok := (configTargetAgentCatalog{app: app}).ResolveConfiguredRole("worker")
+	role, ok := (workflowconfig.Catalog{App: app}).ResolveConfiguredRole("worker")
 	if !ok || role.Model != "environment-model" {
 		t.Fatalf("catalog model = %q, found=%v", role.Model, ok)
 	}
@@ -55,7 +56,7 @@ func TestConfigTargetAgentCatalogSeparatesFallbackAndExplicitCallableRoles(t *te
 			"implicit": {},
 		},
 	}
-	catalog := configTargetAgentCatalog{app: testsetup.ProgrammaticConfig(t, settings)}
+	catalog := workflowconfig.Catalog{App: testsetup.ProgrammaticConfig(t, settings)}
 
 	fallback, ok := catalog.ResolveConfiguredRole("blocked")
 	if !ok || fallback.Identity != "blocked" {
@@ -88,7 +89,7 @@ func TestConfigTargetAgentCatalogUsesEffectiveQuestionsForFallbackButSelectionFo
 			},
 		},
 	}
-	catalog := configTargetAgentCatalog{app: testsetup.ProgrammaticConfig(t, settings)}
+	catalog := workflowconfig.Catalog{App: testsetup.ProgrammaticConfig(t, settings)}
 	role, ok := catalog.ResolveConfiguredRole("SILENT")
 	if !ok || role.QuestionsEnabled {
 		t.Fatalf("fallback questions = %#v, %v", role, ok)
@@ -142,7 +143,7 @@ func TestConfigTargetAgentCatalogResolvesFiniteAndOpenThinkingContracts(t *testi
 			},
 		},
 	}
-	catalog := configTargetAgentCatalog{app: testsetup.ProgrammaticConfig(t, settings)}
+	catalog := workflowconfig.Catalog{App: testsetup.ProgrammaticConfig(t, settings)}
 	finite, ok := catalog.ResolveConfiguredRole("finite")
 	if !ok || !finite.Thinking.Finite || len(finite.Thinking.Levels) == 0 || finite.ConfiguredThinking != "high" {
 		t.Fatalf("finite role = %#v, %v", finite, ok)
