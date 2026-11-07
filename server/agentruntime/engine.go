@@ -122,7 +122,6 @@ type Config struct {
 	RuntimeWriteAccepted  func()
 	LifecycleRuntimeAbort func() error
 	SubmitAgentSteer      func(context.Context, AgentSteer) error
-	DurabilityObserver    ResultGroupDurabilityObserver
 }
 
 type ReviewerConfig struct {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -109,31 +108,6 @@ func testResultGroupRosterFromPreparedCalls(calls []executorToolCall) []resultGr
 		}
 	}
 	return resultGroupRosterFromAcceptedCalls(accepted)
-}
-
-type toolDurabilityObservationRecorder struct {
-	mu      sync.Mutex
-	appends []session.EventLogAppendObservation
-	syncs   []session.EventLogSyncObservation
-}
-
-func (r *toolDurabilityObservationRecorder) ObserveEventLogAppend(observation session.EventLogAppendObservation) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.appends = append(r.appends, observation)
-}
-
-func (r *toolDurabilityObservationRecorder) ObserveEventLogSync(observation session.EventLogSyncObservation) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.syncs = append(r.syncs, observation)
-}
-
-func (r *toolDurabilityObservationRecorder) snapshot() ([]session.EventLogAppendObservation, []session.EventLogSyncObservation) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]session.EventLogAppendObservation(nil), r.appends...),
-		append([]session.EventLogSyncObservation(nil), r.syncs...)
 }
 
 type durabilityToolHandler struct {

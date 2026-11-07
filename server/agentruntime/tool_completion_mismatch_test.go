@@ -159,12 +159,8 @@ func (mismatchedDeletionTool) Call(_ context.Context, call tools.Call) (tools.Re
 }
 
 func TestExecuteToolCallsCommitsCompletionDiagnosticInResultGroup(t *testing.T) {
-	observer := &toolDurabilityObservationRecorder{}
-	store := mustCreateTestSessionAt(
-		t,
-		t.TempDir(),
-		session.WithDurabilityObserver(observer),
-	)
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	engine := mustNewTestEngine(
 		t,
 		store,
@@ -185,6 +181,10 @@ func TestExecuteToolCallsCommitsCompletionDiagnosticInResultGroup(t *testing.T) 
 		CustomInput: textutil.Value("*** Begin Patch\n*** Delete File: target.txt\n*** End Patch\n"),
 	}
 
+	sequenceBefore := store.Meta().LastSequence
+	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+		return snapshot.Meta.LastSequence != sequenceBefore+3
+	}, errors.New("completion and diagnostic must commit all three records together"))
 	results, err := engine.executeToolCalls(t.Context(), stepID, []llm.ToolCall{call})
 	if err != nil {
 		t.Fatalf("execute mismatched deletion tool: %v", err)
@@ -193,15 +193,8 @@ func TestExecuteToolCallsCommitsCompletionDiagnosticInResultGroup(t *testing.T) 
 		t.Fatalf("mismatched deletion results = %+v, want one", results)
 	}
 	assertDeletionMismatchFallback(t, engine, store, results[0])
-	appends, syncs := observer.snapshot()
-	if len(appends) != 1 ||
-		appends[0].RecordCount != 3 ||
-		len(syncs) != 1 {
-		t.Fatalf(
-			"diagnostic group durability = appends:%+v syncs:%+v, want one three-record append and sync",
-			appends,
-			syncs,
-		)
+	if sequence := store.Meta().LastSequence; sequence != sequenceBefore+3 {
+		t.Fatalf("diagnostic group sequence = %d, want %d", sequence, sequenceBefore+3)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"core/server/llm"
+	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/server/workflowruntime"
 	"core/shared/config"
@@ -58,7 +60,6 @@ func completeNodeBarrierAcceptedCalls(input json.RawMessage) acceptedResponseCal
 
 func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing.T) {
 	store := mustCreateTestSession(t)
-	flushes := &resultGroupFlushRecorder{}
 	controller := &completeNodeBarrierController{}
 	var (
 		engine                  *Engine
@@ -75,8 +76,7 @@ func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:              "gpt-6-sol",
-			DurabilityObserver: flushes,
+			Model: "gpt-6-sol",
 		},
 	)
 	workflowConfig := testWorkflowConfig(controller, config.WorkflowCompletionModeTool)
@@ -110,35 +110,32 @@ func TestCompleteNodeBarrierCommitsReadySiblingBeforeWorkflowMutation(t *testing
 		!results[0].Terminal {
 		t.Fatalf("complete_node results = %+v, want one terminal success", results)
 	}
-	observations := flushes.snapshot()
-	if len(observations) != 2 ||
-		observations[0].Reason != ResultGroupFlushCompleteNode ||
-		observations[0].ResultCount != 1 ||
-		observations[1].Reason != ResultGroupFlushStepBoundary {
-		t.Fatalf(
-			"result group flushes = %+v, want complete_node sibling flush then Step Boundary close",
-			observations,
-		)
+	if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot("complete-node"); !found {
+		t.Fatal("complete_node result did not commit at Step Boundary")
 	}
 }
 
 func TestCompleteNodeValidatesBeforeEffectBarrier(t *testing.T) {
-	flushes := &resultGroupFlushRecorder{}
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	controller := &completeNodeBarrierController{}
 	engine := mustNewTestEngine(
 		t,
-		mustCreateTestSession(t),
+		store,
 		&fakeClient{},
 		tools.NewRegistry(),
 		Config{
-			Model:              "gpt-6-sol",
-			DurabilityObserver: flushes,
+			Model: "gpt-6-sol",
 		},
 	)
 	publishTestWorkflowExecution(t, engine, testWorkflowConfig(controller, config.WorkflowCompletionModeTool))
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
+	sequenceBefore := store.Meta().LastSequence
+	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+		return snapshot.Meta.LastSequence != sequenceBefore+4
+	}, errors.New("invalid complete_node must not flush its sibling before validation"))
 
 	results, err := engine.executeAcceptedToolCalls(
 		context.Background(),
@@ -161,14 +158,10 @@ func TestCompleteNodeValidatesBeforeEffectBarrier(t *testing.T) {
 		!results[0].IsError {
 		t.Fatalf("invalid complete_node results = %+v, want one semantic error", results)
 	}
-	observations := flushes.snapshot()
-	if len(observations) != 1 ||
-		observations[0].Reason != ResultGroupFlushStepBoundary ||
-		observations[0].ResultCount != 2 {
-		t.Fatalf(
-			"invalid complete_node flushes = %+v, want only Step Boundary close",
-			observations,
-		)
+	for _, callID := range []string{"hosted", "complete-node"} {
+		if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot(callID); !found {
+			t.Fatalf("%s result did not commit at Step Boundary", callID)
+		}
 	}
 }
 

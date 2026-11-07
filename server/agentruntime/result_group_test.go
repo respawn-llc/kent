@@ -8,6 +8,7 @@ import (
 
 	"core/server/llm"
 	"core/server/sessionstore"
+	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
 	"core/shared/toolspec"
 )
@@ -102,7 +103,7 @@ func reportAndFlushSimpleResultGroup(
 		testResultGroupUnit(callID),
 		&outcome,
 	),
-		steerResultGroupFlushIntent(collector, ResultGroupFlushQuestion),
+		steerResultGroupFlushIntent(collector),
 	)
 }
 
@@ -253,12 +254,8 @@ func TestResultGroupCollectorRejectsReportAfterClose(t *testing.T) {
 }
 
 func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T) {
-	observer := &toolDurabilityObservationRecorder{}
-	store := mustCreateTestSessionAt(
-		t,
-		t.TempDir(),
-		session.WithDurabilityObserver(observer),
-	)
+	gate := sessiontest.NewPersistenceGate(runtimeTestSessionPersistence)
+	store := mustCreateTestSessionAt(t, t.TempDir(), session.WithPersistenceObserver(gate))
 	var events []Event
 	engine := mustNewTestEngine(
 		t,
@@ -295,7 +292,10 @@ func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T
 	if err != nil {
 		t.Fatalf("new result group collector: %v", err)
 	}
-	appendsBefore, _ := observer.snapshot()
+	sequenceBefore := store.Meta().LastSequence
+	gate.FailWhen(func(snapshot session.PersistedStoreSnapshot) bool {
+		return snapshot.Meta.LastSequence != sequenceBefore+4
+	}, errors.New("ready prefix must commit all four records together"))
 	var secondOutcome *resultGroupReportOutcome
 	if err := engine.steer(runtimeTestStepID("step"), steerResultGroupReportIntent(
 		collector,
@@ -307,16 +307,15 @@ func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T
 		}},
 		&secondOutcome,
 	),
-		steerResultGroupFlushIntent(collector, ResultGroupFlushQuestion),
+		steerResultGroupFlushIntent(collector),
 	); err != nil {
 		t.Fatalf("report later result: %v", err)
 	}
-	appendsBlocked, _ := observer.snapshot()
-	if len(appendsBlocked) != len(appendsBefore) || collector.cursor != 0 {
+	if store.Meta().LastSequence != sequenceBefore || collector.cursor != 0 {
 		t.Fatalf(
-			"blocked prefix appended=%d before=%d cursor=%d",
-			len(appendsBlocked),
-			len(appendsBefore),
+			"blocked prefix sequence=%d before=%d cursor=%d",
+			store.Meta().LastSequence,
+			sequenceBefore,
 			collector.cursor,
 		)
 	}
@@ -331,18 +330,17 @@ func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T
 		}},
 		&firstOutcome,
 	),
-		steerResultGroupFlushIntent(collector, ResultGroupFlushQuestion),
+		steerResultGroupFlushIntent(collector),
 	); err != nil {
 		t.Fatalf("report first result and flush prefix: %v", err)
 	}
-	appendsAfter, _ := observer.snapshot()
-	if len(appendsAfter) != len(appendsBefore)+1 ||
-		appendsAfter[len(appendsBefore)].RecordCount != 4 ||
+	if store.Meta().LastSequence != sequenceBefore+4 ||
 		collector.cursor != 2 {
 		t.Fatalf(
-			"committed prefix appends=%+v cursor=%d, want one four-record append and cursor 2",
-			appendsAfter[len(appendsBefore):],
+			"committed prefix sequence=%d cursor=%d, want sequence %d and cursor 2",
+			store.Meta().LastSequence,
 			collector.cursor,
+			sequenceBefore+4,
 		)
 	}
 	var completed []string

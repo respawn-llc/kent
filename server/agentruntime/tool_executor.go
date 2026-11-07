@@ -198,9 +198,10 @@ func (t *defaultToolExecutor) resultGroupEffectBarrier(
 	cancel context.CancelFunc,
 ) tools.EffectBarrier {
 	return func(reason tools.EffectBarrierReason) error {
-		flushReason, err := resultGroupFlushReasonForEffect(reason)
-		if err != nil {
-			return err
+		switch reason {
+		case tools.EffectBarrierQuestion, tools.EffectBarrierApproval, tools.EffectBarrierCompleteNode:
+		default:
+			return fmt.Errorf("unknown tool effect barrier reason %d", reason)
 		}
 		return runResultGroupEffectBarrier(
 			ctx,
@@ -209,7 +210,7 @@ func (t *defaultToolExecutor) resultGroupEffectBarrier(
 			func() error {
 				return t.engine.steer(
 					stepID,
-					steerResultGroupFlushIntent(collector, flushReason),
+					steerResultGroupFlushIntent(collector),
 				)
 			},
 		)
@@ -237,21 +238,6 @@ func runResultGroupEffectBarrier(
 		return err
 	}
 	return nil
-}
-
-func resultGroupFlushReasonForEffect(
-	reason tools.EffectBarrierReason,
-) (ResultGroupFlushReason, error) {
-	switch reason {
-	case tools.EffectBarrierQuestion:
-		return ResultGroupFlushQuestion, nil
-	case tools.EffectBarrierApproval:
-		return ResultGroupFlushApproval, nil
-	case tools.EffectBarrierCompleteNode:
-		return ResultGroupFlushCompleteNode, nil
-	default:
-		return 0, fmt.Errorf("unknown tool effect barrier reason %d", reason)
-	}
 }
 
 func toolErrorResult(call tools.Call, message string) tools.Result {
