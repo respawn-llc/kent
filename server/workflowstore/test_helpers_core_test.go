@@ -224,43 +224,11 @@ func confirmWorkflowGraphSaveRequest(req WorkflowGraphSaveRequest, impact Workfl
 	return req
 }
 
-func changeWorkflowGraphSaveNodeKind(nodes []NodeRecord, nodeID workflow.NodeID, kind workflow.NodeKind) []NodeRecord {
-	changed := make([]NodeRecord, 0, len(nodes))
-	for _, node := range nodes {
-		if node.ID == nodeID {
-			node.Kind = kind
-		}
-		changed = append(changed, node)
-	}
-	return changed
-}
-
 func removeWorkflowGraphSaveNode(nodes []NodeRecord, nodeID workflow.NodeID) []NodeRecord {
 	filtered := make([]NodeRecord, 0, len(nodes))
 	for _, node := range nodes {
 		if node.ID != nodeID {
 			filtered = append(filtered, node)
-		}
-	}
-	return filtered
-}
-
-func removeWorkflowGraphSaveTransitionGroupsTouchingNode(def workflow.Definition, groups []TransitionGroupRecord, nodeID workflow.NodeID) []TransitionGroupRecord {
-	touching := map[workflow.TransitionGroupID]bool{}
-	for _, group := range def.TransitionGroups {
-		if group.SourceNodeID == nodeID {
-			touching[group.ID] = true
-		}
-	}
-	for _, edge := range def.Edges {
-		if edge.TargetNodeID == nodeID {
-			touching[edge.TransitionGroupID] = true
-		}
-	}
-	filtered := make([]TransitionGroupRecord, 0, len(groups))
-	for _, group := range groups {
-		if !touching[group.ID] {
-			filtered = append(filtered, group)
 		}
 	}
 	return filtered
@@ -284,17 +252,6 @@ func removeWorkflowGraphSaveEdge(edges []EdgeRecord, edgeID workflow.EdgeID) []E
 		}
 	}
 	return filtered
-}
-
-func mutateWorkflowGraphSaveEdge(edges []EdgeRecord, edgeID workflow.EdgeID, mutate func(*EdgeRecord)) []EdgeRecord {
-	changed := make([]EdgeRecord, 0, len(edges))
-	for _, edge := range edges {
-		if edge.ID == edgeID {
-			mutate(&edge)
-		}
-		changed = append(changed, edge)
-	}
-	return changed
 }
 
 func mutateWorkflowGraphSaveTransitionGroup(groups []TransitionGroupRecord, groupID workflow.TransitionGroupID, mutate func(*TransitionGroupRecord)) []TransitionGroupRecord {
