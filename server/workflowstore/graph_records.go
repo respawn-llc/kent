@@ -40,29 +40,21 @@ func workflowDefinitionFromPreparedGraph(
 		DisplayName:           displayName,
 		ExecutionTargetPolicy: executionTargetPolicy,
 	}
-	groupMemberIDs := map[string][]workflow.NodeID{}
 	for _, group := range prepared.nodeGroups {
 		definition.NodeGroups = append(definition.NodeGroups, workflow.NodeGroup{
-			WorkflowID:    group.WorkflowID,
-			ID:            group.ID,
-			Key:           group.Key,
-			DisplayName:   group.DisplayName,
-			SortOrder:     group.SortOrder,
-			MemberNodeIDs: groupMemberIDs[group.ID],
+			WorkflowID:  group.WorkflowID,
+			ID:          group.ID,
+			Key:         group.Key,
+			DisplayName: group.DisplayName,
+			SortOrder:   group.SortOrder,
 		})
 	}
 	for _, node := range prepared.nodes {
-		if node.GroupID != nil {
-			groupMemberIDs[*node.GroupID] = append(groupMemberIDs[*node.GroupID], node.ID)
-		}
 		workflowNode, err := workflowNodeFromRecord(node)
 		if err != nil {
 			return workflow.Definition{}, err
 		}
 		definition.Nodes = append(definition.Nodes, workflowNode)
-	}
-	for index := range definition.NodeGroups {
-		definition.NodeGroups[index].MemberNodeIDs = groupMemberIDs[definition.NodeGroups[index].ID]
 	}
 	for _, group := range prepared.transitionGroups {
 		definition.TransitionGroups = append(definition.TransitionGroups, workflow.TransitionGroup{

@@ -727,6 +727,83 @@ func TestStartCanFanOutToAgentAndScriptNodeGroup(t *testing.T) {
 	}
 }
 
+func TestNodeGroupRejectsInvalidMembership(t *testing.T) {
+	ungroupNode := func(def *workflow.Definition, nodeID workflow.NodeID) {
+		for index, node := range def.Nodes {
+			if workflow.NodeIDOf(node) == nodeID {
+				updateNodeAt(def, index, func(identity *workflow.NodeIdentity, _ *workflow.NodeKind, _ *workflow.NodeFields) {
+					identity.GroupID = nil
+				})
+			}
+		}
+	}
+	tests := []struct {
+		name string
+		edit func(*workflow.Definition)
+	}{
+		{
+			name: "empty group",
+			edit: func(def *workflow.Definition) {
+				for index := range def.Nodes {
+					updateNodeAt(def, index, func(identity *workflow.NodeIdentity, _ *workflow.NodeKind, _ *workflow.NodeFields) {
+						identity.GroupID = nil
+					})
+				}
+			},
+		},
+		{
+			name: "one branch",
+			edit: func(def *workflow.Definition) {
+				ungroupNode(def, "node_impl_b")
+			},
+		},
+		{
+			name: "missing join",
+			edit: func(def *workflow.Definition) {
+				ungroupNode(def, "node_join")
+			},
+		},
+		{
+			name: "missing group reference",
+			edit: func(def *workflow.Definition) {
+				def.Nodes = setNodeGroup(def.Nodes, "node_start", "missing_group")
+			},
+		},
+		{
+			name: "multiple joins",
+			edit: func(def *workflow.Definition) {
+				def.Nodes = append(def.Nodes, testJoinNode(def.ID, "node_join2", "join2", "Join 2"))
+				def.Nodes = setNodeGroup(def.Nodes, "node_join2", "group_parallel")
+			},
+		},
+		{
+			name: "start member",
+			edit: func(def *workflow.Definition) {
+				def.Nodes = setNodeGroup(def.Nodes, "node_start", "group_parallel")
+			},
+		},
+		{
+			name: "fanout targets do not match members",
+			edit: func(def *workflow.Definition) {
+				def.Nodes = append(def.Nodes, testAgentNode(def.ID, "node_extra", "extra", "Extra", workflow.NodeFields{SubagentRole: "coder"}))
+				def.Nodes = setNodeGroup(def.Nodes, "node_extra", "group_parallel")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := startFanoutWorkflow(t)
+			tt.edit(&def)
+			result := validateForTask(def)
+			if !slices.ContainsFunc(result.BlockingErrors(), func(err workflow.ValidationError) bool {
+				return err.Code == workflow.CodeInvalidNodeGroup
+			}) {
+				t.Fatalf("invalid group was not rejected: %+v", result)
+			}
+		})
+	}
+}
+
 func TestRetainedTargetRequiresExactActiveContinuationSource(t *testing.T) {
 	tests := []struct {
 		name  string

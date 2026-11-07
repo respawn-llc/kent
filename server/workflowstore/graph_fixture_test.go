@@ -25,11 +25,6 @@ func TestNewWorkflowGraphSaveRequestPreservesProductGraph(t *testing.T) {
 				ID:          groupID,
 				Key:         "parallel",
 				DisplayName: new("Parallel"),
-				MemberNodeIDs: []workflow.NodeID{
-					agentID,
-					scriptID,
-					joinID,
-				},
 			},
 			{WorkflowID: workflowID, ID: testGraphEntityID("group-followup"), Key: "followup", DisplayName: new("Follow-up")},
 		},

@@ -315,18 +315,9 @@ func (s *validationState) validateNodeGroups() {
 }
 
 func (s *validationState) nodeGroupMembers(group NodeGroup) []Node {
-	memberIDs := map[NodeID]bool{}
-	for _, nodeID := range group.MemberNodeIDs {
-		memberIDs[nodeID] = true
-	}
+	var members []Node
 	for _, node := range s.def.Nodes {
 		if groupID, present := NodeGroupID(node); present && strings.TrimSpace(groupID) == group.ID {
-			memberIDs[NodeIDOf(node)] = true
-		}
-	}
-	members := make([]Node, 0, len(memberIDs))
-	for nodeID := range memberIDs {
-		if node, exists := s.nodesByID[nodeID]; exists {
 			members = append(members, node)
 		}
 	}

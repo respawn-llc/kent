@@ -2584,7 +2584,6 @@ func (s *Service) workflowGraphDraftDefinition(ctx context.Context, workflowID r
 
 func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph *pb.GraphDraft) (workflow.Definition, error) {
 	def := workflow.Definition{ID: workflowID}
-	groupMemberIDs := map[string][]workflow.NodeID{}
 	groupIDByKey := make(map[workflow.ModelKey]string, len(graph.NodeGroups))
 	for _, group := range graph.NodeGroups {
 		groupIDByKey[workflow.ModelKey(strings.TrimSpace(group.Key))] = group.Id
@@ -2600,9 +2599,6 @@ func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph *p
 		if groupID == "" && strings.TrimSpace(node.GroupKey) != "" {
 			groupKey := workflow.ModelKey(strings.TrimSpace(node.GroupKey))
 			groupID = groupIDByKey[groupKey]
-		}
-		if groupID != "" {
-			groupMemberIDs[groupID] = append(groupMemberIDs[groupID], workflow.NodeID(node.Id))
 		}
 		kind := protoapi.WorkflowNodeKind.FromProto(node.Kind)
 		completion := ""
@@ -2634,9 +2630,6 @@ func workflowDefinitionFromGraphDraft(workflowID runtimeids.WorkflowID, graph *p
 			return workflow.Definition{}, err
 		}
 		def.Nodes = append(def.Nodes, workflowNode)
-	}
-	for index := range def.NodeGroups {
-		def.NodeGroups[index].MemberNodeIDs = groupMemberIDs[def.NodeGroups[index].ID]
 	}
 	for _, group := range graph.TransitionGroups {
 		def.TransitionGroups = append(def.TransitionGroups, workflow.TransitionGroup{

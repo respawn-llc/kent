@@ -131,12 +131,11 @@ type Definition struct {
 }
 
 type NodeGroup struct {
-	WorkflowID    runtimeids.WorkflowID
-	ID            string
-	Key           ModelKey
-	DisplayName   *string
-	SortOrder     int64
-	MemberNodeIDs []NodeID
+	WorkflowID  runtimeids.WorkflowID
+	ID          string
+	Key         ModelKey
+	DisplayName *string
+	SortOrder   int64
 }
 
 type Node interface {
