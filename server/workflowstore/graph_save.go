@@ -12,7 +12,6 @@ import (
 
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
-	"core/server/metadata/sqlitelifecyclegen"
 	"core/server/workflow"
 	"core/server/workflowscript"
 	"core/shared/runtimeids"
@@ -284,7 +283,7 @@ func (s *Store) saveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := sqlitelifecyclegen.New(tx).DeferForeignKeys(ctx); err != nil {
+	if err := deferWorkflowGraphForeignKeys(ctx, tx); err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
 	q := s.queries.WithTx(tx)
@@ -382,6 +381,13 @@ func (s *Store) saveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 	result.Record = record
 	result.Definition = plan.Definition
 	return result, nil
+}
+
+func deferWorkflowGraphForeignKeys(ctx context.Context, tx *sql.Tx) error {
+	// sqlc does not generate PRAGMA adapters. This fixed transaction setting is
+	// the approved narrow exception to generated SQL; graph queries remain sqlc-owned.
+	_, err := tx.ExecContext(ctx, "PRAGMA defer_foreign_keys = ON;")
+	return err
 }
 
 func (p WorkflowGraphSavePlan) workflowGraphSaveResult(saved bool) WorkflowGraphSaveResult {
