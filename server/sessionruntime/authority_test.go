@@ -920,7 +920,7 @@ func TestDetachedScriptAdmissionRunsAfterValidationAndBeforePublication(t *testi
 	}
 	admitted := false
 	handle, launch, err := detached.Publish(context.Background(), func() error {
-		if authority.workflowExecutionLocked(ref, detached.workflowKey) != nil {
+		if authority.workflowExecutionByCurrentNodeLocked(ref, detached.workflowKey) != nil {
 			return errors.New("Script became live before durable admission")
 		}
 		admitted = true
