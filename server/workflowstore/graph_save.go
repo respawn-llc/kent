@@ -246,7 +246,7 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 	blockingValidationErrors := validation.BlockingErrors()
 	plan.ValidationErrors = validation.Errors
 	blockers := workflowGraphSaveBlockers(req, evaluation)
-	blockers = append(blockers, workflowGraphSaveBlockersFromEditPolicy(evaluation.EditPolicy.Blockers)...)
+	blockers = append(blockers, evaluation.EditPolicy.Blockers...)
 	if len(blockingValidationErrors) > 0 {
 		blockers = append(blockers, WorkflowGraphSaveBlocker{
 			Code:             "validation_failed",
@@ -308,7 +308,7 @@ func (s *Store) saveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	blockers := workflowGraphSaveBlockers(req, evaluation)
-	blockers = append(blockers, workflowGraphSaveBlockersFromEditPolicy(evaluation.EditPolicy.Blockers)...)
+	blockers = append(blockers, evaluation.EditPolicy.Blockers...)
 	if len(blockers) > 0 {
 		plan.Removed = plan.Structural.Removed
 		plan.Impact = evaluation.Impact
@@ -660,22 +660,6 @@ func workflowGraphSaveHasBlocker(blockers []WorkflowGraphSaveBlocker, code strin
 		}
 	}
 	return false
-}
-
-func workflowGraphSaveBlockersFromEditPolicy(blockers []WorkflowGraphEditPolicyBlocker) []WorkflowGraphSaveBlocker {
-	if len(blockers) == 0 {
-		return nil
-	}
-	out := make([]WorkflowGraphSaveBlocker, 0, len(blockers))
-	for _, blocker := range blockers {
-		out = append(out, WorkflowGraphSaveBlocker{
-			Code:             blocker.Code,
-			Message:          blocker.Message,
-			Count:            blocker.Count,
-			AffectedEntities: canonicalWorkflowGraphEntityReferences(blocker.AffectedEntities),
-		})
-	}
-	return out
 }
 
 func workflowGraphSaveConfirmationEntities(removed []WorkflowGraphEntityReference) []WorkflowGraphEntityReference {

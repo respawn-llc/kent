@@ -2,7 +2,6 @@ package workflowstore
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -82,19 +81,6 @@ func nodeByID(t *testing.T, def workflow.Definition, nodeID workflow.NodeID) wor
 	}
 	t.Fatalf("node %q not found in %+v", nodeID, def.Nodes)
 	return nil
-}
-
-func workflowGraphEditPolicyErrorHasBlocker(err error, code string) bool {
-	var policyErr WorkflowGraphEditPolicyError
-	if !errors.As(err, &policyErr) {
-		return false
-	}
-	for _, blocker := range policyErr.Blockers {
-		if blocker.Code == code {
-			return true
-		}
-	}
-	return false
 }
 
 func forceWorkflowGraphRowsForSnapshotTest(t *testing.T, ctx context.Context, store *Store, workflowID runtimeids.WorkflowID, nodes []NodeRecord, groups []TransitionGroupRecord, edges []EdgeRecord) {
