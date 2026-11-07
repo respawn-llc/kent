@@ -20,7 +20,7 @@ type consumptionTransport struct {
 func (transport consumptionTransport) Generate(context.Context, llm.ResponsesRequest, llm.StreamCallbacks) (llm.ResponsesResponse, error) {
 	transport.cancelRequest()
 	return llm.ResponsesResponse{Usage: llm.Usage{InputTokens: textutil.Value(100), CachedInputTokens: textutil.Value(80), OutputTokens: textutil.Value(3)},
-		ServedModel: textutil.Value("gpt-5.6-luna"), ProviderPhase: llm.AbsentProviderPhase()}, nil
+		ProviderEvidence: modelcontract.ProviderUsageEvidence{ServedModel: textutil.Value("gpt-5.6-luna")}, ProviderPhase: llm.AbsentProviderPhase()}, nil
 }
 
 func (consumptionTransport) Compact(context.Context, llm.ResponsesRequest) (llm.ResponsesCompactionResponse, error) {

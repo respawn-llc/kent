@@ -258,16 +258,13 @@ func responseFromStreamAccumulator(
 			newOpenAIProviderContractError(providerID, rawResp, err),
 		)
 	}
-	response.ServedModel = servedModelMetadata(rawResp, optionalStringValue(response.ServedModel))
+	response.ProviderEvidence.ServedModel = servedModelMetadata(rawResp, optionalStringValue(response.ProviderEvidence.ServedModel))
 	response.attemptDiagnostic = accumulator.attempt
 	response.ReasoningIncluded = reasoningIncludedMetadata(rawResp)
 	response.ProviderEvidence.ProviderID = requestEvidence.ProviderID
 	response.ProviderEvidence.RequestedModel = requestEvidence.RequestedModel
 	response.ProviderEvidence.RequestedServiceTier = requestEvidence.RequestedServiceTier
 	response.ProviderEvidence.RequestedHostedTools = requestEvidence.RequestedHostedTools
-	if response.ServedModel != nil {
-		response.ProviderEvidence.ServedModel = textutil.Pointer(response.ServedModel)
-	}
 	return response, nil
 }
 

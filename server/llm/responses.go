@@ -66,7 +66,6 @@ type ResponsesResponse struct {
 	attemptDiagnostic *providerAttemptDiagnostic
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
-	ServedModel       *string
 	ProviderEvidence  modelcontract.ProviderUsageEvidence
 	ReasoningIncluded bool
 	ToolCalls         []ToolCall
@@ -124,7 +123,7 @@ func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbac
 		return Response{}, fmt.Errorf("responses generate: %w", err)
 	}
 	// Runtime acceptance can still fail; the provider has already consumed these tokens.
-	c.observeUsage(ctx, request.Model, providerResp.ServedModel, providerResp.Usage)
+	c.observeUsage(ctx, request.Model, providerResp.ProviderEvidence.ServedModel, providerResp.Usage)
 	response, err := responseFromResponses(providerResp)
 	if err == nil {
 		providerResp.attemptDiagnostic.diagnoseEmptyLocalCompaction(ctx, providerResp, response)
@@ -160,7 +159,6 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 			ReasoningItems: append([]ReasoningItem(nil), providerResp.ReasoningItems...),
 		},
 		ProviderPhase:     providerResp.ProviderPhase,
-		ServedModel:       textutil.Pointer(providerResp.ServedModel),
 		ProviderEvidence:  providerResp.ProviderEvidence.Clone(),
 		ReasoningIncluded: providerResp.ReasoningIncluded,
 		ToolCalls:         providerResp.ToolCalls,

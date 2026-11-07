@@ -723,7 +723,6 @@ type Response struct {
 	// EndTurn is absent when the provider supplies no turn-completion fact.
 	EndTurn           *bool                               `json:"-"`
 	ProviderPhase     *ProviderPhase                      `json:"-"`
-	ServedModel       *string                             `json:"served_model,omitempty"`
 	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
 	ReasoningIncluded bool                                `json:"reasoning_included,omitempty"`
 	ToolCalls         []ToolCall                          `json:"tool_calls,omitempty"`

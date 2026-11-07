@@ -391,6 +391,7 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 	if evidenceErr != nil {
 		return ResponsesResponse{}, evidenceErr
 	}
+	providerEvidence.ServedModel = textutil.Pointer(a.standardServedModel)
 
 	body := session.NativeResponseBody{Format: session.NativeResponseOpenAI, Items: make([][]byte, len(output))}
 	body.AssistantPresentation = assistantPresentation
@@ -425,7 +426,6 @@ func (a *responseStreamAccumulator) Response() (ResponsesResponse, error) {
 		EndTurn:          endTurn,
 		AssistantText:    finalText,
 		ProviderPhase:    finalProviderPhase,
-		ServedModel:      textutil.Pointer(a.standardServedModel),
 		ToolCalls:        finalCalls,
 		Reasoning:        finalReasoning,
 		ReasoningItems:   finalReasoningItems,
