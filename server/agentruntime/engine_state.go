@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"core/server/chatcontext"
 	"core/server/llm"
 	"core/server/sessionstore"
 	"core/server/workflow"
@@ -230,34 +229,6 @@ func (e *Engine) ContextUsage() ContextUsage {
 		WindowTokens:          window,
 		CacheHitPercent:       cacheHitPercent,
 		HasCacheHitPercentage: hasCacheHitPercentage,
-	}
-}
-
-// LiveChatContextSnapshot returns all runtime-owned Context facts from one
-// cohesive Engine read without configuration or authentication I/O.
-func (e *Engine) LiveChatContextSnapshot() chatcontext.ProjectionInput {
-	if e == nil {
-		return chatcontext.ProjectionInput{}
-	}
-	e.outputMutationMu.Lock()
-	defer e.outputMutationMu.Unlock()
-	e.mu.Lock()
-	policy := e.contextPolicy
-	autoCompactionEnabled := true
-	if e.cfg.AutoCompactionEnabled != nil {
-		autoCompactionEnabled = *e.cfg.AutoCompactionEnabled
-	}
-	e.mu.Unlock()
-
-	usage := e.ContextUsage()
-	compaction := e.compactionRuntimeState().LiveChatContextSnapshot()
-	return chatcontext.ProjectionInput{
-		Policy:                   policy,
-		UsedTokens:               int64(usage.UsedTokens),
-		AutoCompactionEnabled:    autoCompactionEnabled,
-		CompletedCompactionCount: int64(compaction.completedCompactionCount),
-		CompactionRunning:        compaction.compactionRunning,
-		ManualCompactEligible:    compaction.manualCompactEligible,
 	}
 }
 

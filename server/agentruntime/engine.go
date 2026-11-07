@@ -337,7 +337,6 @@ func New(
 		eng.cfg.SessionNaming = nil
 	}
 	eng.transcriptState.chatProjection().bindTokenEstimator(connection.estimator)
-	eng.compactionRuntimeState().SetContextFacts(store.ContextFacts())
 	providerCapabilities := connection.requestCapabilities
 	if eng.cfg.ModelCapabilities == nil {
 		capabilities := llm.LockedModelCapabilitiesForModel(cfg.Model, providerCapabilities)

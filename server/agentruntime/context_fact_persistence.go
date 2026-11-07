@@ -1,10 +1,6 @@
 package runtime
 
-import (
-	"fmt"
-
-	"core/server/sessionstore"
-)
+import "fmt"
 
 func (e *Engine) persistManualCompactEligibilityBestEffort(stepID string, eligible bool) {
 	if e == nil || e.store == nil {
@@ -14,7 +10,6 @@ func (e *Engine) persistManualCompactEligibilityBestEffort(stepID string, eligib
 		e.reportContextFactPersistenceError(stepID, "manual Compact eligibility", err)
 		return
 	}
-	e.compactionRuntimeState().SetPresentedManualCompactEligibility(eligible)
 }
 
 func (e *Engine) persistCompletedCompactionFactsBestEffort(
@@ -27,16 +22,6 @@ func (e *Engine) persistCompletedCompactionFactsBestEffort(
 	if err := e.store.SetSessionContextFacts(completedCompactionCount, false); err != nil {
 		e.reportContextFactPersistenceError(stepID, "completed compaction", err)
 		return
-	}
-	count := completedCompactionCount
-	eligible := false
-	e.compactionRuntimeState().SetContextFacts(sessionContextFacts(count, eligible))
-}
-
-func sessionContextFacts(count int, eligible bool) session.SessionContextFacts {
-	return session.SessionContextFacts{
-		CompletedCompactionCount: &count,
-		ManualCompactEligible:    &eligible,
 	}
 }
 

@@ -3161,7 +3161,7 @@ func TestServiceInputAdmissionDoesNotCompactContext(t *testing.T) {
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
 		Model: "gpt-6-sol", ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
-	client.responses[0].Usage.InputTokens = textutil.Value(int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - 35_000 + 1)
+	client.responses[0].Usage.InputTokens = textutil.Value(config.DefaultOnboardingSettings().ContextCompactionThresholdTokens - 35_000 + 1)
 	client.responses[0].Usage.ContextUsage = &llm.ContextUsage{
 		Tokens: *client.responses[0].Usage.InputTokens, MeasurementPoint: llm.ContextMeasurementInput,
 	}
