@@ -90,7 +90,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 			_ = rootLease.Close()
 		}
 	}
-	if _, err := prompts.GeneratedSync(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(cfg.PersistenceRoot)}); err != nil {
+	if err := prompts.GeneratedSync(ctx, strings.TrimSpace(cfg.PersistenceRoot)); err != nil {
 		closeRootLeaseOnFailure()
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)
 	}
