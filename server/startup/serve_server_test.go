@@ -2,7 +2,6 @@ package startup
 
 import (
 	"context"
-	"core/internal/testharness/corefixture"
 	"encoding/json"
 	"errors"
 	"io"
@@ -128,6 +127,12 @@ func newMemoryServeTestServer(t *testing.T, request Request, store *metadata.Sto
 		t.Fatal(err)
 	}
 	cfg := resolved.Config
+	signInCtx, cancelSignIn := context.WithCancel(t.Context())
+	t.Cleanup(cancelSignIn)
+	authSupport, err := serverbootstrap.BuildAuthSupport(signInCtx, root, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), req.Environment)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var server *ServeServer
 	if cfg.Source.SettingsFileExists() {
 		if store == nil {
@@ -136,13 +141,19 @@ func newMemoryServeTestServer(t *testing.T, request Request, store *metadata.Sto
 		if _, err := store.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot); err != nil {
 			t.Fatal(err)
 		}
-		appCore, _ := corefixture.Open(t, cfg, store, coreOptionsForBootstrap(req, lease))
-		server = &ServeServer{Core: appCore, cfg: cfg}
-	} else {
-		authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), root, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), req.Environment)
+		background, err := serverbootstrap.BuildShellManager(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { _ = background.Close() })
+		appCore, err := corepkg.NewWithContextOptions(t.Context(), cfg, authSupport, background, corepkg.Options{
+			MetadataStore: store, RootLease: lease, WorkspaceConfigLoadOptions: req.LoadOptions,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		server = &ServeServer{Core: appCore, cfg: cfg}
+	} else {
 		finalizer, err := onboarding.NewFinalizer(onboarding.Options{
 			Baseline: cfg.Settings, BaselineSources: cfg.Source.Sources,
 			PersistenceRoot: root, WorkspaceRoot: cfg.WorkspaceRoot,
@@ -160,6 +171,7 @@ func newMemoryServeTestServer(t *testing.T, request Request, store *metadata.Sto
 		}
 		server = &ServeServer{deps: deps, cfg: cfg}
 	}
+	server.cancelSignIn = cancelSignIn
 	t.Cleanup(func() { _ = server.Close() })
 	return server
 }

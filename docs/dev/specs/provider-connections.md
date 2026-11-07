@@ -101,6 +101,7 @@
 - Kent must not persist API keys in configuration or the OAuth credential store. API-key authentication must read the explicitly referenced server environment value.
 - Kent must not automatically adopt `OPENAI_API_KEY` or borrow another connection's credentials. Auth-less requests must send no authentication credentials.
 - ChatGPT must support browser and device sign-in, including browser callback or pasted callback URL/code. OAuth failure must not fall back to an API key. Refresh failures must be observable and actionable.
+- The server must own ongoing OAuth sign-in. Client disconnection or request cancellation must stop observation only and must not cancel sign-in. When the server shuts down, it must cancel ongoing sign-in before waiting for requests to finish.
 - OAuth credential expiry must be optional for both ChatGPT and Grok. If the provider omits expiry, Kent must store no expiry and must not schedule expiry-based refresh or invent an expiration time.
 - Grok subscription connections must use device authorization as their sole sign-in method. Kent must open the verification page automatically and keep the issued code visible while the server waits for authorization. The user must be able to compare that code with the browser before approving access. Successful authorization must complete the sign-in step.
 - Grok must identify Kent as the client while sending the selected service's required protocol headers. Kent must send proxy-specific authentication and version headers only to the CLI subscription proxy.

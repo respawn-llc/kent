@@ -1,12 +1,15 @@
 package authservice
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -17,6 +20,47 @@ import (
 	authpb "core/shared/protoapi/gen/kent/api/auth"
 	"core/shared/textutil"
 )
+
+func TestSignInSurvivesCanceledObserver(t *testing.T) {
+	manager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
+	service := NewBootstrapService(t.Context(), authServiceResolver(t, manager, nil), auth.OpenAIOAuthOptions{
+		HTTPClient: &http.Client{Transport: httpclient.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if err := r.Context().Err(); err != nil {
+				t.Errorf("observer canceled server-owned sign-in: %v", err)
+				return nil, err
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"access_token":"signed-in","refresh_token":"refresh","token_type":"Bearer","expires_in":3600}`)),
+			}, nil
+		})},
+	})
+	observer, cancel := context.WithCancel(t.Context())
+	cancel()
+	start, err := service.StartBootstrap(observer, &authpb.StartBootstrapRequest{
+		Target:      protoapi.ExistingConnectionTarget("work"),
+		Mode:        authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		RedirectUri: textutil.Value("http://localhost:1455/auth/callback"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.CompleteBootstrap(observer, &authpb.CompleteBootstrapRequest{
+		Target:        protoapi.ExistingConnectionTarget("work"),
+		Mode:          authpb.BootstrapMode_BOOTSTRAP_MODE_BROWSER_CALLBACK_CODE,
+		CallbackInput: textutil.Value("grant"), Continuation: start.Continuation,
+	})
+	if err != nil || !result.GetAuthReady() {
+		t.Fatalf("sign-in with disconnected observer: %v, %v", result, err)
+	}
+	state, err := manager.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Connections["work"].AccessToken != "signed-in" {
+		t.Fatal("completed sign-in did not save credentials")
+	}
+}
 
 func authServiceResolver(t *testing.T, manager *auth.Manager, lookup func(string) (string, bool)) *ConnectionResolver {
 	t.Helper()
