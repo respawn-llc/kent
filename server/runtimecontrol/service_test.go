@@ -448,14 +448,6 @@ func countPromptHistoryEvents(t *testing.T, store *session.Store, text string) i
 	return history.CountText(text)
 }
 
-type staticRuntimeControlWorkflowTaskResolver struct {
-	workflow bool
-}
-
-func (r staticRuntimeControlWorkflowTaskResolver) SessionHasWorkflowTask(context.Context, string) (bool, error) {
-	return r.workflow, nil
-}
-
 type runtimeControlFakeClient struct {
 	mu                  sync.Mutex
 	responses           []llm.Response
@@ -2324,14 +2316,6 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 	}
 	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusComplete {
 		t.Fatalf("goal after complete = %+v, want complete", goal)
-	}
-}
-
-func TestServiceDurableWorkflowSessionAllowsGoalControl(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	service = service.WithWorkflowTaskSessionResolver(staticRuntimeControlWorkflowTaskResolver{workflow: true})
-	if _, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)}); err != nil {
-		t.Fatalf("ShowGoal for workflow task session = %v, want allowed", err)
 	}
 }
 

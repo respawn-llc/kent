@@ -39,19 +39,12 @@ type PromptCommandResolver interface {
 	ResolvePromptCommand(ctx context.Context, sessionID, name, arguments string) (promptcommands.ResolvedCommand, error)
 }
 
-type WorkflowTaskSessionResolver interface {
-	SessionHasWorkflowTask(ctx context.Context, sessionID string) (bool, error)
-}
-
-var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
-
 type Service struct {
 	metadata       *metadata.Store
 	authority      *sessionruntime.Authority
 	feedback       SessionSettingFeedbackPublisher
 	promptStore    PromptHistoryStore
 	promptCommands PromptCommandResolver
-	workflowTasks  WorkflowTaskSessionResolver
 	persisted      session.PersistedSessionResolver
 	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
@@ -104,14 +97,6 @@ func (s *Service) WithPromptCommandResolver(resolver PromptCommandResolver) *Ser
 		return nil
 	}
 	s.promptCommands = resolver
-	return s
-}
-
-func (s *Service) WithWorkflowTaskSessionResolver(resolver WorkflowTaskSessionResolver) *Service {
-	if s == nil {
-		return nil
-	}
-	s.workflowTasks = resolver
 	return s
 }
 
@@ -406,37 +391,6 @@ func (s *Service) recordPromptHistory(ctx context.Context, sessionID string, tex
 		SessionID: strings.TrimSpace(sessionID),
 		Text:      text,
 	})
-}
-
-func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {
-	workflowSession, err := s.workflowTaskSession(ctx, sessionID, engine)
-	if err != nil {
-		return err
-	}
-	if workflowSession {
-		return errWorkflowTaskSessionAutoCompactionDisable
-	}
-	return nil
-}
-
-func (s *Service) workflowTaskSession(ctx context.Context, sessionID string, engine *runtime.Engine) (bool, error) {
-	if engine != nil {
-		workflowState, err := engine.WorkflowSessionState()
-		if err != nil {
-			return false, err
-		}
-		if workflowState != nil && workflowState.TaskID != "" {
-			return true, nil
-		}
-	}
-	if s != nil && s.workflowTasks != nil {
-		workflow, err := s.workflowTasks.SessionHasWorkflowTask(ctx, sessionID)
-		if err != nil {
-			return false, err
-		}
-		return workflow, nil
-	}
-	return false, nil
 }
 
 var _ servicecontract.RuntimeControlService = (*Service)(nil)

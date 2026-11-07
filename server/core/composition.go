@@ -216,7 +216,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeControlService := runtimecontrol.NewService(runtimeAuthority, metadataStore).
 		WithSessionSettingFeedbackPublisher(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
-		WithWorkflowTaskSessionResolver(metadataStore).
 		WithPersistedSessionResolver(metadataStore).
 		WithLiveWatchPromptSources(runtimeRegistry, runtimeRegistry)
 	runtimeControlService.WithPromptCommandResolver(promptCommandRuntimeResolver{
