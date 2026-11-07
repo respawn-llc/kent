@@ -98,10 +98,9 @@ type uiInputFeatureState struct {
 	runtimeControlTokens   map[runtimeControlOperation]uint64
 	runtimeControlPending  map[runtimeControlOperation]runtimeControlPendingState
 
-	injectedQueue      []*injectedRuntimeQueueItem
-	interruptLifecycle uiInterruptLifecycle
-	currentStepID      string
-	interruptStepID    string
+	injectedQueue    []*injectedRuntimeQueueItem
+	pendingInterrupt *uiPendingInterrupt
+	currentStepID    string
 
 	modelName                 string
 	configuredModelName       *string

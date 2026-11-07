@@ -6,7 +6,7 @@ func (m *uiModel) acknowledgePendingInterrupt() tea.Cmd {
 	if m == nil || !m.hasPendingInterrupt() {
 		return nil
 	}
-	m.setPendingInterrupt(false)
+	m.pendingInterrupt = nil
 	m.activity = uiActivityInterrupted
 	return m.interruptedStatusNoticeCmd()
 }

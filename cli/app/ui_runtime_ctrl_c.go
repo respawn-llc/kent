@@ -12,7 +12,8 @@ func (c uiInputController) handleRuntimeCtrlC(closeSurface func() tea.Cmd) (tea.
 	}
 	if m.runtimeLifecycle.Run.IsRunning() || m.ask.hasCurrent() {
 		if m.hasPendingInterrupt() &&
-			m.interruptStepID == m.currentStepID {
+			((m.pendingInterrupt.stepID == nil && m.currentStepID == "") ||
+				(m.pendingInterrupt.stepID != nil && m.pendingInterrupt.stepID.String() == m.currentStepID)) {
 			m.exitAction = UIActionExit
 			m.forcedLocalExit = true
 			return m, sequenceCmds(closeCmd, tea.Quit)

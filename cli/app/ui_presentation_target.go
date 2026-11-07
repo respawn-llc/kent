@@ -49,6 +49,7 @@ func (m *uiModel) setKnownSessionTarget(id string) {
 	if current, ok := m.presentationTarget.(uiKnownSessionTarget); ok && current.id == parsed {
 		return
 	}
+	m.pendingInterrupt = nil
 	m.presentationTarget = uiKnownSessionTarget{id: parsed}
 	m.status.uiStatusCollection = &uiStatusCollection{}
 }

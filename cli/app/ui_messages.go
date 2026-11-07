@@ -65,6 +65,7 @@ const (
 )
 
 type runtimeControlDoneMsg struct {
+	interrupt *uiPendingInterrupt
 	token     uint64
 	sessionID string
 	operation runtimeControlOperation
