@@ -300,6 +300,7 @@ func (f *runtimeControlFakeClient) RecordPromptHistory(_ context.Context, reques
 func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	m.setKnownSessionTarget(detailTestSessionID)
+	m.openGoalOverlay(nil, nil)
 
 	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd == nil {
 		t.Fatal("initial Goal mutation did not start")
