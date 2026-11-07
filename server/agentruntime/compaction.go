@@ -55,11 +55,9 @@ var (
 type compactionResult struct {
 	engine                      string
 	items                       []llm.ResponseItem
-	usage                       llm.Usage
-	trimmedItemsCount           *int
+	windowTokens                int
 	overflowRepair              compactionOverflowRepairStats
 	localToolCallRejectionCount int
-	provider                    string
 }
 
 type manualCompactionSelectionFailure struct {
@@ -389,7 +387,6 @@ func (c *defaultContextCompactor) reportManualCompactionTechnicalFailure(
 		compactionModeManual,
 		"selector",
 		"unknown",
-		nil,
 		0,
 		cause.Error(),
 	)
@@ -580,7 +577,7 @@ func (e *Engine) compactNowWithAcceptance(
 		if accept != nil {
 			return errors.Join(err, feedbackErr)
 		}
-		return errors.Join(err, feedbackErr, persistence.emitStatus(stepID, EventCompactionFailed, mode, result.engine, e.connectionSnapshot().transportCapabilities.ProviderID, result.trimmedItemsCount, 0, err.Error()))
+		return errors.Join(err, feedbackErr, persistence.emitStatus(stepID, EventCompactionFailed, mode, result.engine, e.connectionSnapshot().transportCapabilities.ProviderID, 0, err.Error()))
 	}
 
 	caps, err := e.providerCapabilities(ctx)
@@ -597,7 +594,7 @@ func (e *Engine) compactNowWithAcceptance(
 		}
 	}()
 	if accept == nil {
-		if err := persistence.emitStatus(stepID, EventCompactionStarted, mode, "selector", providerID, nil, 0, ""); err != nil {
+		if err := persistence.emitStatus(stepID, EventCompactionStarted, mode, "selector", providerID, 0, ""); err != nil {
 			return compactionResult{}, session.CommitReceipt{}, err
 		}
 	}
@@ -606,11 +603,11 @@ func (e *Engine) compactNowWithAcceptance(
 	var result compactionResult
 	enginePlan := planner.enginePlan(planningSnapshot)
 	var requestKind *llm.CodexRequestKind
-	if enginePlan.engineKind == compactionEngineRemote {
+	if enginePlan == compactionEngineRemote {
 		requestKind = llm.CodexRequestKindCompaction.Optional()
 	}
 	var dispatchFactory dispatchRequestFactory
-	if enginePlan.engineKind == compactionEngineRemote {
+	if enginePlan == compactionEngineRemote {
 		dispatchFactory, err = e.activeDispatchRequestFactory(stepID, requestKind)
 	} else {
 		dispatchFactory, err = e.localCompactionDispatchRequestFactory(stepID)
@@ -632,9 +629,9 @@ func (e *Engine) compactNowWithAcceptance(
 	if thinking.update != nil {
 		input = append(input, *thinking.update)
 	}
-	if enginePlan.engineKind == compactionEngineRemote {
+	if enginePlan == compactionEngineRemote {
 		var remoteInput []llm.ResponseItem
-		result, remoteInput, err = e.compactRemote(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy)
+		result, remoteInput, err = e.compactRemote(ctx, stepID, input, instructions, dispatchFactory, retryPolicy)
 		var checkpointErr *llm.CompactionCheckpointContractError
 		if err != nil && errors.As(err, &checkpointErr) {
 			if e.cfg.Debug {
@@ -663,7 +660,7 @@ func (e *Engine) compactNowWithAcceptance(
 				if factoryErr != nil {
 					err = errors.Join(err, factoryErr)
 				} else {
-					localResult, localErr := e.compactLocal(ctx, stepID, remoteInput, providerID, instructions, localFactory, retryPolicy)
+					localResult, localErr := e.compactLocal(ctx, stepID, remoteInput, instructions, localFactory, retryPolicy)
 					localResult.overflowRepair = result.overflowRepair.Add(localResult.overflowRepair)
 					result = localResult
 					if localErr != nil {
@@ -675,7 +672,7 @@ func (e *Engine) compactNowWithAcceptance(
 			}
 		}
 	} else {
-		result, err = e.compactLocal(ctx, stepID, input, providerID, instructions, dispatchFactory, retryPolicy)
+		result, err = e.compactLocal(ctx, stepID, input, instructions, dispatchFactory, retryPolicy)
 	}
 	if err != nil {
 		return compactionResult{}, session.CommitReceipt{}, compactionFailure(result, err)
@@ -739,7 +736,7 @@ func (e *Engine) compactNowWithAcceptance(
 		}
 	}
 	compactionNumber = e.compactionRuntimeState().Count()
-	windowTokens := result.usage.WindowTokens
+	windowTokens := result.windowTokens
 	if windowTokens <= 0 {
 		windowTokens = e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())
 	}
@@ -753,7 +750,7 @@ func (e *Engine) compactNowWithAcceptance(
 	if usageErr != nil {
 		finalizationErr = errors.Join(finalizationErr, usageErr)
 	}
-	if err := persistence.emitStatus(stepID, EventCompactionCompleted, mode, result.engine, providerID, result.trimmedItemsCount, compactionNumber, ""); err != nil {
+	if err := persistence.emitStatus(stepID, EventCompactionCompleted, mode, result.engine, providerID, compactionNumber, ""); err != nil {
 		finalizationErr = errors.Join(finalizationErr, err)
 	}
 	return result, replacementReceipt, finalizationErr

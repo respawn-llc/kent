@@ -171,17 +171,17 @@ func TestCompactionPlannerAppliesFallbacksAndSelectsEngine(t *testing.T) {
 		name string
 		mode string
 		caps llm.ProviderCapabilities
-		want compactionEnginePlan
+		want compactionEngineKind
 	}{
 		{
 			name: "native provider compaction",
 			mode: "native",
 			caps: llm.ProviderCapabilities{SupportsResponsesCompact: true},
-			want: compactionEnginePlan{engineKind: compactionEngineRemote},
+			want: compactionEngineRemote,
 		},
-		{name: "native local fallback", mode: "native", want: compactionEnginePlan{engineKind: compactionEngineLocal}},
-		{name: "explicit local", mode: "local", caps: llm.ProviderCapabilities{SupportsResponsesCompact: true}, want: compactionEnginePlan{engineKind: compactionEngineLocal}},
-		{name: "disabled", mode: "none", caps: llm.ProviderCapabilities{SupportsResponsesCompact: true}, want: compactionEnginePlan{engineKind: compactionEngineNone}},
+		{name: "native local fallback", mode: "native", want: compactionEngineLocal},
+		{name: "explicit local", mode: "local", caps: llm.ProviderCapabilities{SupportsResponsesCompact: true}, want: compactionEngineLocal},
+		{name: "disabled", mode: "none", caps: llm.ProviderCapabilities{SupportsResponsesCompact: true}, want: compactionEngineNone},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
