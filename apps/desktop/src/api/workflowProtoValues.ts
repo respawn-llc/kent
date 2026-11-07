@@ -18,7 +18,6 @@ import {
   CreateSelectionReason,
   InitialBranchErrorReason,
   ExecutionTargetResolutionCode,
-  MovePreviewBlocker,
   DependencyMutationOutcome,
   DependencyErrorReason,
   CommentAuthorKind,
@@ -232,16 +231,6 @@ export const taskExecutionResolutionCode = workflowEnum([
   [ExecutionTargetResolutionCode.GIT_FAILURE, "git_failure"],
   [ExecutionTargetResolutionCode.DEFAULT_BRANCH_MISSING, "default_branch_missing"],
   [ExecutionTargetResolutionCode.DEFAULT_BRANCH_AMBIGUOUS, "default_branch_ambiguous"],
-]);
-
-export const taskMovePreviewBlocker = workflowEnum([
-  [MovePreviewBlocker.INVALID_WORKFLOW, "invalid_workflow"],
-  [MovePreviewBlocker.NO_SOURCE_POSITION, "no_source_position"],
-  [MovePreviewBlocker.UNSUPPORTED_DESTINATION, "unsupported_destination"],
-  [MovePreviewBlocker.LIFECYCLE_CONFLICT, "lifecycle_conflict"],
-  [MovePreviewBlocker.CONTEXT_SESSION_UNAVAILABLE, "context_session_unavailable"],
-  [MovePreviewBlocker.NO_USABLE_TRANSITION, "no_usable_transition"],
-  [MovePreviewBlocker.PARALLEL_BRANCH_REQUIRES_FAN_OUT, "parallel_branch_requires_fan_out"],
 ]);
 
 export const workflowNodeKind = workflowEnum([

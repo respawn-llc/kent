@@ -16,7 +16,6 @@ export type {
   TaskMoveApplied,
   TaskMoveNoOp,
   TaskMoveResponse,
-  TaskMovePreviewBlocker,
   TaskMovePreviewChoice,
   TaskMovePreviewResponse,
   TaskMoveRequiredValue,

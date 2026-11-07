@@ -1,3 +1,5 @@
+import type { MovePreviewBlocker } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+
 export type WorkflowExecutionTargetMode =
   "none" | "head" | "default_branch" | "custom_ref" | "ask_on_first_execution";
 
@@ -106,15 +108,6 @@ export type TaskApproveResponse = Readonly<{
   applied: TaskApproveApplied;
 }>;
 
-export type TaskMovePreviewBlocker =
-  | "invalid_workflow"
-  | "no_source_position"
-  | "unsupported_destination"
-  | "lifecycle_conflict"
-  | "context_session_unavailable"
-  | "no_usable_transition"
-  | "parallel_branch_requires_fan_out";
-
 export type TaskMoveRequiredValue = Readonly<{
   nodeKey: string;
   outputName: string;
@@ -136,4 +129,4 @@ export type TaskMovePreviewResponse =
       outcome: "transition";
       transition: Readonly<{ choices: readonly TaskMovePreviewChoice[] }>;
     }>
-  | Readonly<{ outcome: "blocked"; blocked: Readonly<{ reason: TaskMovePreviewBlocker }> }>;
+  | Readonly<{ outcome: "blocked"; blocked: Readonly<{ reason: MovePreviewBlocker }> }>;

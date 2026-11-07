@@ -8,7 +8,7 @@ import { requireUnarySuccess } from "./protobufRpc";
 import { ContractError } from "./errors";
 import { requireWorktreeSuccess } from "./clientWorktree";
 import { taskCurrentNode, taskTargetSelectionRequired } from "./clientTaskProjection";
-import { workflowExecutionTargetMode, taskMovePreviewBlocker } from "./workflowProtoValues";
+import { workflowExecutionTargetMode } from "./workflowProtoValues";
 import { throwTaskExecutionFailure } from "./taskExecutionFailure";
 import type {
   TaskApproveResponse,
@@ -168,7 +168,7 @@ export async function previewMoveTask(
     case "blocked":
       return {
         outcome: "blocked",
-        blocked: { reason: taskMovePreviewBlocker.decode(response.outcome.value.reason) },
+        blocked: { reason: response.outcome.value.reason },
       };
     case "transition":
       return {

@@ -1,4 +1,5 @@
 export { ValidationErrorCode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+export { MovePreviewBlocker } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 export {
   assertSpeechSize,
   SpeechFailure,
@@ -232,7 +233,6 @@ export type {
   TaskMoveApplied,
   TaskMoveNoOp,
   TaskMoveResponse,
-  TaskMovePreviewBlocker,
   TaskMovePreviewChoice,
   TaskMovePreviewResponse,
   TaskMoveRequiredValue,
