@@ -182,10 +182,6 @@ func (m *uiModel) reduceProcessMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(refreshCmd, tea.Tick(processListRefreshInterval, func(time.Time) tea.Msg { return processListRefreshTickMsg{} }), m.reconcileSpinnerTicking(false)))
 	case processListRefreshDoneMsg:
-		if msg.token != m.processList.refreshToken {
-			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, nil)
-		}
 		m.processList.refreshInFlight = false
 		m.processList.loading = false
 		if msg.err != nil {

@@ -102,13 +102,11 @@ type spinnerTickMsg struct {
 type processListRefreshTickMsg struct{}
 
 type processListRefreshDoneMsg struct {
-	token   uint64
 	entries []*processpb.BackgroundProcess
 	err     error
 }
 
 type processActionDoneMsg struct {
-	token             uint64
 	surfaceGeneration uint64
 	inputDraftToken   uint64
 	action            string

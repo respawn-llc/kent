@@ -54,10 +54,8 @@ type uiProcessListState struct {
 	entries           []*processpb.BackgroundProcess
 	loading           bool
 	errorText         string
-	refreshToken      uint64
 	refreshInFlight   bool
 	refreshDirty      bool
-	actionToken       uint64
 	actionInFlight    bool
 	surfaceGeneration uint64
 }
