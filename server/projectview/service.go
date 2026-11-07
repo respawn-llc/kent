@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowexecution"
@@ -27,6 +28,7 @@ import (
 
 type Service struct {
 	metadata          *metadata.Store
+	operations        *operation.OperationOwner
 	runtimeAuthority  *sessionruntime.Authority
 	taskMutations     *workflowexecution.TaskMutationCoordinator
 	workflowExecution interface {
@@ -45,11 +47,14 @@ const (
 	maxProjectHomePageSize     = 100
 )
 
-func NewMetadataService(metadataStore *metadata.Store) (*Service, error) {
+func NewMetadataService(metadataStore *metadata.Store, operations *operation.OperationOwner) (*Service, error) {
 	if metadataStore == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	return &Service{metadata: metadataStore}, nil
+	if operations == nil {
+		return nil, errors.New("operation owner is required")
+	}
+	return &Service{metadata: metadataStore, operations: operations}, nil
 }
 
 func (s *Service) WithRuntimeAuthority(authority *sessionruntime.Authority) *Service {
@@ -273,6 +278,12 @@ func (s *Service) CreateProject(ctx context.Context, req *projectpb.CreateProjec
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.CreateProjectSuccess, error) {
+		return s.createProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) createProject(ctx context.Context, req *projectpb.CreateProjectRequest) (*projectpb.CreateProjectSuccess, error) {
 	binding, err := s.metadata.CreateProjectForWorkspaceWithKey(ctx, req.WorkspaceRoot, req.DisplayName, req.GetProjectKey())
 	if err != nil {
 		return nil, projectMutationStorageError(err, req.GetProjectKey())
@@ -288,6 +299,12 @@ func (s *Service) UpdateProject(ctx context.Context, req *projectpb.UpdateProjec
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.UpdateProjectSuccess, error) {
+		return s.updateProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) updateProject(ctx context.Context, req *projectpb.UpdateProjectRequest) (*projectpb.UpdateProjectSuccess, error) {
 	if err := s.metadata.UpdateProjectMetadata(ctx, req.ProjectId, req.DisplayName, req.GetProjectKey()); err != nil {
 		return nil, projectMutationStorageError(err, req.GetProjectKey())
 	}
@@ -321,6 +338,12 @@ func (s *Service) DeleteProject(ctx context.Context, req *projectpb.DeleteProjec
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.DeleteProjectSuccess, error) {
+		return s.deleteProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) deleteProject(ctx context.Context, req *projectpb.DeleteProjectRequest) (*projectpb.DeleteProjectSuccess, error) {
 	projectID := strings.TrimSpace(req.ProjectId)
 	if s.taskMutations == nil || s.workflowExecution == nil {
 		return nil, errors.New("workflow execution is required for project deletion")
@@ -634,6 +657,12 @@ func (s *Service) AttachWorkspaceToProject(ctx context.Context, req *projectpb.A
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.AttachWorkspaceSuccess, error) {
+		return s.attachWorkspaceToProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) attachWorkspaceToProject(ctx context.Context, req *projectpb.AttachWorkspaceRequest) (*projectpb.AttachWorkspaceSuccess, error) {
 	result, err := s.metadata.AttachWorkspaceToProjectWithResult(ctx, req.ProjectId, req.WorkspaceRoot)
 	if err != nil {
 		return nil, projectMutationStorageError(err, "")
@@ -653,6 +682,12 @@ func (s *Service) RebindWorkspace(ctx context.Context, req *projectpb.RebindWork
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.RebindWorkspaceSuccess, error) {
+		return s.rebindWorkspace(scope.Context(), req)
+	})
+}
+
+func (s *Service) rebindWorkspace(ctx context.Context, req *projectpb.RebindWorkspaceRequest) (*projectpb.RebindWorkspaceSuccess, error) {
 	prepared, err := s.metadata.PrepareWorkspaceRebind(ctx, req.OldWorkspaceRoot)
 	if err != nil {
 		return nil, projectMutationStorageError(err, "")

@@ -1,12 +1,13 @@
-package chatmutation
+package operation
 
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 )
 
-var ErrOperationOwnerClosed = errors.New("Chat operation owner is closed")
+var ErrOperationOwnerClosed = errors.New("operation owner is closed")
 
 type OperationOwner struct {
 	mu         sync.Mutex
@@ -34,15 +35,33 @@ func NewOperationOwner() *OperationOwner {
 	}
 }
 
+// Run starts server-owned work and waits only as long as the caller observes it.
+func Run[T any](callerCtx context.Context, owner *OperationOwner, run func(OperationScope) (T, error)) (T, error) {
+	var result T
+	operation, err := owner.Start(callerCtx, func(scope OperationScope) error {
+		var runErr error
+		result, runErr = run(scope)
+		return runErr
+	})
+	if err != nil {
+		return result, err
+	}
+	if err := operation.Await(callerCtx); err != nil {
+		var empty T
+		return empty, err
+	}
+	return result, nil
+}
+
 func (o *OperationOwner) Start(
 	callerCtx context.Context,
 	run func(OperationScope) error,
 ) (*Operation, error) {
 	if o == nil {
-		return nil, errors.New("Chat operation owner is required")
+		return nil, errors.New("operation owner is required")
 	}
 	if run == nil {
-		return nil, errors.New("Chat operation is required")
+		return nil, errors.New("operation is required")
 	}
 	if callerCtx == nil {
 		callerCtx = context.Background()
@@ -70,7 +89,12 @@ func (o *OperationOwner) Start(
 			o.mu.Unlock()
 			o.wait.Done()
 		}()
-		operation.done <- run(OperationScope{ctx: ctx})
+		err := run(OperationScope{ctx: ctx})
+		// errors.Is would also suppress joined errors with independent failures.
+		if err != nil && err != context.Cause(ctx) && err != ctx.Err() {
+			slog.ErrorContext(ctx, "server operation failed", "error", err)
+		}
+		operation.done <- err
 		close(operation.done)
 	}()
 	return operation, nil
@@ -78,7 +102,7 @@ func (o *OperationOwner) Start(
 
 func (o *Operation) Await(ctx context.Context) error {
 	if o == nil {
-		return errors.New("Chat operation is required")
+		return errors.New("operation is required")
 	}
 	if ctx == nil {
 		ctx = context.Background()

@@ -10,6 +10,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/agentruntime"
 	"core/server/llm"
+	"core/server/operation"
 	"core/server/promptcontrol"
 	"core/server/runtimecontrol"
 	"core/server/runtimewire"
@@ -162,7 +163,7 @@ func TestChatAdmissionAcknowledgesInputsDuringContinuingGoal(t *testing.T) {
 				t.Fatal(err)
 			}
 			control := runtimecontrol.NewService(authority, metadata).WithPersistedSessionResolver(metadata)
-			owner := NewOperationOwner()
+			owner := operation.NewOperationOwner()
 			t.Cleanup(func() {
 				if err := owner.Close(); err != nil {
 					t.Error(err)

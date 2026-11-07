@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -8,8 +9,69 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
+	"core/server/operation"
 	"core/shared/config"
 )
+
+func TestCoreShutdownJoinsServerOperationsBeforeClosingPersistence(t *testing.T) {
+	cfg := config.App{
+		PersistenceRoot: t.TempDir(),
+		Settings: config.Settings{
+			Shell: config.ShellSettings{MaxConcurrent: config.DefaultMaxConcurrentShells, PostprocessingMode: config.ShellPostprocessingModeBuiltin},
+		},
+	}
+	store := testsetup.OpenStore(t, cfg.PersistenceRoot)
+	background, err := serverbootstrap.BuildShellManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = background.Close() })
+	owner := operation.NewOperationOwner()
+	appCore := &Core{bundles: composeBundles(bundleCompositionInput{
+		cfg: cfg, metadataStore: store, background: background, operationOwner: owner,
+	})}
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	work, err := owner.Start(t.Context(), func(scope operation.OperationScope) error {
+		close(started)
+		<-scope.Context().Done()
+		close(canceled)
+		<-release
+		_, err := store.ListProjects(t.Context())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	closed := make(chan error, 1)
+	go func() { closed <- appCore.Close() }()
+	<-canceled
+	if _, err := owner.Start(t.Context(), func(operation.OperationScope) error { return nil }); !errors.Is(err, operation.ErrOperationOwnerClosed) {
+		t.Fatalf("new operation during shutdown: %v", err)
+	}
+	select {
+	case err := <-closed:
+		t.Fatalf("Core closed while work was still running: %v", err)
+	default:
+	}
+	if _, err := store.ListProjects(t.Context()); err != nil {
+		t.Fatalf("persistence closed before accepted work joined: %v", err)
+	}
+	// Release without closing the channel twice if an earlier assertion fails.
+	release <- struct{}{}
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if err := work.Await(t.Context()); err != nil {
+		t.Fatalf("operation lost persistence during shutdown: %v", err)
+	}
+	if _, err := store.ListProjects(context.Background()); err == nil {
+		t.Fatal("Core did not close persistence after joining work")
+	}
+}
 
 func TestCoreCloseClosesResourcesOnceInReverseRegistrationOrder(t *testing.T) {
 	var calls []string

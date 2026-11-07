@@ -13,6 +13,7 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/operation"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
@@ -969,7 +970,9 @@ func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
 
 func newProjectViewMetadataService(t testing.TB, store *metadata.Store) *Service {
 	t.Helper()
-	svc, err := NewMetadataService(store)
+	owner := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	svc, err := NewMetadataService(store, owner)
 	if err != nil {
 		t.Fatalf("NewMetadataService: %v", err)
 	}

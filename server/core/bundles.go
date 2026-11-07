@@ -8,8 +8,8 @@ import (
 	serverbootstrap "core/server/bootstrap"
 	"core/server/capabilityfacts"
 	"core/server/chatcontext"
-	"core/server/chatmutation"
 	"core/server/metadata"
+	"core/server/operation"
 
 	"core/server/processview"
 	"core/server/promptcontrol"
@@ -192,7 +192,7 @@ type bundleCompositionInput struct {
 	workflowRuntimeStarter  *workflowrunner.Starter
 	worktreeService         *worktree.Service
 	sleepManager            *sleepguard.Manager
-	chatOperationOwner      *chatmutation.OperationOwner
+	operationOwner          *operation.OperationOwner
 }
 
 func composeBundles(in bundleCompositionInput) *Bundles {
@@ -237,11 +237,11 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 				}
 				return nil
 			}},
-			{name: "Chat operations", close: func() error {
-				if in.chatOperationOwner == nil {
+			{name: "server operations", close: func() error {
+				if in.operationOwner == nil {
 					return nil
 				}
-				return in.chatOperationOwner.Close()
+				return in.operationOwner.Close()
 			}},
 		},
 		Persistence: newPersistenceBundle(in.metadataStore),

@@ -20,10 +20,7 @@ var homeSortTaskCommentSQL string
 func TestMetadataServiceSortsProjectHomeByLatestTaskActivityOrEdit(t *testing.T) {
 	ctx := context.Background()
 	store, cfg, older := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store)
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store)
 	newer, err := svc.CreateProject(ctx, &projectpb.CreateProjectRequest{
 		DisplayName:   "Newer edit",
 		ProjectKey:    stringPointer("NEW"),
@@ -158,10 +155,7 @@ type projectHomeActivityFixture struct {
 func newProjectHomeActivityFixture(t *testing.T, ctx context.Context) projectHomeActivityFixture {
 	t.Helper()
 	store, _, older := newProjectViewMetadataStore(t)
-	svc, err := NewMetadataService(store)
-	if err != nil {
-		t.Fatalf("NewMetadataService: %v", err)
-	}
+	svc := newProjectViewMetadataService(t, store)
 	newer, err := svc.CreateProject(ctx, &projectpb.CreateProjectRequest{
 		DisplayName:   "Newer project",
 		ProjectKey:    stringPointer("NEW"),

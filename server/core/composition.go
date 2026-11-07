@@ -20,6 +20,7 @@ import (
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/nano"
+	"core/server/operation"
 
 	"core/server/agentruntime"
 	"core/server/processview"
@@ -174,7 +175,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	if observer := sleepManager.RuntimeActiveObserver(); observer != nil {
 		runtimeRegistry.SetSleepObserver(observer)
 	}
-	projectService, err := projectview.NewMetadataService(metadataStore)
+	operationOwner := operation.NewOperationOwner()
+	projectService, err := projectview.NewMetadataService(metadataStore, operationOwner)
 	if err != nil {
 		closeRootLeaseOnFailure()
 		_ = metadataStore.Close()
@@ -249,10 +251,9 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).
 		WithNavigationTargetResolver(metadataStore)
-	chatOperationOwner := chatmutation.NewOperationOwner()
 	var workflowRuntimeStarter *workflowrunner.Starter
 	cleanupNewFailure := func() {
-		_ = chatOperationOwner.Close()
+		_ = operationOwner.Close()
 		sleepManager.Close()
 		_ = worktreeService.Close()
 		if workflowController != nil {
@@ -426,7 +427,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		workflowRuntimeStarter:  workflowRuntimeStarter,
 		worktreeService:         worktreeService,
 		sleepManager:            sleepManager,
-		chatOperationOwner:      chatOperationOwner,
+		operationOwner:          operationOwner,
 	})}
 	runtimeControlService.WithSessionSettingsPublisher(chatSettingsService{core: core})
 	namingConsumer = sessionnaming.NewService(nanoInference, runtimeAuthority, workspaceConfigResolver.Resolve, chatSettingsService{core: core}.PublishSessionSettings,
@@ -490,7 +491,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		sessionRuntimeAPI,
 	)
 	core.bundles.Chat.mutations = chatmutation.NewService(
-		chatOperationOwner,
+		operationOwner,
 		chatTargets,
 		chatRuntimes,
 		runtimeControlService,

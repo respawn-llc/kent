@@ -22,6 +22,7 @@ import (
 	serverbootstrap "core/server/bootstrap"
 	"core/server/chatmutation"
 	"core/server/core"
+	"core/server/operation"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
 	"core/server/sessionstore"
@@ -296,7 +297,7 @@ func TestGatewayDisconnectStopsDeliveryWithoutCancelingChatOperation(t *testing.
 	if err != nil {
 		t.Fatalf("parse Session ID: %v", err)
 	}
-	owner := chatmutation.NewOperationOwner()
+	owner := operation.NewOperationOwner()
 	t.Cleanup(func() { _ = owner.Close() })
 	resolver := &gatewayChatLifecycleResolver{
 		started: make(chan context.Context, 1),
