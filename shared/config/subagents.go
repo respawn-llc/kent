@@ -143,10 +143,6 @@ func LookupSubagentRole(settings Settings, rawSelector string) SubagentRoleLooku
 	}
 }
 
-func SubagentRoleHasCapabilityOverrides(role SubagentRole) bool {
-	return hasAnyConfiguredSource(role.Sources, modelCapabilityKeys...)
-}
-
 // MaterializeSubagentRoleDeclaration fills the transport's required settings
 // fields while preserving every explicit role value. Filler is not declaration
 // evidence and must never be used as an effective role resolution.

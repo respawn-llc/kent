@@ -218,9 +218,7 @@ func TestPrepareChatAgentCatalogProjectsChoicesAndPreservesNamedAgents(t *testin
 		t.Fatalf("choices = %+v", choices)
 	}
 	worker := choices[3]
-	if worker.GetModel() != "worker-model" || worker.GetThinking() != "high" ||
-		!worker.CustomSystemPrompt || !worker.CustomCapabilities || worker.AgentCallable ||
-		!slices.Equal(worker.Tools, []string{"exec_command", "view_image"}) {
+	if worker.GetModel() != "worker-model" || worker.GetThinking() != "high" {
 		t.Fatalf("worker = %+v", worker)
 	}
 

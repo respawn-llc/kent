@@ -14,10 +14,6 @@ export type ChatSettingsAgentChoice = Readonly<{
   role: string;
   model: string | null;
   thinking: string | null;
-  tools: readonly string[];
-  customSystemPrompt: boolean;
-  customCapabilities: boolean;
-  agentCallable: boolean;
 }>;
 export type ChatSettingsSupervisor = Readonly<{
   value: InitialChatSettings["supervisor"];

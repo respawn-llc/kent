@@ -268,10 +268,6 @@ function agentChoice(value: AgentChoice) {
     role: value.role,
     model: value.model ?? null,
     thinking: value.thinking ?? null,
-    tools: value.tools,
-    customSystemPrompt: value.customSystemPrompt,
-    customCapabilities: value.customCapabilities,
-    agentCallable: value.agentCallable,
   };
 }
 

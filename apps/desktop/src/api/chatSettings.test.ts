@@ -64,7 +64,7 @@ function choice(role = "default") {
       preventSleep: SleepPreventionMode.ACTIVE,
     },
     source: {},
-    agent: { role, model: "gpt-6-sol", thinking: "medium", tools: ["ask_question"], agentCallable: true },
+    agent: { role, model: "gpt-6-sol", thinking: "medium" },
     baseline: {
       agentRole: role,
       supervisor: SupervisorValue.AFTER_EDITS,
