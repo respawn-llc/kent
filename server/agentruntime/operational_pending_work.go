@@ -104,7 +104,7 @@ func manualCompactionPendingWorkItem(payload runtimeinput.ManualCompactionAdmiss
 	canonical := payload.CanonicalInput()
 	item := runtimeinput.PendingWorkItem{
 		ID: runtimeids.NewQueueItemID(), Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindManualCompaction,
-		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: canonical, ManualCompaction: &payload,
+		CanonicalInput: canonical, ManualCompaction: &payload,
 	}
 	return item, nil
 }
@@ -124,7 +124,7 @@ func worktreePendingWorkItem(id clientui.WorktreeTransitionID, payload runtimein
 	}
 	item := runtimeinput.PendingWorkItem{
 		ID: itemID, Lane: runtimeinput.PendingWorkLaneSteer, Kind: runtimeinput.PendingWorkItemKindWorktreeTransition,
-		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: canonical, WorktreeTransition: &payload,
+		CanonicalInput: canonical, WorktreeTransition: &payload,
 	}
 	return item, nil
 }

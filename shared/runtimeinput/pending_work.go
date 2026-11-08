@@ -29,7 +29,6 @@ func (*PendingWorkRemovalError) Unwrap() error { return ErrPendingWorkNotPending
 
 type PendingWorkLane string
 type PendingWorkItemKind string
-type PendingWorkItemState string
 type PendingWorkWorktreeTransitionKind string
 
 const (
@@ -40,8 +39,6 @@ const (
 	PendingWorkItemKindShell              PendingWorkItemKind = "shell"
 	PendingWorkItemKindManualCompaction   PendingWorkItemKind = "manual_compaction"
 	PendingWorkItemKindWorktreeTransition PendingWorkItemKind = "worktree_transition"
-
-	PendingWorkItemStatePending PendingWorkItemState = "pending"
 
 	PendingWorkWorktreeTransitionEnter PendingWorkWorktreeTransitionKind = "enter"
 	PendingWorkWorktreeTransitionLeave PendingWorkWorktreeTransitionKind = "leave"
@@ -74,7 +71,6 @@ type PendingWorkItem struct {
 	ID                 runtimeids.QueueItemID
 	Lane               PendingWorkLane
 	Kind               PendingWorkItemKind
-	State              PendingWorkItemState
 	CanonicalInput     string
 	Message            *PendingWorkMessage
 	Shell              *ShellCommand

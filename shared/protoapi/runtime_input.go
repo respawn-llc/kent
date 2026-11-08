@@ -106,7 +106,7 @@ func PendingWorkFromProto(work *runtimepb.PendingWork) (runtimeinput.PendingWork
 			return runtimeinput.PendingWork{}, err
 		}
 		kind := pendingWorkKindValues[item.Kind]
-		value := runtimeinput.PendingWorkItem{ID: id, Kind: kind, CanonicalInput: item.CanonicalInput, State: runtimeinput.PendingWorkItemStatePending}
+		value := runtimeinput.PendingWorkItem{ID: id, Kind: kind, CanonicalInput: item.CanonicalInput}
 		value.Lane = pendingWorkLaneValues[item.Lane]
 		switch payload := item.Payload.(type) {
 		case *runtimepb.PendingWorkItem_Shell:

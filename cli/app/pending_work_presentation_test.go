@@ -26,15 +26,15 @@ func TestPendingWorkPresentationConsumesServerOrderAndCanonicalInput(t *testing.
 func pendingWorkMessageForTest(lane runtimeinput.PendingWorkLane, text string) runtimeinput.PendingWorkItem {
 	return runtimeinput.PendingWorkItem{
 		ID: runtimeids.NewQueueItemID(), Lane: lane, Kind: runtimeinput.PendingWorkItemKindMessage,
-		State: runtimeinput.PendingWorkItemStatePending, CanonicalInput: text,
-		Message: &runtimeinput.PendingWorkMessage{Text: text},
+		CanonicalInput: text,
+		Message:        &runtimeinput.PendingWorkMessage{Text: text},
 	}
 }
 
 func pendingWorkCompactionForTest() runtimeinput.PendingWorkItem {
 	return runtimeinput.PendingWorkItem{
 		ID: runtimeids.NewQueueItemID(), Lane: runtimeinput.PendingWorkLaneSteer,
-		Kind: runtimeinput.PendingWorkItemKindManualCompaction, State: runtimeinput.PendingWorkItemStatePending,
+		Kind:           runtimeinput.PendingWorkItemKindManualCompaction,
 		CanonicalInput: "/compact", ManualCompaction: &runtimeinput.PendingWorkManualCompaction{},
 	}
 }
@@ -46,7 +46,7 @@ func pendingWorkWorktreeForTest(transition runtimeinput.PendingWorkWorktreeTrans
 	}
 	return runtimeinput.PendingWorkItem{
 		ID: runtimeids.NewQueueItemID(), Lane: runtimeinput.PendingWorkLaneSteer,
-		Kind: runtimeinput.PendingWorkItemKindWorktreeTransition, State: runtimeinput.PendingWorkItemStatePending,
+		Kind:           runtimeinput.PendingWorkItemKindWorktreeTransition,
 		CanonicalInput: canonical, WorktreeTransition: payload,
 	}
 }
