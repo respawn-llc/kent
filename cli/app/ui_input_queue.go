@@ -169,7 +169,7 @@ func (c uiInputController) handleInjectedQueueCreateDone(msg injectedQueueCreate
 	if msg.selectedSessionID != nil && *msg.selectedSessionID != m.currentRuntimeSessionID() {
 		m.removeInjectedQueueItemAt(index)
 		m.nextSessionID = *msg.selectedSessionID
-		m.exitAction = UIActionOpenSession
+		m.exitAction = UIActionFollowSelectedSession
 		if msg.diagnostic != nil {
 			return m, tea.Sequence(m.appendLocalEntryWithNoticeID("error", msg.diagnostic.Error(), ""), tea.Quit)
 		}

@@ -31,13 +31,14 @@ type UITransition struct {
 }
 
 const (
-	UIActionNone         UIAction = "none"
-	UIActionExit         UIAction = "exit"
-	UIActionNewSession   UIAction = "new_session"
-	UIActionResume       UIAction = "resume"
-	UIActionLogout       UIAction = "logout"
-	UIActionForkRollback UIAction = "fork_rollback"
-	UIActionOpenSession  UIAction = "open_session"
+	UIActionNone                  UIAction = "none"
+	UIActionExit                  UIAction = "exit"
+	UIActionNewSession            UIAction = "new_session"
+	UIActionResume                UIAction = "resume"
+	UIActionLogout                UIAction = "logout"
+	UIActionForkRollback          UIAction = "fork_rollback"
+	UIActionOpenSession           UIAction = "open_session"
+	UIActionFollowSelectedSession UIAction = "follow_selected_session"
 )
 
 func (a UIAction) transitionAction() (sessionlaunchpb.SessionTransitionAction, error) {
