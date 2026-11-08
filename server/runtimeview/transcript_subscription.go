@@ -780,9 +780,13 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 		Integrity:  integrity,
 		Locator:    &transcriptpb.CommittedRowLocator{EventSequence: fact.Locator.EventSequence, RowOrdinal: ordinal},
 	}
+	var committedAt *transcript.CommittedAtUnixMs
+	if fact.Provenance != nil {
+		committedAt = fact.Provenance.CommittedAtUnixMs
+	}
 	switch fact.Kind {
 	case runtime.TranscriptCommittedRowFactUser:
-		committedAt, err := protoapi.CommittedTimeToProto(fact.User.CommittedAtUnixMs)
+		committedTime, err := protoapi.CommittedTimeToProto(committedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -792,13 +796,13 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			Text:             fact.User.Text,
 			CondensedText:    optionalNonBlankString(fact.User.CondensedText),
 			RollbackTargetId: textutil.Pointer(fact.User.RollbackTargetID),
-			CommittedAt:      committedAt,
+			CommittedAt:      committedTime,
 		}}
 	case runtime.TranscriptCommittedRowFactAssistant:
 		if fact.StepID == nil {
 			return nil, fmt.Errorf("runtime transcript assistant row fact is missing its payload or Step")
 		}
-		committedAt, err := protoapi.CommittedTimeToProto(fact.Assistant.CommittedAtUnixMs)
+		committedTime, err := protoapi.CommittedTimeToProto(committedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -811,7 +815,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			Text:          fact.Assistant.Text,
 			CondensedText: optionalNonBlankString(fact.Assistant.CondensedText),
 			Phase:         phase,
-			CommittedAt:   committedAt,
+			CommittedAt:   committedTime,
 		}
 		if fact.Assistant.StreamID != nil {
 			streamID := fact.Assistant.StreamID.String()
