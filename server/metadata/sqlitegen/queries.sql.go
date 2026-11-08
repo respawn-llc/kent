@@ -2363,70 +2363,6 @@ func (q *Queries) GetTaskActiveFanout(ctx context.Context, taskID string) (strin
 	return task_id, err
 }
 
-const getTaskByProjectShortID = `-- name: GetTaskByProjectShortID :one
-SELECT
-    id,
-    project_id,
-    project_workflow_link_id,
-    workflow_id,
-    workflow_revision_seen,
-    task_seq,
-    short_id,
-    title,
-    body,
-    source_url,
-    source_workspace_id,
-    managed_worktree_id,
-    pending_initial_managed_branch_name,
-    execution_target_mode,
-    execution_target_requested_ref,
-    execution_target_resolved_ref,
-    execution_target_commit_oid,
-    execution_target_provenance,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    metadata_json
-FROM task_records
-WHERE project_id = ?1
-  AND short_id = ?2
-LIMIT 1
-`
-
-type GetTaskByProjectShortIDParams struct {
-	ProjectID string
-	ShortID   string
-}
-
-func (q *Queries) GetTaskByProjectShortID(ctx context.Context, arg GetTaskByProjectShortIDParams) (TaskRecord, error) {
-	row := q.db.QueryRowContext(ctx, getTaskByProjectShortID, arg.ProjectID, arg.ShortID)
-	var i TaskRecord
-	err := recordQueryError(ctx, row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.ProjectWorkflowLinkID,
-		&i.WorkflowID,
-		&i.WorkflowRevisionSeen,
-		&i.TaskSeq,
-		&i.ShortID,
-		&i.Title,
-		&i.Body,
-		&i.SourceUrl,
-		&i.SourceWorkspaceID,
-		&i.ManagedWorktreeID,
-		&i.PendingInitialManagedBranchName,
-		&i.ExecutionTargetMode,
-		&i.ExecutionTargetRequestedRef,
-		&i.ExecutionTargetResolvedRef,
-		&i.ExecutionTargetCommitOid,
-		&i.ExecutionTargetProvenance,
-		&i.CreatedAtUnixMs,
-		&i.UpdatedAtUnixMs,
-		&i.MetadataJson,
-	), getTaskByProjectShortID, 2)
-
-	return i, err
-}
-
 const getTaskDependency = `-- name: GetTaskDependency :one
 SELECT blocker_task_id, blocked_task_id
 FROM task_dependencies
@@ -2446,6 +2382,42 @@ func (q *Queries) GetTaskDependency(ctx context.Context, arg GetTaskDependencyPa
 	err := recordQueryError(ctx, row.Scan(&i.BlockerTaskID, &i.BlockedTaskID), getTaskDependency, 2)
 
 	return i, err
+}
+
+const getTaskID = `-- name: GetTaskID :one
+SELECT id
+FROM task_records
+WHERE id = ?1
+LIMIT 1
+`
+
+func (q *Queries) GetTaskID(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskID, id)
+	var id_2 string
+	err := recordQueryError(ctx, row.Scan(&id_2), getTaskID, 1)
+
+	return id_2, err
+}
+
+const getTaskIDByProjectShortID = `-- name: GetTaskIDByProjectShortID :one
+SELECT id
+FROM task_records
+WHERE project_id = ?1
+  AND short_id = ?2
+LIMIT 1
+`
+
+type GetTaskIDByProjectShortIDParams struct {
+	ProjectID string
+	ShortID   string
+}
+
+func (q *Queries) GetTaskIDByProjectShortID(ctx context.Context, arg GetTaskIDByProjectShortIDParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskIDByProjectShortID, arg.ProjectID, arg.ShortID)
+	var id string
+	err := recordQueryError(ctx, row.Scan(&id), getTaskIDByProjectShortID, 2)
+
+	return id, err
 }
 
 const getTaskIdentityForComment = `-- name: GetTaskIdentityForComment :one
@@ -5946,6 +5918,37 @@ func (q *Queries) ListTaskDependencyProjectionRows(ctx context.Context, taskID s
 	return items, nil
 }
 
+const listTaskIDsByShortID = `-- name: ListTaskIDsByShortID :many
+SELECT id
+FROM task_records
+WHERE short_id = ?1
+LIMIT 2
+`
+
+func (q *Queries) ListTaskIDsByShortID(ctx context.Context, shortID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskIDsByShortID, shortID)
+	err = recordQueryError(ctx, err, listTaskIDsByShortID, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := recordQueryError(ctx, rows.Scan(&id), listTaskIDsByShortID, 1); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := recordQueryError(ctx, rows.Close(), listTaskIDsByShortID, 1); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), listTaskIDsByShortID, 1); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskPendingApprovalBranches = `-- name: ListTaskPendingApprovalBranches :many
 SELECT
     approval_id,
@@ -6235,86 +6238,6 @@ func (q *Queries) ListTasksByIDs(ctx context.Context, taskIdsJson interface{}) (
 		return nil, err
 	}
 	if err := recordQueryError(ctx, rows.Err(), listTasksByIDs, 1); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listTasksByShortID = `-- name: ListTasksByShortID :many
-SELECT
-    id,
-    project_id,
-    project_workflow_link_id,
-    workflow_id,
-    workflow_revision_seen,
-    task_seq,
-    short_id,
-    title,
-    body,
-    source_url,
-    source_workspace_id,
-    managed_worktree_id,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    metadata_json
-FROM task_records
-WHERE short_id = ?1
-ORDER BY created_at_unix_ms ASC, id ASC
-`
-
-type ListTasksByShortIDRow struct {
-	ID                    string
-	ProjectID             string
-	ProjectWorkflowLinkID string
-	WorkflowID            runtimeids.WorkflowID
-	WorkflowRevisionSeen  int64
-	TaskSeq               int64
-	ShortID               string
-	Title                 string
-	Body                  string
-	SourceUrl             string
-	SourceWorkspaceID     sql.NullString
-	ManagedWorktreeID     sql.NullString
-	CreatedAtUnixMs       int64
-	UpdatedAtUnixMs       int64
-	MetadataJson          string
-}
-
-func (q *Queries) ListTasksByShortID(ctx context.Context, shortID string) ([]ListTasksByShortIDRow, error) {
-	rows, err := q.db.QueryContext(ctx, listTasksByShortID, shortID)
-	err = recordQueryError(ctx, err, listTasksByShortID, 1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListTasksByShortIDRow
-	for rows.Next() {
-		var i ListTasksByShortIDRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
-			&i.WorkflowID,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
-			&i.ShortID,
-			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
-		), listTasksByShortID, 1); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listTasksByShortID, 1); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listTasksByShortID, 1); err != nil {
 		return nil, err
 	}
 	return items, nil
