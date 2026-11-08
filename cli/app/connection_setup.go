@@ -160,11 +160,11 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 				return onboardingScreen{ID: connectionStepEndpoint, Kind: onboardingScreenInput, Title: "Responses endpoint", InputValue: value, Helper: "Enter the full HTTP or HTTPS base URL, including /v1 if your server requires it."}
 			}, apply: func(state *onboardingFlowState, value string) error {
 				if f.template == connectionTemplateDeepSeekAPI {
-					canonical, err := config.CanonicalDeepSeekEndpoint(value)
+					persisted, err := config.PersistDeepSeekEndpoint(&value)
 					if err != nil {
 						return err
 					}
-					f.definition.Endpoint = canonical
+					f.definition.Endpoint = persisted
 					return nil
 				}
 				f.definition.Endpoint = &value

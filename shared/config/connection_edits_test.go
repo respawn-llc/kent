@@ -37,7 +37,7 @@ max_concurrent = 3
 `
 	writeConfigTestFile(t, path, source)
 
-	if err := SetProviderConnectionEnvironment(path, "api", "NEW_KEY", nil); err != nil {
+	if err := SetProviderConnectionEnvironment(path, "api", "NEW_KEY"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -146,7 +146,7 @@ environment_variable = 'OLD_KEY' # keep this authored reference
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProviderConnectionEnvironment(path, "api", "OLD_KEY", nil); err != nil {
+	if err := SetProviderConnectionEnvironment(path, "api", "OLD_KEY"); err != nil {
 		t.Fatal(err)
 	}
 	afterInfo, err := os.Stat(path)

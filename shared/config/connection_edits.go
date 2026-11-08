@@ -35,7 +35,7 @@ func AddProviderConnection(path string, id ConnectionID, definition ProviderConn
 	})
 }
 
-func SetProviderConnectionEnvironment(path string, id ConnectionID, name string, endpoint *string) error {
+func SetProviderConnectionEnvironment(path string, id ConnectionID, name string) error {
 	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
 		connection, present := existing[id]
 		if !present {
@@ -44,44 +44,67 @@ func SetProviderConnectionEnvironment(path string, id ConnectionID, name string,
 		if connection.EnvironmentVariable == nil {
 			return &ConnectionNotAPIKeyError{ID: id}
 		}
+		if *connection.EnvironmentVariable == name {
+			return nil
+		}
+		return document.set([]string{"connections", string(id), "environment_variable"}, name)
+	})
+}
+
+// DeepSeekEndpointChoice is the explicit base for a DeepSeek reference edit.
+// Official selects the default base. A custom choice carries the absolute base to store.
+type DeepSeekEndpointChoice struct {
+	Official bool
+	Endpoint string
+}
+
+func (choice DeepSeekEndpointChoice) Base() (string, error) {
+	if choice.Official {
+		if strings.TrimSpace(choice.Endpoint) != "" {
+			return "", fmt.Errorf("official DeepSeek base does not include an endpoint")
+		}
+		return DefaultDeepSeekResponsesEndpoint, nil
+	}
+	return NormalizeDeepSeekBase(choice.Endpoint)
+}
+
+func SetDeepSeekConnectionReference(path string, id ConnectionID, name string, choice DeepSeekEndpointChoice) error {
+	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
+		connection, present := existing[id]
+		if !present {
+			return &ConnectionReferenceError{Connection: &id}
+		}
+		if connection.EnvironmentVariable == nil {
+			return &ConnectionNotAPIKeyError{ID: id}
+		}
+		if connection.Protocol != ConnectionDeepSeekAPIKey {
+			return fmt.Errorf("connection %q cannot change its endpoint", id)
+		}
+		base, err := choice.Base()
+		if err != nil {
+			return err
+		}
+		persisted, err := PersistDeepSeekEndpoint(&base)
+		if err != nil {
+			return err
+		}
 		if *connection.EnvironmentVariable != name {
 			if err := document.set([]string{"connections", string(id), "environment_variable"}, name); err != nil {
 				return err
 			}
 		}
-		if endpoint == nil {
+		endpointPath := []string{"connections", string(id), "endpoint"}
+		raw, rawPresent := document.get(endpointPath)
+		rawText, rawIsText := raw.(string)
+		switch {
+		case persisted == nil && rawPresent:
+			return document.delete(endpointPath)
+		case persisted != nil && (!rawPresent || !rawIsText || rawText != *persisted):
+			return document.set(endpointPath, *persisted)
+		default:
 			return nil
 		}
-		if connection.Protocol != ConnectionDeepSeekAPIKey {
-			return fmt.Errorf("connection %q cannot change its endpoint", id)
-		}
-		canonical, err := CanonicalDeepSeekEndpoint(*endpoint)
-		if err != nil {
-			return err
-		}
-		if canonical == nil {
-			return document.delete([]string{"connections", string(id), "endpoint"})
-		}
-		if connection.Endpoint != nil && *connection.Endpoint == *canonical {
-			return nil
-		}
-		return document.set([]string{"connections", string(id), "endpoint"}, *canonical)
 	})
-}
-
-// CanonicalDeepSeekEndpoint accepts an absolute base URL. The official DeepSeek base returns no stored endpoint.
-func CanonicalDeepSeekEndpoint(value string) (*string, error) {
-	trimmed := strings.TrimRight(strings.TrimSpace(value), "/")
-	if trimmed == "" {
-		return nil, fmt.Errorf("DeepSeek endpoint cannot be empty; omit it for %s", DefaultDeepSeekResponsesEndpoint)
-	}
-	if err := ValidateResponsesEndpoint(trimmed); err != nil {
-		return nil, err
-	}
-	if trimmed == DefaultDeepSeekResponsesEndpoint {
-		return nil, nil
-	}
-	return &trimmed, nil
 }
 
 func SetDefaultProviderConnection(path string, id ConnectionID) error {

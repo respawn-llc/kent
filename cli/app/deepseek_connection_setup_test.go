@@ -42,3 +42,39 @@ func TestDeepSeekSetupPrefillsOfficialEndpoint(t *testing.T) {
 		t.Fatalf("custom endpoint = %v", form.definition.Endpoint)
 	}
 }
+
+func TestReferenceEditStepsAreSelectedByID(t *testing.T) {
+	deepseek, err := newConnectionForm(&authpb.ConnectionCatalog{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deepseek.selectTemplate(connectionTemplateDeepSeekAPI)
+	deepseekSteps, err := referenceEditSteps(deepseek)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := stepIDs(deepseekSteps); len(ids) != 2 || ids[0] != connectionStepEndpoint || ids[1] != connectionStepEnvironment {
+		t.Fatalf("DeepSeek edit steps = %v", ids)
+	}
+	endpoint := "https://api.openai.com/v1"
+	env := "OPENAI_API_KEY"
+	openai := &connectionForm{
+		template:   connectionTemplateOpenAIAPI,
+		definition: config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: &endpoint, EnvironmentVariable: &env},
+	}
+	openaiSteps, err := referenceEditSteps(openai)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := stepIDs(openaiSteps); len(ids) != 1 || ids[0] != connectionStepEnvironment {
+		t.Fatalf("OpenAI edit steps = %v", ids)
+	}
+}
+
+func stepIDs(steps []onboardingStepDefinition) []onboardingStepID {
+	ids := make([]onboardingStepID, len(steps))
+	for i, step := range steps {
+		ids[i] = step.id
+	}
+	return ids
+}

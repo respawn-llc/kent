@@ -27,7 +27,7 @@ func TestDeepSeekConnectionUsesOfficialBaseUnlessEndpointIsSet(t *testing.T) {
 	}
 	custom, err := ResolveConnectionVariant(config.ProviderConnection{
 		Protocol: config.ConnectionDeepSeekAPIKey, EnvironmentVariable: textutil.Value("DEEPSEEK_API_KEY"),
-		Endpoint: textutil.Value("https://models.example.test/deepseek/"),
+		Endpoint: textutil.Value("  https://models.example.test/deepseek/ "),
 	})
 	if err != nil {
 		t.Fatal(err)

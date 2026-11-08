@@ -167,24 +167,45 @@ func editConnectionReference(ctx context.Context, remote apicontract.ConnectionM
 		return err
 	}
 	state := onboardingFlowState{selections: onboardingSelections{theme: theme}}
-	steps := form.steps()
-	editSteps := steps[len(steps)-1:]
-	if form.template == connectionTemplateDeepSeekAPI {
-		editSteps = steps[len(steps)-2:]
+	editSteps, err := referenceEditSteps(form)
+	if err != nil {
+		return err
 	}
 	model := newOnboardingFormModel(state, onboardingWorkflow{steps: editSteps})
 	return runConnectionForm(ctx, model, func() error {
 		reference := &authpb.ConnectionReferenceEdit{ConnectionId: string(id), EnvironmentVariable: *form.definition.EnvironmentVariable}
 		if form.template == connectionTemplateDeepSeekAPI {
-			endpoint := config.DefaultDeepSeekResponsesEndpoint
-			if form.definition.Endpoint != nil {
-				endpoint = *form.definition.Endpoint
+			choice := &authpb.DeepSeekEndpointChoice{}
+			if form.definition.Endpoint == nil {
+				choice.Choice = &authpb.DeepSeekEndpointChoice_Official{Official: &emptypb.Empty{}}
+			} else {
+				choice.Choice = &authpb.DeepSeekEndpointChoice_Endpoint{Endpoint: *form.definition.Endpoint}
 			}
-			reference.Endpoint = &endpoint
+			reference.DeepseekEndpoint = choice
 		}
 		_, err := runConnectionOperation(ctx, selectedTheme, func() (*emptypb.Empty, error) {
 			return remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Reference{Reference: reference}})
 		})
 		return err
 	})
+}
+
+func referenceEditSteps(form *connectionForm) ([]onboardingStepDefinition, error) {
+	needed := []onboardingStepID{connectionStepEnvironment}
+	if form.template == connectionTemplateDeepSeekAPI {
+		needed = []onboardingStepID{connectionStepEndpoint, connectionStepEnvironment}
+	}
+	byID := make(map[onboardingStepID]onboardingStepDefinition, len(form.steps()))
+	for _, step := range form.steps() {
+		byID[step.id] = step
+	}
+	selected := make([]onboardingStepDefinition, 0, len(needed))
+	for _, id := range needed {
+		step, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("connection edit is missing step %s", id)
+		}
+		selected = append(selected, step)
+	}
+	return selected, nil
 }

@@ -602,10 +602,25 @@ message GetConnectionsResult {
   }
 }
 
+message DeepSeekEndpointChoice {
+  oneof choice {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty official = 1;
+    string endpoint = 2 [
+      (buf.validate.field).string.min_len = 1,
+      (buf.validate.field).cel = {
+        id: "kent.auth.deepseek_endpoint.nonblank"
+        message: "DeepSeek endpoint must be non-blank"
+        expression: "this.trim() != ''"
+      }
+    ];
+  }
+}
+
 message ConnectionReferenceEdit {
   string connection_id = 1 [(buf.validate.field).string.(kent.api.shared.connection_id) = true];
   string environment_variable = 2 [(buf.validate.field).string.min_len = 1];
-  optional string endpoint = 3 [(buf.validate.field).string.min_len = 1];
+  DeepSeekEndpointChoice deepseek_endpoint = 3;
 
   option (buf.validate.message).cel = {
     id: "kent.auth.connection_reference.nonblank"

@@ -82,18 +82,22 @@ func ResolveConnectionVariant(connection config.ProviderConnection) (ProviderVar
 		return ProviderVariantRegistration{}, err
 	}
 	switch connection.Protocol {
-	case config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey, config.ConnectionDeepSeekAPIKey:
+	case config.ConnectionGrokCLIProxy, config.ConnectionGrokOAuthAPI, config.ConnectionGrokAPIKey:
 		registration, ok := lookupProviderVariantContract(string(connection.Protocol))
 		if !ok {
 			return ProviderVariantRegistration{}, fmt.Errorf("unregistered connection protocol %q", connection.Protocol)
 		}
-		if connection.Protocol == config.ConnectionDeepSeekAPIKey {
-			base := config.DefaultDeepSeekResponsesEndpoint
-			if connection.Endpoint != nil {
-				base = strings.TrimRight(strings.TrimSpace(*connection.Endpoint), "/")
-			}
-			registration.Variant.BaseURL = textutil.Value(base)
+		return registration, nil
+	case config.ConnectionDeepSeekAPIKey:
+		registration, ok := lookupProviderVariantContract(string(connection.Protocol))
+		if !ok {
+			return ProviderVariantRegistration{}, fmt.Errorf("unregistered connection protocol %q", connection.Protocol)
 		}
+		base, err := config.DeepSeekBase(connection.Endpoint)
+		if err != nil {
+			return ProviderVariantRegistration{}, err
+		}
+		registration.Variant.BaseURL = textutil.Value(base)
 		return registration, nil
 	}
 	rawURL := ""
