@@ -61,6 +61,7 @@ func (s observationDefinitionStub) GetDefinition(context.Context, runtimeids.Wor
 
 type observationAttentionStub struct {
 	items []*taskpb.AttentionItem
+	err   error
 }
 
 func (observationAttentionStub) List(context.Context, *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error) {
@@ -68,10 +69,13 @@ func (observationAttentionStub) List(context.Context, *taskpb.AttentionListReque
 }
 
 func (s observationAttentionStub) ListTask(context.Context, *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	return &taskpb.TaskAttentionListSuccess{Items: s.items}, nil
 }
 
-func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
+func TestObserveWorkflowTaskWaitReturnsCurrentWorkFailuresWhenAttentionUnavailable(t *testing.T) {
 	_, _, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	sessionID := createPersistedWorkflowServiceSession(t, metadataStore, binding)
 	record, err := metadataStore.ResolvePersistedSession(t.Context(), sessionID.String())
@@ -85,42 +89,83 @@ func TestObserveWorkflowTaskWaitReturnsInterruptedOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current node reference: %v", err)
 	}
+	errorNode, err := workflow.NewCurrentNodeReference(workflow.TaskID(taskID), "node-2", nil)
+	if err != nil {
+		t.Fatalf("execution error node reference: %v", err)
+	}
 	service := &Service{metadata: metadataStore, readModels: ReadModels{
 		Definitions: observationDefinitionStub{},
 		TaskDetail: observationTaskDetailStub{
 			detail: &taskpb.TaskDetail{Summary: &taskpb.TaskSummary{
 				Id: taskID, ProjectId: projectID, WorkflowId: workflowID.String(), ShortId: "T-1",
 			}, Status: &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED, NativeState: taskpb.TaskNativeState_TASK_NATIVE_STATE_INTERRUPTED}},
-			nodes: []workflow.CurrentNode{{
-				Reference: currentNode,
-				SessionID: &sessionID,
-				Scheduling: &workflow.CurrentNodeScheduling{
-					State: workflow.CurrentNodeSchedulingInterrupted,
-					Interruption: &workflow.CurrentNodeInterruption{
-						Reason: workflow.CurrentNodeInterruptionReasonUserInterrupt,
-						Detail: workflow.NewCurrentNodeInterruptionDetail("user_interrupt", nil),
+			nodes: []workflow.CurrentNode{
+				{
+					Reference: currentNode,
+					SessionID: &sessionID,
+					Scheduling: &workflow.CurrentNodeScheduling{
+						State: workflow.CurrentNodeSchedulingInterrupted,
+						Interruption: &workflow.CurrentNodeInterruption{
+							Reason: workflow.CurrentNodeInterruptionReasonUserInterrupt,
+							Detail: workflow.NewCurrentNodeInterruptionDetail("user_interrupt", nil),
+						},
 					},
 				},
-			}},
+				{
+					Reference: errorNode,
+					Scheduling: &workflow.CurrentNodeScheduling{
+						State: workflow.CurrentNodeSchedulingInterrupted,
+						Interruption: &workflow.CurrentNodeInterruption{
+							Reason: workflow.CurrentNodeInterruptionReason("script_failed"),
+							Detail: workflow.NewCurrentNodeInterruptionDetail("script_failed", nil),
+						},
+					},
+				},
+			},
 		},
-		Attention: observationAttentionStub{},
+		Attention: observationAttentionStub{err: errors.New("prompt source unavailable")},
 	}}
-	response, ready, err := service.observeWorkflowTask(context.Background(), &taskpb.ObserveRequest{
+	service.events = newWorkflowProjectEventBroker()
+	response, err := service.ObserveWorkflowTask(t.Context(), &taskpb.ObserveRequest{
 		TaskId: taskID, ProjectId: projectID, Mode: taskpb.ObservationMode_OBSERVATION_MODE_WAIT,
 	})
 	if err != nil {
 		t.Fatalf("observe workflow task: %v", err)
 	}
-	if !ready || len(response.Outcomes) != 1 {
-		t.Fatalf("response = %+v, ready=%v; want one ready interruption", response, ready)
+	if len(response.Outcomes) != 2 {
+		t.Fatalf("response = %+v; want interruption and execution error", response)
 	}
-	if response.Outcomes[0].GetInterrupted() == nil {
-		t.Fatalf("outcome = %v, want interruption", response.Outcomes[0])
+	if response.Outcomes[0].GetInterrupted() == nil || response.Outcomes[1].GetExecutionError() == nil {
+		t.Fatalf("outcomes = %v, want interruption followed by execution error", response.Outcomes)
 	}
 	failure := response.Outcomes[0].GetInterrupted()
 	if failure.GetSessionId() != sessionID.String() || record.ShortID == nil ||
 		failure.ShortId == nil || *failure.ShortId != record.ShortID.Int64() {
 		t.Fatalf("observed Session identity = %v, want %s/%v", failure, sessionID, record.ShortID)
+	}
+}
+
+func TestObserveWorkflowTaskWatchReturnsAttentionFailure(t *testing.T) {
+	taskID := "task-1"
+	projectID := "project-1"
+	promptErr := errors.New("prompt source unavailable")
+	service := &Service{readModels: ReadModels{
+		Definitions: observationDefinitionStub{},
+		TaskDetail: observationTaskDetailStub{detail: &taskpb.TaskDetail{
+			Summary: &taskpb.TaskSummary{
+				Id: taskID, ProjectId: projectID, WorkflowId: runtimeids.NewWorkflowID().String(),
+			},
+			Status: &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_WAITING_QUESTION},
+		}},
+		Attention: observationAttentionStub{err: promptErr},
+	}}
+	service.events = newWorkflowProjectEventBroker()
+
+	response, err := service.ObserveWorkflowTask(t.Context(), &taskpb.ObserveRequest{
+		TaskId: taskID, ProjectId: projectID, Mode: taskpb.ObservationMode_OBSERVATION_MODE_WATCH,
+	})
+	if response != nil || !errors.Is(err, promptErr) {
+		t.Fatalf("observe = %+v, err=%v; want attention source failure", response, err)
 	}
 }
 

@@ -111,11 +111,11 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 		}
 	}
 
-	attention, err := s.readModels.Attention.ListTask(ctx, &taskpb.TaskAttentionListRequest{TaskId: req.TaskId})
-	if err != nil {
-		return nil, false, normalizeTaskObservationError(err)
-	}
 	if req.Mode == taskpb.ObservationMode_OBSERVATION_MODE_WATCH {
+		attention, err := s.readModels.Attention.ListTask(ctx, &taskpb.TaskAttentionListRequest{TaskId: req.TaskId})
+		if err != nil {
+			return nil, false, normalizeTaskObservationError(err)
+		}
 		for _, item := range attention.Items {
 			if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
 				continue
