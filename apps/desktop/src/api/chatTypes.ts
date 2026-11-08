@@ -172,7 +172,6 @@ export type ChatContext = Readonly<{
 }>;
 export type ChatTranscriptPage = Readonly<{
   sessionID: string;
-  sessionName: string | null;
   olderCursor: number | null;
   hasMoreAbove: boolean;
   newerCursor: number | null;

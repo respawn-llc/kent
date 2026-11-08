@@ -4,10 +4,9 @@ import (
 	"core/server/agentruntime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
-	"core/shared/textutil"
 )
 
-func TranscriptPageFromSegment(sessionID string, sessionName *string, page runtime.TranscriptSegmentPage, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.Page, error) {
+func TranscriptPageFromSegment(sessionID string, page runtime.TranscriptSegmentPage, identities map[runtimeids.SessionID]runtimeids.SessionIdentity) (*transcriptpb.Page, error) {
 	segment, err := TranscriptTailSegmentFromSegment(page, identities)
 	if err != nil {
 		return nil, err
@@ -21,7 +20,6 @@ func TranscriptPageFromSegment(sessionID string, sessionName *string, page runti
 	}
 	return &transcriptpb.Page{
 		SessionId:               sessionID,
-		SessionName:             textutil.Pointer(sessionName),
 		OlderCursor:             segment.OlderCursor,
 		HasMoreAbove:            segment.HasMoreAbove,
 		NewerCursor:             transcriptCursor(page.HasMoreBelow, page.NewerCursor),

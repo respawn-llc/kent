@@ -27,7 +27,6 @@ export function page(
 ): ChatTranscriptPage {
   return {
     sessionID: "session",
-    sessionName: null,
     latestRollbackCandidate: null,
     entries,
     olderCursor,

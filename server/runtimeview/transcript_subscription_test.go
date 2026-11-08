@@ -804,7 +804,6 @@ func TestQuestionAnswererProjectsAcrossLiveHydrationAndPageRows(t *testing.T) {
 	}}}
 	page, err := TranscriptPageFromSegment(
 		"12345678-1234-4234-8234-123456789012",
-		textutil.Value("session"),
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 		identities,
 	)
@@ -900,7 +899,6 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		textutil.Value("name"),
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
 			Role:       string(transcript.EntryRoleReasoning),
@@ -1071,7 +1069,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := TranscriptPageFromSegment(projectionWorkspaceID, textutil.Value("search"), segment, nil)
+			page, err := TranscriptPageFromSegment(projectionWorkspaceID, segment, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1110,7 +1108,6 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 	}
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		textutil.Value("name"),
 		runtime.TranscriptSegmentPage{
 			LatestRollbackCandidate: locator,
 			Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
@@ -1165,7 +1162,7 @@ func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testin
 func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	exitCode := 9
 	activityID := uuid.New()
-	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", textutil.Value("name"), runtime.TranscriptSegmentPage{
+	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", runtime.TranscriptSegmentPage{
 		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{
 			{Role: "reviewer_status", Text: "review complete", CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 6}},
 			{

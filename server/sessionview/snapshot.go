@@ -222,7 +222,6 @@ func (s dormantSessionSnapshot) transcriptPage(ctx context.Context, segment runt
 	}
 	return runtimeview.TranscriptPageFromSegment(
 		meta.SessionID,
-		meta.Name,
 		segment,
 		identities,
 	)

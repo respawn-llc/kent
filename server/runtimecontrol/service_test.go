@@ -3397,7 +3397,7 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	}
 	for _, feedback := range publisher.feedback {
 		if feedback.Kind != transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME ||
-			feedback.GetSessionName().Name == nil || *feedback.GetSessionName().Name != "renamed" {
+			feedback.GetSessionName() == nil {
 			t.Fatalf("published Session Name feedback = %+v", feedback)
 		}
 	}
@@ -3419,8 +3419,10 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	if persisted.Meta().Name != nil || store.Meta().LastSequence != beforeSequence {
 		t.Fatal("live Clear must persist absence without adding transcript content")
 	}
-	if len(publisher.feedback) != 3 || publisher.feedback[2].GetSessionName().Name != nil {
-		t.Fatal("Clear feedback did not report absence")
+	if len(publisher.feedback) != 3 || !publisher.feedback[2].Changed ||
+		publisher.feedback[2].Kind != transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME ||
+		publisher.feedback[2].GetSessionName() == nil {
+		t.Fatal("Clear feedback did not report the name change")
 	}
 }
 

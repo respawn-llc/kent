@@ -21,6 +21,8 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/transcriptmodel"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type SessionSettingFeedbackPublisher interface {
@@ -230,14 +232,12 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 		return errors.New("Session settings authority is required")
 	}
 	var mutation session.NameMutationResult
-	var resultingName *string
 	var live bool
 	err = s.authority.WithSessionChatSettings(ctx, req.SessionId, func(
 		_ context.Context, store *session.Store, engine *runtime.Engine,
 	) (bool, error) {
 		var err error
 		mutation, err = store.MutateName(name)
-		resultingName = store.Meta().Name
 		live = engine != nil
 		return false, err
 	})
@@ -252,7 +252,7 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 		publishErr := s.feedback.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
 			Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
 			Changed: mutation.Changed,
-			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: resultingName}},
+			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
 		})
 		return errors.Join(err, publishErr)
 	}

@@ -483,7 +483,6 @@ describe("Desktop Chat read client", () => {
     const older = await client.chat.getTranscriptPage(target, { direction: "older", value: 41 });
     expect(older).toMatchObject({
       sessionID,
-      sessionName: null,
       olderCursor: 11,
       newerCursor: 29,
       entries: [

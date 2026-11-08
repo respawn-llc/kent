@@ -4,7 +4,6 @@ import (
 	"core/cli/tui"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
-	"core/shared/textutil"
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
@@ -513,8 +512,7 @@ func detailTestPage(sessionID string, first int, last int, olderCursor *int64, n
 		HasMoreAbove: olderCursor != nil,
 		NewerCursor:  newerCursor,
 		HasMoreBelow: newerCursor != nil,
-		Entries:      detailTestEntries(first, last),
-		SessionName:  textutil.Value(sessionID)}
+		Entries:      detailTestEntries(first, last)}
 }
 
 func detailTestEntries(first int, last int) []*transcriptpb.CommittedRow {

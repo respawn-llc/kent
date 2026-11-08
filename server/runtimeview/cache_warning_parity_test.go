@@ -54,7 +54,7 @@ func TestCacheWarningLivePersistedHydrationAndPageParity(t *testing.T) {
 			}
 			snapshot := segment.Snapshot
 			page, err := TranscriptPageFromSegment(
-				"12345678-1234-4234-8234-123456789012", nil,
+				"12345678-1234-4234-8234-123456789012",
 				runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil,
 			)
 			if err != nil {

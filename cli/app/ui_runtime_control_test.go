@@ -25,6 +25,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -545,30 +546,42 @@ func TestPendingWorkTechnicalRestorationMergesBeforeComposer(t *testing.T) {
 }
 
 func TestTranscriptSessionSettingFeedbackUsesTransientStatusWithoutTranscriptRows(t *testing.T) {
-	disableTransientStatusClearForTest(t)
-	client := &runtimeControlFakeClient{}
-	model := newProjectedClosedUIModel(client)
-	enabled := true
-	cmd := model.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE, Changed: true, Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: enabled}}),
-		runtimeTupleMergeResult{})
-	for _, msg := range collectCmdMessages(t, cmd) {
-		next, _ := model.Update(msg)
-		model = next.(*uiModel)
-	}
-	if model.transientStatus == "" || model.transientStatusKind != uiStatusNoticeSuccess {
-		t.Fatalf("setting feedback status = %q kind=%v, want success notice", model.transientStatus, model.transientStatusKind)
-	}
-	if client.appendCalls != 0 {
-		t.Fatalf("setting feedback appended %d transcript rows", client.appendCalls)
-	}
+	for name, feedback := range map[string]*transcriptpb.SessionSettingFeedback{
+		"fast": {
+			Kind:  transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE,
+			Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: true},
+		},
+		"rename": {
+			Kind:  transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
+			Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			disableTransientStatusClearForTest(t)
+			client := &runtimeControlFakeClient{}
+			model := newProjectedClosedUIModel(client)
+			feedback.Changed = true
+			cmd := model.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, feedback),
+				runtimeTupleMergeResult{})
+			for _, msg := range collectCmdMessages(t, cmd) {
+				next, _ := model.Update(msg)
+				model = next.(*uiModel)
+			}
+			if model.transientStatus == "" || model.transientStatusKind != uiStatusNoticeSuccess {
+				t.Fatalf("setting feedback status = %q kind=%v, want success notice", model.transientStatus, model.transientStatusKind)
+			}
+			if client.appendCalls != 0 {
+				t.Fatalf("setting feedback appended %d transcript rows", client.appendCalls)
+			}
 
-	model.transientStatus = ""
-	model.applyAdmittedTranscriptMessageState(transcriptTestMessage(3, &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE, Changed: false, Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: enabled}}),
-		runtimeTupleMergeResult{})
-	if model.transientStatus != "" {
-		t.Fatalf("unchanged setting emitted success notice %q", model.transientStatus)
+			model.transientStatus = ""
+			feedback.Changed = false
+			model.applyAdmittedTranscriptMessageState(transcriptTestMessage(3, feedback),
+				runtimeTupleMergeResult{})
+			if model.transientStatus != "" {
+				t.Fatalf("unchanged setting emitted success notice %q", model.transientStatus)
+			}
+		})
 	}
 }
 

@@ -548,7 +548,6 @@ func mustProjectNewestPersistedTranscript(
 	}
 	page, err := TranscriptPageFromSegment(
 		store.Meta().SessionID,
-		nil,
 		segment, nil)
 
 	if err != nil {

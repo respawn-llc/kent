@@ -6,7 +6,6 @@ import (
 	"core/server/agentruntime"
 	"core/server/llm"
 	"core/shared/protoapi"
-	"core/shared/textutil"
 	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
@@ -27,7 +26,6 @@ func TestCommittedRowLocatorIsStableAcrossPageHydrationAndLiveProjection(t *test
 
 	page, err := TranscriptPageFromSegment(
 		sessionID,
-		textutil.Value("session"),
 		runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil)
 
 	if err != nil {
@@ -161,7 +159,6 @@ func TestGeneratedTranscriptValidationRejectsMalformedProjectedLocators(t *testi
 
 	page, err := TranscriptPageFromSegment(
 		sessionID,
-		textutil.Value("session"),
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:              runtimeStepIDPointer(stepID),
 			Visibility:          transcript.EntryVisibilityOngoing,

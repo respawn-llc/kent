@@ -285,7 +285,6 @@ export interface ChatTranscriptPayloadByKind {
   session_setting_feedback: Readonly<{
     Kind: "session_name" | "thinking" | "fast_mode" | "supervisor" | "questions" | "auto_compaction";
     Changed: boolean;
-    SessionName?: string | null;
     Thinking?: string | null;
     FastMode?: boolean | null;
     Supervisor?: string | null;

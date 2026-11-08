@@ -247,7 +247,6 @@ export function worktreeOutcome(): ChatTranscriptPayloadByKind["worktree_transit
 export function transcriptPage(olderCursor: number | null): ChatTranscriptPage {
   return {
     sessionID: target.sessionID,
-    sessionName: null,
     olderCursor,
     hasMoreAbove: olderCursor !== null,
     newerCursor: null,

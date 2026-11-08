@@ -1132,13 +1132,6 @@ enum SessionSettingKind {
   SESSION_SETTING_KIND_AUTO_COMPACTION = 6;
 }
 
-message SessionNameValue {
-  optional string name = 1 [
-    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
-    (buf.validate.field).string.(kent.api.shared.trimmed) = true
-  ];
-}
-
 message SessionSettingFeedback {
   SessionSettingKind kind = 1 [(buf.validate.field).enum = {
     defined_only: true
@@ -1147,7 +1140,7 @@ message SessionSettingFeedback {
   bool changed = 2;
   oneof value {
     option (buf.validate.oneof).required = true;
-    SessionNameValue session_name = 3;
+    google.protobuf.Empty session_name = 3;
     string thinking = 4 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
     bool fast_mode = 5;
     string supervisor = 6 [(buf.validate.field).string = {
@@ -1328,7 +1321,6 @@ message RollbackCandidate {
 
 message Page {
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional int64 older_cursor = 4 [(buf.validate.field).int64 = {
     gte: 1
     lte: 9007199254740991
