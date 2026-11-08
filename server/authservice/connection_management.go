@@ -98,7 +98,7 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 			return nil, err
 		}
 	case *authpb.ConfigureConnectionRequest_Reference:
-		if err := config.SetProviderConnectionEnvironment(path, config.ConnectionID(change.Reference.ConnectionId), change.Reference.EnvironmentVariable); err != nil {
+		if err := config.SetProviderConnectionEnvironment(path, config.ConnectionID(change.Reference.ConnectionId), change.Reference.EnvironmentVariable, change.Reference.Endpoint); err != nil {
 			return nil, err
 		}
 	case *authpb.ConfigureConnectionRequest_DefaultConnectionId:

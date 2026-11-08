@@ -414,6 +414,8 @@ func SuggestConnectionID(protocol ConnectionProtocol, connections map[Connection
 		prefix = "chatgpt"
 	} else if protocol == ConnectionGrokCLIProxy || protocol == ConnectionGrokOAuthAPI || protocol == ConnectionGrokAPIKey {
 		prefix = "grok"
+	} else if protocol == ConnectionDeepSeekAPIKey {
+		prefix = "deepseek"
 	}
 	for number := 1; ; number++ {
 		id := ConnectionID(fmt.Sprintf("%s-%d", prefix, number))

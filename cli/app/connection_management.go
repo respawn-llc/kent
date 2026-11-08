@@ -106,7 +106,7 @@ func (s *remoteAppServer) manageConnectionSelection(ctx context.Context, catalog
 		switch connectionTemplateFor(definition) {
 		case connectionTemplateSubscription, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy:
 			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true, nil)
-		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI:
+		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI, connectionTemplateDeepSeekAPI:
 			err = editConnectionReference(ctx, s.remote, selectedTheme, id, definition)
 		case connectionTemplateAnonymous:
 			picked, infoErr := runStartupPickerFlow(newStartupPickerModel("**"+selected.Id+"**", selected.Id, selectedTheme,
@@ -168,12 +168,22 @@ func editConnectionReference(ctx context.Context, remote apicontract.ConnectionM
 	}
 	state := onboardingFlowState{selections: onboardingSelections{theme: theme}}
 	steps := form.steps()
-	model := newOnboardingFormModel(state, onboardingWorkflow{steps: steps[len(steps)-1:]})
+	editSteps := steps[len(steps)-1:]
+	if form.template == connectionTemplateDeepSeekAPI {
+		editSteps = steps[len(steps)-2:]
+	}
+	model := newOnboardingFormModel(state, onboardingWorkflow{steps: editSteps})
 	return runConnectionForm(ctx, model, func() error {
+		reference := &authpb.ConnectionReferenceEdit{ConnectionId: string(id), EnvironmentVariable: *form.definition.EnvironmentVariable}
+		if form.template == connectionTemplateDeepSeekAPI {
+			endpoint := config.DefaultDeepSeekResponsesEndpoint
+			if form.definition.Endpoint != nil {
+				endpoint = *form.definition.Endpoint
+			}
+			reference.Endpoint = &endpoint
+		}
 		_, err := runConnectionOperation(ctx, selectedTheme, func() (*emptypb.Empty, error) {
-			return remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Reference{
-				Reference: &authpb.ConnectionReferenceEdit{ConnectionId: string(id), EnvironmentVariable: *form.definition.EnvironmentVariable},
-			}})
+			return remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Reference{Reference: reference}})
 		})
 		return err
 	})

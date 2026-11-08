@@ -28,11 +28,12 @@ func ConnectionSelectionFromProto(value *authpb.ConnectionSelection) *config.Con
 }
 
 var connectionProtocolValues = map[authpb.ConnectionProtocol]config.ConnectionProtocol{
-	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:      config.ConnectionResponses,
-	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:        config.ConnectionChatGPT,
-	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY: config.ConnectionGrokCLIProxy,
-	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API: config.ConnectionGrokOAuthAPI,
-	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:   config.ConnectionGrokAPIKey,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES:        config.ConnectionResponses,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_CHATGPT:          config.ConnectionChatGPT,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_CLI_PROXY:   config.ConnectionGrokCLIProxy,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_OAUTH_API:   config.ConnectionGrokOAuthAPI,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_GROK_API_KEY:     config.ConnectionGrokAPIKey,
+	authpb.ConnectionProtocol_CONNECTION_PROTOCOL_DEEPSEEK_API_KEY: config.ConnectionDeepSeekAPIKey,
 }
 
 func ConnectionToProto(id config.ConnectionID, definition config.ProviderConnection) *authpb.ConnectionDefinition {
@@ -56,6 +57,11 @@ func ConnectionFromProto(value *authpb.ConnectionDefinition) (config.ConnectionI
 	definition.Protocol = connectionProtocolValues[value.Protocol]
 	if definition.Protocol == config.ConnectionResponses {
 		if err := config.ValidateResponsesEndpoint(*definition.Endpoint); err != nil {
+			return "", config.ProviderConnection{}, err
+		}
+	}
+	if definition.Protocol == config.ConnectionDeepSeekAPIKey && definition.Endpoint != nil {
+		if _, err := config.CanonicalDeepSeekEndpoint(*definition.Endpoint); err != nil {
 			return "", config.ProviderConnection{}, err
 		}
 	}

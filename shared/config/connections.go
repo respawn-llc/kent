@@ -82,12 +82,14 @@ type ConnectionScope struct {
 }
 
 const (
-	ConnectionResponses            ConnectionProtocol = "responses"
-	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"
-	ConnectionGrokCLIProxy         ConnectionProtocol = "grok-cli-proxy"
-	ConnectionGrokOAuthAPI         ConnectionProtocol = "grok-oauth-api"
-	ConnectionGrokAPIKey           ConnectionProtocol = "grok-api-key"
-	DefaultOpenAIResponsesEndpoint                    = "https://api.openai.com/v1"
+	ConnectionResponses              ConnectionProtocol = "responses"
+	ConnectionChatGPT                ConnectionProtocol = "chatgpt-codex"
+	ConnectionGrokCLIProxy           ConnectionProtocol = "grok-cli-proxy"
+	ConnectionGrokOAuthAPI           ConnectionProtocol = "grok-oauth-api"
+	ConnectionGrokAPIKey             ConnectionProtocol = "grok-api-key"
+	ConnectionDeepSeekAPIKey         ConnectionProtocol = "deepseek-api-key"
+	DefaultOpenAIResponsesEndpoint                      = "https://api.openai.com/v1"
+	DefaultDeepSeekResponsesEndpoint                    = "https://api.deepseek.com"
 )
 
 type ProviderConnection struct {
@@ -151,6 +153,18 @@ func (c ProviderConnection) Validate() error {
 		}
 		if c.EnvironmentVariable == nil || strings.TrimSpace(*c.EnvironmentVariable) == "" {
 			return fmt.Errorf("Grok API-key connections require an environment-variable name")
+		}
+	case ConnectionDeepSeekAPIKey:
+		if c.EnvironmentVariable == nil || strings.TrimSpace(*c.EnvironmentVariable) == "" {
+			return fmt.Errorf("DeepSeek API-key connections require an environment-variable name")
+		}
+		if c.Endpoint != nil {
+			if strings.TrimSpace(*c.Endpoint) == "" {
+				return fmt.Errorf("DeepSeek endpoint cannot be empty; omit it for %s", DefaultDeepSeekResponsesEndpoint)
+			}
+			if err := ValidateResponsesEndpoint(*c.Endpoint); err != nil {
+				return err
+			}
 		}
 	case ConnectionResponses:
 		if c.Endpoint == nil {
