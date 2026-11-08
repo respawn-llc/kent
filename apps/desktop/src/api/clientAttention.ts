@@ -3,17 +3,17 @@ import {
   AttentionReadService,
   type AttentionItemValid as GeneratedAttentionItem,
   type InterruptedCurrentNodeDetails,
-  type AttentionQuestionPrompt as GeneratedQuestionPrompt,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
+import type { ObservationQuestionValid } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { timestampMillis } from "./clientTime";
 import { taskCurrentNode } from "./clientTaskProjection";
 import { ContractError } from "./errors";
-import { approvalDecision } from "./promptPresentation";
+import { approvalPrompt, questionPrompt } from "./promptPresentation";
 import { requireUnarySuccess } from "./protobufRpc";
 import { taskUnavailableTargetCause, workflowExecutionTargetMode } from "./workflowProtoValues";
 import type { AttentionItem } from "./attention";
 import type { AttentionPage, TaskAttention } from "./models";
-import type { AttentionQuestionPrompt } from "./promptModels";
+import type { PendingPrompt } from "./promptModels";
 import type { RpcTransport } from "./transport";
 import { requireTaskBoundItems } from "./clientParse";
 
@@ -63,13 +63,14 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
   switch (value.detail.case) {
     case "question": {
       const detail = value.detail.value;
+      const question = attentionQuestion(detail.question);
       return {
         ...base,
         kind: "question" as const,
-        message: detail.message ?? null,
+        message: question.question,
         currentNode: taskCurrentNode(detail.currentNode),
         sessionName: detail.sessionName ?? null,
-        question: attentionQuestion(detail.question),
+        question,
       };
     }
     case "approval": {
@@ -107,30 +108,12 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
   }
 }
 
-function attentionQuestion(question: GeneratedQuestionPrompt): AttentionQuestionPrompt {
-  const identity = {
-    sessionID: question.sessionId,
-    stepID: question.stepId,
-    toolCallID: question.toolCallId,
-  };
-  switch (question.prompt.case) {
-    case "ordinary":
-      return {
-        ...identity,
-        kind: "ordinary",
-        suggestions: question.prompt.value.suggestions,
-        recommendedOptionIndex: question.prompt.value.recommendedOptionIndex ?? null,
-      };
+function attentionQuestion(question: ObservationQuestionValid): PendingPrompt {
+  switch (question.question.case) {
+    case "ask":
+      return questionPrompt(question.question.value);
     case "approval":
-      return {
-        ...identity,
-        kind: "approval",
-        approvalDecisions: question.prompt.value.approvalDecisions.map(approvalDecision),
-        accessTargets: question.prompt.value.accessTargets.map((target) => ({
-          requestedPath: target.requestedPath,
-          resolvedPath: target.resolvedPath,
-        })),
-      };
+      return approvalPrompt(question.question.value);
     case undefined:
       throw new ContractError("Attention question has no prompt.");
   }

@@ -50,6 +50,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -383,7 +384,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		TaskSessions:     workflowTaskSessions,
 		Activity:         workflowActivity,
 		Attention:        workflowAttention,
-		PendingPrompts:   runtimeRegistry,
 	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(workflowExecutionTargets), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
 	if err != nil {
 		cleanupNewFailure()
@@ -744,39 +744,28 @@ type workflowViewPendingPromptSource struct {
 	}
 }
 
-func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([]workflowview.PendingPromptSnapshot, error) {
+func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([]*promptpb.ObservationQuestion, error) {
 	if s.prompts == nil {
 		return nil, nil
 	}
 	items := s.prompts.ListPendingPrompts(sessionID)
-	typedSessionID, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("pending prompt session identity: %w", err)
-	}
-	out := make([]workflowview.PendingPromptSnapshot, 0, len(items))
+	out := make([]*promptpb.ObservationQuestion, 0, len(items))
 	for _, item := range items {
-		toolCallID := clientui.ToolCallID(item.Request.ToolCallID)
-		stepID, err := runtimeids.StepIDFromProto(item.Request.StepID)
-		if err != nil {
-			return nil, fmt.Errorf("session %q pending prompt %q step identity: %w", sessionID, item.Request.ToolCallID, err)
+		prompt := &promptpb.ObservationQuestion{}
+		if item.Request.Approval {
+			approval, err := registry.ApprovalFromSnapshot(sessionID, item)
+			if err != nil {
+				return nil, err
+			}
+			prompt.Question = &promptpb.ObservationQuestion_Approval{Approval: approval}
+		} else {
+			question, err := registry.QuestionFromSnapshot(sessionID, item)
+			if err != nil {
+				return nil, err
+			}
+			prompt.Question = &promptpb.ObservationQuestion_Ask{Ask: question}
 		}
-		recommendedOptionIndex := registry.RecommendedOptionIndexFromSnapshot(item.Request.RecommendedOptionIndex)
-		decisions := make([]clientui.ApprovalDecision, 0, len(item.Request.ApprovalOptions))
-		for _, option := range item.Request.ApprovalOptions {
-			decisions = append(decisions, clientui.ApprovalDecision(option.Decision))
-		}
-		out = append(out, workflowview.PendingPromptSnapshot{
-			ToolCallID:             toolCallID,
-			SessionID:              typedSessionID,
-			StepID:                 stepID,
-			CreatedAt:              item.CreatedAt,
-			Question:               item.Request.Question,
-			Suggestions:            append([]string(nil), item.Request.Suggestions...),
-			RecommendedOptionIndex: recommendedOptionIndex,
-			Approval:               item.Request.Approval,
-			ApprovalDecisions:      decisions,
-			AccessTargets:          append([]clientui.FileAccessTarget(nil), item.Request.AccessTargets...),
-		})
+		out = append(out, prompt)
 	}
 	return out, nil
 }

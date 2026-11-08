@@ -22,12 +22,6 @@ enum AttentionItemKind {
   ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE = 3;
 }
 
-enum AttentionQuestionKind {
-  ATTENTION_QUESTION_KIND_UNSPECIFIED = 0;
-  ATTENTION_QUESTION_KIND_ORDINARY = 1;
-  ATTENTION_QUESTION_KIND_APPROVAL = 2;
-}
-
 enum AttentionNotificationEventType {
   ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
@@ -95,71 +89,6 @@ message AttentionCurrentNode {
   optional string effective_assignee = 4 [(buf.validate.field).string.min_len = 1];
   optional string effective_thinking = 5 [(buf.validate.field).string.min_len = 1];
   optional string node_display_name = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-}
-
-message OrdinaryQuestion {
-  repeated string suggestions = 1 [(buf.validate.field).repeated.items = {
-    string: {min_len: 1}
-    cel: {
-      id: "kent.workflow_task.attention_question_suggestion_nonblank"
-      message: "suggestions must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  }];
-  optional int32 recommended_option_index = 2 [(buf.validate.field).int32.gte = 1];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.attention_question_recommendation"
-    message: "recommended_option_index must identify a suggestion"
-    expression: "!has(this.recommended_option_index) || this.recommended_option_index <= size(this.suggestions)"
-  };
-}
-
-message ApprovalQuestion {
-  repeated kent.api.prompt.ApprovalDecision approval_decisions = 1 [(buf.validate.field).repeated = {
-    min_items: 1
-    items: {
-      enum: {
-        defined_only: true
-        not_in: [0]
-      }
-    }
-  }];
-  repeated kent.api.prompt.FileAccessTarget access_targets = 2 [(buf.validate.field).repeated.items.required = true];
-}
-
-message AttentionQuestionPrompt {
-  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  string step_id = 2 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  string tool_call_id = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.attention_question_tool_call_id_trimmed"
-      message: "tool_call_id must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
-  AttentionQuestionKind kind = 4 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  oneof prompt {
-    option (buf.validate.oneof).required = true;
-    OrdinaryQuestion ordinary = 5;
-    ApprovalQuestion approval = 6;
-  }
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.attention_question_kind"
-    message: "question kind must match its prompt detail"
-    expression:
-      "(this.kind == 1 && has(this.ordinary)) || "
-      "(this.kind == 2 && has(this.approval))"
-  };
 }
 
 message ApprovalTarget {
@@ -297,14 +226,6 @@ message InterruptedCurrentNodeDetails {
 }
 
 message QuestionAttention {
-  optional string message = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.question_attention_message_nonblank"
-      message: "message must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
   AttentionCurrentNode current_node = 2 [(buf.validate.field).required = true];
   optional string session_name = 3 [
     (buf.validate.field).string.min_len = 1,
@@ -314,13 +235,7 @@ message QuestionAttention {
       expression: "this.trim() != ''"
     }
   ];
-  AttentionQuestionPrompt question = 4 [(buf.validate.field).required = true];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.question_attention_message"
-    message: "message is required unless an approval has access targets"
-    expression: "has(this.message) || (has(this.question.approval) && size(this.question.approval.access_targets) > 0)"
-  };
+  kent.api.prompt.ObservationQuestion question = 4 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_current_node_session_absent"

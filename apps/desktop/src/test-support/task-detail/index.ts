@@ -38,8 +38,8 @@ import { FakeRpcTransport, type FakeRoute } from "../api";
 import { createTestServices, startupRoutes, TestAppProviders, type TestAppServices } from "../app-services";
 import type { NativeBridge } from "../native-bridge";
 import { createTestSidebarController } from "../sidebar";
-import { attentionBase } from "./attention";
-export { taskQuestionPage } from "./attention";
+import { attentionBase, questionAttention } from "./attention";
+export { taskQuestionPage, questionAttention } from "./attention";
 
 export {
   taskActionFixture,
@@ -163,13 +163,17 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
           currentNode: { nodeId: "node-1" },
           sessionName: "Session one",
           question: {
-            sessionId: "33333333-3333-4333-8333-333333333333",
-            stepId: "22222222-2222-4222-8222-222222222222",
-            toolCallId: "ask-1",
-            kind: taskAttention.AttentionQuestionKind.ORDINARY,
-            prompt: { case: "ordinary", value: { suggestions: [] } },
+            question: {
+              case: "ask",
+              value: {
+                sessionId: "33333333-3333-4333-8333-333333333333",
+                stepId: "22222222-2222-4222-8222-222222222222",
+                toolCallId: "ask-1",
+                question: "Approve protected path?",
+                createdAt: { seconds: 0n, nanos: 1_000_000 },
+              },
+            },
           },
-          message: "Approve protected path?",
         },
       },
     },
@@ -284,30 +288,6 @@ export const interruptedTaskAttentionResponse = create(taskAttention.TaskAttenti
   generatedAt: { seconds: 0n, nanos: 3_000_000 },
 });
 
-export const questionAttention = create(taskAttention.AttentionItemSchema, {
-  ...attentionBase,
-  id: "attention-question",
-  kind: taskAttention.AttentionItemKind.QUESTION,
-  detail: {
-    case: "question",
-    value: {
-      currentNode: { nodeId: "node-1" },
-      sessionName: "Session one",
-      message: "Choose snack",
-      question: {
-        sessionId: "33333333-3333-4333-8333-333333333333",
-        stepId: "22222222-2222-4222-8222-222222222222",
-        toolCallId: "ask-1",
-        kind: taskAttention.AttentionQuestionKind.ORDINARY,
-        prompt: {
-          case: "ordinary",
-          value: { recommendedOptionIndex: 1, suggestions: ["Trail mix", "Dark chocolate"] },
-        },
-      },
-    },
-  },
-});
-
 export const questionAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
   generatedAt: { seconds: 0n, nanos: 3_000_000 },
   items: [questionAttention],
@@ -318,12 +298,10 @@ export function parsedQuestionAttention(): QuestionAttentionItem &
     question: Extract<QuestionAttentionItem["question"], Readonly<{ kind: "ordinary" }>>;
   }> {
   const detail = questionAttention.detail;
-  if (detail.case !== "question" || detail.value.question?.prompt.case !== "ordinary") {
+  if (detail.case !== "question" || detail.value.question?.question.case !== "ask") {
     throw new Error("Ordinary Question fixture is required.");
   }
-  const question = detail.value.question;
-  const prompt = question.prompt;
-  if (prompt.case !== "ordinary") throw new Error("Ordinary Question fixture is required.");
+  const question = detail.value.question.question.value;
   return {
     id: questionAttention.id,
     projectID: questionAttention.projectId,
@@ -341,14 +319,16 @@ export function parsedQuestionAttention(): QuestionAttentionItem &
       effectiveThinking: null,
     },
     sessionName: detail.value.sessionName ?? null,
-    message: detail.value.message ?? null,
+    message: question.question,
     question: {
       sessionID: question.sessionId,
       stepID: question.stepId,
       toolCallID: question.toolCallId,
       kind: "ordinary",
-      recommendedOptionIndex: prompt.value.recommendedOptionIndex ?? null,
-      suggestions: prompt.value.suggestions,
+      question: question.question,
+      createdAt: "1970-01-01T00:00:00.001Z",
+      recommendedOptionIndex: question.recommendedOptionIndex ?? null,
+      suggestions: question.suggestions,
     },
   };
 }

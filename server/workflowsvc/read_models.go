@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"core/server/promptcontrol"
 	"core/server/workflow"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -64,7 +63,6 @@ type ReadModels struct {
 	TaskSessions     WorkflowTaskSessionReadModel
 	Activity         WorkflowActivityReadModel
 	Attention        WorkflowAttentionReadModel
-	PendingPrompts   promptcontrol.PendingPromptSource
 }
 
 func (r ReadModels) validate() error {
@@ -87,8 +85,6 @@ func (r ReadModels) validate() error {
 		return errors.New("workflow activity read model is required")
 	case r.Attention == nil:
 		return errors.New("workflow attention read model is required")
-	case r.PendingPrompts == nil:
-		return errors.New("workflow pending prompt source is required")
 	default:
 		return nil
 	}

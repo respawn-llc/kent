@@ -11,6 +11,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 
@@ -103,8 +104,6 @@ func requireAttentionMessageOmitted(t *testing.T, item *taskpb.AttentionItem) {
 	t.Helper()
 	var message *string
 	switch detail := item.Detail.(type) {
-	case *taskpb.AttentionItem_Question:
-		message = detail.Question.Message
 	case *taskpb.AttentionItem_Approval:
 		message = detail.Approval.Message
 	case *taskpb.AttentionItem_InterruptedCurrentNode:
@@ -229,21 +228,24 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 		listed.Tasks[0].Status.AttentionTypes[0] != taskpb.TaskAttentionKind_TASK_ATTENTION_KIND_QUESTION {
 		t.Fatalf("task list waiting-question projection = %+v", listed)
 	}
-	prompts := currentNodeViewPrompts{bySession: map[string][]PendingPromptSnapshot{
+	prompts := currentNodeViewPrompts{bySession: map[string][]*promptpb.ObservationQuestion{
 		question.sessionID.String(): {{
-			ToolCallID:             clientui.ToolCallID(question.request.ToolCallID),
-			SessionID:              question.sessionID,
-			StepID:                 mustWorkflowViewStepID(t, question.request.StepID),
-			CreatedAt:              time.UnixMilli(4_000).UTC(),
-			Question:               question.request.Question,
-			Suggestions:            question.request.Suggestions,
-			RecommendedOptionIndex: intPointer(question.request.RecommendedOptionIndex),
+			Question: &promptpb.ObservationQuestion_Ask{Ask: &promptpb.Question{
+				ToolCallId:             question.request.ToolCallID,
+				SessionId:              question.sessionID.String(),
+				StepId:                 question.request.StepID,
+				CreatedAt:              timestamppb.New(time.UnixMilli(4_000)),
+				Question:               question.request.Question,
+				Suggestions:            question.request.Suggestions,
+				RecommendedOptionIndex: proto.Int32(int32(question.request.RecommendedOptionIndex)),
+			}},
 		}, {
-			ToolCallID:        clientui.ToolCallID("unrelated-approval"),
-			CreatedAt:         time.UnixMilli(4_001).UTC(),
-			Question:          "Approve unrelated action?",
-			Approval:          true,
-			ApprovalDecisions: []clientui.ApprovalDecision{clientui.ApprovalDecisionAllowOnce},
+			Question: &promptpb.ObservationQuestion_Approval{Approval: &promptpb.Approval{
+				ToolCallId: "unrelated-approval",
+				CreatedAt:  timestamppb.New(time.UnixMilli(4_001)),
+				Question:   proto.String("Approve unrelated action?"),
+				Options:    []*promptpb.ApprovalOption{{Decision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE}},
+			}},
 		}},
 	}}
 	attention, err := NewAttention(
@@ -270,15 +272,16 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.ShortID == nil || prompt.Question.ShortId == nil || *prompt.Question.ShortId != record.ShortID.Int64() {
-		t.Fatalf("question Session number = %v, want %v", prompt.Question.ShortId, record.ShortID)
+	ask := prompt.Question.GetAsk()
+	if record.ShortID == nil || ask.ShortId == nil || *ask.ShortId != record.ShortID.Int64() {
+		t.Fatalf("question Session number = %v, want %v", ask.ShortId, record.ShortID)
 	}
 	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
-		prompt == nil || prompt.GetMessage() != question.request.Question ||
+		prompt == nil || ask.Question != question.request.Question ||
 		prompt.GetSessionName() != "Current Node session" || prompt.Question == nil ||
-		prompt.Question.ToolCallId != question.request.ToolCallID ||
-		prompt.Question.SessionId != question.sessionID.String() ||
-		prompt.Question.StepId != mustWorkflowViewStepID(t, question.request.StepID).String() ||
+		ask.ToolCallId != question.request.ToolCallID ||
+		ask.SessionId != question.sessionID.String() ||
+		ask.StepId != mustWorkflowViewStepID(t, question.request.StepID).String() ||
 		prompt.CurrentNode == nil || prompt.CurrentNode.SessionId != nil ||
 		prompt.CurrentNode.NodeId != string(fixture.agentNodeID) {
 		t.Fatalf("question attention = %+v", taskAttention.Items)
@@ -324,18 +327,21 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	request := workflowViewApprovalRequest()
 	request.Question = ""
 	prompt := fixture.startCurrentNodePrompt(t, started, request)
-	prompts := currentNodeViewPrompts{bySession: map[string][]PendingPromptSnapshot{
+	prompts := currentNodeViewPrompts{bySession: map[string][]*promptpb.ObservationQuestion{
 		prompt.sessionID.String(): {{
-			ToolCallID:        clientui.ToolCallID(request.ToolCallID),
-			SessionID:         prompt.sessionID,
-			StepID:            mustWorkflowViewStepID(t, request.StepID),
-			CreatedAt:         time.UnixMilli(4_000).UTC(),
-			Question:          request.Question,
-			Approval:          true,
-			ApprovalDecisions: []clientui.ApprovalDecision{clientui.ApprovalDecisionAllowOnce, clientui.ApprovalDecisionDeny},
-			AccessTargets: []clientui.FileAccessTarget{{
-				RequestedPath: "../outside.txt",
-				ResolvedPath:  "/outside.txt",
+			Question: &promptpb.ObservationQuestion_Approval{Approval: &promptpb.Approval{
+				ToolCallId: request.ToolCallID,
+				SessionId:  prompt.sessionID.String(),
+				StepId:     request.StepID,
+				CreatedAt:  timestamppb.New(time.UnixMilli(4_000)),
+				Options: []*promptpb.ApprovalOption{
+					{Decision: promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE},
+					{Decision: promptpb.ApprovalDecision_APPROVAL_DECISION_DENY},
+				},
+				AccessTargets: []*promptpb.FileAccessTarget{{
+					RequestedPath: "../outside.txt",
+					ResolvedPath:  "/outside.txt",
+				}},
 			}},
 		}},
 	}}
@@ -361,15 +367,14 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	if err := protoapi.Validate(response); err != nil {
 		t.Fatalf("validate structured approval attention: %v", err)
 	}
-	requireAttentionMessageOmitted(t, item)
 	question := item.GetQuestion()
+	approval := question.Question.GetApproval()
 	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
 		question == nil || question.Question == nil ||
-		question.Question.ToolCallId != request.ToolCallID ||
-		question.Question.SessionId != prompt.sessionID.String() ||
-		question.Question.StepId != mustWorkflowViewStepID(t, request.StepID).String() ||
-		question.Question.Kind != taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL ||
-		question.Question.GetApproval() == nil ||
+		approval.ToolCallId != request.ToolCallID ||
+		approval.SessionId != prompt.sessionID.String() ||
+		approval.StepId != mustWorkflowViewStepID(t, request.StepID).String() ||
+		approval.Question != nil ||
 		len(question.Question.GetApproval().AccessTargets) != 1 ||
 		question.Question.GetApproval().AccessTargets[0].RequestedPath != "../outside.txt" ||
 		question.Question.GetApproval().AccessTargets[0].ResolvedPath != "/outside.txt" ||

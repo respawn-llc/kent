@@ -16,6 +16,7 @@ import (
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/shared/clientui"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -354,12 +355,17 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 			if err != nil {
 				return nil, err
 			}
-			promptsByID := make(map[clientui.ToolCallID]PendingPromptSnapshot, len(prompts))
+			promptsByID := make(map[clientui.ToolCallID]*promptpb.ObservationQuestion, len(prompts))
 			for _, prompt := range prompts {
-				if _, duplicate := promptsByID[prompt.ToolCallID]; duplicate {
-					return nil, fmt.Errorf("task %q session %q has duplicate pending prompt %q", taskID, execution.Agent.SessionID, prompt.ToolCallID)
+				details, err := pendingPromptDetails(prompt)
+				if err != nil {
+					return nil, err
 				}
-				promptsByID[prompt.ToolCallID] = prompt
+				toolCallID := clientui.ToolCallID(details.GetToolCallId())
+				if _, duplicate := promptsByID[toolCallID]; duplicate {
+					return nil, fmt.Errorf("task %q session %q has duplicate pending prompt %q", taskID, execution.Agent.SessionID, toolCallID)
+				}
+				promptsByID[toolCallID] = prompt
 			}
 			for _, promptReference := range execution.PendingPrompts {
 				if promptReference.Kind != sessionruntime.PendingPromptKindQuestion &&
@@ -370,20 +376,20 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 				if !present {
 					continue
 				}
-				question, present, err := pendingQuestionFromPrompt(prompt)
+				details, err := pendingPromptDetails(prompt)
 				if err != nil {
 					return nil, err
 				}
-				if !present {
-					continue
-				}
-				if prompt.Approval != (promptReference.Kind == sessionruntime.PendingPromptKindSessionApproval) {
+				if (prompt.GetApproval() != nil) != (promptReference.Kind == sessionruntime.PendingPromptKindSessionApproval) {
 					return nil, fmt.Errorf("task %q session %q prompt for tool call %q changed prompt kind", taskID, execution.Agent.SessionID, promptReference.ToolCallID)
 				}
-				occurredAt := prompt.CreatedAt.UnixMilli()
+				stepID, err := runtimeids.StepIDFromProto(details.GetStepId())
+				if err != nil {
+					return nil, err
+				}
 				currentNode := workflowCurrentNodeReference(execution.Ref.CurrentNode)
 				out = append(out, attentionCandidate{item: &taskpb.AttentionItem{
-					Id:          liveQuestionAttentionID(execution.Agent.SessionID, prompt.StepID, prompt.ToolCallID),
+					Id:          liveQuestionAttentionID(execution.Agent.SessionID, stepID, promptReference.ToolCallID),
 					Kind:        taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
 					ProjectId:   task.ProjectID,
 					WorkflowId:  task.WorkflowID.String(),
@@ -391,9 +397,9 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 					TaskShortId: task.ShortID,
 					TaskTitle:   task.Title,
 					Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
-						Message: textutil.OptionalExactString(question.message), CurrentNode: currentNode, Question: question.prompt,
+						CurrentNode: currentNode, Question: prompt,
 					}},
-					OccurredAt: timestamppb.New(time.UnixMilli(occurredAt)),
+					OccurredAt: timestamppb.New(time.UnixMilli(details.GetCreatedAt().AsTime().UnixMilli())),
 				}})
 			}
 		}
@@ -415,7 +421,11 @@ func liveQuestionAttentionID(
 func (a *Attention) attachLiveQuestionSessionNames(ctx context.Context, candidates []attentionCandidate) error {
 	sessionIDs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		sessionIDs = append(sessionIDs, candidate.item.GetQuestion().Question.SessionId)
+		prompt, err := pendingPromptDetails(candidate.item.GetQuestion().Question)
+		if err != nil {
+			return err
+		}
+		sessionIDs = append(sessionIDs, prompt.GetSessionId())
 	}
 	names, err := resolveSessionPresentations(ctx, a.queries.ListSessionNamesByIDs, sessionIDs)
 	if err != nil {
@@ -423,9 +433,14 @@ func (a *Attention) attachLiveQuestionSessionNames(ctx context.Context, candidat
 	}
 	for index := range candidates {
 		question := candidates[index].item.GetQuestion()
-		presentation := names[question.Question.SessionId]
+		presentation := names[sessionIDs[index]]
 		question.SessionName = presentation.Name
-		question.Question.ShortId = presentation.ShortID
+		switch prompt := question.Question.Question.(type) {
+		case *promptpb.ObservationQuestion_Ask:
+			prompt.Ask.ShortId = presentation.ShortID
+		case *promptpb.ObservationQuestion_Approval:
+			prompt.Approval.ShortId = presentation.ShortID
+		}
 	}
 	return nil
 }

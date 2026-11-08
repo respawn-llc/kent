@@ -6,6 +6,7 @@ import (
 
 	"core/shared/protoapi"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -118,12 +119,11 @@ func TestQuestionAttentionOccurrenceMustBeAfterEpoch(t *testing.T) {
 			ProjectId: "project-1", WorkflowId: "22222222-2222-4222-8222-222222222222",
 			TaskId: "task-1", TaskShortId: "T-1", TaskTitle: "Task", OccurredAt: timestamppb.New(occurredAt),
 			Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
-				Message: proto.String("Proceed?"), CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
-				Question: &taskpb.AttentionQuestionPrompt{
+				CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
+				Question: &promptpb.ObservationQuestion{Question: &promptpb.ObservationQuestion_Ask{Ask: &promptpb.Question{
 					SessionId: "11111111-1111-4111-8111-111111111111", StepId: "22222222-2222-4222-8222-222222222222",
-					ToolCallId: "ask-1", Kind: taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
-					Prompt: &taskpb.AttentionQuestionPrompt_Ordinary{Ordinary: &taskpb.OrdinaryQuestion{}},
-				},
+					ToolCallId: "ask-1", Question: "Proceed?", CreatedAt: timestamppb.New(time.UnixMilli(1)),
+				}}},
 			}},
 		}
 		if err := protoapi.Validate(message); (err == nil) != (occurredAt.UnixMilli() > 0) {

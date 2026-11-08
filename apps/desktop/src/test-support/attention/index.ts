@@ -120,13 +120,17 @@ export const questionAttentionItem = create(pb.AttentionItemSchema, {
     value: {
       currentNode: { nodeId: "node-1" },
       sessionName: "Session one",
-      message: "Question from agent",
       question: {
-        sessionId: "11111111-1111-4111-8111-111111111111",
-        stepId: "22222222-2222-4222-8222-222222222222",
-        toolCallId: "ask-1",
-        kind: pb.AttentionQuestionKind.ORDINARY,
-        prompt: { case: "ordinary", value: {} },
+        question: {
+          case: "ask",
+          value: {
+            sessionId: "11111111-1111-4111-8111-111111111111",
+            stepId: "22222222-2222-4222-8222-222222222222",
+            toolCallId: "ask-1",
+            question: "Question from agent",
+            createdAt: { seconds: 0n, nanos: 1_000_000 },
+          },
+        },
       },
     },
   },

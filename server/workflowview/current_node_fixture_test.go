@@ -21,6 +21,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 
@@ -703,15 +704,15 @@ func (currentNodeViewLLMClient) ProviderCapabilities(context.Context) (llm.Provi
 }
 
 type currentNodeViewPrompts struct {
-	bySession map[string][]PendingPromptSnapshot
+	bySession map[string][]*promptpb.ObservationQuestion
 }
 
-func (p currentNodeViewPrompts) ListPendingPrompts(sessionID string) ([]PendingPromptSnapshot, error) {
-	return append([]PendingPromptSnapshot(nil), p.bySession[sessionID]...), nil
+func (p currentNodeViewPrompts) ListPendingPrompts(sessionID string) ([]*promptpb.ObservationQuestion, error) {
+	return append([]*promptpb.ObservationQuestion(nil), p.bySession[sessionID]...), nil
 }
 
 type emptyCurrentNodeViewPrompts struct{}
 
-func (emptyCurrentNodeViewPrompts) ListPendingPrompts(string) ([]PendingPromptSnapshot, error) {
-	return []PendingPromptSnapshot{}, nil
+func (emptyCurrentNodeViewPrompts) ListPendingPrompts(string) ([]*promptpb.ObservationQuestion, error) {
+	return nil, nil
 }

@@ -9,9 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"core/server/registry"
 	"core/server/workflow"
-	"core/shared/clientui"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
@@ -118,93 +116,44 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 		return nil, false, normalizeTaskObservationError(err)
 	}
 	if req.Mode == taskpb.ObservationMode_OBSERVATION_MODE_WATCH {
-		approvalCache := make(map[string][]clientui.PendingApproval)
 		for _, item := range attention.Items {
 			if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
 				continue
 			}
-			outcome, ok, err := s.taskQuestion(ctx, item, nodeKeys, approvalCache)
+			outcome, err := taskQuestion(item, nodeKeys)
 			if err != nil {
 				return nil, false, err
 			}
-			if ok {
-				response.Outcomes = append(response.Outcomes, outcome)
-			}
+			response.Outcomes = append(response.Outcomes, outcome)
 		}
 	}
 	return response, len(response.Outcomes) > 0, nil
 }
 
-func (s *Service) taskQuestion(
-	ctx context.Context,
+func taskQuestion(
 	item *taskpb.AttentionItem,
 	keys map[string]string,
-	cache map[string][]clientui.PendingApproval,
-) (*taskpb.ObserveOutcome, bool, error) {
+) (*taskpb.ObserveOutcome, error) {
 	detail := item.GetQuestion()
-	prompt := detail.GetQuestion()
-	sessionID := runtimeids.SessionIDFromProto(prompt.SessionId)
-	var err error
-	var question *promptpb.ObservationQuestion
-	switch selected := prompt.Prompt.(type) {
-	case *taskpb.AttentionQuestionPrompt_Ordinary:
-		text := detail.GetMessage()
-		ask := &promptpb.Question{
-			ShortId:                prompt.ShortId,
-			ToolCallId:             prompt.ToolCallId,
-			SessionId:              prompt.SessionId,
-			StepId:                 prompt.StepId,
-			Question:               text,
-			Suggestions:            append([]string(nil), selected.Ordinary.Suggestions...),
-			RecommendedOptionIndex: selected.Ordinary.RecommendedOptionIndex,
-			CreatedAt:              item.OccurredAt,
-		}
-		question = &promptpb.ObservationQuestion{Question: &promptpb.ObservationQuestion_Ask{Ask: ask}}
-	case *taskpb.AttentionQuestionPrompt_Approval:
-		approvals, ok := cache[prompt.SessionId]
-		if !ok {
-			for _, snapshot := range s.readModels.PendingPrompts.ListPendingPrompts(prompt.SessionId) {
-				if !snapshot.Request.Approval {
-					continue
-				}
-				approval, err := registry.PendingApprovalFromSnapshot(sessionID, snapshot)
-				if err != nil {
-					return nil, false, err
-				}
-				approvals = append(approvals, approval)
-			}
-			cache[prompt.SessionId] = approvals
-		}
-		var approval *clientui.PendingApproval
-		for index := range approvals {
-			candidate := &approvals[index]
-			if string(candidate.ToolCallID) == prompt.ToolCallId &&
-				candidate.SessionID == sessionID &&
-				candidate.StepID.String() == prompt.StepId {
-				approval = candidate
-				break
-			}
-		}
-		if approval == nil {
-			return nil, false, nil
-		}
-		question, err = protoapi.ObservationQuestionToProto(serverapi.ObservationQuestion{Approval: approval})
-		if err != nil {
-			return nil, false, err
-		}
-		question.GetApproval().ShortId = prompt.ShortId
+	question := detail.GetQuestion()
+	var sessionID string
+	var shortID *int64
+	switch selected := question.GetQuestion().(type) {
+	case *promptpb.ObservationQuestion_Ask:
+		sessionID, shortID = selected.Ask.SessionId, selected.Ask.ShortId
+	case *promptpb.ObservationQuestion_Approval:
+		sessionID, shortID = selected.Approval.SessionId, selected.Approval.ShortId
 	default:
-		return nil, false, nil
+		return nil, errors.New("task attention has no Question or Approval")
 	}
-	outcomeSessionID := prompt.SessionId
 	return &taskpb.ObserveOutcome{
 		Outcome: &taskpb.ObserveOutcome_Question{Question: &taskpb.ObserveQuestion{
-			ShortId:   prompt.ShortId,
-			SessionId: &outcomeSessionID,
+			ShortId:   shortID,
+			SessionId: &sessionID,
 			NodeKey:   nodeKey(detail.CurrentNode, keys),
 			Question:  question,
 		}},
-	}, true, nil
+	}, nil
 }
 
 func taskCurrentNodeFailure(

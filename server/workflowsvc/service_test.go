@@ -32,6 +32,7 @@ import (
 	"core/shared/config"
 	"core/shared/labelcontract"
 	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -3508,7 +3509,6 @@ func newWorkflowServiceReadModels(
 		TaskSessions:     taskSessions,
 		Activity:         activity,
 		Attention:        attention,
-		PendingPrompts:   observationPendingPromptSourceStub{},
 	}
 }
 
@@ -3539,7 +3539,7 @@ func (s workflowViewStatusObservationSource) ObserveWorkflowTaskExecutions(taskI
 
 type emptyWorkflowPendingPromptSource struct{}
 
-func (emptyWorkflowPendingPromptSource) ListPendingPrompts(string) ([]workflowview.PendingPromptSnapshot, error) {
+func (emptyWorkflowPendingPromptSource) ListPendingPrompts(string) ([]*promptpb.ObservationQuestion, error) {
 	return nil, nil
 }
 
