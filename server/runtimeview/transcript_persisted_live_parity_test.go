@@ -18,7 +18,6 @@ import (
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/rollbacktarget"
 	"core/shared/textutil"
@@ -550,7 +549,6 @@ func mustProjectNewestPersistedTranscript(
 	page, err := TranscriptPageFromSegment(
 		store.Meta().SessionID,
 		nil,
-		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		segment, nil)
 
 	if err != nil {

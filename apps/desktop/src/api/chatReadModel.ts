@@ -14,10 +14,6 @@ import { ContractError } from "./errors";
 import { enumValue, safeNumber } from "./chatWire";
 import { projectAvailability } from "./clientProject";
 
-export function conversationFreshness(value: R.ConversationFreshness): 0 | 1 {
-  return enumValue(value, { [R.ConversationFreshness.FRESH]: 0, [R.ConversationFreshness.ESTABLISHED]: 1 });
-}
-
 export function activeKind(value: R.ActivityActiveKind): ChatActiveKind {
   return enumValue(value, {
     [R.ActivityActiveKind.RUNTIME_ACTIVITY_ACTIVE_KIND_USER_TURN]: "user_turn",
@@ -109,7 +105,6 @@ function runtimeStatus(value: R.StatusValid): ChatRuntimeStatus {
     questionsEnabled: value.questionsEnabled,
     fastModeAvailable: value.fastModeAvailable,
     fastModeEnabled: value.fastModeEnabled,
-    conversationFreshness: conversationFreshness(value.conversationFreshness),
     previousSessionID: value.previousSessionId ?? null,
     parentAgentSessionID: value.parentAgentSessionId ?? null,
     navigationTargetSessionID: value.navigationTargetSessionId ?? null,

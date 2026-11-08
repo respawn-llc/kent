@@ -2,7 +2,6 @@ package app
 
 import (
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -24,9 +23,8 @@ func TestSessionWorkspaceIdentityChangeReopensMovedSession(t *testing.T) {
 			CwdRelpath:            ".",
 			EffectiveWorkdir:      root}
 		model.applyAdmittedTranscriptMessageState(transcriptTestMessage(sequence, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
-			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-			ExecutionTarget:       target}),
+			Category:        projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+			ExecutionTarget: target}),
 			runtimeTupleMergeResult{})
 	}
 	identity(1, "workspace-a", "/workspace-a")

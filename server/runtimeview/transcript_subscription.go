@@ -536,10 +536,6 @@ func TranscriptSessionIdentityFromRuntime(
 	if engine == nil {
 		return &transcriptpb.SessionIdentity{}, nil
 	}
-	freshness, err := engine.ConversationFreshness()
-	if err != nil {
-		return nil, err
-	}
 	sessionID := runtimeids.SessionIDFromProto(engine.SessionID())
 	category, err := engine.SessionCategory()
 	if err != nil {
@@ -550,11 +546,10 @@ func TranscriptSessionIdentityFromRuntime(
 		return nil, err
 	}
 	return &transcriptpb.SessionIdentity{
-		Category:              wireCategory,
-		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
-		SessionId:             sessionID.String(),
-		SessionName:           engine.SessionName(),
-		ConversationFreshness: ConversationFreshnessFromSession(freshness),
+		Category:    wireCategory,
+		ShortId:     protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
+		SessionId:   sessionID.String(),
+		SessionName: engine.SessionName(),
 	}, nil
 }
 

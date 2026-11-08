@@ -613,10 +613,6 @@ message SessionIdentity {
   optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).string.(kent.api.shared.nonblank) = true];
-  kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   optional kent.api.worktree.SessionExecutionTarget execution_target = 4;
 }
 
@@ -1333,10 +1329,6 @@ message RollbackCandidate {
 message Page {
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
-  kent.api.runtime.ConversationFreshness conversation_freshness = 3 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   optional int64 older_cursor = 4 [(buf.validate.field).int64 = {
     gte: 1
     lte: 9007199254740991

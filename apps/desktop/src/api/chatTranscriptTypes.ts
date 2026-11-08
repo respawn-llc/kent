@@ -323,7 +323,6 @@ export interface ChatTranscriptPayloadByKind {
     ShortID: bigint | null;
     SessionID: string;
     SessionName: string | null;
-    ConversationFreshness: 0 | 1;
     ExecutionTarget: ChatExecutionFacts | null;
   }>;
   compaction_status: Readonly<{

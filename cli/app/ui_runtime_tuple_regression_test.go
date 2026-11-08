@@ -170,7 +170,6 @@ func TestRuntimeMainViewRefreshCommitsOnlyWhenReducerHandlesCandidate(t *testing
 		ThinkingLevel:     "high",
 	}
 	v10.Session.SessionName = proto.String("captured unary metadata")
-	v10.Session.ConversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	v10.Session.ExecutionTarget = &worktreepb.SessionExecutionTarget{
 		WorkspaceId:      proto.String("workspace-1"),
 		WorkspaceName:    "workspace",

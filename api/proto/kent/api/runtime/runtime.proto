@@ -19,12 +19,6 @@ import "kent/api/worktree/worktree.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/runtime;runtimepb";
 
-enum ConversationFreshness {
-  CONVERSATION_FRESHNESS_UNSPECIFIED = 0;
-  CONVERSATION_FRESHNESS_FRESH = 1;
-  CONVERSATION_FRESHNESS_ESTABLISHED = 2;
-}
-
 enum GoalStatus {
   RUNTIME_GOAL_STATUS_UNSPECIFIED = 0;
   RUNTIME_GOAL_STATUS_ACTIVE = 1;
@@ -179,10 +173,6 @@ message Status {
   bool questions_enabled = 4;
   bool fast_mode_available = 5;
   bool fast_mode_enabled = 6;
-  ConversationFreshness conversation_freshness = 7 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   optional string previous_session_id = 8 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string parent_agent_session_id = 9 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string navigation_target_session_id = 10 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
@@ -214,10 +204,6 @@ message SessionView {
   string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
   optional string session_name = 2 [(buf.validate.field).string.min_len = 1];
   optional string agent_role = 3 [(buf.validate.field).string.min_len = 1];
-  ConversationFreshness conversation_freshness = 4 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   kent.api.worktree.SessionExecutionTarget execution_target = 5 [(buf.validate.field).required = true];
   optional int64 short_id = 6 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
 }

@@ -256,7 +256,6 @@ describe("Chat Main View admission", () => {
       activity: { state: "running" },
       status: {
         reviewerFrequency: "edits",
-        conversationFreshness: 1,
         contextUsage: {
           usedTokens: 0,
           windowTokens: 0,
@@ -305,7 +304,6 @@ describe("Chat Main View admission", () => {
           ShortID: null,
           SessionID: view.sessionID,
           SessionName: "newer",
-          ConversationFreshness: 1,
           ExecutionTarget: null,
         },
       },
@@ -340,7 +338,7 @@ describe("Chat Main View admission", () => {
     expect(admitted.state.view).toMatchObject({
       sessionName: null,
       activity: { state: "running" },
-      status: { reviewerFrequency: "edits", conversationFreshness: 1 },
+      status: { reviewerFrequency: "edits" },
     });
     expect(admitted.goalFact).toBeNull();
   });

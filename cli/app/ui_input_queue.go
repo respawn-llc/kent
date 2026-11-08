@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"core/cli/app/internal/runtimeattach"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
@@ -194,10 +193,8 @@ func (m *uiModel) rememberAcceptedInput(item *injectedRuntimeQueueItem) {
 	switch item.Request.Input.Kind {
 	case runtimeinput.KindText:
 		m.rememberPromptHistoryLocally(item.Text)
-		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	case runtimeinput.KindPromptCommand:
 		m.rememberPromptCommandHistoryLocally(item.Request.Input.CanonicalHistoryText())
-		m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	case runtimeinput.KindShell:
 	}
 }

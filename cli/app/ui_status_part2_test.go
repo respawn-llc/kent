@@ -79,9 +79,8 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 		t.Fatalf("ParseSessionId: %v", err)
 	}
 	if _, err := runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
-		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		ExecutionTarget:       entered})); err != nil {
+		Category:        projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+		ExecutionTarget: entered})); err != nil {
 		t.Fatalf("admit transcript session identity: %v", err)
 	}
 
@@ -91,36 +90,6 @@ func TestTranscriptSessionIdentityUpdatesStatusExecutionTarget(t *testing.T) {
 	}
 	if request.WorkspaceRoot != entered.EffectiveWorkdir {
 		t.Fatalf("status workspace root = %q, want %q", request.WorkspaceRoot, entered.EffectiveWorkdir)
-	}
-}
-
-func TestTranscriptSessionIdentityReplacesConflictingConversationFreshnessCaches(t *testing.T) {
-	sessionID, err := runtimeids.ParseSessionID(detailTestSessionID)
-	if err != nil {
-		t.Fatalf("ParseSessionId: %v", err)
-	}
-	runtimeClient := &sessionRuntimeClient{
-		sessionID: detailTestSessionID,
-		mainView: &runtimepb.MainView{
-			Session: &runtimepb.SessionView{SessionId: detailTestSessionID,
-				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED},
-			Status: &runtimepb.Status{
-				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}},
-		hasMainView: true}
-	_, err = runtimeClient.admitTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
-		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}))
-	if err != nil {
-		t.Fatalf("admit transcript session identity: %v", err)
-	}
-	if runtimeClient.mainView.Session.ConversationFreshness != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH {
-		t.Fatalf("session-view conversation freshness = %q, want fresh", runtimeClient.mainView.Session.ConversationFreshness)
-	}
-	if runtimeClient.mainView.Status.ConversationFreshness != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH {
-		t.Fatalf("status conversation freshness = %q, want fresh", runtimeClient.mainView.Status.ConversationFreshness)
-	}
-	if got := runtimeClient.Status().ConversationFreshness; got != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH {
-		t.Fatalf("cached conversation freshness = %q, want fresh", got)
 	}
 }
 

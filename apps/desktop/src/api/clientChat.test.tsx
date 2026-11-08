@@ -52,7 +52,6 @@ function transcriptHydrationPayload() {
     sessionIdentity: {
       category: SessionCategory.MAIN,
       sessionId: sessionID,
-      conversationFreshness: R.ConversationFreshness.FRESH,
     },
     sessionStatus: {
       reviewerFrequency: "off",
@@ -103,7 +102,6 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
             reviewerFrequency: "off",
             autoCompactionEnabled: true,
             questionsEnabled: true,
-            conversationFreshness: R.ConversationFreshness.FRESH,
             thinkingLevel: "medium",
             compactionMode: "local",
             contextUsage: { usedTokens: 4, windowTokens: 100 },
@@ -112,7 +110,6 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
           session: {
             category: SessionCategory.MAIN,
             sessionId: sessionID,
-            conversationFreshness: R.ConversationFreshness.FRESH,
             executionTarget: {
               workspaceName: "Workspace",
               workspaceRoot: "/workspace",
@@ -434,8 +431,6 @@ describe("Desktop Chat read client", () => {
                 value: {
                   transcript: {
                     sessionId: sessionID,
-                    conversationFreshness:
-                      callIndex === 0 ? R.ConversationFreshness.FRESH : R.ConversationFreshness.ESTABLISHED,
                     olderCursor: 11n,
                     hasMoreAbove: true,
                     newerCursor: callIndex === 0 ? 29n : undefined,
@@ -512,7 +507,6 @@ describe("Desktop Chat read client", () => {
     const newer = await client.chat.getTranscriptPage(target, { direction: "newer", value: 29 });
     expect(newer).toMatchObject({
       sessionID,
-      conversationFreshness: 1,
       hasMoreBelow: false,
       entries: [{ Kind: "assistant" }, { Kind: "user", User: { QueueItemIDs: [] } }],
     });
@@ -569,7 +563,6 @@ describe("Desktop Chat read client", () => {
               value: {
                 category: SessionCategory.MAIN,
                 sessionId: identity,
-                conversationFreshness: R.ConversationFreshness.FRESH,
               },
             },
           },

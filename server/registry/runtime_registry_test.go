@@ -873,7 +873,8 @@ func TestTranscriptHydrationRetiresStepOwnedStateWhenCanonicalRuntimeBecomesIdle
 
 func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
-	sessionID := runtimeids.NewSessionID()
+	engine := newRegistryTestRuntime(t, nil)
+	sessionID := engine.SessionIdentity().ID
 	predecessor := registryTestResourceRef(sessionID.String())
 	successor := runtimeids.NewSessionResourceRef(sessionID, 2)
 
@@ -881,7 +882,6 @@ func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) 
 	successorScope := runtimeids.NewExecutionScopeID()
 	request := askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"}
 
-	engine := &runtime.Engine{}
 	registerResource(t, registry, predecessor, engine)
 	projectPendingPromptResourceForTest(registry, predecessor, predecessorScope, request, time.Now().UTC())
 	if err := registry.ResourceDraining(context.Background(), registryTestResource(predecessor)); err != nil {
@@ -989,10 +989,10 @@ func TestPromptProjectionPreservesOrderedAccessTargets(t *testing.T) {
 
 func TestRuntimeRegistryAggregatesSleepObserverAcrossAuthorityResources(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
-	engineA := &runtime.Engine{}
-	engineB := &runtime.Engine{}
-	const sessionA = "11111111-1111-4111-8111-111111111111"
-	const sessionB = "22222222-2222-4222-8222-222222222222"
+	engineA := newRegistryTestRuntime(t, nil)
+	engineB := newRegistryTestRuntime(t, nil)
+	sessionA := engineA.SessionID()
+	sessionB := engineB.SessionID()
 	registerReady(t, registry, sessionA, engineA)
 	registerReady(t, registry, sessionB, engineB)
 	t.Cleanup(func() { closeRuntime(registry, sessionA, engineA) })
@@ -1060,8 +1060,8 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 func TestActiveRuntimeActivitySnapshotsExcludeRegisteredIdlePopulation(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
 	for range 500 {
-		sessionID := runtimeids.NewSessionID().String()
-		registerReady(t, registry, sessionID, &runtime.Engine{})
+		engine := newRegistryTestRuntime(t, nil)
+		registerReady(t, registry, engine.SessionID(), engine)
 	}
 	runningEngine, runningDone := startRegistryBlockingRuntime(t, registry)
 	questionEngine, questionDone := startRegistryBlockingRuntime(t, registry)

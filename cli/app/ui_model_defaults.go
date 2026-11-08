@@ -1,7 +1,5 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"os"
 	"strings"
@@ -44,7 +42,6 @@ func newUIInputFeatureState() uiInputFeatureState {
 		reviewerMode:          "off",
 		autoCompactionEnabled: true,
 		questionsEnabled:      true,
-		conversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 	}
 }
 

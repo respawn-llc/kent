@@ -105,7 +105,5 @@ func applyTranscriptSessionStatusToRuntimeStatus(status *runtimepb.Status, updat
 func applyTranscriptSessionIdentityToRuntimeMainView(view *runtimepb.MainView, identity *transcriptpb.SessionIdentity) {
 	view.Session.SessionId = identity.SessionId
 	view.Session.SessionName = textutil.Pointer(identity.SessionName)
-	view.Session.ConversationFreshness = identity.ConversationFreshness
-	view.Status.ConversationFreshness = identity.ConversationFreshness
 	view.Session.ExecutionTarget = clientui.NormalizeSessionExecutionTarget(identity.ExecutionTarget)
 }

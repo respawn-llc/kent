@@ -9,13 +9,7 @@ import {
 import type { ChatTranscriptMessage, ChatTranscriptPayloadByKind as Payloads } from "./chatTranscriptTypes";
 import type { ChatTranscriptPage } from "./chatTypes";
 import { enumValue, safeNumber } from "./chatWire";
-import {
-  activeKind,
-  contextUsage,
-  conversationFreshness,
-  executionFacts,
-  readModelUpdate,
-} from "./chatReadModel";
+import { activeKind, contextUsage, executionFacts, readModelUpdate } from "./chatReadModel";
 import { goalFacts } from "./chatGoal";
 import {
   committedRow,
@@ -35,7 +29,6 @@ function sessionIdentity(value: T.SessionIdentity): Payloads["session_identity"]
     SessionName: value.sessionName ?? null,
     Category: sessionCategoryFromGenerated(value.category),
     ShortID: value.shortId ?? null,
-    ConversationFreshness: conversationFreshness(value.conversationFreshness),
     ExecutionTarget: value.executionTarget === undefined ? null : executionFacts(value.executionTarget),
   };
 }
@@ -490,7 +483,6 @@ export function transcriptPage(value: T.PageValid, sessionID: string): ChatTrans
   return {
     sessionID: value.sessionId,
     sessionName: value.sessionName ?? null,
-    conversationFreshness: conversationFreshness(value.conversationFreshness),
     olderCursor: value.olderCursor === undefined ? null : safeNumber(value.olderCursor),
     hasMoreAbove: value.hasMoreAbove,
     newerCursor: value.newerCursor === undefined ? null : safeNumber(value.newerCursor),

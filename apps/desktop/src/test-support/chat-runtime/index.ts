@@ -50,7 +50,6 @@ export function mainViewRead(sequence = 1): ChatMainViewRead {
         questionsEnabled: true,
         fastModeAvailable: false,
         fastModeEnabled: false,
-        conversationFreshness: 0,
         previousSessionID: null,
         parentAgentSessionID: null,
         navigationTargetSessionID: null,
@@ -78,7 +77,6 @@ export function hydration(): ChatTranscriptPayloadByKind["hydration"] {
       ShortID: null,
       SessionID: target.sessionID,
       SessionName: null,
-      ConversationFreshness: 1,
       ExecutionTarget: null,
     },
     SessionStatus: {
@@ -204,7 +202,6 @@ export function changedIdentity(): ChatTranscriptPayloadByKind["session_identity
     ShortID: null,
     SessionID: target.sessionID,
     SessionName: null,
-    ConversationFreshness: 1,
     ExecutionTarget: {
       WorkspaceID: "workspace-2",
       WorkspaceName: "Workspace 2",
@@ -251,7 +248,6 @@ export function transcriptPage(olderCursor: number | null): ChatTranscriptPage {
   return {
     sessionID: target.sessionID,
     sessionName: null,
-    conversationFreshness: 0,
     olderCursor,
     hasMoreAbove: olderCursor !== null,
     newerCursor: null,

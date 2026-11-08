@@ -90,13 +90,11 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		return nil, errors.New("persisted Session view is required")
 	}
 	meta := s.view.Meta()
-	sessionFreshness := s.view.ConversationFreshness()
 	version := protoapi.NewReadModelVersion(
 		"persisted-session-"+meta.SessionID,
 		1,
 		uint64(meta.LastSequence)+1,
 	)
-	freshness := runtimeview.ConversationFreshnessFromSession(sessionFreshness)
 	goalAvailability, err := session.GoalAvailabilityFromMeta(meta)
 	if err != nil {
 		return nil, err
@@ -124,7 +122,6 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		QuestionsEnabled:          s.projection.questionsEnabled,
 		FastModeAvailable:         s.projection.fastModeAvailable,
 		FastModeEnabled:           s.projection.fastModeAvailable && s.projection.settings.PriorityRequestMode,
-		ConversationFreshness:     freshness,
 		PreviousSessionId:         protoapi.OptionalSessionIDToProto(meta.PreviousSessionID),
 		ParentAgentSessionId:      protoapi.OptionalSessionIDToProto(meta.ParentAgentSessionID),
 		NavigationTargetSessionId: protoapi.OptionalSessionIDToProto(session.NavigationTargetSessionID(meta)),
@@ -146,13 +143,12 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 		Version: version,
 		Status:  status,
 		Session: &runtimepb.SessionView{
-			Category:              category,
-			SessionId:             meta.SessionID,
-			ShortId:               protoapi.SessionShortIDToProto(s.view.Identity().ShortID),
-			SessionName:           textutil.Pointer(meta.Name),
-			AgentRole:             session.ContinuationAgentRole(meta),
-			ConversationFreshness: freshness,
-			ExecutionTarget:       s.projection.target,
+			Category:        category,
+			SessionId:       meta.SessionID,
+			ShortId:         protoapi.SessionShortIDToProto(s.view.Identity().ShortID),
+			SessionName:     textutil.Pointer(meta.Name),
+			AgentRole:       session.ContinuationAgentRole(meta),
+			ExecutionTarget: s.projection.target,
 		},
 		Activity: &runtimepb.Activity{
 			State:    runtimepb.ActivityState_RUNTIME_ACTIVITY_UNAVAILABLE,
@@ -227,7 +223,6 @@ func (s dormantSessionSnapshot) transcriptPage(ctx context.Context, segment runt
 	return runtimeview.TranscriptPageFromSegment(
 		meta.SessionID,
 		meta.Name,
-		runtimeview.ConversationFreshnessFromSession(s.view.ConversationFreshness()),
 		segment,
 		identities,
 	)

@@ -132,7 +132,6 @@ func (m *uiModel) applyDetailTranscriptLoad(requestSessionID string, request *tr
 	page := m.detailTranscript.page()
 	page.SessionId = responsePage.SessionId
 	page.SessionName = responsePage.SessionName
-	page.ConversationFreshness = responsePage.ConversationFreshness
 	m.forwardToView(tui.SetDetailTranscriptPageMsg{
 		Page:                  page,
 		Anchor:                anchor,

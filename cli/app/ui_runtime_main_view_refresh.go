@@ -97,7 +97,6 @@ func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) te
 		m.setKnownSessionTarget(nextSessionID)
 	}
 	m.sessionName = session.SessionName
-	m.conversationFreshness = session.ConversationFreshness
 	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return nil
 	}

@@ -316,7 +316,6 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
           : chatExecutionTarget(identity.ExecutionTarget),
       status: {
         ...next.status,
-        conversationFreshness: identity.ConversationFreshness,
       },
     };
   }

@@ -132,7 +132,6 @@ export type ChatRuntimeStatus = Readonly<{
   questionsEnabled: boolean;
   fastModeAvailable: boolean;
   fastModeEnabled: boolean;
-  conversationFreshness: 0 | 1;
   previousSessionID: string | null;
   parentAgentSessionID: string | null;
   navigationTargetSessionID: string | null;
@@ -174,7 +173,6 @@ export type ChatContext = Readonly<{
 export type ChatTranscriptPage = Readonly<{
   sessionID: string;
   sessionName: string | null;
-  conversationFreshness: number;
   olderCursor: number | null;
   hasMoreAbove: boolean;
   newerCursor: number | null;

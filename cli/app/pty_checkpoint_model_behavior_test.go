@@ -6,7 +6,6 @@ import (
 	"core/cli/tui/ongoing"
 	"core/internal/testharness/pty/analyzer"
 	"core/internal/testharness/pty/appfixture"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"errors"
@@ -89,9 +88,8 @@ func TestPTYCheckpointModelQueuesInitialDetailApplicationBeforeRendererWrite(t *
 	wrapped.Update(detailTranscriptLoadMsg{
 		pending: pending,
 		page: &transcriptpb.Page{
-			SessionId:             detailTestSessionID,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-			Entries:               []*transcriptpb.CommittedRow{detailTestAssistantRow("hydrated row")},
+			SessionId: detailTestSessionID,
+			Entries:   []*transcriptpb.CommittedRow{detailTestAssistantRow("hydrated row")},
 		}})
 	view := wrapped.View()
 	if view == "" {

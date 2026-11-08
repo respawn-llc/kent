@@ -92,7 +92,6 @@ type uiInputFeatureState struct {
 	reviewerMode           string
 	autoCompactionEnabled  bool
 	questionsEnabled       bool
-	conversationFreshness  runtimepb.ConversationFreshness
 	localConversationTurn  bool
 	runtimeControlToken    uint64
 	runtimeControlTokens   map[runtimeControlOperation]uint64
