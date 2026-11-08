@@ -150,10 +150,16 @@ func newChatCommandTarget(t *testing.T, app *Core, projectID, workspaceID string
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: &chatpb.NewChatTarget{
-		ProjectId: projectID, WorkspaceId: workspaceID,
-		InitialSettings: settings.GetNewChat().InitialSettings,
-	}}}
+	catalog := settings.GetNewChat()
+	for _, choice := range catalog.Choices {
+		if choice.Agent.Role == catalog.InitialAgentRole {
+			return &chatpb.ChatTarget{Target: &chatpb.ChatTarget_NewChat{NewChat: &chatpb.NewChatTarget{
+				ProjectId: projectID, WorkspaceId: workspaceID, InitialSettings: choice.Baseline,
+			}}}
+		}
+	}
+	t.Fatal("initial Agent is missing from catalog")
+	return nil
 }
 
 func requireChatSessionCount(t *testing.T, app *Core, projectID string, want int) {

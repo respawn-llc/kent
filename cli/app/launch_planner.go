@@ -311,7 +311,7 @@ func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSe
 	}
 	var modelFacts *sessionPickerModelFacts
 	for _, choice := range catalog.Choices {
-		if choice.Agent.Role == catalog.InitialSettings.AgentRole {
+		if choice.Agent.Role == catalog.InitialAgentRole {
 			if choice.Agent.Model != nil {
 				modelFacts = &sessionPickerModelFacts{Name: choice.Agent.Model, ThinkingLevel: choice.Agent.Thinking}
 			}

@@ -75,6 +75,7 @@ export type ChatSettingsSessionFacts = Readonly<{
   task: Readonly<{ taskID: string; shortID: string }> | null;
 }>;
 export type NewChatSettingsCatalog = Readonly<{
+  initialAgentRole: string;
   choices: readonly (ChatSettingsControls &
     Readonly<{
       agent: ChatSettingsAgentChoice & ChatSettingsAgent;
@@ -82,7 +83,7 @@ export type NewChatSettingsCatalog = Readonly<{
     }>)[];
 }>;
 export type ChatSettingsRead =
-  | Readonly<{ kind: "new_chat"; catalog: NewChatSettingsCatalog; initialSettings: InitialChatSettings }>
+  | Readonly<{ kind: "new_chat"; catalog: NewChatSettingsCatalog }>
   | Readonly<{
       kind: "session";
       settings: ChatSettings;

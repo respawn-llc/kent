@@ -193,7 +193,7 @@ describe("Chat Settings descriptor adapter", () => {
             value: {
               target: {
                 case: "newChat",
-                value: { choices: [first, second], initialSettings: first.baseline },
+                value: { choices: [first, second], initialAgentRole: second.agent.role },
               },
             },
           },
@@ -205,10 +205,15 @@ describe("Chat Settings descriptor adapter", () => {
 
     expect(result).toMatchObject({
       kind: "new_chat",
-      catalog: { choices: [{ agent: { role: "default" } }, { agent: { role: "reviewer" } }] },
+      catalog: {
+        initialAgentRole: "reviewer",
+        choices: [{ agent: { role: "default" } }, { agent: { role: "reviewer" } }],
+      },
     });
     if (result.kind !== "new_chat") throw new Error("Expected New Chat.");
-    expect(result.initialSettings).toEqual({
+    const baseline = result.catalog.choices[0]?.baseline;
+    if (baseline === undefined) throw new Error("Expected default baseline.");
+    expect(baseline).toEqual({
       agentRole: "default",
       supervisor: "edits",
       thinking: "medium",
@@ -217,7 +222,7 @@ describe("Chat Settings descriptor adapter", () => {
       autoCompactionEnabled: true,
     });
     expect(result.catalog.choices[1]?.baseline).toEqual({
-      ...result.initialSettings,
+      ...baseline,
       agentRole: "reviewer",
       supervisor: "off",
     });
@@ -418,7 +423,7 @@ describe("Chat Settings descriptor adapter", () => {
                 case: "newChat",
                 value: {
                   choices: [first],
-                  initialSettings: { ...first.baseline, agentRole: "missing" },
+                  initialAgentRole: "missing",
                 },
               },
             },
@@ -442,7 +447,7 @@ describe("Chat Settings descriptor adapter", () => {
             value: {
               target: {
                 case: "newChat",
-                value: { choices: [first, first], initialSettings: first.baseline },
+                value: { choices: [first, first], initialAgentRole: first.agent.role },
               },
             },
           },
@@ -625,7 +630,7 @@ describe("Chat Settings descriptor adapter", () => {
                 target:
                   index === 0
                     ? { case: "session", value: { settings: settings(), session: { sessionId: sessionID } } }
-                    : { case: "newChat", value: { choices: [first], initialSettings: first.baseline } },
+                    : { case: "newChat", value: { choices: [first], initialAgentRole: first.agent.role } },
               },
             },
           }),
@@ -797,21 +802,24 @@ describe("Chat Settings descriptor adapter", () => {
     const first = choice();
     const malformed = [
       { choices: [first] },
-      { choices: [], initialSettings: first.baseline },
-      { choices: [{ ...first, baseline: undefined }], initialSettings: first.baseline },
+      { choices: [], initialAgentRole: first.agent.role },
+      { choices: [{ ...first, baseline: undefined }], initialAgentRole: first.agent.role },
       {
         choices: [{ ...first, baseline: { ...first.baseline, fast: undefined } }],
-        initialSettings: first.baseline,
+        initialAgentRole: first.agent.role,
       },
       {
         choices: [{ ...first, baseline: { ...first.baseline, agentRole: "other" } }],
-        initialSettings: first.baseline,
+        initialAgentRole: first.agent.role,
       },
       {
         choices: [{ ...first, baseline: { ...first.baseline, supervisor: SupervisorValue.OFF } }],
-        initialSettings: first.baseline,
+        initialAgentRole: first.agent.role,
       },
-      { choices: [first], initialSettings: { ...first.baseline, questionsEnabled: undefined } },
+      {
+        choices: [{ ...first, baseline: { ...first.baseline, questionsEnabled: undefined } }],
+        initialAgentRole: first.agent.role,
+      },
     ];
     for (const invalid of malformed) {
       const transport = new FakeRpcTransport([
@@ -936,7 +944,7 @@ describe("Chat Settings descriptor adapter", () => {
                 case: "newChat",
                 value: {
                   choices: [{ ...first, baseline: initial, thinking: undefined, fast: undefined }],
-                  initialSettings: initial,
+                  initialAgentRole: first.agent.role,
                 },
               },
             },
@@ -962,7 +970,11 @@ describe("Chat Settings descriptor adapter", () => {
     const chat = new ApiClient(transport, unexpectedProjectOverflow).chat;
     const result = await chat.getSettings(newChatTarget);
     if (result.kind !== "new_chat") throw new Error("Expected New Chat.");
-    expect(result.initialSettings).toEqual({
+    const selected = result.catalog.choices.find(
+      (item) => item.agent.role === result.catalog.initialAgentRole,
+    );
+    if (selected === undefined) throw new Error("Expected selected Agent.");
+    expect(selected.baseline).toEqual({
       agentRole: "default",
       supervisor: "edits",
       thinking: null,
@@ -971,12 +983,12 @@ describe("Chat Settings descriptor adapter", () => {
       autoCompactionEnabled: true,
     });
     expect(result.catalog.choices[0]).toMatchObject({
-      baseline: result.initialSettings,
+      baseline: selected.baseline,
       thinking: { kind: "unsupported" },
       fast: { kind: "unsupported" },
     });
     await chat.queue(
-      { ...newChatTarget, initialSettings: result.initialSettings },
+      { ...newChatTarget, initialSettings: selected.baseline },
       { kind: "text", text: "start" },
       pendingWorkItemIDFromProto("223e4567-e89b-42d3-a456-426614174000"),
     );

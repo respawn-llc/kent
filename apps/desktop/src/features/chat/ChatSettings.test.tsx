@@ -30,8 +30,8 @@ const reviewerBaseline: InitialChatSettings = {
 };
 const catalogRead: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
   kind: "new_chat",
-  initialSettings: defaultBaseline,
   catalog: {
+    initialAgentRole: defaultBaseline.agentRole,
     choices: [
       {
         agent: {
@@ -77,6 +77,24 @@ const catalogRead: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
     ],
   },
 };
+
+it("initializes New Chat from the explicit selected role rather than catalog order", async () => {
+  const services = createTestServices([]);
+  vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
+    ...catalogRead,
+    catalog: { ...catalogRead.catalog, initialAgentRole: "reviewer" },
+  });
+  const report = vi.fn<(settings: InitialChatSettings) => void>();
+  const { result } = renderHook(() => useChatSettings({ target, onInitialSettingsChange: report }), {
+    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
+      <TestAppProviders services={services}>{children}</TestAppProviders>
+    ),
+  });
+  await waitFor(() => {
+    expect(result.current).toMatchObject({ kind: "ready-new-chat", initialSettings: reviewerBaseline });
+  });
+  expect(report).toHaveBeenLastCalledWith(reviewerBaseline);
+});
 
 it("replaces all five New Chat settings with the selected Agent's complete server baseline", async () => {
   const services = createTestServices([]);

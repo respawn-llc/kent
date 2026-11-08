@@ -24,6 +24,7 @@ export function createGoalFixtureOwner(
     kind: "ready-new-chat",
     initialSettings: input.initialSettings,
     catalog: {
+      initialAgentRole: input.initialSettings.agentRole,
       choices: options.unsupported
         ? [
             {

@@ -700,8 +700,8 @@ it("replaces New Chat selection with ordinary Session loading before installing 
   if (agent === undefined) throw new Error("Incomplete fixture.");
   const newRead: ChatSettingsRead = {
     kind: "new_chat",
-    initialSettings,
     catalog: {
+      initialAgentRole: initialSettings.agentRole,
       choices: [
         {
           agent: { ...agent, model: settings.selectedAgent.model, thinking: settings.selectedAgent.thinking },

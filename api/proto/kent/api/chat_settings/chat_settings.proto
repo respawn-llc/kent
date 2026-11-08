@@ -307,7 +307,11 @@ message ConnectionReplacement {
 
 message NewChatCatalog {
   repeated NewChatAgentChoice choices = 1 [(buf.validate.field).repeated.min_items = 1];
-  InitialChatSettings initial_settings = 2 [(buf.validate.field).required = true];
+  string initial_agent_role = 2 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.(kent.api.shared.nonblank) = true,
+    (buf.validate.field).string.(kent.api.shared.trimmed) = true
+  ];
 
   option (buf.validate.message).cel = {
     id: "kent.chat_settings.unique_agents"
@@ -318,7 +322,7 @@ message NewChatCatalog {
   option (buf.validate.message).cel = {
     id: "kent.chat_settings.initial_agent_choice"
     message: "initial Agent must have a catalog choice"
-    expression: "this.choices.exists(choice, choice.agent.role == this.initial_settings.agent_role)"
+    expression: "this.choices.exists_one(choice, choice.agent.role == this.initial_agent_role)"
   };
 }
 

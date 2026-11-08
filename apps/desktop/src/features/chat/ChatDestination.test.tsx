@@ -1038,8 +1038,10 @@ it("keeps text but replaces edited settings when selecting another workspace bef
   await act(async () => {
     loading.resolve({
       kind: "new_chat",
-      initialSettings: changed,
-      catalog: { choices: [{ ...choice, agent: { ...choice.agent, role: "other" }, baseline: changed }] },
+      catalog: {
+        initialAgentRole: changed.agentRole,
+        choices: [{ ...choice, agent: { ...choice.agent, role: "other" }, baseline: changed }],
+      },
     });
   });
   await waitFor(() => {

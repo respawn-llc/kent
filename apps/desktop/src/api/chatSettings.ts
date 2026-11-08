@@ -111,8 +111,8 @@ export function createChatSettingsApi(
       }
       return {
         kind: "new_chat",
-        initialSettings: initialSettings(response.target.value.initialSettings),
         catalog: {
+          initialAgentRole: response.target.value.initialAgentRole,
           choices: response.target.value.choices.map((choice) => ({
             agent: completeAgentChoice(choice.agent),
             baseline: initialSettings(choice.baseline),

@@ -45,8 +45,8 @@ const baseline: InitialChatSettings = {
 };
 const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
   kind: "new_chat",
-  initialSettings: baseline,
   catalog: {
+    initialAgentRole: baseline.agentRole,
     choices: [
       {
         agent: {
