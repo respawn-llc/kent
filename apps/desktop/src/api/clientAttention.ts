@@ -66,7 +66,6 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
       return {
         ...base,
         kind: "question" as const,
-        message: question.question,
         currentNode: taskCurrentNode(detail.currentNode),
         sessionName: detail.sessionName ?? null,
         question,

@@ -2,8 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useAtomSet } from "@effect/atom-react";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeAll, beforeEach, expect, it, vi } from "bun:test";
+import { useCallback } from "react";
 
 import type { ApprovalAttentionItem, AttentionItem, InterruptedCurrentNodeAttentionItem } from "@/api";
+import type { SessionChatTarget } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
 import { AttentionRow } from "./AttentionRow";
 import { createHomeViewModel } from "./HomeViewModel";
@@ -29,27 +31,36 @@ function renderAttention(item: AttentionItem) {
     t: appI18n.t,
     openProject: vi.fn(async () => undefined),
   });
-  function Row() {
+  function Row({ item: rowItem }: Readonly<{ item: AttentionItem }>) {
     const task = useAtomSet(model.attentionTask);
     const chat = useAtomSet(model.attentionChat);
-    return (
-      <AttentionRow
-        item={item}
-        onTaskDetail={(item) => {
-          task({ item, open: openSidebar });
-        }}
-        onSessionChat={(target) => {
-          chat({ target, open: fixture.openSessionChat });
-        }}
-      />
+    const onTaskDetail = useCallback(
+      (selected: AttentionItem) => {
+        task({ item: selected, open: openSidebar });
+      },
+      [task],
     );
+    const onSessionChat = useCallback(
+      (target: SessionChatTarget) => {
+        chat({ target, open: fixture.openSessionChat });
+      },
+      [chat],
+    );
+    return <AttentionRow item={rowItem} onTaskDetail={onTaskDetail} onSessionChat={onSessionChat} />;
   }
-  const view = render(
+  const renderRow = (rowItem: AttentionItem) => (
     <TestAppProviders services={services}>
-      <Row />
-    </TestAppProviders>,
+      <Row item={rowItem} />
+    </TestAppProviders>
   );
-  return { openSidebar, view };
+  const view = render(renderRow(item));
+  return {
+    openSidebar,
+    view,
+    rerender: (nextItem: AttentionItem) => {
+      view.rerender(renderRow(nextItem));
+    },
+  };
 }
 
 it("opens Task Detail from the attention row and Chat only from its separate action", () => {
@@ -67,13 +78,26 @@ it("opens Task Detail from the attention row and Chat only from its separate act
   expect(openSidebar).toHaveBeenCalledTimes(1);
 });
 
+it("updates the preview when canonical Question copy changes", () => {
+  const { rerender } = renderAttention(questionAttention);
+  expect(screen.getByText("Choose")).toBeInTheDocument();
+
+  rerender({
+    ...questionAttention,
+    question: { ...questionAttention.question, question: "Continue?" },
+  });
+
+  expect(screen.queryByText("Choose")).not.toBeInTheDocument();
+  expect(screen.getByText("Continue?")).toBeInTheDocument();
+});
+
 it("renders structured access approval paths without a message", () => {
   renderAttention({
     ...questionAttention,
-    message: null,
     question: {
       ...questionAttention.question,
       kind: "approval",
+      question: null,
       approvalDecisions: ["allow_once", "deny"],
       accessTargets: [
         { requestedPath: "../outside", resolvedPath: "/outside" },
@@ -137,7 +161,6 @@ const questionAttention = {
   ...base,
   currentNode: { ...currentNode, sessionID: null },
   kind: "question",
-  message: "Choose",
   question: {
     kind: "ordinary",
     question: "Choose",

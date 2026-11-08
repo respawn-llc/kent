@@ -262,9 +262,9 @@ describe("questionPresentation", () => {
     const approval = approvalAttention(["allow_once", "deny"]);
     const attention = {
       ...approval,
-      message: null,
       question: {
         ...approval.question,
+        question: null,
         accessTargets: [
           { requestedPath: "/alias/a", resolvedPath: "/real/file" },
           { requestedPath: "/alias/b", resolvedPath: "/real/file" },
@@ -475,7 +475,6 @@ function ordinaryAttention(
     questionID: "ask-1",
     id: "attention-1",
     kind: "question",
-    message: "Choose an option",
     occurredAt: 0,
     projectID: "project-1",
     question: {

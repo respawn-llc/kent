@@ -44,7 +44,7 @@ function client(question: pb.QuestionAttention) {
   );
 }
 
-it("allows absent attention text only for a structured access Approval", async () => {
+it("keeps a structured access Approval without question copy", async () => {
   const question = create(pb.QuestionAttentionSchema, {
     currentNode: { nodeId: "node-1" },
     sessionName: "Session one",
@@ -66,7 +66,6 @@ it("allows absent attention text only for a structured access Approval", async (
   expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
     items: [
       {
-        message: null,
         currentNode: { nodeID: "node-1" },
         sessionName: "Session one",
         question: {
@@ -144,7 +143,6 @@ it("preserves the full Question and Task context without inventing a recommendat
     taskID: base.taskId,
     currentNode: { nodeID: "node-1" },
     sessionName: "Session one",
-    message: "Proceed?",
     question: {
       kind: "ordinary",
       sessionID: ask.sessionId,

@@ -311,7 +311,6 @@ export function parsedQuestionAttention(): QuestionAttentionItem &
       effectiveThinking: null,
     },
     sessionName: detail.value.sessionName ?? null,
-    message: question.question,
     question: {
       sessionID: question.sessionId,
       stepID: question.stepId,

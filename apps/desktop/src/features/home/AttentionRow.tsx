@@ -22,12 +22,12 @@ export const AttentionRow = memo(function AttentionRow({
   const { nativeBridge } = useAppServices();
   const nativeChat = useNativeChatOpening();
   const message =
-    item.message ??
-    (item.kind === "approval"
-      ? t("app.attention.approvalFallback")
-      : item.kind === "interrupted_current_node"
-        ? t("app.attention.interruptedCurrentNodeFallback")
-        : null);
+    item.kind === "question"
+      ? item.question.question
+      : (item.message ??
+        (item.kind === "approval"
+          ? t("app.attention.approvalFallback")
+          : t("app.attention.interruptedCurrentNodeFallback")));
   const chatTarget = attentionChatTarget(item);
   const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
   const nativeOpening = chatTarget !== null && nativeChat.pendingSessionID === chatTarget.sessionID;
@@ -123,13 +123,19 @@ function attentionRowPropsEqual(previous: AttentionRowProps, next: AttentionRowP
 }
 
 function attentionItemsEqual(previous: AttentionItem, next: AttentionItem): boolean {
+  if (previous.kind !== next.kind) {
+    return false;
+  }
+  const sameMessage =
+    previous.kind === "question"
+      ? next.kind === "question" && previous.question.question === next.question.question
+      : next.kind !== "question" && previous.message === next.message;
   return (
     previous.id === next.id &&
-    previous.kind === next.kind &&
     previous.taskID === next.taskID &&
     previous.taskShortID === next.taskShortID &&
     previous.taskTitle === next.taskTitle &&
-    previous.message === next.message &&
+    sameMessage &&
     previous.occurredAt === next.occurredAt &&
     attentionChatTargetsEqual(attentionChatTarget(previous), attentionChatTarget(next))
   );
