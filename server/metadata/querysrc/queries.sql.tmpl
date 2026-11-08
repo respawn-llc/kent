@@ -3441,25 +3441,9 @@ OR blocked_task_id IN (
 WITH board_node_tasks AS (
     SELECT
         t.id,
-        t.project_id,
-        t.project_workflow_link_id,
-        t.workflow_id,
-        t.workflow_revision_seen,
         t.task_seq,
-        t.short_id,
-        t.title,
-        t.body,
-        t.source_url,
-        t.source_workspace_id,
-        t.managed_worktree_id,
-        t.execution_target_mode,
-        t.execution_target_requested_ref,
-        t.execution_target_resolved_ref,
-        t.execution_target_commit_oid,
-        t.execution_target_provenance,
         t.created_at_unix_ms,
         t.updated_at_unix_ms,
-        t.metadata_json,
 {{template "labelOrdinalSequence" "t.id"}} AS label_ordinals
     FROM task_records t
     WHERE t.project_id = sqlc.arg(project_id)
@@ -3526,25 +3510,6 @@ dependency_progress AS (
 )
 SELECT
     page.id,
-    page.project_id,
-    page.project_workflow_link_id,
-    page.workflow_id,
-    page.workflow_revision_seen,
-    page.task_seq,
-    page.short_id,
-    page.title,
-    page.body,
-    page.source_url,
-    page.source_workspace_id,
-    page.managed_worktree_id,
-    page.execution_target_mode,
-    page.execution_target_requested_ref,
-    page.execution_target_resolved_ref,
-    page.execution_target_commit_oid,
-    page.execution_target_provenance,
-    page.created_at_unix_ms,
-    page.updated_at_unix_ms,
-    page.metadata_json,
     dependency_progress.dependency_satisfied_count,
     dependency_progress.dependency_total_count
 FROM paged_board_tasks page

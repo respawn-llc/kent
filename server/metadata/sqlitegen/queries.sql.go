@@ -4066,25 +4066,9 @@ const listBoardNodeTasks = `-- name: ListBoardNodeTasks :many
 WITH board_node_tasks AS (
     SELECT
         t.id,
-        t.project_id,
-        t.project_workflow_link_id,
-        t.workflow_id,
-        t.workflow_revision_seen,
         t.task_seq,
-        t.short_id,
-        t.title,
-        t.body,
-        t.source_url,
-        t.source_workspace_id,
-        t.managed_worktree_id,
-        t.execution_target_mode,
-        t.execution_target_requested_ref,
-        t.execution_target_resolved_ref,
-        t.execution_target_commit_oid,
-        t.execution_target_provenance,
         t.created_at_unix_ms,
         t.updated_at_unix_ms,
-        t.metadata_json,
 
 (
     SELECT group_concat(printf('%03d', ordered_label.ordinal), '')
@@ -4189,7 +4173,7 @@ board_sort AS (
 ),
 board_sort_keys AS (
     SELECT
-        t.id, t.project_id, t.project_workflow_link_id, t.workflow_id, t.workflow_revision_seen, t.task_seq, t.short_id, t.title, t.body, t.source_url, t.source_workspace_id, t.managed_worktree_id, t.execution_target_mode, t.execution_target_requested_ref, t.execution_target_resolved_ref, t.execution_target_commit_oid, t.execution_target_provenance, t.created_at_unix_ms, t.updated_at_unix_ms, t.metadata_json, t.label_ordinals,
+        t.id, t.task_seq, t.created_at_unix_ms, t.updated_at_unix_ms, t.label_ordinals,
         CASE WHEN sort.sort_field = 'labels' AND t.label_ordinals IS NULL THEN 1 ELSE 0 END AS sort_null_labels,
         CASE WHEN sort.sort_field = 'updated' AND sort.sort_direction = 'asc' THEN t.updated_at_unix_ms END AS sort_updated_ascending,
         CASE WHEN sort.sort_field = 'updated' AND sort.sort_direction = 'desc' THEN t.updated_at_unix_ms END AS sort_updated_descending,
@@ -4205,7 +4189,7 @@ board_sort_keys AS (
     CROSS JOIN board_sort sort
 ),
 paged_board_tasks AS (
-    SELECT id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_url, source_workspace_id, managed_worktree_id, execution_target_mode, execution_target_requested_ref, execution_target_resolved_ref, execution_target_commit_oid, execution_target_provenance, created_at_unix_ms, updated_at_unix_ms, metadata_json, label_ordinals, sort_null_labels, sort_updated_ascending, sort_updated_descending, sort_created_ascending, sort_created_descending, sort_labels_ascending, sort_labels_descending, sort_short_id_ascending, sort_short_id_descending, sort_tiebreak_ascending, sort_tiebreak_descending
+    SELECT id, task_seq, created_at_unix_ms, updated_at_unix_ms, label_ordinals, sort_null_labels, sort_updated_ascending, sort_updated_descending, sort_created_ascending, sort_created_descending, sort_labels_ascending, sort_labels_descending, sort_short_id_ascending, sort_short_id_descending, sort_tiebreak_ascending, sort_tiebreak_descending
     FROM board_sort_keys
     ORDER BY
         sort_null_labels ASC,
@@ -4240,25 +4224,6 @@ dependency_progress AS (
 )
 SELECT
     page.id,
-    page.project_id,
-    page.project_workflow_link_id,
-    page.workflow_id,
-    page.workflow_revision_seen,
-    page.task_seq,
-    page.short_id,
-    page.title,
-    page.body,
-    page.source_url,
-    page.source_workspace_id,
-    page.managed_worktree_id,
-    page.execution_target_mode,
-    page.execution_target_requested_ref,
-    page.execution_target_resolved_ref,
-    page.execution_target_commit_oid,
-    page.execution_target_provenance,
-    page.created_at_unix_ms,
-    page.updated_at_unix_ms,
-    page.metadata_json,
     dependency_progress.dependency_satisfied_count,
     dependency_progress.dependency_total_count
 FROM paged_board_tasks page
@@ -4293,28 +4258,9 @@ type ListBoardNodeTasksParams struct {
 }
 
 type ListBoardNodeTasksRow struct {
-	ID                          string
-	ProjectID                   string
-	ProjectWorkflowLinkID       string
-	WorkflowID                  runtimeids.WorkflowID
-	WorkflowRevisionSeen        int64
-	TaskSeq                     int64
-	ShortID                     string
-	Title                       string
-	Body                        string
-	SourceUrl                   string
-	SourceWorkspaceID           sql.NullString
-	ManagedWorktreeID           sql.NullString
-	ExecutionTargetMode         sql.NullString
-	ExecutionTargetRequestedRef sql.NullString
-	ExecutionTargetResolvedRef  sql.NullString
-	ExecutionTargetCommitOid    sql.NullString
-	ExecutionTargetProvenance   sql.NullString
-	CreatedAtUnixMs             int64
-	UpdatedAtUnixMs             int64
-	MetadataJson                string
-	DependencySatisfiedCount    sql.NullInt64
-	DependencyTotalCount        sql.NullInt64
+	ID                       string
+	DependencySatisfiedCount sql.NullInt64
+	DependencyTotalCount     sql.NullInt64
 }
 
 func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasksParams) ([]ListBoardNodeTasksRow, error) {
@@ -4341,30 +4287,7 @@ func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasks
 	var items []ListBoardNodeTasksRow
 	for rows.Next() {
 		var i ListBoardNodeTasksRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
-			&i.WorkflowID,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
-			&i.ShortID,
-			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.ExecutionTargetMode,
-			&i.ExecutionTargetRequestedRef,
-			&i.ExecutionTargetResolvedRef,
-			&i.ExecutionTargetCommitOid,
-			&i.ExecutionTargetProvenance,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
-			&i.DependencySatisfiedCount,
-			&i.DependencyTotalCount,
-		), listBoardNodeTasks, 12); err != nil {
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.DependencySatisfiedCount, &i.DependencyTotalCount), listBoardNodeTasks, 12); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
