@@ -1,5 +1,4 @@
 import type { WorkflowGraphSaveConfirmation, WorkflowGraphSaveImpact } from "@/api";
-import type { useAppServices } from "@/app-facade";
 import type {
   WorkflowDeleteConfirmationCounts,
   WorkflowGraphCascadeConfirmationOperation,
@@ -177,15 +176,4 @@ export function graphEditWarningTranslationKey(warning: string): string {
     return "workflowEditor.nodeGroupRequiresUngroupedNode";
   }
   return "workflowEditor.graphEditBlockedGeneric";
-}
-
-export async function copyWorkflowNodeText(
-  value: string,
-  nativeBridge: ReturnType<typeof useAppServices>["nativeBridge"],
-): Promise<void> {
-  if (nativeBridge.capabilities.clipboard.writeText) {
-    await nativeBridge.clipboard.writeText(value);
-    return;
-  }
-  await navigator.clipboard.writeText(value);
 }

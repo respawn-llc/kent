@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { WorkflowInspectorInitialFocus, WorkflowInspectorSelection } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { useStatusController } from "@/app-facade";
+import { writeClipboardText } from "@/shared/native-clipboard";
 import { WorkflowGraphCanvas } from "./WorkflowGraphCanvas";
 import type { WorkflowGraphLayout } from "./workflowGraphLayout";
 import {
@@ -13,7 +14,6 @@ import {
 import { workflowEditorGraphMutationWarnings } from "./workflowEditorGraphMutations";
 import {
   cascadeRowCount,
-  copyWorkflowNodeText,
   deleteWarningTranslationKey,
   dispatchGraphDeletion,
   graphEditWarningTranslationKey,
@@ -242,7 +242,7 @@ export function WorkflowEditorCanvas({
           type: "createNodeGroupFromNode",
         });
       }}
-      onCopyText={async (value) => copyWorkflowNodeText(value, nativeBridge)}
+      onCopyText={async (value) => writeClipboardText(value, nativeBridge)}
       onDeleteSelection={handleDeleteSelection}
       onEdgeInspect={(edgeID) => {
         inspect({ kind: "edge", edgeID });
