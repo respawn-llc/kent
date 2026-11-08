@@ -84,10 +84,6 @@ func (s *Store) commitLegacyEventLogConversion(log *currentEventLog) error {
 	if usageState == UsageStateReconciliationInvalidate {
 		s.meta.UsageState = nil
 	}
-	s.conversationFreshness = ConversationFreshnessFresh
-	if current.conversationEstablished {
-		s.conversationFreshness = ConversationFreshnessEstablished
-	}
 	s.metadataVersion = observation.version
 	s.persistedMetaVersion = observation.version
 	s.mu.Unlock()
