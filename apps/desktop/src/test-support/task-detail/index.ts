@@ -156,7 +156,6 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
     {
       ...attentionBase,
       id: "attention-question",
-      kind: taskAttention.AttentionItemKind.QUESTION,
       detail: {
         case: "question",
         value: {
@@ -180,7 +179,6 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
     {
       ...attentionBase,
       id: "attention-approval",
-      kind: taskAttention.AttentionItemKind.APPROVAL,
       detail: {
         case: "approval",
         value: {
@@ -268,7 +266,6 @@ export const interruptedTaskAttentionResponse = create(taskAttention.TaskAttenti
     {
       ...attentionBase,
       id: "attention-interrupted",
-      kind: taskAttention.AttentionItemKind.INTERRUPTED_CURRENT_NODE,
       detail: {
         case: "interruptedCurrentNode",
         value: {

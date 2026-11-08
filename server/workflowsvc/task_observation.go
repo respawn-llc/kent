@@ -117,7 +117,7 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 			return nil, false, normalizeTaskObservationError(err)
 		}
 		for _, item := range attention.Items {
-			if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
+			if _, ok := item.GetDetail().(*taskpb.AttentionItem_Question); !ok {
 				continue
 			}
 			outcome, err := taskQuestion(item, nodeKeys)

@@ -16,7 +16,6 @@ describe("Attention notification contract", () => {
       };
       const question = create(T.AttentionItemSchema, {
         ...base,
-        kind: T.AttentionItemKind.QUESTION,
         detail: {
           case: "question",
           value: {
@@ -40,10 +39,26 @@ describe("Attention notification contract", () => {
       else expect(() => validate(T.AttentionItemSchema, question)).toThrow();
       const interrupted = create(T.AttentionItemSchema, {
         ...base,
-        kind: T.AttentionItemKind.INTERRUPTED_CURRENT_NODE,
         detail: { case: "interruptedCurrentNode", value: { currentNode: { nodeId: "node-1" } } },
       });
       expect(() => validate(T.AttentionItemSchema, interrupted)).not.toThrow();
+      const approval = create(T.AttentionItemSchema, {
+        ...base,
+        detail: {
+          case: "approval",
+          value: {
+            approvalId: "approval-1",
+            approvalSnapshot: { sourceNodeDisplayName: "Implement" },
+          },
+        },
+      });
+      expect(() => validate(T.AttentionItemSchema, approval)).not.toThrow();
+      expect(() => validate(T.AttentionItemSchema, create(T.AttentionItemSchema, base))).toThrow();
+      const missingOccurrence = create(T.AttentionItemSchema, {
+        ...interrupted,
+        occurredAt: undefined,
+      });
+      expect(() => validate(T.AttentionItemSchema, missingOccurrence)).toThrow();
     }
   });
   it("rejects blank notification keys without imposing UUID spelling", () => {

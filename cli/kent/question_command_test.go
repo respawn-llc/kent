@@ -267,7 +267,6 @@ func taskQuestionAttention(
 	occurredAt int64,
 ) *taskpb.AttentionItem {
 	return &taskpb.AttentionItem{
-		Kind:   taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
 		TaskId: taskID,
 		Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
 			SessionName: &sessionName,
@@ -988,11 +987,14 @@ func TestQuestionByTaskRejectsRetiredPromptWithoutSuccess(t *testing.T) {
 	requireQuestionWatch(t, remote.stubQuestionCommandRemote, 0)
 }
 
-func TestTaskQuestionCandidatesIgnoreWorkflowTransitionApprovals(t *testing.T) {
+func TestTaskQuestionCandidatesIgnoreNonQuestionAttention(t *testing.T) {
 	approvalID := "transition-1"
 	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{{
-		Kind:   taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL,
 		Detail: &taskpb.AttentionItem_Approval{Approval: &taskpb.ApprovalAttention{ApprovalId: approvalID}},
+	}, {
+		Detail: &taskpb.AttentionItem_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedAttention{
+			CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
+		}},
 	}})
 	if err != nil {
 		t.Fatalf("task question candidates: %v", err)

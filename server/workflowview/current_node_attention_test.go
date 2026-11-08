@@ -55,8 +55,7 @@ func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T)
 		t.Fatalf("approval attention = %+v, want one approval", approvals.Items)
 	}
 	approval := approvals.Items[0]
-	if approval.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL ||
-		approval.GetApproval() == nil ||
+	if approval.GetApproval() == nil ||
 		approval.GetApproval().ApprovalId != completed.PendingApproval.ID.String() ||
 		approval.GetApproval().ApprovalSnapshot == nil ||
 		approval.GetApproval().ApprovalSnapshot.GetCommentary() != "Ready to merge." {
@@ -81,8 +80,7 @@ func TestAttentionProjectsPendingApprovalAndInterruptedCurrentNode(t *testing.T)
 	if record.ShortID == nil || detail.CurrentNode.ShortId == nil || *detail.CurrentNode.ShortId != record.ShortID.Int64() {
 		t.Fatalf("interrupted Session number = %v, want %v", detail.CurrentNode.ShortId, record.ShortID)
 	}
-	if interrupted.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE ||
-		interrupted.TaskId != string(interruptedStarted.task.ID) ||
+	if interrupted.TaskId != string(interruptedStarted.task.ID) ||
 		detail == nil || detail.CurrentNode == nil ||
 		detail.CurrentNode.NodeId != string(interruptedFixture.agentNodeID) ||
 		detail.CurrentNode.GetSessionId() != interruptedSessionID.String() ||
@@ -151,7 +149,7 @@ func TestAttentionPaginatesDurableCurrentStateAndScopesTaskQuery(t *testing.T) {
 		t.Fatalf("Attention.List first: %v", err)
 	}
 	if len(first.Items) != 2 ||
-		first.Items[0].Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL ||
+		first.Items[0].GetApproval() == nil ||
 		first.Items[1].TaskId != string(firstInterrupted.task.ID) ||
 		first.NextPageToken == nil {
 		t.Fatalf("first attention page = %+v token %v", first.Items, first.NextPageToken)
@@ -276,8 +274,7 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	if record.ShortID == nil || ask.ShortId == nil || *ask.ShortId != record.ShortID.Int64() {
 		t.Fatalf("question Session number = %v, want %v", ask.ShortId, record.ShortID)
 	}
-	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
-		prompt == nil || ask.Question != question.request.Question ||
+	if prompt == nil || ask.Question != question.request.Question ||
 		prompt.GetSessionName() != "Current Node session" || prompt.Question == nil ||
 		ask.ToolCallId != question.request.ToolCallID ||
 		ask.SessionId != question.sessionID.String() ||
@@ -369,8 +366,7 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	}
 	question := item.GetQuestion()
 	approval := question.Question.GetApproval()
-	if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION ||
-		question == nil || question.Question == nil ||
+	if question == nil || question.Question == nil ||
 		approval.ToolCallId != request.ToolCallID ||
 		approval.SessionId != prompt.sessionID.String() ||
 		approval.StepId != mustWorkflowViewStepID(t, request.StepID).String() ||

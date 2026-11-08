@@ -13,7 +13,6 @@ export const attentionBase = {
 export const questionAttention = create(taskAttention.AttentionItemSchema, {
   ...attentionBase,
   id: "attention-question",
-  kind: taskAttention.AttentionItemKind.QUESTION,
   detail: {
     case: "question",
     value: {
@@ -43,7 +42,6 @@ export function taskQuestionPage(prompts: readonly (readonly [string, number])[]
       create(taskAttention.AttentionItemSchema, {
         ...attentionBase,
         id: `attention-${askID}`,
-        kind: taskAttention.AttentionItemKind.QUESTION,
         detail: {
           case: "question",
           value: {

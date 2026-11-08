@@ -610,7 +610,7 @@ func listTaskQuestionCandidates(
 func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessionCandidate, error) {
 	questions := make([]*taskpb.AttentionItem, 0, len(items))
 	for _, item := range items {
-		if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
+		if _, ok := item.GetDetail().(*taskpb.AttentionItem_Question); !ok {
 			continue
 		}
 		questions = append(questions, item)

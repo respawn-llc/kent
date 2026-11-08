@@ -42,7 +42,6 @@ export function globalAttentionRequests(transport: FakeRpcTransport): readonly (
 export function approvalAttentionFixture(taskID: string) {
   return create(pb.AttentionItemSchema, {
     id: `approval:${taskID}`,
-    kind: pb.AttentionItemKind.APPROVAL,
     projectId: "project-1",
     workflowId: "11111111-1111-4111-8111-111111111111",
     taskId: taskID,
@@ -104,7 +103,6 @@ const pendingQuestionEvent = create(pb.AttentionNotificationEventSchema, {
 
 export const questionAttentionItem = create(pb.AttentionItemSchema, {
   id: "question:node-1:ask-1",
-  kind: pb.AttentionItemKind.QUESTION,
   projectId: "project-1",
   workflowId: workflowID,
   taskId: "task-1",

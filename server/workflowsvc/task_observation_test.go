@@ -238,7 +238,6 @@ func TestObserveWorkflowTaskRetainsCompletedQuestionProjection(t *testing.T) {
 	for i, prompt := range prompts {
 		expected = append(expected, proto.Clone(prompt).(*promptpb.ObservationQuestion))
 		items = append(items, &taskpb.AttentionItem{
-			Kind: taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
 			Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
 				CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
 				Question:    prompt,
@@ -246,6 +245,14 @@ func TestObserveWorkflowTaskRetainsCompletedQuestionProjection(t *testing.T) {
 			OccurredAt: timestamppb.New(createdAt.Add(time.Duration(len(prompts)-i) * time.Second)),
 		})
 	}
+	items = append(items,
+		&taskpb.AttentionItem{Detail: &taskpb.AttentionItem_Approval{Approval: &taskpb.ApprovalAttention{
+			ApprovalId: "transition-1",
+		}}},
+		&taskpb.AttentionItem{Detail: &taskpb.AttentionItem_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedAttention{
+			CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-2"},
+		}}},
+	)
 	service := &Service{readModels: ReadModels{
 		Definitions: observationDefinitionStub{definition: &pb.WorkflowDefinition{
 			Nodes: []*pb.WorkflowNode{{Id: "node-1", Key: "implement"}},

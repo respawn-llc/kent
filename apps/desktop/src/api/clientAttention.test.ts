@@ -32,7 +32,6 @@ function client(question: pb.QuestionAttention) {
               items: [
                 {
                   ...base,
-                  kind: pb.AttentionItemKind.QUESTION,
                   detail: { case: "question", value: question },
                 },
               ],

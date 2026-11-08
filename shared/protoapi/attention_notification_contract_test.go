@@ -173,7 +173,7 @@ func TestAttentionSessionPromptProjectMustBeNonblank(t *testing.T) {
 func TestQuestionAttentionOccurrenceMustBeAfterEpoch(t *testing.T) {
 	for _, occurredAt := range []time.Time{time.UnixMilli(0), time.UnixMilli(-1), time.UnixMilli(1)} {
 		message := &taskpb.AttentionItem{
-			Id: "attention-key", Kind: taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
+			Id:        "attention-key",
 			ProjectId: "project-1", WorkflowId: "22222222-2222-4222-8222-222222222222",
 			TaskId: "task-1", TaskShortId: "T-1", TaskTitle: "Task", OccurredAt: timestamppb.New(occurredAt),
 			Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
@@ -187,12 +187,31 @@ func TestQuestionAttentionOccurrenceMustBeAfterEpoch(t *testing.T) {
 		if err := protoapi.Validate(message); (err == nil) != (occurredAt.UnixMilli() > 0) {
 			t.Errorf("Question occurrence %v acceptance = %v", occurredAt, err)
 		}
-		message.Kind = taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE
 		message.Detail = &taskpb.AttentionItem_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedAttention{
 			CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
 		}}
 		if err := protoapi.Validate(message); err != nil {
 			t.Errorf("durable interruption occurrence %v rejected: %v", occurredAt, err)
+		}
+		message.Detail = &taskpb.AttentionItem_Approval{Approval: &taskpb.ApprovalAttention{
+			ApprovalId: "approval-1",
+			ApprovalSnapshot: &taskpb.ApprovalSnapshot{
+				SourceNodeDisplayName: "Implement",
+			},
+		}}
+		if err := protoapi.Validate(message); err != nil {
+			t.Errorf("durable Approval occurrence %v rejected: %v", occurredAt, err)
+		}
+		message.Detail = nil
+		if err := protoapi.Validate(message); err == nil {
+			t.Error("attention without detail accepted")
+		}
+		message.Detail = &taskpb.AttentionItem_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedAttention{
+			CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
+		}}
+		message.OccurredAt = nil
+		if err := protoapi.Validate(message); err == nil {
+			t.Error("attention without occurrence accepted")
 		}
 	}
 }

@@ -170,7 +170,6 @@ func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWork
 		snapshot := approvalAttentionSnapshot(approval)
 		return &taskpb.AttentionItem{
 			Id:          row.ID,
-			Kind:        taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL,
 			ProjectId:   row.ProjectID,
 			WorkflowId:  row.WorkflowID.String(),
 			TaskId:      row.TaskID,
@@ -203,7 +202,6 @@ func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWork
 		}
 		return &taskpb.AttentionItem{
 			Id:          row.ID,
-			Kind:        taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE,
 			ProjectId:   row.ProjectID,
 			WorkflowId:  row.WorkflowID.String(),
 			TaskId:      row.TaskID,
@@ -388,7 +386,6 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 				currentNode := workflowCurrentNodeReference(execution.Ref.CurrentNode)
 				out = append(out, attentionCandidate{item: &taskpb.AttentionItem{
 					Id:          liveQuestionAttentionID(execution.Agent.SessionID, stepID, promptReference.ToolCallID),
-					Kind:        taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
 					ProjectId:   task.ProjectID,
 					WorkflowId:  task.WorkflowID.String(),
 					TaskId:      task.ID,
