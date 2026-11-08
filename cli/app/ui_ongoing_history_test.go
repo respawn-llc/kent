@@ -3,18 +3,71 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"core/cli/tui/ongoing"
+	"core/cli/tui/transcriptrender"
 	"core/internal/testharness/pty"
 	"core/internal/testharness/pty/analyzer"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
+
+	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestReopenHistoryPaintedBeforeWindowSizeRemainsVisible(t *testing.T) {
+	const prompt = "persisted question visible on reopen"
+	for _, policy := range []ongoing.TerminalResizePolicy{
+		ongoing.TerminalResizeSemanticPrompt,
+		ongoing.TerminalResizeRehydration,
+	} {
+		t.Run(fmt.Sprintf("policy=%d", policy), func(t *testing.T) {
+			var output bytes.Buffer
+			surface := ongoing.NewSurfaceWithOptions(&output, ongoing.SurfaceOptions{
+				TerminalResize: policy,
+				MarkdownLinks:  transcriptrender.MarkdownLinkLabelOnly,
+			})
+			model := newProjectedClosedUIModel(
+				&runtimeControlFakeClient{sessionView: &runtimepb.SessionView{SessionId: detailTestSessionID}},
+				WithUISessionID(detailTestSessionID),
+				WithUIOngoingSurface(surface),
+			)
+			model.ongoingTranscript = newNoopOngoingTranscriptController(surface, model.ongoingFrameInput)
+			if cmd := model.adoptOngoingTranscriptOwnership(); cmd != nil {
+				t.Fatal("adopting ownership before the terminal size is known must not paint")
+			}
+			model = updateUIModel(t, model, ongoingTranscriptEvent{
+				Kind: ongoingTranscriptEventHistory,
+				Page: &transcriptpb.Page{Entries: []*transcriptpb.CommittedRow{
+					historyTestUserRow(10, 1, prompt),
+				}},
+			})
+			if strings.Contains(output.String(), prompt) {
+				t.Fatal("history was painted before the terminal size was known")
+			}
+			model = updateUIModel(t, model, tea.WindowSizeMsg{Width: 80, Height: 24})
+			stream, err := analyzer.NewStream(pty.MustDimensions(24, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.Feed(output.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			screen, err := stream.ScreenSnapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(screen.RenderText(), prompt) {
+				t.Fatalf("reopen history missing from the visible screen after the first window size: %q", screen.RenderText())
+			}
+		})
+	}
+}
 
 func TestOngoingOpeningShowsStoredHistoryBeforeTranscriptStreamArrives(t *testing.T) {
 	const prompt = "a previously persisted question"
