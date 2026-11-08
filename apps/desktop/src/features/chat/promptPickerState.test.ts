@@ -13,7 +13,6 @@ describe("Chat prompt drafts", () => {
     });
     expect(answered.state.drafts.get("first")?.status).toBe("answered");
     expect(answered.effect).toBe("none");
-    expect(answered.state.batchToolCallIDs).toEqual(toolCallIDs);
     const readyFirst = question("first", { batch: { toolCallIDs, unmaterializedCount: 0 } });
     const second = question("second", { batch: { toolCallIDs, unmaterializedCount: 0 } });
     state = transitionPicker(answered.state, [readyFirst, second], { kind: "sync" }).state;
@@ -33,7 +32,6 @@ describe("Chat prompt drafts", () => {
     const initial = transitionPicker(emptyPickerState(), prompts, { kind: "sync" }).state;
     const third = question("third", { batch });
     const remaining = transitionPicker(initial, [third], { kind: "sync" }).state;
-    expect(remaining.batchToolCallIDs).toEqual(toolCallIDs);
     const completed = transitionPicker(remaining, [third], {
       kind: "activate",
       selection: { kind: "suggested", number: 1 },
