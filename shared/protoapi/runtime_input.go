@@ -65,18 +65,15 @@ var pendingWorkTransitionValues = map[runtimepb.PendingWorkWorktreeTransitionKin
 func PendingWorkToProto(work runtimeinput.PendingWork) (*runtimepb.PendingWork, error) {
 	result := &runtimepb.PendingWork{Items: make([]*runtimepb.PendingWorkItem, 0, len(work.Items))}
 	for _, item := range work.Items {
-		kind, err := PendingWorkKindToProto(item.Kind)
-		if err != nil {
-			return nil, err
-		}
 		value := &runtimepb.PendingWorkItem{
-			Id: item.ID.String(), Kind: kind, CanonicalInput: item.CanonicalInput,
+			Id: item.ID.String(), CanonicalInput: item.CanonicalInput,
 			State: runtimepb.PendingWorkItemState_PENDING_WORK_ITEM_STATE_PENDING,
 		}
-		value.Lane, err = enumToProto(pendingWorkLaneValues, item.Lane, "Pending Work lane")
+		lane, err := enumToProto(pendingWorkLaneValues, item.Lane, "Pending Work lane")
 		if err != nil {
 			return nil, err
 		}
+		value.Lane = lane
 		switch item.Kind {
 		case runtimeinput.PendingWorkItemKindShell:
 			value.Payload = &runtimepb.PendingWorkItem_Shell{Shell: &chatpb.ShellCommand{Command: item.Shell.Command}}
@@ -92,6 +89,8 @@ func PendingWorkToProto(work runtimeinput.PendingWork) (*runtimepb.PendingWork, 
 			value.Payload = &runtimepb.PendingWorkItem_WorktreeTransition{WorktreeTransition: &runtimepb.PendingWorkWorktreeTransition{
 				Transition: transition, Selector: textutil.Pointer(item.WorktreeTransition.Selector),
 			}}
+		default:
+			return nil, fmt.Errorf("invalid Pending Work kind %q", item.Kind)
 		}
 		result.Items = append(result.Items, value)
 	}
@@ -105,22 +104,26 @@ func PendingWorkFromProto(work *runtimepb.PendingWork) (runtimeinput.PendingWork
 		if err != nil {
 			return runtimeinput.PendingWork{}, err
 		}
-		kind := pendingWorkKindValues[item.Kind]
-		value := runtimeinput.PendingWorkItem{ID: id, Kind: kind, CanonicalInput: item.CanonicalInput}
+		value := runtimeinput.PendingWorkItem{ID: id, CanonicalInput: item.CanonicalInput}
 		value.Lane = pendingWorkLaneValues[item.Lane]
 		switch payload := item.Payload.(type) {
 		case *runtimepb.PendingWorkItem_Shell:
+			value.Kind = runtimeinput.PendingWorkItemKindShell
 			value.Shell = &runtimeinput.ShellCommand{Command: payload.Shell.Command}
 		case *runtimepb.PendingWorkItem_Message:
+			value.Kind = runtimeinput.PendingWorkItemKindMessage
 			value.Message = &runtimeinput.PendingWorkMessage{Text: payload.Message.Text}
 		case *runtimepb.PendingWorkItem_ManualCompaction:
+			value.Kind = runtimeinput.PendingWorkItemKindManualCompaction
 			admission := ManualCompactionAdmissionFromProto(payload.ManualCompaction)
 			value.ManualCompaction = &admission
-		default:
-			worktree := item.Payload.(*runtimepb.PendingWorkItem_WorktreeTransition)
-			transition := runtimeinput.PendingWorkWorktreeTransition{Selector: textutil.Pointer(worktree.WorktreeTransition.Selector)}
-			transition.Transition = pendingWorkTransitionValues[worktree.WorktreeTransition.Transition]
+		case *runtimepb.PendingWorkItem_WorktreeTransition:
+			value.Kind = runtimeinput.PendingWorkItemKindWorktreeTransition
+			transition := runtimeinput.PendingWorkWorktreeTransition{Selector: textutil.Pointer(payload.WorktreeTransition.Selector)}
+			transition.Transition = pendingWorkTransitionValues[payload.WorktreeTransition.Transition]
 			value.WorktreeTransition = &transition
+		default:
+			return runtimeinput.PendingWork{}, fmt.Errorf("invalid Pending Work payload %T", item.Payload)
 		}
 		result.Items = append(result.Items, value)
 	}

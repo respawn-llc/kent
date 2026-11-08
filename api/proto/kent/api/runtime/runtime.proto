@@ -528,10 +528,6 @@ message PendingWorkItem {
     defined_only: true
     not_in: [0]
   }];
-  PendingWorkItemKind kind = 3 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   oneof payload {
     option (buf.validate.oneof).required = true;
     PendingWorkMessage message = 4;
@@ -549,12 +545,12 @@ message PendingWorkItem {
   ];
   option (buf.validate.message).cel = {
     id: "kent.runtime.pending_work_item_payload"
-    message: "Pending Work kind, lane, payload, and canonical input must agree"
+    message: "Pending Work lane, payload, and canonical input must agree"
     expression:
-      "(this.kind == 1 && has(this.message) && this.canonical_input == this.message.text) || "
-      "(this.kind == 2 && this.lane == 1 && has(this.manual_compaction) && this.canonical_input == (has(this.manual_compaction.guidance) ? '/compact ' + this.manual_compaction.guidance : '/compact')) || "
-      "(this.kind == 3 && this.lane == 1 && has(this.worktree_transition) && this.canonical_input == (this.worktree_transition.transition == 1 ? '/wt switch ' + this.worktree_transition.selector : '/wt leave')) || "
-      "(this.kind == 4 && has(this.shell) && this.canonical_input == '$' + this.shell.command)"
+      "(has(this.message) && this.canonical_input == this.message.text) || "
+      "(this.lane == 1 && has(this.manual_compaction) && this.canonical_input == (has(this.manual_compaction.guidance) ? '/compact ' + this.manual_compaction.guidance : '/compact')) || "
+      "(this.lane == 1 && has(this.worktree_transition) && this.canonical_input == (this.worktree_transition.transition == 1 ? '/wt switch ' + this.worktree_transition.selector : '/wt leave')) || "
+      "(has(this.shell) && this.canonical_input == '$' + this.shell.command)"
   };
 }
 
