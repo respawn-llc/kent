@@ -22,7 +22,6 @@ it("rejects duplicate and disabled Board Retry without replacing the accepted re
     workflows: [],
     columns: [],
     groups: [],
-    generatedAt: 1,
   };
   const pending = deferred<WorkflowBoard>();
   const read = vi
@@ -78,7 +77,6 @@ it("rejects duplicate and disabled column Retry and permits a later valid retry"
     nodeID: "node",
     cards: [],
     nextOffset: null,
-    generatedAt: 1,
   };
   const pending = deferred<BoardNodeCardsPage>();
   const read = vi
@@ -152,7 +150,6 @@ it.each(["next", "previous"] as const)(
       nodeID: "node",
       cards: [],
       nextOffset: 25,
-      generatedAt: 1,
     };
     const refresh = deferred<BoardNodeCardsPage>();
     const directional = deferred<BoardNodeCardsPage>();
@@ -229,7 +226,6 @@ it("retains Board content during filter replacement and a failed replacement rea
     workflows: [],
     columns: [],
     groups: [],
-    generatedAt: 1,
   };
   const replacement = deferred<WorkflowBoard>();
   const read = vi
@@ -279,7 +275,6 @@ it("does not page retained column content while replacement inputs are loading",
     nodeID: "node",
     cards: [],
     nextOffset: 25,
-    generatedAt: 1,
   };
   const replacement = deferred<BoardNodeCardsPage>();
   const read = vi

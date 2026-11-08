@@ -99,7 +99,6 @@ export type TaskListPage = Readonly<{
   }>;
   matchingWorkflowCardinality: "none" | "one" | "multiple";
   nextOffset: number | null;
-  generatedAt: number;
   tasks: readonly TaskListItem[];
 }>;
 
@@ -118,5 +117,4 @@ export type ProjectTaskGroupCounts = Readonly<{
     backlog: number;
     done: number;
   }>;
-  generatedAt: number;
 }>;

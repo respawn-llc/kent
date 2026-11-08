@@ -334,7 +334,6 @@ message AttentionRequestValidationDetails {
 message AttentionListSuccess {
   repeated AttentionItem items = 1 [(buf.validate.field).repeated.items.required = true];
   optional string next_page_token = 2 [(buf.validate.field).string.min_len = 1];
-  google.protobuf.Timestamp generated_at = 3 [(buf.validate.field).required = true];
 }
 
 message AttentionListError {
@@ -370,7 +369,6 @@ message TaskAttentionListRequest {
 
 message TaskAttentionListSuccess {
   repeated AttentionItem items = 1 [(buf.validate.field).repeated.items.required = true];
-  google.protobuf.Timestamp generated_at = 2 [(buf.validate.field).required = true];
 }
 
 message TaskAttentionListError {

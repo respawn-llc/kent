@@ -322,10 +322,8 @@ func importChoiceFacts(choices []onboardingimports.Choice) []*capabilitypb.Impor
 	out := make([]*capabilitypb.ImportChoiceFact, 0, len(choices))
 	for _, choice := range choices {
 		out = append(out, &capabilitypb.ImportChoiceFact{
-			Ref:              choiceRefFact(choice.Ref),
-			ImportProviderId: providerIDPtr(choice.ProviderID),
-			SourceRootPath:   textutil.Pointer(choice.SourceRoot),
-			ItemCount:        uint32(choice.ItemCount),
+			Ref:       choiceRefFact(choice.Ref),
+			ItemCount: uint32(choice.ItemCount),
 		})
 	}
 	return out

@@ -74,7 +74,6 @@ describe("ApiClient workflow labels", () => {
       projectId: "project-1",
       definitions,
       counts: { active: 3, backlog: 2, done: 1 },
-      generatedAt: { seconds: 0n, nanos: 7_000_000 },
     });
     const method = taskRead.TaskReadService.method.getProjectGroupCounts;
     const getCounts = async (response: taskRead.ProjectTaskGroupCountsSuccess) =>

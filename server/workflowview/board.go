@@ -70,10 +70,9 @@ func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.B
 	selected := workflowBoardSelectorFromRequest(req).selectFrom(picker)
 	if selected == nil {
 		return &taskpb.Board{
-			ProjectId:   projectID,
-			Project:     project,
-			Workflows:   picker,
-			GeneratedAt: timestamppb.Now(),
+			ProjectId: projectID,
+			Project:   project,
+			Workflows: picker,
 		}, nil
 	}
 	selectedWorkflowID, err := runtimeids.WorkflowIDFromProto(selected.WorkflowId)
@@ -96,7 +95,6 @@ func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.B
 		Workflows:        picker,
 		Groups:           groups,
 		Columns:          columns,
-		GeneratedAt:      timestamppb.Now(),
 	}, nil
 }
 
@@ -206,12 +204,11 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 		nextOffset = &next
 	}
 	return &taskpb.BoardNodeCardsListSuccess{
-		ProjectId:   projectID,
-		WorkflowId:  workflowID.String(),
-		NodeId:      nodeID,
-		Cards:       cards,
-		NextOffset:  nextOffset,
-		GeneratedAt: timestamppb.Now(),
+		ProjectId:  projectID,
+		WorkflowId: workflowID.String(),
+		NodeId:     nodeID,
+		Cards:      cards,
+		NextOffset: nextOffset,
 	}, nil
 }
 

@@ -37,7 +37,7 @@ export const questionAttention = create(taskAttention.AttentionItemSchema, {
   },
 });
 
-export function taskQuestionPage(prompts: readonly (readonly [string, number])[], generatedAt = 3) {
+export function taskQuestionPage(prompts: readonly (readonly [string, number])[]) {
   return create(taskAttention.TaskAttentionListSuccessSchema, {
     items: prompts.map(([askID, optionCount]) =>
       create(taskAttention.AttentionItemSchema, {
@@ -70,6 +70,5 @@ export function taskQuestionPage(prompts: readonly (readonly [string, number])[]
         },
       }),
     ),
-    generatedAt: { seconds: 0n, nanos: generatedAt * 1_000_000 },
   });
 }

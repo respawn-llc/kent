@@ -663,7 +663,6 @@ message Board {
   repeated WorkflowPickerItem workflows = 4;
   repeated BoardGroup groups = 5;
   repeated BoardColumn columns = 6;
-  google.protobuf.Timestamp generated_at = 7 [(buf.validate.field).required = true];
 }
 
 message BoardGetSuccess {
@@ -679,7 +678,6 @@ message BoardNodeCardsListSuccess {
   string node_id = 3 [(buf.validate.field).string.min_len = 1];
   repeated BoardTaskCard cards = 4;
   optional int32 next_offset = 5 [(buf.validate.field).int32.gt = 0];
-  google.protobuf.Timestamp generated_at = 6 [(buf.validate.field).required = true];
 }
 
 message GetRequest {
@@ -1251,7 +1249,6 @@ message ProjectTaskGroupCountsSuccess {
     (buf.validate.field).repeated = {min_items: 3 max_items: 3}
   ];
   ProjectTaskGroupCounts counts = 3 [(buf.validate.field).required = true];
-  google.protobuf.Timestamp generated_at = 4 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.group_definitions_unique"

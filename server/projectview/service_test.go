@@ -723,10 +723,6 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	if first.AttentionCount != 0 {
 		t.Fatalf("attention count = %d, want 0", first.AttentionCount)
 	}
-	if firstPage.GeneratedAt == nil || firstPage.GeneratedAt.AsTime().UnixMilli() <= 0 {
-		t.Fatalf("generated_at = %v, want positive", firstPage.GeneratedAt)
-	}
-
 	secondPage, err := svc.ListProjectHome(context.Background(), &projectpb.ProjectHomeListRequest{
 		PageSize:  int32Pointer(1),
 		PageToken: firstPage.NextPageToken,

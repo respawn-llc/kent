@@ -78,7 +78,6 @@ describe("ApiClient catalog boundary", () => {
                 updatedAt: { seconds: 1n, nanos: 0 },
               },
             ],
-            generatedAt: { seconds: 1n, nanos: 0 },
           },
         },
       }),

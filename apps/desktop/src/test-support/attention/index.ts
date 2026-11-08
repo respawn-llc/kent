@@ -9,7 +9,6 @@ export function globalAttentionPage(items: readonly pb.AttentionItem[], nextPage
       value: {
         items: [...items],
         nextPageToken,
-        generatedAt: { seconds: 0n, nanos: 1_000_000 },
       },
     },
   });

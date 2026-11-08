@@ -196,12 +196,9 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
       },
     },
   ],
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
 });
 
-export const emptyTaskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
-});
+export const emptyTaskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {});
 
 export async function createTaskDetailFixture(): Promise<TaskDetail> {
   const client = new ApiClient(
@@ -285,11 +282,9 @@ export const interruptedTaskAttentionResponse = create(taskAttention.TaskAttenti
       },
     },
   ],
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
 });
 
 export const questionAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
   items: [questionAttention],
 });
 

@@ -35,7 +35,6 @@ export async function listAttention(
   return {
     items: response.items.map(attentionItem),
     nextPageToken: response.nextPageToken ?? null,
-    generatedAt: timestampMillis(response.generatedAt),
   };
 }
 
@@ -47,7 +46,7 @@ export async function listTaskAttention(transport: RpcTransport, taskId: string)
   );
   const items = response.items.map(attentionItem);
   requireTaskBoundItems(taskId, items);
-  return { items, generatedAt: timestampMillis(response.generatedAt) };
+  return { items };
 }
 
 export function attentionItem(value: GeneratedAttentionItem): AttentionItem {

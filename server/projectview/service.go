@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"core/server/metadata"
 	"core/server/operation"
@@ -23,7 +22,6 @@ import (
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Service struct {
@@ -128,7 +126,6 @@ func (s *Service) ListProjectHome(ctx context.Context, req *projectpb.ProjectHom
 	success := &projectpb.ProjectHomeListSuccess{
 		Projects:      make([]*projectpb.ProjectHomeSummary, 0, len(summaries)),
 		NextPageToken: nextPageToken,
-		GeneratedAt:   timestamppb.New(time.Now().UTC()),
 	}
 	for _, summary := range summaries {
 		project, err := projectHomeSummaryToGenerated(summary)

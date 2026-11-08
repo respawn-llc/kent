@@ -214,7 +214,6 @@ export const startupRoutes: readonly FakeRoute[] = [
         case: "success",
         value: {
           projects: [],
-          generatedAt: { seconds: 1n, nanos: 0 },
         },
       },
     }),
@@ -224,9 +223,7 @@ export const startupRoutes: readonly FakeRoute[] = [
     result: create(AttentionReadService.method.list.output, {
       outcome: {
         case: "success",
-        value: {
-          generatedAt: { seconds: 0n, nanos: 1_000_000 },
-        },
+        value: {},
       },
     }),
   },

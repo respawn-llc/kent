@@ -780,7 +780,6 @@ function countsResponse(active: number): ProjectTaskGroupCounts {
     projectID: "project-1",
     definitions: projectTaskGroupDefinitions,
     counts: { active, backlog: 1, done: 0 },
-    generatedAt: 1,
   };
 }
 
@@ -794,7 +793,6 @@ function pageResponse(group: TaskGroup, offset: number): TaskListPage {
     scope: { projectID: "project-1", workflowID: null },
     matchingWorkflowCardinality: "one",
     nextOffset: offset < 100 ? offset + projectTaskGroupPageSize : null,
-    generatedAt: 1,
     tasks: [
       {
         id: [group, offset].join("-"),

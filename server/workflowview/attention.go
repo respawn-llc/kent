@@ -86,7 +86,6 @@ func (a *Attention) List(ctx context.Context, req *taskpb.AttentionListRequest) 
 	return &taskpb.AttentionListSuccess{
 		Items:         items,
 		NextPageToken: nextPageToken,
-		GeneratedAt:   timestamppb.Now(),
 	}, nil
 }
 
@@ -109,8 +108,7 @@ func (a *Attention) ListTask(ctx context.Context, req *taskpb.TaskAttentionListR
 	}
 	items := mergeAttentionCandidates(attentionPageCursor{}, durable, live)
 	return &taskpb.TaskAttentionListSuccess{
-		Items:       items,
-		GeneratedAt: timestamppb.Now(),
+		Items: items,
 	}, nil
 }
 

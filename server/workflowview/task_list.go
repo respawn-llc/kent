@@ -238,7 +238,6 @@ func (l *TaskList) CountGroups(ctx context.Context, req *taskpb.ProjectTaskGroup
 			Backlog: backlog,
 			Done:    done,
 		},
-		GeneratedAt: timestamppb.Now(),
 	}, nil
 }
 

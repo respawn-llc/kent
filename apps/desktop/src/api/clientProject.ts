@@ -158,7 +158,6 @@ export async function listProjectHome(
   return {
     projects: success.projects.map(projectHomeSummary),
     nextPageToken: success.nextPageToken ?? null,
-    generatedAt: timestampMillis(success.generatedAt),
   };
 }
 

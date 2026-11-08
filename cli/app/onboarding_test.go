@@ -21,9 +21,7 @@ func skillSymlinkChoiceFact(provider string, root string, count uint32) *capabil
 			ImportProviderId: &provider,
 			SourceRootPath:   &root,
 		},
-		ImportProviderId: &provider,
-		SourceRootPath:   &root,
-		ItemCount:        count,
+		ItemCount: count,
 	}
 }
 

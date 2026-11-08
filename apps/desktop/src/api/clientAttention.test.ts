@@ -29,7 +29,6 @@ function client(question: pb.QuestionAttention) {
           outcome: {
             case: "success",
             value: {
-              generatedAt: { seconds: 0n, nanos: 1_000_000 },
               items: [
                 {
                   ...base,
@@ -65,7 +64,7 @@ it("allows absent attention text only for a structured access Approval", async (
       },
     },
   });
-  await expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
+  expect(client(question).listTaskAttention("task-1")).resolves.toMatchObject({
     items: [
       {
         message: null,
@@ -100,8 +99,8 @@ it("allows absent attention text only for a structured access Approval", async (
       },
     },
   });
-  await expect(client(withoutTargets).listTaskAttention("task-1")).rejects.toThrow();
-  await expect(
+  expect(client(withoutTargets).listTaskAttention("task-1")).rejects.toThrow();
+  expect(
     client(
       create(pb.QuestionAttentionSchema, {
         ...question,

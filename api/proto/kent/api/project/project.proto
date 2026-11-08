@@ -426,10 +426,6 @@ message ProjectHomeListRequest {
 message ProjectHomeListSuccess {
   repeated ProjectHomeSummary projects = 1 [(buf.validate.field).repeated.max_items = 100];
   optional string next_page_token = 2 [(buf.validate.field).string.min_len = 1];
-  google.protobuf.Timestamp generated_at = 3 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
 }
 
 message ProjectHomeListError {

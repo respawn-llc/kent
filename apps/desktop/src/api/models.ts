@@ -84,7 +84,6 @@ export type ProjectSummary = Readonly<{
 export type ProjectPage = Readonly<{
   projects: readonly ProjectSummary[];
   nextPageToken: string | null;
-  generatedAt: number;
 }>;
 
 export type WorkspaceCatalogRow = Readonly<{
@@ -617,7 +616,6 @@ export type WorkflowBoard = Readonly<{
   workflows: readonly WorkflowPickerItem[];
   groups: readonly BoardGroup[];
   columns: readonly BoardColumn[];
-  generatedAt: number;
 }>;
 
 export type SelectedWorkflowBoard = Omit<WorkflowBoard, "selectedWorkflow"> &
@@ -633,7 +631,6 @@ export type BoardNodeCardsPage = Readonly<{
   nodeID: string;
   cards: readonly BoardCard[];
   nextOffset: number | null;
-  generatedAt: number;
 }>;
 
 export type ApprovalSnapshot = Readonly<{
@@ -647,12 +644,10 @@ export type ApprovalSnapshot = Readonly<{
 export type AttentionPage = Readonly<{
   items: readonly AttentionItem[];
   nextPageToken: string | null;
-  generatedAt: number;
 }>;
 
 export type TaskAttention = Readonly<{
   items: readonly AttentionItem[];
-  generatedAt: number;
 }>;
 
 export type TaskCommentAuthorKind = "agent" | "user";

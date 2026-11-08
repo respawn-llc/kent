@@ -19,7 +19,7 @@ function useFeeds(client: QueryClient) {
   const [model] = useState(() => {
     const services = createTestServices([]);
     vi.spyOn(services.api, "getTask").mockRejectedValue(new Error("Not used by feed presentation"));
-    vi.spyOn(services.api, "listTaskAttention").mockResolvedValue({ items: [], generatedAt: 1 });
+    vi.spyOn(services.api, "listTaskAttention").mockResolvedValue({ items: [] });
     vi.spyOn(services.api, "listTaskComments").mockImplementation(async (_id, offset) => {
       testState.requests.push({ feed: "comments", offset });
       return taskPage("comments", offset);

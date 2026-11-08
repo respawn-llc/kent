@@ -249,7 +249,6 @@ describe("ApiClient", () => {
             case: "success",
             value: {
               items: [],
-              generatedAt: { seconds: 0n, nanos: 1_000_000 },
             },
           },
         }),
@@ -261,7 +260,6 @@ describe("ApiClient", () => {
             case: "success",
             value: {
               items: [],
-              generatedAt: { seconds: 0n, nanos: 2_000_000 },
             },
           },
         }),
@@ -269,7 +267,7 @@ describe("ApiClient", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: null });
-    expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
+    expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [] });
     expect(transport.descriptorCalls).toEqual([
       {
         descriptor: attention.AttentionReadService.method.list,
@@ -953,7 +951,6 @@ const emptyBoard = {
     defaultWorkspaceId: "workspace-1",
     attachedWorkspaceCount: 1,
   },
-  generatedAt: { seconds: 0n, nanos: 1_000_000 },
 };
 const emptyBoardResponse = create(taskRead.BoardGetResultSchema, {
   outcome: { case: "success", value: { board: emptyBoard } },
@@ -1019,7 +1016,6 @@ const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSche
       workflowId: "11111111-1111-4111-8111-111111111111",
       nodeId: "node-1",
       nextOffset: 50,
-      generatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
   },
 });
