@@ -347,9 +347,6 @@ func New(
 		CompactionMode:                   config.CompactionMode(eng.cfg.CompactionMode),
 	}
 	eng.contextPolicy = chatcontext.ResolvePolicy(policySettings, providerCapabilities, store.Meta().Locked)
-	eng.cfg.ContextWindowTokens = int(eng.contextPolicy.ContextWindowTokens)
-	eng.cfg.AutoCompactTokenLimit = int(eng.contextPolicy.AutomaticThresholdTokens)
-	eng.cfg.CompactionMode = eng.compactionPlannerState().mode(eng.contextPolicy)
 	eng.ensureLifecycle()
 	eng.ensureOrchestrationCollaborators()
 

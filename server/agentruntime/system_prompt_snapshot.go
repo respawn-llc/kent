@@ -38,7 +38,7 @@ func (e *Engine) buildSystemPromptSnapshotFromConfig(locked session.LockedContra
 		includeToolPreambles = *locked.ToolPreambles
 	}
 	args := prompts.SystemPromptTemplateArgs{
-		EstimatedToolCallsForContext: config.EstimatedToolCallsForContextWindow(e.cfg.ContextWindowTokens, e.cfg.EffectiveContextWindowPercent),
+		EstimatedToolCallsForContext: config.EstimatedToolCallsForContextWindow(int(e.contextPolicy.ContextWindowTokens), e.cfg.EffectiveContextWindowPercent),
 		EditingToolName:              editingToolName(enabledTools),
 	}
 	opts.WorkspaceRoot = workspaceRoot
