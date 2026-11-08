@@ -69,7 +69,6 @@ const workflowID = "11111111-1111-4111-8111-111111111111";
 
 const pendingQuestion = create(pb.AttentionNotificationSchema, {
   id: { kind: pb.AttentionNotificationKind.QUESTION, uuid: "step-1" },
-  kind: pb.AttentionNotificationKind.QUESTION,
   occurredAt: { seconds: 1n, nanos: 0 },
   revision: 1n,
   state: {
@@ -80,7 +79,6 @@ const pendingQuestion = create(pb.AttentionNotificationSchema, {
     },
   },
   target: {
-    kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
     target: {
       case: "workflowTask",
       value: {
@@ -92,7 +90,6 @@ const pendingQuestion = create(pb.AttentionNotificationSchema, {
         sessionId: "11111111-1111-4111-8111-111111111111",
         currentNodeId: "node-1",
         focus: {
-          kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_QUESTION,
           focus: { case: "question", value: { askIds: ["ask-1"] } },
         },
       },
@@ -101,7 +98,6 @@ const pendingQuestion = create(pb.AttentionNotificationSchema, {
 });
 
 const pendingQuestionEvent = create(pb.AttentionNotificationEventSchema, {
-  type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_PENDING,
   sequence: 1n,
   payload: { case: "pending", value: pendingQuestion },
 });
@@ -152,13 +148,11 @@ export function attentionEventsFixture(transport: FakeRpcTransport) {
     resolveQuestion() {
       emit(
         create(pb.AttentionNotificationEventSchema, {
-          type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_RESOLVED,
           sequence: 1n,
           payload: {
             case: "resolved",
             value: {
               id: pendingQuestion.id,
-              kind: pb.AttentionNotificationKind.QUESTION,
               occurredAt: { seconds: 1n, nanos: 0 },
             },
           },
@@ -168,14 +162,12 @@ export function attentionEventsFixture(transport: FakeRpcTransport) {
     pendingSessionQuestion() {
       emit(
         create(pb.AttentionNotificationEventSchema, {
-          type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_PENDING,
           sequence: 1n,
           payload: {
             case: "pending",
             value: create(pb.AttentionNotificationSchema, {
               ...pendingQuestion,
               target: create(pb.AttentionNotificationTargetSchema, {
-                kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
                 target: {
                   case: "sessionPrompt",
                   value: {

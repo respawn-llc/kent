@@ -14,7 +14,6 @@ import * as Effect from "effect/Effect";
 const service = pb.AttentionNotificationService.method;
 const occurredAt = { seconds: 1_789_578_000n, nanos: 0 };
 const sessionTarget = create(pb.AttentionNotificationTargetSchema, {
-  kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
   target: {
     case: "sessionPrompt",
     value: { projectId: "project-1", sessionId: "11111111-1111-4111-8111-111111111111" },
@@ -22,7 +21,6 @@ const sessionTarget = create(pb.AttentionNotificationTargetSchema, {
 });
 const question = create(pb.AttentionNotificationSchema, {
   id: { kind: pb.AttentionNotificationKind.QUESTION, uuid: "batch-1" },
-  kind: pb.AttentionNotificationKind.QUESTION,
   occurredAt,
   revision: 1n,
   target: sessionTarget,
@@ -75,7 +73,6 @@ function pending(transport: FakeRpcTransport, value: pb.AttentionNotification) {
     service.event,
     create(pb.AttentionNotificationEventSchema, {
       sequence: 1n,
-      type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_PENDING,
       payload: { case: "pending", value },
     }),
   );
@@ -83,7 +80,6 @@ function pending(transport: FakeRpcTransport, value: pb.AttentionNotification) {
 
 function taskTarget(focus: pb.AttentionNotificationTaskFocus) {
   return create(pb.AttentionNotificationTargetSchema, {
-    kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
     target: {
       case: "workflowTask",
       value: {
@@ -118,8 +114,7 @@ describe("attention notification API", () => {
       service.event,
       create(pb.AttentionNotificationEventSchema, {
         sequence: 2n,
-        type: pb.AttentionNotificationEventType.ATTENTION_NOTIFICATION_EVENT_RESOLVED,
-        payload: { case: "resolved", value: { id: question.id, kind: question.kind, occurredAt } },
+        payload: { case: "resolved", value: { id: question.id, occurredAt } },
       }),
     );
     await waitFor(() => {
@@ -148,7 +143,6 @@ describe("attention notification API", () => {
         create(pb.AttentionNotificationSchema, {
           ...question,
           target: create(pb.AttentionNotificationTargetSchema, {
-            kind: pb.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT,
             target: { case: "sessionPrompt", value: { sessionId: "11111111-1111-4111-8111-111111111111" } },
           }),
         }),
@@ -164,7 +158,6 @@ describe("attention notification API", () => {
         ...question,
         target: taskTarget(
           create(pb.AttentionNotificationTaskFocusSchema, {
-            kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_QUESTION,
             focus: { case: "question", value: { askIds: ["ask-2", "ask-1"] } },
           }),
         ),
@@ -195,7 +188,6 @@ describe("attention notification API", () => {
       transport,
       create(pb.AttentionNotificationSchema, {
         id: { kind: pb.AttentionNotificationKind.APPROVAL, uuid: "approval-1" },
-        kind: pb.AttentionNotificationKind.APPROVAL,
         occurredAt,
         revision: 1n,
         target: sessionTarget,
@@ -240,13 +232,11 @@ describe("attention notification API", () => {
       transport,
       create(pb.AttentionNotificationSchema, {
         id: { kind: pb.AttentionNotificationKind.WORKFLOW_APPROVAL, uuid: "approval-1" },
-        kind: pb.AttentionNotificationKind.WORKFLOW_APPROVAL,
         occurredAt,
         revision: 1n,
         state: { case: "workflowApproval", value: { approvalId: "approval-1" } },
         target: taskTarget(
           create(pb.AttentionNotificationTaskFocusSchema, {
-            kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
             focus: { case: "approval", value: { approvalId: "approval-1" } },
           }),
         ),
@@ -256,13 +246,11 @@ describe("attention notification API", () => {
       transport,
       create(pb.AttentionNotificationSchema, {
         id: { kind: pb.AttentionNotificationKind.INTERRUPTED_CURRENT_NODE, uuid: "node-1" },
-        kind: pb.AttentionNotificationKind.INTERRUPTED_CURRENT_NODE,
         occurredAt,
         revision: 1n,
         state: { case: "interruptedCurrentNode", value: { reason: "workflow_runtime_failed" } },
         target: taskTarget(
           create(pb.AttentionNotificationTaskFocusSchema, {
-            kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_INTERRUPTED_CURRENT_NODE,
             focus: { case: "interruptedCurrentNode", value: {} },
           }),
         ),
@@ -300,7 +288,6 @@ describe("attention notification API", () => {
           ...question,
           target: taskTarget(
             create(pb.AttentionNotificationTaskFocusSchema, {
-              kind: pb.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
               focus: { case: "approval", value: { approvalId: "approval-1" } },
             }),
           ),

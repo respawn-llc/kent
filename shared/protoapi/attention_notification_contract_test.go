@@ -23,22 +23,18 @@ func TestQuestionNotificationDisplayCountMustBePositive(t *testing.T) {
 func TestWorkflowQuestionNotificationRequiresQuestionFocus(t *testing.T) {
 	for _, questionFocus := range []bool{true, false} {
 		focus := &taskpb.AttentionNotificationTaskFocus{
-			Kind:  taskpb.AttentionNotificationFocusKind_ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
 			Focus: &taskpb.AttentionNotificationTaskFocus_Approval{Approval: &taskpb.ApprovalFocus{ApprovalId: "approval-1"}},
 		}
 		if questionFocus {
 			focus = &taskpb.AttentionNotificationTaskFocus{
-				Kind:  taskpb.AttentionNotificationFocusKind_ATTENTION_NOTIFICATION_FOCUS_QUESTION,
 				Focus: &taskpb.AttentionNotificationTaskFocus_Question{Question: &taskpb.QuestionFocus{AskIds: []string{"ask-1", "ask-2"}}},
 			}
 		}
 		message := &taskpb.AttentionNotification{
 			Id:         &taskpb.AttentionNotificationID{Kind: taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION, Uuid: "batch-1"},
-			Kind:       taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION,
 			OccurredAt: timestamppb.Now(), Revision: 1,
 			State: &taskpb.AttentionNotification_Question{Question: &attentionpb.QuestionState{DisplayCount: 2}},
 			Target: &taskpb.AttentionNotificationTarget{
-				Kind: taskpb.AttentionNotificationTargetKind_ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
 				Target: &taskpb.AttentionNotificationTarget_WorkflowTask{WorkflowTask: &taskpb.WorkflowTaskAttentionTarget{
 					TaskId: "task-1", WorkflowId: "22222222-2222-4222-8222-222222222222", Focus: focus,
 				}},
@@ -61,6 +57,70 @@ func TestAttentionNotificationKeyMustBeNonblank(t *testing.T) {
 	}
 }
 
+func TestAttentionNotificationIdentityMustMatchState(t *testing.T) {
+	sessionTarget := &taskpb.AttentionNotificationTarget{
+		Target: &taskpb.AttentionNotificationTarget_SessionPrompt{SessionPrompt: &taskpb.SessionPromptAttentionTarget{
+			SessionId: "11111111-1111-4111-8111-111111111111", ProjectId: "project-1",
+		}},
+	}
+	workflowTarget := func(focus *taskpb.AttentionNotificationTaskFocus) *taskpb.AttentionNotificationTarget {
+		return &taskpb.AttentionNotificationTarget{
+			Target: &taskpb.AttentionNotificationTarget_WorkflowTask{WorkflowTask: &taskpb.WorkflowTaskAttentionTarget{
+				TaskId: "task-1", WorkflowId: "22222222-2222-4222-8222-222222222222",
+				CurrentNodeId: proto.String("node-1"), Focus: focus,
+			}},
+		}
+	}
+	variants := []struct {
+		kind    taskpb.AttentionNotificationKind
+		message *taskpb.AttentionNotification
+	}{
+		{
+			kind: taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION,
+			message: &taskpb.AttentionNotification{
+				State:  &taskpb.AttentionNotification_Question{Question: &attentionpb.QuestionState{DisplayCount: 1}},
+				Target: sessionTarget,
+			},
+		},
+		{
+			kind: taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_APPROVAL,
+			message: &taskpb.AttentionNotification{
+				State:  &taskpb.AttentionNotification_Approval{Approval: &attentionpb.ApprovalState{Message: proto.String("Approve access")}},
+				Target: sessionTarget,
+			},
+		},
+		{
+			kind: taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_WORKFLOW_APPROVAL,
+			message: &taskpb.AttentionNotification{
+				State: &taskpb.AttentionNotification_WorkflowApproval{WorkflowApproval: &taskpb.WorkflowApprovalState{ApprovalId: "approval-1"}},
+				Target: workflowTarget(&taskpb.AttentionNotificationTaskFocus{
+					Focus: &taskpb.AttentionNotificationTaskFocus_Approval{Approval: &taskpb.ApprovalFocus{ApprovalId: "approval-1"}},
+				}),
+			},
+		},
+		{
+			kind: taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_INTERRUPTED_CURRENT_NODE,
+			message: &taskpb.AttentionNotification{
+				State: &taskpb.AttentionNotification_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedCurrentNodeState{}},
+				Target: workflowTarget(&taskpb.AttentionNotificationTaskFocus{
+					Focus: &taskpb.AttentionNotificationTaskFocus_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedCurrentNodeFocus{}},
+				}),
+			},
+		},
+	}
+	for _, variant := range variants {
+		for _, identity := range variants {
+			message := proto.Clone(variant.message).(*taskpb.AttentionNotification)
+			message.Id = &taskpb.AttentionNotificationID{Kind: identity.kind, Uuid: "notification-1"}
+			message.OccurredAt = timestamppb.Now()
+			message.Revision = 1
+			if err := protoapi.Validate(message); (err == nil) != (variant.kind == identity.kind) {
+				t.Errorf("state %v with identity %v acceptance = %v", variant.kind, identity.kind, err)
+			}
+		}
+	}
+}
+
 func TestAttentionNotificationRejectsGoZeroOccurrenceTime(t *testing.T) {
 	for _, occurredAt := range []time.Time{{}, time.Unix(0, 0), time.Unix(-1, 0)} {
 		id := &taskpb.AttentionNotificationID{
@@ -68,16 +128,14 @@ func TestAttentionNotificationRejectsGoZeroOccurrenceTime(t *testing.T) {
 			Uuid: "approval-key",
 		}
 		messages := []proto.Message{
-			&taskpb.ResolvedAttentionNotification{Id: id, Kind: id.Kind, OccurredAt: timestamppb.New(occurredAt)},
+			&taskpb.ResolvedAttentionNotification{Id: id, OccurredAt: timestamppb.New(occurredAt)},
 			&taskpb.AttentionNotification{
-				Id: id, Kind: id.Kind, OccurredAt: timestamppb.New(occurredAt), Revision: 1,
+				Id: id, OccurredAt: timestamppb.New(occurredAt), Revision: 1,
 				State: &taskpb.AttentionNotification_WorkflowApproval{WorkflowApproval: &taskpb.WorkflowApprovalState{ApprovalId: "approval-key"}},
 				Target: &taskpb.AttentionNotificationTarget{
-					Kind: taskpb.AttentionNotificationTargetKind_ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
 					Target: &taskpb.AttentionNotificationTarget_WorkflowTask{WorkflowTask: &taskpb.WorkflowTaskAttentionTarget{
 						TaskId: "task-1", WorkflowId: "22222222-2222-4222-8222-222222222222",
 						Focus: &taskpb.AttentionNotificationTaskFocus{
-							Kind:  taskpb.AttentionNotificationFocusKind_ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
 							Focus: &taskpb.AttentionNotificationTaskFocus_Approval{Approval: &taskpb.ApprovalFocus{ApprovalId: "approval-key"}},
 						},
 					}},

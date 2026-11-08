@@ -87,22 +87,19 @@ describe("Attention notification contract", () => {
     for (const seconds of [-62135596800n, 0n, -1n]) {
       const id = { kind: T.AttentionNotificationKind.WORKFLOW_APPROVAL, uuid: "approval-key" };
       const occurredAt = { seconds, nanos: 0 };
-      const resolved = create(T.ResolvedAttentionNotificationSchema, { id, kind: id.kind, occurredAt });
+      const resolved = create(T.ResolvedAttentionNotificationSchema, { id, occurredAt });
       const pending = create(T.AttentionNotificationSchema, {
         id,
-        kind: id.kind,
         occurredAt,
         revision: 1n,
         state: { case: "workflowApproval", value: { approvalId: "approval-key" } },
         target: {
-          kind: T.AttentionNotificationTargetKind.ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK,
           target: {
             case: "workflowTask",
             value: {
               taskId: "task-1",
               workflowId: "22222222-2222-4222-8222-222222222222",
               focus: {
-                kind: T.AttentionNotificationFocusKind.ATTENTION_NOTIFICATION_FOCUS_APPROVAL,
                 focus: { case: "approval", value: { approvalId: "approval-key" } },
               },
             },

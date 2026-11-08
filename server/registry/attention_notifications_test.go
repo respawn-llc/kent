@@ -134,7 +134,7 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 	}
 	for {
 		event := nextRegistryAttentionEvent(t, desktopSub)
-		if event.Type == taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_RESOLVED {
+		if event.GetResolved() != nil {
 			if event.GetResolved().GetId().GetUuid() != "ask-1" {
 				t.Fatalf("desktop resolved = %+v", event)
 			}
@@ -260,8 +260,8 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 	projectPendingPromptForTest(registry, engine.SessionID(), req)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING ||
-		pending.GetPending().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION ||
+	if pending.GetPending() == nil ||
+		pending.GetPending().GetId().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION ||
 		pending.GetPending().GetTarget().GetWorkflowTask() == nil {
 		t.Fatalf("pending approval question event = %+v", pending)
 	}
@@ -312,7 +312,7 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 	projectPendingPromptForTest(registry, engine.SessionID(), second)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING || pending.GetPending().GetQuestion().GetDisplayCount() != 1 {
+	if pending.GetPending() == nil || pending.GetPending().GetQuestion().GetDisplayCount() != 1 {
 		t.Fatalf("pending after skipped first ask = %+v", pending)
 	}
 	resolvePendingPromptForTest(registry, engine.SessionID(), "ask-2")
