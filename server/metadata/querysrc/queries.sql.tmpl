@@ -3522,10 +3522,7 @@ ORDER BY requested_projects.project_id ASC;
 
 -- name: GetTaskSearchSourceByDocumentID :one
 SELECT
-    document.document_id,
     document.source_kind,
-    document.task_id,
-    document.comment_id,
     content.short_id,
     content.title,
     content.body,
@@ -4048,7 +4045,6 @@ SELECT
     ranked_sources.total_hit_count,
     CAST(rounds.ordinal AS INTEGER) AS ordinal,
     CAST(rounds.ordinal - ranked_sources.source_ordinal_before AS INTEGER) AS source_ordinal,
-    ranked_sources.task_weighted_rank,
     ranked_sources.raw_snippet
 FROM rounds
 JOIN ranked_sources

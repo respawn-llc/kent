@@ -2497,10 +2497,7 @@ func (q *Queries) GetTaskProjectWorkflowIDs(ctx context.Context, taskID string) 
 
 const getTaskSearchSourceByDocumentID = `-- name: GetTaskSearchSourceByDocumentID :one
 SELECT
-    document.document_id,
     document.source_kind,
-    document.task_id,
-    document.comment_id,
     content.short_id,
     content.title,
     content.body,
@@ -2513,10 +2510,7 @@ LIMIT 1
 `
 
 type GetTaskSearchSourceByDocumentIDRow struct {
-	DocumentID int64
 	SourceKind string
-	TaskID     sql.NullString
-	CommentID  sql.NullString
 	ShortID    interface{}
 	Title      interface{}
 	Body       interface{}
@@ -2527,10 +2521,7 @@ func (q *Queries) GetTaskSearchSourceByDocumentID(ctx context.Context, documentI
 	row := q.db.QueryRowContext(ctx, getTaskSearchSourceByDocumentID, documentID)
 	var i GetTaskSearchSourceByDocumentIDRow
 	err := recordQueryError(ctx, row.Scan(
-		&i.DocumentID,
 		&i.SourceKind,
-		&i.TaskID,
-		&i.CommentID,
 		&i.ShortID,
 		&i.Title,
 		&i.Body,

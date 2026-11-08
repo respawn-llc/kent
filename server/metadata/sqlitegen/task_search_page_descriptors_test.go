@@ -407,13 +407,6 @@ func TestListTaskSearchPageDescriptorsFiltersProjectAndStatusBeforeAllocatingNew
 	if len(second) != 1 || second[0].TaskID != "task-c" || second[0].Ordinal != 1 {
 		t.Fatalf("offset second page = %+v, want task-c ordinal 1", second)
 	}
-	if second[0].TaskWeightedRank != first[0].TaskWeightedRank {
-		t.Fatalf(
-			"same-source Task ranks = %f and %f, want exact tie resolved by Task ID",
-			first[0].TaskWeightedRank,
-			second[0].TaskWeightedRank,
-		)
-	}
 }
 
 func TestListTaskSearchPageDescriptorsOrdersCommentsByWeightedRankBeforeRecency(t *testing.T) {
