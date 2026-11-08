@@ -7273,26 +7273,14 @@ effective_status AS (
 eligible_rows AS (
     SELECT
         t.id,
-        pwl.project_id,
         t.project_workflow_link_id,
         pwl.workflow_id,
         w.name AS workflow_name,
-        t.workflow_revision_seen,
         t.task_seq,
         t.short_id,
         t.title,
-        t.body,
-        t.source_url,
-        t.source_workspace_id,
-        t.managed_worktree_id,
-        t.execution_target_mode,
-        t.execution_target_requested_ref,
-        t.execution_target_resolved_ref,
-        t.execution_target_commit_oid,
-        t.execution_target_provenance,
         t.created_at_unix_ms,
         t.updated_at_unix_ms,
-        t.metadata_json,
         column_facts.column_rank,
         column_facts.column_keys_json,
         CAST(status.kind AS TEXT) AS kind,
@@ -7431,7 +7419,7 @@ task_label_values AS (
 ),
 scored_rows AS (
     SELECT
-        eligible.id, eligible.project_id, eligible.project_workflow_link_id, eligible.workflow_id, eligible.workflow_name, eligible.workflow_revision_seen, eligible.task_seq, eligible.short_id, eligible.title, eligible.body, eligible.source_url, eligible.source_workspace_id, eligible.managed_worktree_id, eligible.execution_target_mode, eligible.execution_target_requested_ref, eligible.execution_target_resolved_ref, eligible.execution_target_commit_oid, eligible.execution_target_provenance, eligible.created_at_unix_ms, eligible.updated_at_unix_ms, eligible.metadata_json, eligible.column_rank, eligible.column_keys_json, eligible.kind, eligible.primary_status_rank, eligible.node_ids_json, eligible.attention_types_json, eligible.title_sort,
+        eligible.id, eligible.project_workflow_link_id, eligible.workflow_id, eligible.workflow_name, eligible.task_seq, eligible.short_id, eligible.title, eligible.created_at_unix_ms, eligible.updated_at_unix_ms, eligible.column_rank, eligible.column_keys_json, eligible.kind, eligible.primary_status_rank, eligible.node_ids_json, eligible.attention_types_json, eligible.title_sort,
         labels.label_ordinals,
         CASE WHEN args.labels_requested != 0 AND labels.task_id IS NULL THEN 1 ELSE 0 END AS labels_unlabeled,
         CASE args.sort_1_field
@@ -7524,7 +7512,7 @@ matching_workflows AS (
       )
 ),
 page_rows AS (
-    SELECT "rows".id, "rows".project_id, "rows".project_workflow_link_id, "rows".workflow_id, "rows".workflow_name, "rows".workflow_revision_seen, "rows".task_seq, "rows".short_id, "rows".title, "rows".body, "rows".source_url, "rows".source_workspace_id, "rows".managed_worktree_id, "rows".execution_target_mode, "rows".execution_target_requested_ref, "rows".execution_target_resolved_ref, "rows".execution_target_commit_oid, "rows".execution_target_provenance, "rows".created_at_unix_ms, "rows".updated_at_unix_ms, "rows".metadata_json, "rows".column_rank, "rows".column_keys_json, "rows".kind, "rows".primary_status_rank, "rows".node_ids_json, "rows".attention_types_json, "rows".title_sort, "rows".label_ordinals, "rows".labels_unlabeled, "rows".sort_1_value, "rows".sort_2_value, "rows".sort_3_value, "rows".sort_4_value, "rows".sort_5_value, "rows".sort_6_value, "rows".sort_7_value   FROM scored_rows rows
+    SELECT "rows".id, "rows".project_workflow_link_id, "rows".workflow_id, "rows".workflow_name, "rows".task_seq, "rows".short_id, "rows".title, "rows".created_at_unix_ms, "rows".updated_at_unix_ms, "rows".column_rank, "rows".column_keys_json, "rows".kind, "rows".primary_status_rank, "rows".node_ids_json, "rows".attention_types_json, "rows".title_sort, "rows".label_ordinals, "rows".labels_unlabeled, "rows".sort_1_value, "rows".sort_2_value, "rows".sort_3_value, "rows".sort_4_value, "rows".sort_5_value, "rows".sort_6_value, "rows".sort_7_value   FROM scored_rows rows
     CROSS JOIN args
     ORDER BY
         CASE WHEN args.sort_selector_count >= 1 AND args.labels_requested != 0 AND args.sort_1_field = 'labels' THEN rows.labels_unlabeled ELSE 0 END ASC,
@@ -7554,33 +7542,17 @@ page_rows AS (
 )
 SELECT
     page.id,
-    page.project_id,
-    page.project_workflow_link_id,
     page.workflow_id,
     page.workflow_name,
-    page.workflow_revision_seen,
-    page.task_seq,
     page.short_id,
     page.title,
-    page.body,
-    page.source_url,
-    page.source_workspace_id,
-    page.managed_worktree_id,
-    page.execution_target_mode,
-    page.execution_target_requested_ref,
-    page.execution_target_resolved_ref,
-    page.execution_target_commit_oid,
-    page.execution_target_provenance,
     page.created_at_unix_ms,
     page.updated_at_unix_ms,
-    page.metadata_json,
     page.column_rank,
     page.column_keys_json,
     page.kind,
-    page.primary_status_rank,
     page.node_ids_json,
     page.attention_types_json,
-    page.title_sort,
     CAST((SELECT COUNT(*) FROM matching_workflows) AS INTEGER) AS matching_workflow_count
 FROM args
 CROSS JOIN (SELECT 1) summary
@@ -7646,35 +7618,19 @@ type ListWorkflowTaskListRowsParams struct {
 }
 
 type ListWorkflowTaskListRowsRow struct {
-	ID                          sql.NullString
-	ProjectID                   sql.NullString
-	ProjectWorkflowLinkID       sql.NullString
-	WorkflowID                  *runtimeids.WorkflowID
-	WorkflowName                sql.NullString
-	WorkflowRevisionSeen        sql.NullInt64
-	TaskSeq                     sql.NullInt64
-	ShortID                     sql.NullString
-	Title                       sql.NullString
-	Body                        sql.NullString
-	SourceUrl                   sql.NullString
-	SourceWorkspaceID           sql.NullString
-	ManagedWorktreeID           sql.NullString
-	ExecutionTargetMode         sql.NullString
-	ExecutionTargetRequestedRef sql.NullString
-	ExecutionTargetResolvedRef  sql.NullString
-	ExecutionTargetCommitOid    sql.NullString
-	ExecutionTargetProvenance   sql.NullString
-	CreatedAtUnixMs             sql.NullInt64
-	UpdatedAtUnixMs             sql.NullInt64
-	MetadataJson                sql.NullString
-	ColumnRank                  sql.NullInt64
-	ColumnKeysJson              sql.NullString
-	Kind                        sql.NullString
-	PrimaryStatusRank           sql.NullInt64
-	NodeIdsJson                 sql.NullString
-	AttentionTypesJson          sql.NullString
-	TitleSort                   sql.NullString
-	MatchingWorkflowCount       int64
+	ID                    sql.NullString
+	WorkflowID            *runtimeids.WorkflowID
+	WorkflowName          sql.NullString
+	ShortID               sql.NullString
+	Title                 sql.NullString
+	CreatedAtUnixMs       sql.NullInt64
+	UpdatedAtUnixMs       sql.NullInt64
+	ColumnRank            sql.NullInt64
+	ColumnKeysJson        sql.NullString
+	Kind                  sql.NullString
+	NodeIdsJson           sql.NullString
+	AttentionTypesJson    sql.NullString
+	MatchingWorkflowCount int64
 }
 
 func (q *Queries) ListWorkflowTaskListRows(ctx context.Context, arg ListWorkflowTaskListRowsParams) ([]ListWorkflowTaskListRowsRow, error) {
@@ -7723,33 +7679,17 @@ func (q *Queries) ListWorkflowTaskListRows(ctx context.Context, arg ListWorkflow
 		var i ListWorkflowTaskListRowsRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
 			&i.WorkflowID,
 			&i.WorkflowName,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
 			&i.ShortID,
 			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.ExecutionTargetMode,
-			&i.ExecutionTargetRequestedRef,
-			&i.ExecutionTargetResolvedRef,
-			&i.ExecutionTargetCommitOid,
-			&i.ExecutionTargetProvenance,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
 			&i.ColumnRank,
 			&i.ColumnKeysJson,
 			&i.Kind,
-			&i.PrimaryStatusRank,
 			&i.NodeIdsJson,
 			&i.AttentionTypesJson,
-			&i.TitleSort,
 			&i.MatchingWorkflowCount,
 		), listWorkflowTaskListRows, 32); err != nil {
 			return nil, err

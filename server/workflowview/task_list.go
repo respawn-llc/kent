@@ -137,8 +137,8 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 		pageItems = pageItems[:window.Limit]
 	}
 	pageTaskIDs := make([]string, 0, len(pageItems))
-	for _, row := range pageItems {
-		pageTaskIDs = append(pageTaskIDs, row.item.TaskId)
+	for _, item := range pageItems {
+		pageTaskIDs = append(pageTaskIDs, item.TaskId)
 	}
 	labelsByTask, err := loadTaskLabelsByTask(ctx, l.queries, pageTaskIDs)
 	if err != nil {
@@ -171,8 +171,7 @@ func (l *TaskList) List(ctx context.Context, req *taskpb.ListRequest) (*taskpb.L
 		}
 	}
 	responseItems := make([]*taskpb.ListItem, 0, len(pageItems))
-	for _, row := range pageItems {
-		item := row.item
+	for _, item := range pageItems {
 		item.Labels = labelsByTask[item.TaskId]
 		item.DependencyProgress = dependencyProgressByTask[item.TaskId]
 		if name, exists := stageByTask[item.TaskId]; exists {
