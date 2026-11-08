@@ -1064,7 +1064,7 @@ func TestServiceWorkflowTaskReadDoesNotWaitForRuntimeLifecycleOwnership(t *testi
 	if err != nil {
 		t.Fatalf("PrepareDetachedScriptExecution: %v", err)
 	}
-	handle, launch, err := detached.Publish(ctx, func() error { return nil }, nil)
+	handle, launch, err := detached.Publish(ctx, func() error { return nil })
 	if err != nil {
 		t.Fatalf("Publish detached Script execution: %v", err)
 	}

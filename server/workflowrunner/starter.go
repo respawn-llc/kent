@@ -626,7 +626,7 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 	if err != nil {
 		return err
 	}
-	_, err = handle.Wait(context.WithoutCancel(ctx))
+	err = handle.Wait(context.WithoutCancel(ctx))
 	if err != nil {
 		return workflowexecution.NewTaskStartPreparationError(err, workflow.NewCurrentNodeInterruptionDetail("workflow_compaction_failed", err))
 	}

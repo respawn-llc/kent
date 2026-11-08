@@ -213,7 +213,7 @@ func (a *Authority) startAgentExecutionUnderAdmission(
 			authority: a,
 			resource:  resource.ref,
 		})
-		execution.finish(ExecutionResult{}, runErr, nil)
+		execution.finish(runErr, nil)
 	}()
 	return executionHandle{execution: execution}, nil
 }
@@ -567,7 +567,7 @@ func (a *Authority) runAdmittedAgentTurn(
 		releaseAdmission()
 	}
 	if !<-operationContinues {
-		_, err = handle.Wait(context.Background())
+		err = handle.Wait(context.Background())
 	}
 	acceptedFresh := false
 	select {

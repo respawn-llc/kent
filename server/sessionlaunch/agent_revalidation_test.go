@@ -212,7 +212,7 @@ func replaceAgentDuringStop(t *testing.T, cfg config.App, service *Service, id r
 	release <- struct{}{}
 	select {
 	case outcome := <-done:
-		if _, err := handle.Wait(t.Context()); !errors.Is(err, context.Canceled) {
+		if err := handle.Wait(t.Context()); !errors.Is(err, context.Canceled) {
 			t.Fatalf("stopped execution: %v", err)
 		}
 		return outcome.result, outcome.err

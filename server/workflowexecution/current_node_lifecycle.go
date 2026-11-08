@@ -538,7 +538,7 @@ func (c *CurrentNodeController) applyPendingApproval(
 	if source, live := c.authority.ExecutionByCurrentNode(scope.ProjectID, scope.WorkflowID, initial.Source); live {
 		// The source may have published its Approval before completing its
 		// post-turn compaction. Do not hold the Task lane while it finalizes.
-		if _, err := source.Wait(ctx); err != nil {
+		if err := source.Wait(ctx); err != nil {
 			return workflowstore.PendingApprovalApplyResult{}, err
 		}
 	}

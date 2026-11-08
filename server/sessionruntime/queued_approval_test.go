@@ -111,7 +111,7 @@ func TestQueuedImageApprovalKeepsOwnerWhileCompactionIsBusy(t *testing.T) {
 		var followup supervisorModelExchange
 		finished := make(chan error, 1)
 		go func() {
-			_, err := current.Wait(h.ctx)
+			err := current.Wait(h.ctx)
 			finished <- err
 		}()
 		select {
@@ -140,7 +140,7 @@ func TestQueuedImageApprovalKeepsOwnerWhileCompactionIsBusy(t *testing.T) {
 			t.Fatal("approved image was not delivered to the model")
 		}
 		followup.reply <- supervisorFinalResponse("read complete")
-		if _, err := current.Wait(h.ctx); err != nil {
+		if err := current.Wait(h.ctx); err != nil {
 			t.Fatal(err)
 		}
 	})

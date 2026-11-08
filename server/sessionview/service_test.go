@@ -131,7 +131,7 @@ func TestServiceGetSessionMainViewReturnsCompletedRuntimeProjectionWhileRunIsBlo
 		t.Fatalf("expected completed Runtime Main View, got %+v", resp.MainView.Activity)
 	}
 	close(release)
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("submit user message: %v", err)
 	}
 }

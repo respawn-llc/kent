@@ -92,7 +92,7 @@ func TestAcceptedExecutionGetsFullIdleIntervalAfterCompletion(t *testing.T) {
 		time.Sleep(4 * time.Minute)
 		assertLifecycleRuntimeAvailable(t, fixture.authority, sessionID, true)
 		close(finish)
-		if _, err := handle.Wait(t.Context()); err != nil {
+		if err := handle.Wait(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()
@@ -482,7 +482,7 @@ func TestRuntimeAbortRetiresCurrentOpenAndReplaceResourceGenerations(t *testing.
 			execution := handle.(executionHandle).execution
 			failedResource := execution.resource
 			failedRef := failedResource.ref
-			_, waitErr := handle.Wait(context.Background())
+			waitErr := handle.Wait(context.Background())
 			assertRuntimeAbortResourceRetired(
 				t,
 				authority,
@@ -951,7 +951,7 @@ func TestAuthorityTryBlockSessionStartsRejectsInFlightStart(t *testing.T) {
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := result.Value.Wait(waitCtx); err != nil {
+	if err := result.Value.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for agent execution: %v", err)
 	}
 }
@@ -1009,7 +1009,7 @@ func TestAuthorityTryBlockSessionStartsLeavesUncontendedBatchMemberUnblocked(t *
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := result.Value.Wait(waitCtx); err != nil {
+	if err := result.Value.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for agent execution: %v", err)
 	}
 }

@@ -85,7 +85,7 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 		t.Fatal("Transition-selected Agent did not expose a pending Question")
 	}
 	answer()
-	_, _ = handle.Wait(t.Context())
+	_ = handle.Wait(t.Context())
 	f.waitForTaskQuiescence(t, input.Task.ID)
 	before, err := f.metadata.ResolvePersistedSession(t.Context(), id.String())
 	if err != nil {

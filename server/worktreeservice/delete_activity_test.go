@@ -593,7 +593,7 @@ func TestDeleteWorktreeRejectsInFlightStartAndCompletesUnrelatedWorktree(t *test
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := start.Value.Wait(waitCtx); err != nil {
+	if err := start.Value.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for started execution: %v", err)
 	}
 }
@@ -665,7 +665,7 @@ func TestDeleteWorktreeRejectsLiveRunAndCompletesUnrelatedWorktree(t *testing.T)
 	releaseRun()
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(waitCtx); err != nil {
+	if err := handle.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for live execution: %v", err)
 	}
 }
@@ -718,7 +718,7 @@ func TestDeleteWorktreeRejectsRunningReviewer(t *testing.T) {
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(waitCtx); err != nil {
+	if err := handle.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for originating execution: %v", err)
 	}
 	active, err := env.authority.HasBlockingRuntimeActivity(context.Background(), sessionID)
@@ -1004,7 +1004,7 @@ func TestDeleteWorktreeRejectsSelectedWorkflowBeforeProviderWork(t *testing.T) {
 		unblockWorkflow()
 		waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if _, err := handle.Wait(waitCtx); err != nil {
+		if err := handle.Wait(waitCtx); err != nil {
 			t.Errorf("finish selected Workflow execution: %v", err)
 		}
 	})
@@ -1251,7 +1251,7 @@ func TestDeleteTaskWorktreeRejectsInFlightStartUnchanged(t *testing.T) {
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := start.Value.Wait(waitCtx); err != nil {
+	if err := start.Value.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for started execution: %v", err)
 	}
 }

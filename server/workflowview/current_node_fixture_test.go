@@ -493,7 +493,7 @@ func (p currentNodeViewPrompt) resolve(t *testing.T, ctx context.Context, resolu
 	if err := resolveWorkflowViewPrompt(p.authority, p.sessionID, p.request, resolution); err != nil {
 		t.Fatalf("ResolvePromptBatch: %v", err)
 	}
-	if _, err := p.handle.Wait(ctx); err != nil {
+	if err := p.handle.Wait(ctx); err != nil {
 		t.Fatalf("wait prompt execution: %v", err)
 	}
 }

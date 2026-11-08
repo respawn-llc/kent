@@ -58,7 +58,7 @@ type CurrentNodePublicationRunner interface {
 }
 
 type CurrentNodeScriptPublication interface {
-	Publish(context.Context, func() error, func(sessionruntime.ExecutionHandle)) (sessionruntime.ExecutionHandle, func(), error)
+	Publish(context.Context, func() error) (sessionruntime.ExecutionHandle, func(), error)
 	Cancel()
 }
 

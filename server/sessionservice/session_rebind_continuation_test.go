@@ -243,7 +243,7 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	case <-ctx.Done():
 		t.Fatal(context.Cause(ctx))
 	}
-	if _, err := execution.Wait(ctx); err != nil {
+	if err := execution.Wait(ctx); err != nil {
 		t.Fatalf("wait for rebind continuation: %v", err)
 	}
 	close(requests)

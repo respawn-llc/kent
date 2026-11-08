@@ -509,7 +509,7 @@ func (r *headlessPromptRuntime) submitUserMessage(scope *observationScope) (*run
 	observation := &runObservation{identity: r.identity, handle: active.observerHandle, scope: scope, observer: r.liveRunObserver, response: response}
 	response, err = observation.observe()
 	if err == nil && response.GetQuestion() == nil {
-		_, err = r.plan.handle.Wait(ctx)
+		err = r.plan.handle.Wait(ctx)
 	}
 	return response, err
 }
@@ -520,7 +520,7 @@ func (r *headlessPromptRuntime) completedBeforeActivation(ctx context.Context) (
 		return active, true, nil
 	default:
 	}
-	if _, err := r.plan.handle.Wait(ctx); err != nil {
+	if err := r.plan.handle.Wait(ctx); err != nil {
 		return activeRunCapture{}, false, err
 	}
 	return activeRunCapture{}, false, runtime.ErrNoActiveLiveRun

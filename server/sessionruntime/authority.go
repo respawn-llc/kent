@@ -537,22 +537,3 @@ func (a *Authority) Close(ctx context.Context) error {
 	}
 	return errors.Join(closeErrs...)
 }
-
-func (a *Authority) reserveScriptExecutionLocked(req ScriptExecutionRequest) (*execution, error) {
-	if a.closed {
-		return nil, ErrAuthorityClosed
-	}
-	scopeID := runtimeids.NewExecutionScopeID()
-	scope := newScriptExecutionScope(scopeID, nil)
-	runCtx, cancel := context.WithCancel(context.Background())
-	reserved := &execution{
-		authority: a,
-		scope:     scope,
-		ctx:       runCtx,
-		cancel:    cancel,
-		done:      make(chan struct{}),
-		prompts:   newExecutionPromptStore(a, scope, a.promptFeed),
-		phase:     executionPhaseRunning,
-	}
-	return reserved, nil
-}

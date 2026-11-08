@@ -81,7 +81,6 @@ type workflowExecutionStart struct {
 
 type workflowExecutionStartState struct {
 	reference workflow.CurrentNodeReference
-	published func(sessionruntime.ExecutionHandle)
 	handle    sessionruntime.ExecutionHandle
 	onRetire  func()
 }
@@ -207,7 +206,7 @@ func (r currentNodeTestPublicationRunner) StartAgentCurrentNode(
 		if err != nil {
 			return nil, err
 		}
-		if _, err := startTestWorkflowScript(r.authority, workflowExecutionStart{state: state}, sessionruntime.ScriptExecutionRequest{
+		if _, err := startTestWorkflowScript(r.authority, workflowExecutionStart{state: state}, sessionruntime.DetachedScriptExecutionRequest{
 			Command: sessionruntime.ScriptCommand{Path: shellPath, Args: []string{"-c", "exit 0"}},
 		}); err != nil {
 			return nil, err
@@ -215,7 +214,7 @@ func (r currentNodeTestPublicationRunner) StartAgentCurrentNode(
 	}
 	if state.onRetire != nil {
 		go func() {
-			_, _ = state.handle.Wait(context.Background())
+			_ = state.handle.Wait(context.Background())
 			state.onRetire()
 		}()
 	}
@@ -232,14 +231,12 @@ type currentNodeTestScriptPublication struct {
 func (p *currentNodeTestScriptPublication) Publish(
 	_ context.Context,
 	admit func() error,
-	published func(sessionruntime.ExecutionHandle),
 ) (sessionruntime.ExecutionHandle, func(), error) {
 	if err := admit(); err != nil {
 		return nil, nil, err
 	}
 	state := &workflowExecutionStartState{
 		reference: p.reference,
-		published: published,
 	}
 	if err := p.runner.PublishCurrentNode(
 		context.Background(), p.reference, workflowruntime.TaskPromptDeliveryAssignment, nil,
@@ -258,22 +255,20 @@ func (p *currentNodeTestScriptPublication) Cancel() {}
 func startTestWorkflowScript(
 	authority *sessionruntime.Authority,
 	start workflowExecutionStart,
-	request sessionruntime.ScriptExecutionRequest,
+	request sessionruntime.DetachedScriptExecutionRequest,
 ) (sessionruntime.ExecutionHandle, error) {
 	if start.state == nil {
 		return nil, errors.New("test Workflow execution start is required")
 	}
-	detached, err := authority.PrepareDetachedScriptExecution(context.Background(), sessionruntime.DetachedScriptExecutionRequest{
-		Workflow: sessionruntime.WorkflowExecutionRef{
-			ProjectID: "project-test", WorkflowID: currentNodeControllerTestWorkflowID,
-			CurrentNode: start.state.reference,
-		},
-		Command: request.Command, Finalize: request.Finalize,
-	})
+	request.Workflow = sessionruntime.WorkflowExecutionRef{
+		ProjectID: "project-test", WorkflowID: currentNodeControllerTestWorkflowID,
+		CurrentNode: start.state.reference,
+	}
+	detached, err := authority.PrepareDetachedScriptExecution(context.Background(), request)
 	if err != nil {
 		return nil, err
 	}
-	handle, launch, err := detached.Publish(context.Background(), func() error { return nil }, start.state.published)
+	handle, launch, err := detached.Publish(context.Background(), func() error { return nil })
 	if err == nil {
 		start.state.handle = handle
 		launch()
@@ -286,20 +281,18 @@ func startLiveTestWorkflowScript(
 	controller *CurrentNodeController,
 	authority *sessionruntime.Authority,
 	reference workflow.CurrentNodeReference,
-	request sessionruntime.ScriptExecutionRequest,
+	request sessionruntime.DetachedScriptExecutionRequest,
 ) sessionruntime.ExecutionHandle {
 	t.Helper()
-	detached, err := authority.PrepareDetachedScriptExecution(context.Background(), sessionruntime.DetachedScriptExecutionRequest{
-		Workflow: sessionruntime.WorkflowExecutionRef{
-			ProjectID: "project-test", WorkflowID: currentNodeControllerTestWorkflowID,
-			CurrentNode: reference,
-		},
-		Command: request.Command, Finalize: request.Finalize,
-	})
+	request.Workflow = sessionruntime.WorkflowExecutionRef{
+		ProjectID: "project-test", WorkflowID: currentNodeControllerTestWorkflowID,
+		CurrentNode: reference,
+	}
+	detached, err := authority.PrepareDetachedScriptExecution(context.Background(), request)
 	if err != nil {
 		t.Fatalf("prepare detached Script execution: %v", err)
 	}
-	handle, launch, err := detached.Publish(context.Background(), func() error { return nil }, nil)
+	handle, launch, err := detached.Publish(context.Background(), func() error { return nil })
 	if err != nil {
 		t.Fatalf("publish detached Script execution: %v", err)
 	}
@@ -967,11 +960,10 @@ type controlledScriptPublication struct {
 func (p *controlledScriptPublication) Publish(
 	ctx context.Context,
 	admit func() error,
-	published func(sessionruntime.ExecutionHandle),
 ) (sessionruntime.ExecutionHandle, func(), error) {
 	close(p.registered)
 	<-p.returnStart
-	handle, launch, err := p.detached.Publish(ctx, admit, published)
+	handle, launch, err := p.detached.Publish(ctx, admit)
 	if err == nil {
 		p.handles <- handle
 	}
@@ -1192,7 +1184,7 @@ func (r *runningAndFinalizingScriptRunner) PublishCurrentNode(
 ) error {
 	switch {
 	case reference.Equal(r.running):
-		_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+		_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 			Command: sessionruntime.ScriptCommand{
 				Path: r.shellPath,
@@ -1207,7 +1199,7 @@ func (r *runningAndFinalizingScriptRunner) PublishCurrentNode(
 		})
 		return err
 	case reference.Equal(r.finalizing):
-		_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+		_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 			Command: sessionruntime.ScriptCommand{Path: r.shellPath, Args: []string{"-c", "exit 0"}},
 			Finalize: func(ctx context.Context, scope sessionruntime.ExecutionScope, _ sessionruntime.ScriptResult, runErr error) error {
@@ -1246,7 +1238,7 @@ func (r *runningAndFinalizingScriptRunner) PublishCurrentNode(
 		r.successorOnce.Do(func() {
 			r.successorStarted <- struct{}{}
 		})
-		_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+		_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 			Command: sessionruntime.ScriptCommand{
 				Path: r.shellPath,
@@ -1265,7 +1257,7 @@ func (r *runningAndQueuedGateRunner) PublishCurrentNode(
 	lease workflowExecutionStart,
 	_ workflowruntime.Controller,
 ) error {
-	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 		Command: sessionruntime.ScriptCommand{
 			Path: r.shellPath,
@@ -1291,7 +1283,7 @@ func (r *parallelExplicitRunner) PublishCurrentNode(
 	lease workflowExecutionStart,
 	_ workflowruntime.Controller,
 ) error {
-	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 		Command: sessionruntime.ScriptCommand{
 			Path: r.shellPath,
 			Args: []string{"-c", "while :; do sleep 1; done"},
@@ -1319,7 +1311,7 @@ func (r *parallelExplicitRunner) PrepareCurrentNode(
 }
 
 func (r *firstAdmissionBlockingScriptRunner) PublishCurrentNode(_ context.Context, reference workflow.CurrentNodeReference, _ workflowruntime.TaskPromptDelivery, _ CurrentNodeAssignmentSteer, lease workflowExecutionStart, _ workflowruntime.Controller) error {
-	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 		Command: sessionruntime.ScriptCommand{Path: r.shellPath, Args: []string{"-c", "while :; do sleep 1; done"}},
 	})
@@ -1333,7 +1325,7 @@ func (r *firstAdmissionBlockingScriptRunner) PrepareCurrentNode(_ context.Contex
 }
 
 func (r *recordingScriptRunner) PublishCurrentNode(_ context.Context, reference workflow.CurrentNodeReference, _ workflowruntime.TaskPromptDelivery, _ CurrentNodeAssignmentSteer, lease workflowExecutionStart, _ workflowruntime.Controller) error {
-	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 		Command: r.command,
 	})

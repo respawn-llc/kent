@@ -141,7 +141,7 @@ func TestRuntimeMainViewSnapshotDoesNotRequirePersistedSessionResolution(t *test
 	}
 
 	release()
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("submit user message: %v", err)
 	}
 }
