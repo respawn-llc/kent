@@ -1122,21 +1122,7 @@ message PendingWorkRestored {
   PendingWorkTechnicalRestoration restoration = 1 [(buf.validate.field).required = true];
 }
 
-enum SessionSettingKind {
-  SESSION_SETTING_KIND_UNSPECIFIED = 0;
-  SESSION_SETTING_KIND_SESSION_NAME = 1;
-  SESSION_SETTING_KIND_THINKING = 2;
-  SESSION_SETTING_KIND_FAST_MODE = 3;
-  SESSION_SETTING_KIND_SUPERVISOR = 4;
-  SESSION_SETTING_KIND_QUESTIONS = 5;
-  SESSION_SETTING_KIND_AUTO_COMPACTION = 6;
-}
-
 message SessionSettingFeedback {
-  SessionSettingKind kind = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   bool changed = 2;
   oneof value {
     option (buf.validate.oneof).required = true;
@@ -1154,15 +1140,9 @@ message SessionSettingFeedback {
     bool auto_compaction = 8;
   }
   option (buf.validate.message).cel = {
-    id: "kent.transcript.session_setting_feedback_value"
-    message: "Session setting feedback kind and resulting value must agree"
-    expression:
-      "(this.kind == 1 && has(this.session_name)) || "
-      "(this.kind == 2 && has(this.thinking) && this.thinking == this.thinking.trim()) || "
-      "(this.kind == 3 && has(this.fast_mode)) || "
-      "(this.kind == 4 && has(this.supervisor)) || "
-      "(this.kind == 5 && has(this.questions)) || "
-      "(this.kind == 6 && has(this.auto_compaction))"
+    id: "kent.transcript.session_setting_feedback_thinking"
+    message: "Session thinking feedback must be trimmed"
+    expression: "!has(this.thinking) || this.thinking == this.thinking.trim()"
   };
 }
 

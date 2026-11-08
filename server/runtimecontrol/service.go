@@ -250,7 +250,6 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 	}
 	if s.feedback != nil && live {
 		publishErr := s.feedback.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
-			Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
 			Changed: mutation.Changed,
 			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
 		})

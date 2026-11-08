@@ -6,6 +6,7 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -43,28 +44,44 @@ func TestSessionNameRequestRejectsBlankSet(t *testing.T) {
 	}
 }
 
-func TestSessionNameFeedbackRequiresMatchingMarker(t *testing.T) {
+func TestSessionSettingFeedbackRequiresTypedValue(t *testing.T) {
 	for _, changed := range []bool{false, true} {
-		feedback := &transcriptpb.SessionSettingFeedback{
-			Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
-			Changed: changed,
-			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
+		for _, feedback := range []*transcriptpb.SessionSettingFeedback{
+			{Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}}},
+			{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: "medium"}},
+			{Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: false}},
+			{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "off"}},
+			{Value: &transcriptpb.SessionSettingFeedback_Questions{Questions: false}},
+			{Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: false}},
+		} {
+			feedback.Changed = changed
+			if err := Validate(feedback); err != nil {
+				t.Fatalf("feedback %T changed=%v: %v", feedback.Value, changed, err)
+			}
 		}
-		if err := Validate(feedback); err != nil {
-			t.Fatalf("rename feedback changed=%v: %v", changed, err)
+		for _, feedback := range []*transcriptpb.SessionSettingFeedback{
+			{},
+			{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: ""}},
+			{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: " \n\t "}},
+			{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: " medium "}},
+			{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: ""}},
+			{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "unknown"}},
+		} {
+			feedback.Changed = changed
+			if err := Validate(feedback); err == nil {
+				t.Fatalf("invalid feedback %T accepted changed=%v", feedback.Value, changed)
+			}
 		}
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE
-		if err := Validate(feedback); err == nil {
-			t.Fatal("rename marker accepted for a different setting")
-		}
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME
-		feedback.Value = &transcriptpb.SessionSettingFeedback_FastMode{FastMode: false}
-		if err := Validate(feedback); err == nil {
-			t.Fatal("rename feedback accepted a different setting's value")
-		}
-		feedback.Value = nil
-		if err := Validate(feedback); err == nil {
-			t.Fatal("rename feedback accepted without marker")
-		}
+	}
+}
+
+func TestSessionSettingFeedbackRejectsUnknownValue(t *testing.T) {
+	feedback := &transcriptpb.SessionSettingFeedback{}
+	// A future unknown oneof field must not satisfy the required typed value.
+	if err := proto.Unmarshal([]byte{0x48, 0x01}, feedback); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(feedback); err == nil {
+		t.Fatal("feedback with only an unknown value was accepted")
 	}
 }

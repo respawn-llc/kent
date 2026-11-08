@@ -12,7 +12,6 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 
@@ -194,15 +193,15 @@ func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings)
 func chatSettingsMutationNoticeID(operation *chatsettingspb.MutationOperation) string {
 	switch operation.Operation.(type) {
 	case *chatsettingspb.MutationOperation_Supervisor:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR)
+		return supervisorNoticeID
 	case *chatsettingspb.MutationOperation_Thinking:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING)
+		return thinkingNoticeID
 	case *chatsettingspb.MutationOperation_FastEnabled:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE)
+		return fastModeNoticeID
 	case *chatsettingspb.MutationOperation_QuestionsEnabled:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS)
+		return questionsNoticeID
 	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION)
+		return autoCompactionNoticeID
 	case *chatsettingspb.MutationOperation_AgentRole:
 		return "session-setting:agent"
 	default:

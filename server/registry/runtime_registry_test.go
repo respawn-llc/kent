@@ -30,6 +30,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -478,6 +479,15 @@ func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t 
 	}
 }
 
+func TestSessionSettingPublicationWithoutRegistryIsNoOp(t *testing.T) {
+	var registry *RuntimeRegistry
+	for _, feedback := range []*transcriptpb.SessionSettingFeedback{nil, {}} {
+		if err := registry.PublishSessionSettingFeedback(runtimeids.NewSessionID().String(), feedback); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
 	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
@@ -506,7 +516,7 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 		t.Fatal(err)
 	}
 	feedback := &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME, Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
+		Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
 	}
 	if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
 		t.Fatal(err)
@@ -516,7 +526,7 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 	if state.Event.GetSessionIdentity() == nil ||
 		publishedFeedback.Event.GetSessionSettingFeedback() == nil ||
 		publishedFeedback.Sequence != state.Sequence+1 ||
-		publishedFeedback.Event.GetSessionSettingFeedback().Kind != feedback.Kind {
+		!proto.Equal(publishedFeedback.Event.GetSessionSettingFeedback(), feedback) {
 		t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
 	}
 
@@ -524,19 +534,37 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 	if _, _, err := engine.SetAutoCompactionEnabled(t.Context(), enabled); err != nil {
 		t.Fatal(err)
 	}
-	feedback = &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION, Changed: true, Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: enabled},
+	for _, feedback := range []*transcriptpb.SessionSettingFeedback{
+		{Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: enabled}},
+		{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: "medium"}},
+		{Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: false}},
+		{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "off"}},
+		{Value: &transcriptpb.SessionSettingFeedback_Questions{Questions: false}},
+	} {
+		for _, changed := range []bool{false, true} {
+			feedback.Changed = changed
+			if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
+				t.Fatal(err)
+			}
+			state = nextTranscriptMessage(t, subscription)
+			publishedFeedback = nextTranscriptMessage(t, subscription)
+			if state.Event.GetSessionStatus() == nil ||
+				publishedFeedback.Event.GetSessionSettingFeedback() == nil ||
+				publishedFeedback.Sequence != state.Sequence+1 ||
+				!proto.Equal(publishedFeedback.Event.GetSessionSettingFeedback(), feedback) {
+				t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
+			}
+		}
 	}
-	if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
-		t.Fatal(err)
-	}
-	state = nextTranscriptMessage(t, subscription)
-	publishedFeedback = nextTranscriptMessage(t, subscription)
-	if state.Event.GetSessionStatus() == nil ||
-		publishedFeedback.Event.GetSessionSettingFeedback() == nil ||
-		publishedFeedback.Sequence != state.Sequence+1 ||
-		publishedFeedback.Event.GetSessionSettingFeedback().Kind != feedback.Kind {
-		t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
+	for _, invalid := range []*transcriptpb.SessionSettingFeedback{
+		nil,
+		{},
+		{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: " medium "}},
+		{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "unknown"}},
+	} {
+		if err := registry.PublishSessionSettingFeedback(engine.SessionID(), invalid); err == nil {
+			t.Fatalf("invalid feedback %v accepted", invalid)
+		}
 	}
 }
 

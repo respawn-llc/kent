@@ -3396,8 +3396,7 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 		t.Fatalf("published change facts = %+v, want true then false", publisher.feedback)
 	}
 	for _, feedback := range publisher.feedback {
-		if feedback.Kind != transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME ||
-			feedback.GetSessionName() == nil {
+		if feedback.GetSessionName() == nil {
 			t.Fatalf("published Session Name feedback = %+v", feedback)
 		}
 	}
@@ -3420,7 +3419,6 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 		t.Fatal("live Clear must persist absence without adding transcript content")
 	}
 	if len(publisher.feedback) != 3 || !publisher.feedback[2].Changed ||
-		publisher.feedback[2].Kind != transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME ||
 		publisher.feedback[2].GetSessionName() == nil {
 		t.Fatal("Clear feedback did not report the name change")
 	}

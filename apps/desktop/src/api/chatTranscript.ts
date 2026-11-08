@@ -382,24 +382,13 @@ const eventProjections: {
   }),
   sessionSettingFeedback: (value, sequence) => {
     const field = value.value;
+    if (field.case === undefined) throw new ContractError("Session setting feedback value is required.");
     return {
       sequence,
       kind: "session_setting_feedback",
       payload: {
-        Kind: enumValue(value.kind, {
-          [T.SessionSettingKind.SESSION_NAME]: "session_name",
-          [T.SessionSettingKind.THINKING]: "thinking",
-          [T.SessionSettingKind.FAST_MODE]: "fast_mode",
-          [T.SessionSettingKind.SUPERVISOR]: "supervisor",
-          [T.SessionSettingKind.QUESTIONS]: "questions",
-          [T.SessionSettingKind.AUTO_COMPACTION]: "auto_compaction",
-        }),
         Changed: value.changed,
-        Thinking: field.case === "thinking" ? field.value : null,
-        FastMode: field.case === "fastMode" ? field.value : null,
-        Supervisor: field.case === "supervisor" ? field.value : null,
-        Questions: field.case === "questions" ? field.value : null,
-        AutoCompaction: field.case === "autoCompaction" ? field.value : null,
+        Value: field,
       },
     };
   },

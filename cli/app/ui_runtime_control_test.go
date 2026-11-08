@@ -546,14 +546,32 @@ func TestPendingWorkTechnicalRestorationMergesBeforeComposer(t *testing.T) {
 }
 
 func TestTranscriptSessionSettingFeedbackUsesTransientStatusWithoutTranscriptRows(t *testing.T) {
+	noticeIDs := map[string]string{
+		"fast":            fastModeNoticeID,
+		"rename":          sessionNameNoticeID,
+		"thinking":        thinkingNoticeID,
+		"supervisor":      supervisorNoticeID,
+		"questions":       questionsNoticeID,
+		"auto_compaction": autoCompactionNoticeID,
+	}
 	for name, feedback := range map[string]*transcriptpb.SessionSettingFeedback{
 		"fast": {
-			Kind:  transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE,
 			Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: true},
 		},
 		"rename": {
-			Kind:  transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
 			Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
+		},
+		"thinking": {
+			Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: "medium"},
+		},
+		"supervisor": {
+			Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "edits"},
+		},
+		"questions": {
+			Value: &transcriptpb.SessionSettingFeedback_Questions{Questions: false},
+		},
+		"auto_compaction": {
+			Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: false},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -570,14 +588,19 @@ func TestTranscriptSessionSettingFeedbackUsesTransientStatusWithoutTranscriptRow
 			if model.transientStatus == "" || model.transientStatusKind != uiStatusNoticeSuccess {
 				t.Fatalf("setting feedback status = %q kind=%v, want success notice", model.transientStatus, model.transientStatusKind)
 			}
+			if model.transientStatusNoticeID != noticeIDs[name] {
+				t.Fatalf("setting feedback notice ID = %q, want %q", model.transientStatusNoticeID, noticeIDs[name])
+			}
 			if client.appendCalls != 0 {
 				t.Fatalf("setting feedback appended %d transcript rows", client.appendCalls)
 			}
 
 			model.transientStatus = ""
 			feedback.Changed = false
-			model.applyAdmittedTranscriptMessageState(transcriptTestMessage(3, feedback),
-				runtimeTupleMergeResult{})
+			if cmd := model.applyAdmittedTranscriptMessageState(transcriptTestMessage(3, feedback),
+				runtimeTupleMergeResult{}); cmd != nil {
+				t.Fatal("unchanged setting scheduled a notice")
+			}
 			if model.transientStatus != "" {
 				t.Fatalf("unchanged setting emitted success notice %q", model.transientStatus)
 			}
