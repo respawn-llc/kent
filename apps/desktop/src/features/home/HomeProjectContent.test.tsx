@@ -83,7 +83,6 @@ const fixture: {
   projectQuery: ProjectQueryFixture;
   sessions: readonly {
     id: string;
-    category: "main" | "subagent";
     name: string | null;
     shortID: bigint | null;
     firstPromptPreview: string | null;
@@ -230,7 +229,6 @@ it.each([
   const sessionName = "Review chat";
   fixture.sessions = [
     {
-      category,
       firstPromptPreview: "Review the change",
       id: `${category}-session`,
       shortID: null,
@@ -259,7 +257,6 @@ it.each([
   const { openWindow, services } = nativeWindowServices();
   fixture.sessions = [
     {
-      category,
       firstPromptPreview: "Review the change",
       id: `${category}-session`,
       shortID: null,
@@ -290,7 +287,6 @@ it.each([
   const { openWindow, services } = nativeWindowServices();
   fixture.sessions = [
     {
-      category,
       firstPromptPreview: "Review the change",
       id: `${category}-session`,
       shortID: null,
@@ -314,18 +310,24 @@ it.each([
   expect(fixture.sessionTargets).toEqual([]);
 });
 
-it("uses the Session ID as an unnamed row title and shows its supplied preview only once", async () => {
-  const session = {
-    category: "main" as const,
-    firstPromptPreview: "A supplied preview",
-    id: "unnamed-session",
-    shortID: 73n,
-    name: null,
-    updatedAt: 1,
-  };
-  fixture.sessions = [session];
-  render(<HomeProjectContent projectID="project-1" />);
-  fireEvent.click(screen.getByRole("tab", { name: appI18n.t("home.prototype.sessions") }));
-  expect(await screen.findByRole("button", { name: "73" })).toBeVisible();
-  expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);
-});
+it.each([
+  ["main", "sessions"],
+  ["subagent", "subagents"],
+] as const)(
+  "uses the %s list context for an unnamed row and shows its preview only once",
+  async (category, tabLabel) => {
+    const session = {
+      firstPromptPreview: "A supplied preview",
+      id: "unnamed-session",
+      shortID: 73n,
+      name: null,
+      updatedAt: 1,
+    };
+    fixture.sessions = [session];
+    render(<HomeProjectContent projectID="project-1" />);
+    fireEvent.click(screen.getByRole("tab", { name: appI18n.t(`home.prototype.${tabLabel}`) }));
+    const title = category === "subagent" ? appI18n.t("home.subagentTitle", { id: "73" }) : "73";
+    expect(await screen.findByRole("button", { name: title })).toBeVisible();
+    expect(screen.getAllByText(session.firstPromptPreview)).toHaveLength(1);
+  },
+);

@@ -5087,7 +5087,6 @@ SELECT
     short_id,
     name,
     first_prompt_preview,
-    COALESCE(category, 'main') AS category,
     updated_at_unix_ms
 FROM sessions
 WHERE project_id = ?1
@@ -5110,7 +5109,6 @@ type ListSessionPageRow struct {
 	ShortID            sql.NullInt64
 	Name               sql.NullString
 	FirstPromptPreview string
-	Category           string
 	UpdatedAtUnixMs    int64
 }
 
@@ -5135,7 +5133,6 @@ func (q *Queries) ListSessionPage(ctx context.Context, arg ListSessionPageParams
 			&i.ShortID,
 			&i.Name,
 			&i.FirstPromptPreview,
-			&i.Category,
 			&i.UpdatedAtUnixMs,
 		), listSessionPage, 4); err != nil {
 			return nil, err

@@ -1968,13 +1968,8 @@ func (s *Store) ListSessionPage(
 		if err != nil {
 			return SessionPage{}, fmt.Errorf("validate listed session id %q: %w", row.ID, err)
 		}
-		rowCategory, err := sessioncontract.ParseSessionCategory(row.Category)
-		if err != nil {
-			return SessionPage{}, fmt.Errorf("validate listed session category for %q: %w", row.ID, err)
-		}
 		summary := clientui.SessionSummary{
 			SessionID: sessionID,
-			Category:  rowCategory,
 			UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs),
 		}
 		summary.ShortID, err = sessionShortID(row.ShortID)

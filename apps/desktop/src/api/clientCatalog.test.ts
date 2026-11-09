@@ -55,6 +55,17 @@ describe("ApiClient catalog boundary", () => {
     });
   });
 
+  it("rejects a Session page for another category", async () => {
+    const client = clientWith(
+      SessionCatalogService.method.page,
+      sessionResult({ category: SessionCategory.SUBAGENT }),
+    );
+
+    expect(client.listSessionPage("project-1", "main", 0)).rejects.toMatchObject({
+      reason: "session_category_mismatch",
+    });
+  });
+
   it("projects terminal Project Home and full Workspace pages", async () => {
     const terminalProjectPage = clientWith(
       ProjectCatalogService.method.listHome,

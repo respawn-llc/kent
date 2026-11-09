@@ -136,7 +136,7 @@ func (m *sessionPickerModel) renderRow(tab *sessionPickerTab, index int, showPre
 			sessionIndex--
 		}
 		item := tab.sessions()[sessionIndex]
-		title = sessionPickerTitle(item)
+		title = sessionPickerTitle(item, tab.category)
 		preview, _ = textutil.OptionalTrimmed(item.FirstPromptPreview)
 		timestamp = relativeSessionAge(item.UpdatedAt, m.clock()).String()
 	}
@@ -169,8 +169,8 @@ func (m *sessionPickerModel) renderRow(tab *sessionPickerTab, index int, showPre
 	return titleLine + "\n" + previewLine
 }
 
-func sessionPickerTitle(item clientui.SessionSummary) string {
-	return sessionDisplayTitle(item.Name, &item.Category, item.ShortID,
+func sessionPickerTitle(item clientui.SessionSummary, category sessioncontract.SessionCategory) string {
+	return sessionDisplayTitle(item.Name, &category, item.ShortID,
 		(runtimeids.SessionIdentity{ID: item.SessionID, ShortID: item.ShortID}).String())
 }
 

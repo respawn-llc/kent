@@ -418,7 +418,6 @@ func pickerPageResponse(t *testing.T, request sessionPageRequest, ids ...string)
 	for index, raw := range ids {
 		response.Sessions = append(response.Sessions, clientui.SessionSummary{
 			SessionID: mustPickerValue(t, raw, runtimeids.ParseSessionID),
-			Category:  request.Category,
 			UpdatedAt: time.Unix(int64(len(ids)-index), 0).UTC(),
 		})
 	}

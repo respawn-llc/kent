@@ -120,7 +120,6 @@ export const sessionCatalogPageSize = 50;
 export type SessionCatalogSummary = Readonly<{
   id: string;
   shortID: bigint | null;
-  category: SessionCategory;
   name: string | null;
   firstPromptPreview: string | null;
   updatedAt: number;
