@@ -29,6 +29,34 @@ import (
 	"core/shared/textutil"
 )
 
+func TestServiceUpdateProjectPersistsMetadataForSubsequentReads(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc := newProjectViewMetadataService(t, store)
+	ctx := t.Context()
+	for _, update := range []struct {
+		name string
+		key  *string
+	}{
+		{name: "Renamed project", key: new("RENAMED")},
+		{name: "Name-only edit"},
+	} {
+		if _, err := svc.UpdateProject(ctx, &projectpb.UpdateProjectRequest{
+			ProjectId:   binding.ProjectID,
+			DisplayName: update.name,
+			ProjectKey:  update.key,
+		}); err != nil {
+			t.Fatalf("UpdateProject: %v", err)
+		}
+		edit, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID})
+		if err != nil {
+			t.Fatalf("GetProjectEdit after update: %v", err)
+		}
+		if edit.DisplayName != update.name || edit.ProjectKey != "RENAMED" {
+			t.Fatalf("persisted metadata = %v, want name %q and key RENAMED", edit, update.name)
+		}
+	}
+}
+
 func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
 	sessionDir := filepath.Join(filepath.Join(cfg.PersistenceRoot, "projects"), binding.ProjectID, "sessions")

@@ -305,15 +305,7 @@ func (s *Service) updateProject(ctx context.Context, req *projectpb.UpdateProjec
 	if err := s.metadata.UpdateProjectMetadata(ctx, req.ProjectId, req.DisplayName, req.GetProjectKey()); err != nil {
 		return nil, projectMutationStorageError(err, req.GetProjectKey())
 	}
-	project, err := s.metadata.GetProjectHomeSummary(ctx, req.ProjectId)
-	if err != nil {
-		return nil, err
-	}
-	generated, err := projectHomeSummaryToGenerated(project)
-	if err != nil {
-		return nil, err
-	}
-	return &projectpb.UpdateProjectSuccess{Project: generated}, nil
+	return &projectpb.UpdateProjectSuccess{}, nil
 }
 
 func (s *Service) GetProjectEdit(ctx context.Context, req *projectpb.ProjectEditGetRequest) (*projectpb.GetProjectEditSuccess, error) {

@@ -203,9 +203,9 @@ export async function updateProject(
   projectID: string,
   displayName: string,
   projectKey = "",
-): Promise<ProjectMutationResponse> {
+): Promise<void> {
   const method = ProjectCatalogService.method.update;
-  const success = requireUnarySuccess(
+  requireUnarySuccess(
     method,
     await transport.callDescriptor(
       method,
@@ -216,7 +216,6 @@ export async function updateProject(
       }),
     ),
   );
-  return { project: projectHomeSummary(success.project) };
 }
 
 export async function setDefaultWorkspace(

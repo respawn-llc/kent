@@ -128,11 +128,7 @@ export interface ApiService {
     workspaceRoot: string,
   ): Promise<ProjectMutationBinding>;
   attachWorkspace(projectID: string, workspaceRoot: string): Promise<ProjectWorkspaceAttachResponse>;
-  updateProject(
-    projectID: string,
-    displayName: string,
-    projectKey?: string,
-  ): Promise<ProjectMutationResponse>;
+  updateProject(projectID: string, displayName: string, projectKey?: string): Promise<void>;
   setDefaultWorkspace(projectID: string, workspaceID: string): Promise<ProjectMutationResponse>;
   unlinkWorkspace(projectID: string, workspaceID: string): Promise<WorkspaceUnlinkResponse>;
   deleteProject(projectID: string): Promise<ProjectDeleteResponse>;

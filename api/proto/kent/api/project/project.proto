@@ -757,9 +757,7 @@ message UpdateProjectRequest {
   ];
 }
 
-message UpdateProjectSuccess {
-  ProjectHomeSummary project = 1 [(buf.validate.field).required = true];
-}
+message UpdateProjectSuccess {}
 
 message UpdateProjectError {
   string code = 1 [
