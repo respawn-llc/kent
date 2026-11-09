@@ -284,7 +284,6 @@ it("admits only one inline Unlink while its request is pending", async () => {
   await act(async () => {
     response.resolve({
       blockers: [],
-      project: null,
       projectID: project.projectID,
       workspaceID: "workspace-1",
     });
@@ -304,7 +303,7 @@ it("refreshes the visible workspace catalog after Unlink", async () => {
   });
   vi.spyOn(context.services.api, "unlinkWorkspace").mockImplementation(async () => {
     list.mockResolvedValue({ projectID: project.projectID, workspaces: [], nextOffset: null, offset: 0 });
-    return { blockers: [], project: null, projectID: project.projectID, workspaceID: workspace.id };
+    return { blockers: [], projectID: project.projectID, workspaceID: workspace.id };
   });
   const view = renderHook(
     () => ({
@@ -329,7 +328,6 @@ it("reports Unlink blockers and permits an explicit retry", async () => {
   const unlink = vi.spyOn(view.services.api, "unlinkWorkspace").mockResolvedValue({
     projectID: project.projectID,
     workspaceID: "workspace-1",
-    project: null,
     blockers: [{ code: "in-use", message: "Workspace is in use" }],
   });
   const invalidate = vi.spyOn(view.client, "invalidateQueries");

@@ -261,7 +261,6 @@ export async function unlinkWorkspace(
       message: workspaceUnlinkBlockerMessage(blocker.code),
       ...(blocker.count === undefined ? {} : { count: blocker.count }),
     })),
-    project: success.project === undefined ? null : projectHomeSummary(success.project),
   };
 }
 

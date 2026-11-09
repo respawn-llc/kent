@@ -151,7 +151,6 @@ export type WorkspaceUnlinkResponse = Readonly<{
   projectID: string;
   workspaceID: string;
   blockers: readonly WorkspaceUnlinkBlocker[];
-  project: ProjectSummary | null;
 }>;
 
 export type ProjectDeleteBlocker = Readonly<{

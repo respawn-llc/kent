@@ -160,7 +160,6 @@ it("confirms workspace detach above the destination and refreshes the sidebar li
     response.resolve({
       projectID: project.projectID,
       workspaceID: workspace.id,
-      project: null,
       blockers: [],
     });
     await response.promise;
