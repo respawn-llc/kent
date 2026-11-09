@@ -149,7 +149,7 @@ export interface ApiService {
   createWorkflow(input: WorkflowCreateInput): Promise<WorkflowRecord>;
   createAndLinkWorkflowToProject(
     input: WorkflowCreateAndLinkInput,
-  ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>>;
+  ): Promise<Readonly<{ workflow: WorkflowRecord }>>;
   linkWorkflowToProject(input: WorkflowProjectLinkInput): Promise<ProjectWorkflowLink>;
   validateWorkflow(
     workflowID: string,

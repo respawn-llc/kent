@@ -522,12 +522,6 @@ describe("ApiClient", () => {
                   mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
                 },
               },
-              link: {
-                id: "link-3",
-                projectId: "project-1",
-                workflowId: "33333333-3333-4333-8333-333333333333",
-                default: true,
-              },
             },
           },
         }),
@@ -576,7 +570,6 @@ describe("ApiClient", () => {
         description: "",
       }),
     ).resolves.toMatchObject({
-      link: { isDefault: true, projectID: "project-1", workflowID: "33333333-3333-4333-8333-333333333333" },
       workflow: { id: "33333333-3333-4333-8333-333333333333" },
     });
     expect(

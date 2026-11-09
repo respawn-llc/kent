@@ -223,7 +223,7 @@ export class ApiClient implements ApiService {
 
   async createAndLinkWorkflowToProject(
     input: WorkflowCreateAndLinkInput,
-  ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>> {
+  ): Promise<Readonly<{ workflow: WorkflowRecord }>> {
     return workflow.createAndLinkWorkflowToProject(this.#transport, input);
   }
 

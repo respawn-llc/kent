@@ -2532,9 +2532,6 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAndLinkWorkflowToProject: %v", err)
 	}
-	if workflowServiceID(t, created.Workflow.Id).IsZero() || workflowServiceID(t, created.Link.WorkflowId) != workflowServiceID(t, created.Workflow.Id) || !created.Link.Default {
-		t.Fatalf("created = %+v, want first default link", created)
-	}
 	projectID := binding.ProjectID
 	projectLimit := int32(10)
 	projectPage, err := service.ListWorkflows(ctx, &pb.ListRequest{ProjectId: &projectID, Limit: &projectLimit})
@@ -2544,7 +2541,7 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if projectPage.ProjectId == nil || *projectPage.ProjectId != projectID || len(projectPage.Workflows) != 1 {
 		t.Fatalf("project page = %+v, want one project-scoped workflow", projectPage)
 	}
-	if projectPage.Workflows[0].ProjectLink == nil || !projectPage.Workflows[0].ProjectLink.Default {
+	if projectPage.Workflows[0].Id != created.Workflow.Id || projectPage.Workflows[0].ProjectLink == nil || !projectPage.Workflows[0].ProjectLink.Default {
 		t.Fatalf("project workflow = %+v, want default project metadata", projectPage.Workflows[0])
 	}
 	exactWorkflowID := workflowServiceID(t, created.Workflow.Id)

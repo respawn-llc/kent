@@ -258,7 +258,7 @@ func (s *Service) CreateAndLinkWorkflowToProject(ctx context.Context, request *p
 	if err != nil {
 		return nil, err
 	}
-	return &pb.CreateAndLinkProjectSuccess{Workflow: record, Link: projectWorkflowLink(link)}, nil
+	return &pb.CreateAndLinkProjectSuccess{Workflow: record}, nil
 }
 
 func (s *Service) publishWorkflowEvent(ctx context.Context, event workflowcontract.Event) {
