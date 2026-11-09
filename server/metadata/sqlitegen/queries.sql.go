@@ -4984,23 +4984,19 @@ const listProjects = `-- name: ListProjects :many
 SELECT
     p.id,
     p.display_name,
-    p.project_key,
     COALESCE(w.canonical_root_path, '') AS root_path,
-    CAST(COALESCE(COUNT(s.project_id), 0) AS INTEGER) AS session_count,
     COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.primary_workspace_id AND w.project_id = p.id
 LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
+GROUP BY p.id, p.display_name, w.canonical_root_path, p.updated_at_unix_ms
 ORDER BY latest_activity_unix_ms DESC
 `
 
 type ListProjectsRow struct {
 	ID                   string
 	DisplayName          string
-	ProjectKey           string
 	RootPath             string
-	SessionCount         int64
 	LatestActivityUnixMs int64
 }
 
@@ -5017,9 +5013,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.ID,
 			&i.DisplayName,
-			&i.ProjectKey,
 			&i.RootPath,
-			&i.SessionCount,
 			&i.LatestActivityUnixMs,
 		), listProjects, 0); err != nil {
 			return nil, err

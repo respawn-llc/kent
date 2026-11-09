@@ -16,13 +16,10 @@ const (
 )
 
 type ProjectSummary struct {
-	ProjectID    string
-	ProjectKey   string
-	DisplayName  string
-	RootPath     string
-	Availability ProjectAvailability
-	SessionCount int
-	UpdatedAt    time.Time
+	ProjectID   string
+	DisplayName string
+	RootPath    string
+	UpdatedAt   time.Time
 }
 
 type SessionSummary struct {

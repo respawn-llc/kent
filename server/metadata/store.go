@@ -1880,7 +1880,12 @@ func (s *Store) ListProjects(ctx context.Context) ([]clientui.ProjectSummary, er
 	}
 	out := make([]clientui.ProjectSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, projectSummaryFromRow(row.ID, row.ProjectKey, row.DisplayName, row.RootPath, row.SessionCount, row.LatestActivityUnixMs))
+		out = append(out, clientui.ProjectSummary{
+			ProjectID:   row.ID,
+			DisplayName: row.DisplayName,
+			RootPath:    row.RootPath,
+			UpdatedAt:   timeFromStoredTimestamp(row.LatestActivityUnixMs),
+		})
 	}
 	return out, nil
 }
@@ -2737,18 +2742,6 @@ func unmarshalStoredJSON(body string, target any) error {
 		return nil
 	}
 	return json.Unmarshal([]byte(trimmed), target)
-}
-
-func projectSummaryFromRow(projectID string, projectKey string, displayName string, rootPath string, sessionCount int64, latestActivityUnixMs int64) clientui.ProjectSummary {
-	return clientui.ProjectSummary{
-		ProjectID:    projectID,
-		ProjectKey:   projectKey,
-		DisplayName:  displayName,
-		RootPath:     rootPath,
-		Availability: clientui.ProjectAvailability(availabilityForPath(rootPath)),
-		SessionCount: int(sessionCount),
-		UpdatedAt:    timeFromStoredTimestamp(latestActivityUnixMs),
-	}
 }
 
 func projectHomeSummaryFromRow(row sqlitegen.ListProjectHomeSummariesRow) serverapi.ProjectHomeSummary {

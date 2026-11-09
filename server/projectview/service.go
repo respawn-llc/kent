@@ -85,11 +85,7 @@ func (s *Service) ListProjects(ctx context.Context, req *emptypb.Empty) (*projec
 	}
 	success := &projectpb.ProjectListSuccess{Projects: make([]*projectpb.ProjectSummary, 0, len(projects))}
 	for _, project := range projects {
-		generated, err := projectSummaryToGenerated(project)
-		if err != nil {
-			return nil, err
-		}
-		success.Projects = append(success.Projects, generated)
+		success.Projects = append(success.Projects, projectSummaryToGenerated(project))
 	}
 	return success, nil
 }
