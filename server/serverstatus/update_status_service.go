@@ -50,9 +50,9 @@ type updateStatusOperation struct {
 	err    error
 }
 
-func currentUpdateStatusResult(latest string) *serverpb.UpdateStatus {
+func currentUpdateStatusResult() *serverpb.UpdateStatus {
 	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Current{
-		Current: &serverpb.UpdateVersions{LatestVersion: latest},
+		Current: &emptypb.Empty{},
 	}}
 }
 
@@ -169,11 +169,10 @@ func (s *UpdateStatusService) checkUpdateStatus(ctx context.Context) *serverpb.U
 	if err != nil {
 		return classifyReleaseSourceFailure(err)
 	}
-	latest := metadata.Version.String()
 	if metadata.Version.Compare(currentVersion) > 0 {
-		return availableUpdateStatusResult(latest)
+		return availableUpdateStatusResult(metadata.Version.String())
 	}
-	return currentUpdateStatusResult(latest)
+	return currentUpdateStatusResult()
 }
 
 func classifyReleaseSourceFailure(err error) *serverpb.UpdateStatus {

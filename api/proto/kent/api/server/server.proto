@@ -111,7 +111,7 @@ message UpdateStatus {
   oneof status {
     option (buf.validate.oneof).required = true;
 
-    UpdateVersions current = 1;
+    google.protobuf.Empty current = 1;
     UpdateVersions available = 2;
     google.protobuf.Empty check_unavailable = 3;
     UpdateCheckFailed check_failed = 4;

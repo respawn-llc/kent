@@ -26,7 +26,7 @@ func TestSessionPickerUpdateHeaderProjectsResponsiveRowPolicy(t *testing.T) {
 		{name: "pending"},
 		{
 			name:          "current",
-			response:      currentUpdateStatusSuccess("1.2.3"),
+			response:      currentUpdateStatusSuccess(),
 			applyResponse: true,
 		},
 		{

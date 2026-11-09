@@ -148,11 +148,9 @@ func TestSessionPickerRequestsUpdateStatusForEachOpen(t *testing.T) {
 	}
 }
 
-func currentUpdateStatusSuccess(latest string) *serverpb.GetUpdateStatusSuccess {
+func currentUpdateStatusSuccess() *serverpb.GetUpdateStatusSuccess {
 	return &serverpb.GetUpdateStatusSuccess{Status: &serverpb.UpdateStatus{
-		Status: &serverpb.UpdateStatus_Current{Current: &serverpb.UpdateVersions{
-			LatestVersion: latest,
-		}},
+		Status: &serverpb.UpdateStatus_Current{Current: &emptypb.Empty{}},
 	}}
 }
 

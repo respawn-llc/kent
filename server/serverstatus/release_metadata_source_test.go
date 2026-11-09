@@ -151,12 +151,13 @@ func TestUpdateStatusServiceComparesGitHubReleaseVersions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Status: %v", err)
 			}
-			versions := result.GetCurrent()
 			if test.available {
-				versions = result.GetAvailable()
-			}
-			if versions == nil || versions.LatestVersion != strings.TrimPrefix(test.tag, "v") {
-				t.Fatalf("result = %v, want available=%v with release %s", result, test.available, test.tag)
+				versions := result.GetAvailable()
+				if versions == nil || versions.LatestVersion != strings.TrimPrefix(test.tag, "v") {
+					t.Fatalf("result = %v, want available release %s", result, test.tag)
+				}
+			} else if result.GetCurrent() == nil {
+				t.Fatalf("result = %v, want current", result)
 			}
 		})
 	}
