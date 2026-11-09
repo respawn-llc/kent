@@ -967,7 +967,6 @@ const boardWithJoinResponse = create(taskRead.BoardGetResultSchema, {
           description: "",
           version: 1n,
           isProjectDefault: true,
-          validForTaskCreation: true,
         },
         groups: [
           {

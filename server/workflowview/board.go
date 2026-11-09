@@ -335,13 +335,12 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 			return nil, nil, err
 		}
 		picker = append(picker, &taskpb.WorkflowPickerItem{
-			WorkflowId:           workflowID.String(),
-			DisplayName:          snapshot.api.Workflow.Name,
-			Description:          snapshot.api.Workflow.Description,
-			Version:              snapshot.api.Workflow.Version,
-			IsProjectDefault:     link.IsDefault != 0,
-			ValidForTaskCreation: !validation.HasBlockingErrors(),
-			ValidationErrors:     diagnostics,
+			WorkflowId:       workflowID.String(),
+			DisplayName:      snapshot.api.Workflow.Name,
+			Description:      snapshot.api.Workflow.Description,
+			Version:          snapshot.api.Workflow.Version,
+			IsProjectDefault: link.IsDefault != 0,
+			ValidationErrors: diagnostics,
 		})
 	}
 	sort.SliceStable(picker, func(i, j int) bool {

@@ -124,7 +124,7 @@ function workflowPickerItem(value: pb.WorkflowPickerItem): WorkflowPickerItem {
     description: value.description,
     version: Number(value.version),
     isProjectDefault: value.isProjectDefault,
-    validForTaskCreation: value.validForTaskCreation,
+    validForTaskCreation: !value.validationErrors.some((error) => error.blocksContext),
     validationErrors: value.validationErrors.map(workflowValidationError),
   };
 }
