@@ -367,14 +367,6 @@ message LiveSteerSuccess {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  string text = 2 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.runtime.live_steer_success_text_nonblank"
-      message: "text must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
 }
 
 message LiveStopRequest {

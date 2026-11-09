@@ -1191,7 +1191,7 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 		t.Fatalf("LiveSteer: %v", result.err)
 	}
 	resp := result.response
-	if resp.QueueItemId != queueItemID || resp.Text != "steer live" {
+	if resp.QueueItemId != queueItemID {
 		t.Fatalf("LiveSteer response = %+v", resp)
 	}
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), "steer live", 1)
@@ -1251,8 +1251,9 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 	sourceID := runtimeids.NewSessionID()
 	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
 	sourceText := sourceID.String()
+	queueItemID := runtimeids.NewQueueItemID().String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		QueueItemId:     runtimeids.NewQueueItemID().String(),
+		QueueItemId:     queueItemID,
 		SessionId:       requestfixture.Selector(t, store.Meta().SessionID),
 		CallerSessionId: &sourceText,
 		Text:            "steer live",
@@ -1266,8 +1267,8 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 		t.Fatalf("LiveSteer: %v", result.err)
 	}
 	resp := result.response
-	if steer.Message().Content == nil || resp.Text != *steer.Message().Content {
-		t.Fatalf("LiveSteer response = %+v, want wrapped text", resp)
+	if resp.QueueItemId != queueItemID {
+		t.Fatalf("LiveSteer response = %+v", resp)
 	}
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), *steer.Message().Content, 1)
 	waitForRuntimeControlAssistantFinal(t, engine, "done")
@@ -1320,7 +1321,7 @@ func testServiceLiveSteerReportsAdmittedPromptHistoryErrorDiagnostically(t *test
 		t.Fatalf("LiveSteer after accepted prompt-history failure: %v", result.err)
 	}
 	resp := result.response
-	if resp.QueueItemId == "" || resp.Text != "steer live" {
+	if resp.QueueItemId == "" {
 		t.Fatalf("LiveSteer response = %+v, want accepted Queue item", resp)
 	}
 	diagnostic := <-diagnostics
