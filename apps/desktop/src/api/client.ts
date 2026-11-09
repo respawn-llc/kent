@@ -64,6 +64,7 @@ import type {
   TaskAttention,
   TaskComment,
   TaskDetail,
+  TaskDeleteResponse,
   TaskDependencyDirection,
   TaskDependencyListResponse,
   TaskDependencyMutationResponse,
@@ -348,8 +349,8 @@ export class ApiClient implements ApiService {
     return taskLifecycle.approveApproval(this.#transport, approvalID);
   }
 
-  async deleteTask(taskID: string): Promise<void> {
-    await taskLifecycle.deleteTask(this.#transport, taskID);
+  async deleteTask(taskID: string): Promise<TaskDeleteResponse> {
+    return taskLifecycle.deleteTask(this.#transport, taskID);
   }
 
   async getTask(taskID: string): Promise<TaskDetail> {

@@ -515,7 +515,7 @@ func (c *Remote) CompleteWorkflowTask(ctx context.Context, req *taskpb.CompleteR
 		})
 }
 
-func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*taskpb.DeleteSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Delete")
 	return callGeneratedBinary(c, ctx, method, req, &taskpb.DeleteResult{},
 		func(failure *taskpb.DeleteError) error {

@@ -12,7 +12,7 @@ import { QueryClient } from "@tanstack/react-query";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 import { z } from "zod";
-import type { ProjectObservation } from "@/api";
+import type { ProjectObservation, TaskDeleteResponse } from "@/api";
 import { queryKeys, useAppNavigation } from "@/app-facade";
 import { ProjectLabelsProvider } from "@/shared/labels";
 import { TestAppProviders, createTestServices } from "@/test-support/app-services";
@@ -24,7 +24,7 @@ function fixture() {
   const services = createTestServices([]);
   const client = new QueryClient();
   const invalidate = vi.spyOn(client, "invalidateQueries");
-  const response = deferred<undefined>();
+  const response = deferred<TaskDeleteResponse>();
   const deleted = deferred<ProjectObservation>();
   const remove = vi.spyOn(services.api, "deleteTask").mockReturnValue(response.promise);
   vi.spyOn(services.api, "subscribeProject").mockReturnValue(
@@ -113,7 +113,7 @@ it.each(["task-b", null])("keeps the current destination after Delete completes 
   if (next === null) await screen.findByText("Home");
   await act(async () => {
     view.deleted.resolve(deletionEvent);
-    view.response.resolve(undefined);
+    view.response.resolve({});
   });
   await waitFor(() => {
     expect(view.invalidate).toHaveBeenCalledWith(
@@ -134,7 +134,7 @@ it("closes the currently selected Task from the mounted Board deletion observati
   });
   await act(async () => {
     view.deleted.resolve(deletionEvent);
-    view.response.resolve(undefined);
+    view.response.resolve({});
   });
   await waitFor(() => {
     expect(view.router.state.location.search).toMatchObject({ taskId: "" });

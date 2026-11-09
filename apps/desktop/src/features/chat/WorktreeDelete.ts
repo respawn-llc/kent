@@ -4,12 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
-import {
-  BranchCleanupOutcomeKind,
-  type ApiService,
-  type WorktreeDeleteConfirmationChoice,
-  type WorktreeDeletePreview,
-} from "@/api";
+import { type ApiService, type WorktreeDeleteConfirmationChoice, type WorktreeDeletePreview } from "@/api";
 import {
   createWorktreeSelectorRequest,
   disposeWorktreeDeletePreview,
@@ -19,6 +14,7 @@ import {
   mutationPendingAtom,
   type StatusController,
 } from "@/app-facade";
+import { branchCleanupWarnings } from "@/shared/workspaces";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 export function createWorktreeDelete({
@@ -123,15 +119,7 @@ export function createWorktreeDeletion({
     retry: false,
     networkMode: "always",
     onSuccess: async (result) => {
-      const warnings: string[] = [];
-      if (result.cleanup?.kind === BranchCleanupOutcomeKind.WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED) {
-        warnings.push(
-          t("chat.worktree.branchRetained", {
-            branch: result.cleanup.branchName,
-          }),
-        );
-        if (result.cleanup.diagnostic !== undefined) warnings.push(result.cleanup.diagnostic);
-      }
+      const warnings = branchCleanupWarnings(result.cleanup, t);
       if (result.leftoverRoot !== undefined)
         warnings.push(t("chat.worktree.rootRetained", { root: result.leftoverRoot }));
       if (warnings.length > 0)

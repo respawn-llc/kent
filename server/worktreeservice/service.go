@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -347,7 +348,7 @@ type DeleteTaskWorktreeRequest struct {
 type DeleteTaskWorktreeResponse struct {
 	Deleted       bool
 	WorktreeID    string
-	BranchDeleted bool
+	BranchCleanup *worktreepb.BranchCleanupOutcome
 }
 
 func NewService(metadataStore *metadata.Store, gitInspector *GitInspector, authority *sessionruntime.Authority, publisher runtimePublisher, processes processSource, opts ServiceOptions) *Service {
@@ -1662,18 +1663,17 @@ func (s *Service) DeleteTaskWorktree(ctx context.Context, req DeleteTaskWorktree
 			return DeleteTaskWorktreeResponse{}, err
 		}
 	}
-	// The worktree itself is already removed by this point, so a branch-cleanup
-	// failure must not abort the remaining metadata cleanup; otherwise the record
-	// is left pointing at a removed worktree. Treat branch deletion as best-effort
-	// and report the outcome via BranchDeleted.
-	branchDeleted, branchErr := s.deleteTaskWorktreeBranch(ctx, workspaceRoot, record, target, targetFound)
-	if branchErr != nil {
-		branchDeleted = false
+	cleanup := &worktreepb.BranchCleanupOutcome{Kind: worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_APPLICABLE}
+	if record.Managed {
+		cleanup = s.cleanupDeletedBranch(ctx, workspaceRoot, entry, &record, worktreepb.BranchCleanupMode_WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED)
+	}
+	if cleanup.GetKind() == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED {
+		slog.WarnContext(ctx, "task worktree branch retained", "task_id", req.TaskID, "worktree_id", worktreeID, "branch", cleanup.GetBranchName(), "diagnostic", cleanup.GetDiagnostic())
 	}
 	if err := s.metadata.DeleteWorktreeRecordByID(ctx, worktreeID); err != nil {
 		return DeleteTaskWorktreeResponse{}, err
 	}
-	return DeleteTaskWorktreeResponse{Deleted: true, WorktreeID: worktreeID, BranchDeleted: branchDeleted}, nil
+	return DeleteTaskWorktreeResponse{Deleted: true, WorktreeID: worktreeID, BranchCleanup: cleanup}, nil
 }
 
 // EnsureTaskWorktreeDeletable preflights the blockers that canceling a task's own
@@ -1719,27 +1719,6 @@ func (s *Service) ensureNoOtherNonTerminalTasksManageWorktree(ctx context.Contex
 		return errors.Join(worktreecontract.ErrWorktreeBlocked, fmt.Errorf("worktree is still managed by %d other non-terminal workflow task(s)", otherNonTerminalTasks))
 	}
 	return nil
-}
-
-func (s *Service) deleteTaskWorktreeBranch(ctx context.Context, workspaceRoot string, record metadata.WorktreeRecord, target syncedWorktree, found bool) (bool, error) {
-	if !record.Managed {
-		return false, nil
-	}
-	var live *GitWorktree
-	if found {
-		live = &target.git
-	}
-	branchName, proven, err := kentCreatedBranchForCleanup(record, live)
-	if err != nil {
-		return false, err
-	}
-	if !proven {
-		return false, nil
-	}
-	if err := s.git.deleteBranch(ctx, workspaceRoot, branchName, false); err != nil {
-		return false, fmt.Errorf("delete task worktree branch %q: %w", branchName, err)
-	}
-	return true, nil
 }
 
 type taskSourceWorkspace struct {

@@ -1818,6 +1818,68 @@ func TestDeleteWorktreeAllowsTerminalTaskManagedWorktree(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskWorktreeLeavesUnmanagedBranchUntouched(t *testing.T) {
+	env := newServiceTestEnv(t)
+	task, _ := createTaskWorktreeTestTask(t, env)
+	created, err := materializeInitialTaskWorktree(env.ctx, env.service, InitialTaskWorktreeMaterializationRequest{
+		TaskID:         task.ID,
+		ResolvedTarget: resolveTaskWorktreeTestHEAD(t, env, env.workspaceRoot),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := env.store.GetWorktreeRecordByID(env.ctx, taskWorktreeID(created.Worktree))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.Managed = false
+	if err := env.store.UpsertWorktreeRecord(env.ctx, record); err != nil {
+		t.Fatal(err)
+	}
+	result, err := env.service.DeleteTaskWorktree(env.ctx, DeleteTaskWorktreeRequest{TaskID: string(task.ID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Deleted || result.BranchCleanup.GetKind() != worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_NOT_APPLICABLE {
+		t.Fatalf("cleanup = %+v, want deleted worktree without branch cleanup", result)
+	}
+	runGit(t, env.workspaceRoot, "show-ref", "--verify", "refs/heads/"+task.ShortID)
+}
+
+func TestDeleteTaskWorktreeRetainsUnmergedBranch(t *testing.T) {
+	env := newServiceTestEnv(t)
+	task, _ := createTaskWorktreeTestTask(t, env)
+	created, err := materializeInitialTaskWorktree(env.ctx, env.service, InitialTaskWorktreeMaterializationRequest{
+		TaskID:         task.ID,
+		ResolvedTarget: resolveTaskWorktreeTestHEAD(t, env, env.workspaceRoot),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, taskWorktreeRoot(created.Worktree), "commit", "--allow-empty", "-m", "unmerged task work")
+	result, err := env.service.DeleteTaskWorktree(env.ctx, DeleteTaskWorktreeRequest{TaskID: string(task.ID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Deleted || result.BranchCleanup.GetKind() != worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED {
+		t.Fatalf("cleanup = %+v, want deleted worktree with retained branch", result)
+	}
+	if result.BranchCleanup.GetBranchName() != task.ShortID || result.BranchCleanup.GetDiagnostic() == "" {
+		t.Fatalf("cleanup lacks branch or Git diagnostic: %+v", result.BranchCleanup)
+	}
+	if _, err := os.Stat(taskWorktreeRoot(created.Worktree)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("worktree still exists: %v", err)
+	}
+	runGit(t, env.workspaceRoot, "show-ref", "--verify", "refs/heads/"+task.ShortID)
+	row, err := env.store.Queries().GetTask(env.ctx, string(task.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.ManagedWorktreeID.Valid {
+		t.Fatalf("managed worktree binding remains: %+v", row.ManagedWorktreeID)
+	}
+}
+
 func TestDeleteTaskWorktreeRemovesManagedWorktreeAndBranch(t *testing.T) {
 	env := newServiceTestEnv(t)
 	task, _ := createTaskWorktreeTestTask(t, env)
@@ -1833,7 +1895,7 @@ func TestDeleteTaskWorktreeRemovesManagedWorktreeAndBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteTaskWorktree: %v", err)
 	}
-	if !resp.Deleted || resp.WorktreeID != taskWorktreeID(created.Worktree) || !resp.BranchDeleted {
+	if !resp.Deleted || resp.WorktreeID != taskWorktreeID(created.Worktree) || resp.BranchCleanup.GetKind() != worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED {
 		t.Fatalf("DeleteTaskWorktree response = %+v, want deleted worktree and branch", resp)
 	}
 	if _, err := os.Stat(taskWorktreeRoot(created.Worktree)); !errors.Is(err, os.ErrNotExist) {

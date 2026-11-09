@@ -1,6 +1,9 @@
 import type { ValidationErrorCode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import type { DeleteSuccess } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import type { AttentionItem } from "./attention";
 import type { TaskLiveSession } from "./taskDetailModels";
+
+export type TaskDeleteResponse = Readonly<Pick<DeleteSuccess, "branchCleanup">>;
 
 import type { WorkflowExecutionTarget, WorkflowExecutionTargetPolicy } from "./workflowExecutionTarget";
 import type {

@@ -544,7 +544,8 @@ func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), workflowCommandTimeout)
 		defer cancel()
-		if _, err := remote.DeleteWorkflowTask(ctx, &taskpb.DeleteRequest{TaskId: taskID}); err != nil {
+		response, err := remote.DeleteWorkflowTask(ctx, &taskpb.DeleteRequest{TaskId: taskID})
+		if err != nil {
 			if errors.Is(err, worktreecontract.ErrWorktreeBlocked) {
 				fmt.Fprintln(stderr, "Task deletion is blocked by its worktree. Finish or move the other work using it, then retry.")
 			} else {
@@ -552,9 +553,17 @@ func taskDeleteSubcommand(args []string, stdout io.Writer, stderr io.Writer) int
 			}
 			return 1
 		}
-		fmt.Fprintf(stdout, "Deleted task %s.\n", displayID)
-		return 0
+		return writeTaskDeleteSuccess(stdout, stderr, displayID, response)
 	})
+}
+
+func writeTaskDeleteSuccess(stdout io.Writer, stderr io.Writer, displayID string, response *taskpb.DeleteSuccess) int {
+	fmt.Fprintf(stdout, "Deleted task %s.\n", displayID)
+	cleanup := response.GetBranchCleanup()
+	if cleanup.GetKind() == worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED {
+		fmt.Fprintf(stderr, "Warning: task %s was deleted, but branch %s was retained: %s\n", displayID, cleanup.GetBranchName(), cleanup.GetDiagnostic())
+	}
+	return 0
 }
 
 func taskResumeSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {

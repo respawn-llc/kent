@@ -696,12 +696,12 @@ func (d taskWorktreeDeleter) EnsureTaskWorktreeDeletable(ctx context.Context, ta
 	return d.service.EnsureTaskWorktreeDeletable(ctx, taskID)
 }
 
-func (d taskWorktreeDeleter) DeleteTaskWorktree(ctx context.Context, taskID string) error {
+func (d taskWorktreeDeleter) DeleteTaskWorktree(ctx context.Context, taskID string) (*worktreepb.BranchCleanupOutcome, error) {
 	if d.service == nil {
-		return nil
+		return nil, nil
 	}
-	_, err := d.service.DeleteTaskWorktree(ctx, worktree.DeleteTaskWorktreeRequest{TaskID: taskID})
-	return err
+	result, err := d.service.DeleteTaskWorktree(ctx, worktree.DeleteTaskWorktreeRequest{TaskID: taskID})
+	return result.BranchCleanup, err
 }
 
 type authorityPromptResponder struct {

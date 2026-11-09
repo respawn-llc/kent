@@ -174,6 +174,7 @@ export {
   CreateTargetResolutionKind,
   SelectorErrorKind,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
+export type { BranchCleanupOutcome } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
@@ -219,6 +220,7 @@ export type {
   CreatedTaskSummary,
   OffsetPage,
   TaskDetail,
+  TaskDeleteResponse,
   TaskDependencies,
   TaskDependencyAddAvailability,
   TaskDependencyDirection,

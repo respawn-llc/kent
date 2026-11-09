@@ -682,6 +682,12 @@
 - The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
 - The status must be informational only. It must not change Worktree deletion admission.
 - Task ownership alone must not block ordinary Worktree deletion. Deletion must remove the Worktree registration and managed binding when every owning Task is Not Started or Done, without deleting those Tasks. Deletion must leave other owning Tasks' managed bindings and recovery evidence intact.
+- If safe branch cleanup leaves a branch undeleted during Task deletion, Kent must complete Task deletion.
+- Task deletion must report any branch left undeleted by safe branch cleanup and its cleanup diagnostic.
+- Desktop must show that cleanup warning through Sonner even if the operator has navigated away.
+- Human CLI output must warn about that cleanup outcome.
+- The server must log the cleanup diagnostic.
+- This warning must not trigger deletion replay or forced branch removal.
 - If a linked Worktree directory is absent, deletion must remove its stale Git registration and removable Kent information without requiring forced folder removal.
 - If Git recognizes a linked Worktree whose directory exists without its `.git` marker, delete preview must report unknown cleanliness without a failed Git command diagnostic. Deletion must leave the directory untouched unless forced folder removal is explicitly authorized. Authorized deletion must remove the directory and stale Git registration for both Kent-registered and External Worktrees.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It must not wait for or stop that work.

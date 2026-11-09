@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import { errorMessage, isTaskMissingError, WorktreeError, type TaskDetail } from "@/api";
 import { queryAction, queryAtom, type AppServices, type StatusController } from "@/app-facade";
 import { taskActionErrorMessage } from "@/shared/task-mutations";
+import { notifyTaskDeletionCleanup } from "@/shared/task-delete";
 import type { TaskDetailCompletion } from "./TaskDetailCommentActions";
 import type { TaskDetailDeleteDismissal } from "./taskDetailDismissal";
 import { refreshTaskDetail } from "./taskDetailQueries";
@@ -93,9 +94,10 @@ export function createTaskDetailLifecycleActions({
     new MutationObserver(client, {
       mutationFn: async () => {
         try {
-          await services.api.deleteTask(taskID);
+          return await services.api.deleteTask(taskID);
         } catch (error) {
           if (!isTaskMissingError(error)) throw error;
+          return {};
         }
       },
       onError: (error) => {
@@ -109,7 +111,8 @@ export function createTaskDetailLifecycleActions({
           tone: "danger",
         });
       },
-      onSuccess: async (_result, dismiss: TaskDetailDeleteDismissal) => {
+      onSuccess: async (result, dismiss: TaskDetailDeleteDismissal) => {
+        notifyTaskDeletionCleanup(result, push, t);
         try {
           const outcome = await dismiss();
           if (outcome.kind === "failed") throw outcome.error;

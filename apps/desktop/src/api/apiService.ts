@@ -47,6 +47,7 @@ import type {
   TaskApproveResponse,
   TaskComment,
   TaskDetail,
+  TaskDeleteResponse,
   TaskDependencyDirection,
   TaskDependencyListResponse,
   TaskDependencyMutationResponse,
@@ -188,7 +189,7 @@ export interface ApiService {
   interruptTask(taskID: string, sessionID?: string): Promise<void>;
   resumeTask(input: TaskResumeInput): Promise<TaskResumeResponse>;
   approveApproval(approvalID: string): Promise<TaskApproveResponse>;
-  deleteTask(taskID: string): Promise<void>;
+  deleteTask(taskID: string): Promise<TaskDeleteResponse>;
   getTask(taskID: string): Promise<TaskDetail>;
   listTaskActivity(taskID: string, offset: number): Promise<ActivityPage>;
   listTaskComments(taskID: string, offset: number): Promise<CommentPage>;

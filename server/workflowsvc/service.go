@@ -161,7 +161,7 @@ var errExecutionTargetInfrastructureRequired = errors.New("execution target infr
 
 type taskWorktreeDeleter interface {
 	EnsureTaskWorktreeDeletable(ctx context.Context, taskID string) error
-	DeleteTaskWorktree(ctx context.Context, taskID string) error
+	DeleteTaskWorktree(ctx context.Context, taskID string) (*worktreepb.BranchCleanupOutcome, error)
 }
 
 type workflowAttentionFinalizer interface {
@@ -2281,18 +2281,19 @@ func workflowNodeByID(definition workflow.Definition, nodeID workflow.NodeID) (w
 	return nil, fmt.Errorf("workflow node %q is absent", nodeID)
 }
 
-func (s *Service) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+func (s *Service) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*taskpb.DeleteSuccess, error) {
 	if s.taskWorktreeCleanup != nil {
 		if err := s.taskWorktreeCleanup.EnsureTaskWorktreeDeletable(ctx, req.TaskId); err != nil {
 			return nil, err
 		}
 	}
-	return observeTaskOperation(ctx, s.currentNodeExecution, func(ctx context.Context) (*emptypb.Empty, error) {
+	return observeTaskOperation(ctx, s.currentNodeExecution, func(ctx context.Context) (*taskpb.DeleteSuccess, error) {
 		return s.deleteWorkflowTask(ctx, req)
 	})
 }
 
-func (s *Service) deleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+func (s *Service) deleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*taskpb.DeleteSuccess, error) {
+	response := &taskpb.DeleteSuccess{}
 	err := s.taskMutations.Run(ctx, workflow.TaskID(req.TaskId), func(ctx context.Context) error {
 		if s.currentNodeExecution == nil {
 			return errors.New("current node workflow execution is required")
@@ -2301,9 +2302,11 @@ func (s *Service) deleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequ
 			return err
 		}
 		if s.taskWorktreeCleanup != nil {
-			if err := s.taskWorktreeCleanup.DeleteTaskWorktree(ctx, req.TaskId); err != nil {
+			cleanup, err := s.taskWorktreeCleanup.DeleteTaskWorktree(ctx, req.TaskId)
+			if err != nil {
 				return err
 			}
+			response.BranchCleanup = cleanup
 		}
 		result, err := s.store.DeleteTask(ctx, workflow.TaskID(req.TaskId))
 		if err != nil {
@@ -2316,7 +2319,7 @@ func (s *Service) deleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequ
 	if err != nil {
 		return nil, err
 	}
-	return &emptypb.Empty{}, nil
+	return response, nil
 }
 
 func (s *Service) finalizeWorkflowAttentionResolution(ctx context.Context, result workflowstore.WorkflowDeleteResult) {

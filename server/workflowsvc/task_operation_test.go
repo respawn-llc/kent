@@ -17,6 +17,7 @@ import (
 	"core/server/workflowstore"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 
 	"core/shared/worktreecontract"
 	"google.golang.org/protobuf/proto"
@@ -46,10 +47,10 @@ func (blockingTaskCleanup) EnsureTaskWorktreeDeletable(context.Context, string) 
 	return nil
 }
 
-func (c blockingTaskCleanup) DeleteTaskWorktree(ctx context.Context, _ string) error {
+func (c blockingTaskCleanup) DeleteTaskWorktree(ctx context.Context, _ string) (*worktreepb.BranchCleanupOutcome, error) {
 	c.entered <- ctx
 	<-c.release
-	return ctx.Err()
+	return nil, ctx.Err()
 }
 
 func ownServiceTaskOperations(t *testing.T, service *Service) {
