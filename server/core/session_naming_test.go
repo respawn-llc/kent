@@ -19,6 +19,7 @@ import (
 	"core/server/metadata"
 	"core/shared/config"
 	"core/shared/protoapi"
+	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
@@ -26,17 +27,22 @@ import (
 	"core/shared/runtimeinput"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestNamingContinuesAfterTurnAndCallerEnd(t *testing.T) {
-	testNamingAfterExecutionTargetChange(t, false)
+	testNamingAfterExecutionTargetChange(t, false, false)
 }
 
 func TestNamingOptOutAfterExecutionTargetChange(t *testing.T) {
-	testNamingAfterExecutionTargetChange(t, true)
+	testNamingAfterExecutionTargetChange(t, true, false)
 }
 
-func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
+func TestNamingFailurePublishesAttention(t *testing.T) {
+	testNamingAfterExecutionTargetChange(t, false, true)
+}
+
+func testNamingAfterExecutionTargetChange(t *testing.T, optOut, namingFails bool) {
 	t.Helper()
 	nanoStarted := make(chan struct{})
 	releaseNano := make(chan struct{})
@@ -53,7 +59,11 @@ func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
 			close(nanoStarted)
 			select {
 			case <-releaseNano:
-				modelstub.WriteCompletedResponseStream(w, "Fix invoice totals", 10, 4)
+				if namingFails {
+					modelstub.WriteCompletedResponseStream(w, "", 10, 4)
+				} else {
+					modelstub.WriteCompletedResponseStream(w, "Fix invoice totals", 10, 4)
+				}
 			case <-r.Context().Done():
 				t.Error("naming was canceled by the completed Turn/caller")
 			}
@@ -97,6 +107,18 @@ func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
 		t.Fatal(err)
 	}
 	defer subscription.Close()
+	desktopAttention, err := app.AttentionNotificationClient().SubscribeAttentionNotifications(t.Context(), &emptypb.Empty{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer desktopAttention.Close()
+	sessionAttention, err := app.AttentionNotificationClient().SubscribeSessionAttentionNotifications(
+		t.Context(), &attentionpb.SubscribeRequest{SessionId: id},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sessionAttention.Close()
 	catalogChanges, err := app.WorkflowClient().SubscribeWorkflowProject(t.Context(), &workflowpb.ProjectSubscribeRequest{ProjectId: &binding.ProjectID})
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +183,37 @@ func testNamingAfterExecutionTargetChange(t *testing.T, optOut bool) {
 	}
 	if preview := record.Meta.FirstPromptPreview; preview != "Fix invoice totals" {
 		t.Fatalf("initial user preview = %q", preview)
+	}
+	if namingFails {
+		desktopEvent, err := desktopAttention.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionEvent, err := sessionAttention.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		desktopFailure := desktopEvent.GetSessionNamingFailure()
+		if desktopFailure == nil || desktopFailure.ProjectId != binding.ProjectID || desktopFailure.SessionId != id ||
+			desktopFailure.GetError().GetCause() == "" {
+			t.Fatalf("desktop naming failure attention = %+v", desktopEvent)
+		}
+		sessionFailure := sessionEvent.GetSessionNamingFailure()
+		if sessionFailure == nil || sessionFailure.ProjectId != binding.ProjectID || sessionFailure.SessionId != id ||
+			sessionFailure.GetError().GetCause() == "" {
+			t.Fatalf("Session naming failure attention = %+v", sessionEvent)
+		}
+		if desktopEvent.Sequence != sessionEvent.Sequence {
+			t.Fatalf("desktop/Session naming failure sequences = %d, %d", desktopEvent.Sequence, sessionEvent.Sequence)
+		}
+		record, err := meta.ResolvePersistedSession(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Meta.Name != nil {
+			t.Fatalf("failed naming saved title %q", *record.Meta.Name)
+		}
+		return
 	}
 	for {
 		snapshot, err := subscription.Next(ctx)
