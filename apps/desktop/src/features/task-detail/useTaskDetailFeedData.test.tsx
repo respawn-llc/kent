@@ -32,7 +32,7 @@ function useFeeds(client: QueryClient) {
         items: page.items.map((comment) => ({
           id: comment.id,
           type: "comment" as const,
-          taskID: comment.taskID,
+          taskID: _id,
           occurredAt: 1,
           updatedAt: 1,
           comment,
@@ -198,7 +198,6 @@ function taskPage(feed: Request["feed"], offset: number) {
     items: [
       {
         id: `${feed}-stable`,
-        taskID: "task-1",
         body: "Comment",
         authorKind: "user",
         authorID: null,

@@ -560,7 +560,6 @@ message DependencyListSuccess {
 
 message Comment {
   string id = 1 [(buf.validate.field).string.min_len = 1];
-  string task_id = 2 [(buf.validate.field).string.min_len = 1];
   string body = 3 [(buf.validate.field).string.min_len = 1];
   CommentAuthorKind author = 4 [(buf.validate.field).enum = {
     defined_only: true

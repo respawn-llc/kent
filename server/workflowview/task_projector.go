@@ -104,7 +104,7 @@ func Comment(comment workflowstore.CommentRecord) (*taskpb.Comment, error) {
 		authorID = &comment.AuthorID
 	}
 	return &taskpb.Comment{
-		Id: comment.ID, TaskId: string(comment.TaskID), Body: comment.Body, Author: author, AuthorId: authorID,
+		Id: comment.ID, Body: comment.Body, Author: author, AuthorId: authorID,
 		CreatedAt: timestamppb.New(time.UnixMilli(comment.CreatedAt)),
 		UpdatedAt: timestamppb.New(time.UnixMilli(comment.UpdatedAt)),
 	}, nil

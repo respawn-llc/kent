@@ -656,7 +656,6 @@ export type TaskCommentAuthorKind = "agent" | "user";
 
 export type TaskComment = Readonly<{
   id: string;
-  taskID: string;
   body: string;
   authorKind: TaskCommentAuthorKind;
   authorID: string | null;

@@ -351,7 +351,6 @@ export const activityResponse = create(taskLifecycle.ActivityListSuccessSchema, 
         case: "comment",
         value: {
           id: "comment-activity-1",
-          taskId: "task-1",
           body: "Comment added",
           author: taskLifecycle.CommentAuthorKind.USER,
           createdAt: { seconds: 0n, nanos: 2_000_000 },
@@ -408,7 +407,6 @@ export function promptAnswerBatchRoute(
 export const commentAddResponse = create(taskLifecycle.CommentAddSuccessSchema, {
   comment: {
     id: "comment-2",
-    taskId: "task-1",
     body: "Fresh comment",
     author: taskLifecycle.CommentAuthorKind.USER,
     createdAt: { seconds: 0n, nanos: 4_000_000 },
@@ -420,7 +418,6 @@ export const commentListResponse = create(taskLifecycle.CommentListSuccessSchema
   items: [
     {
       id: "comment-1",
-      taskId: "task-1",
       body: "Existing comment",
       author: taskLifecycle.CommentAuthorKind.USER,
       createdAt: { seconds: 0n, nanos: 1_000_000 },
@@ -434,7 +431,6 @@ export const firstCommentListResponse = create(taskLifecycle.CommentListSuccessS
   items: [
     {
       id: "comment-page-1",
-      taskId: "task-1",
       body: "First paged comment",
       author: taskLifecycle.CommentAuthorKind.USER,
       createdAt: { seconds: 0n, nanos: 5_000_000 },
@@ -449,7 +445,6 @@ export const secondCommentListResponse = create(taskLifecycle.CommentListSuccess
   items: [
     {
       id: "comment-page-2",
-      taskId: "task-1",
       body: "Second paged comment",
       author: taskLifecycle.CommentAuthorKind.USER,
       createdAt: { seconds: 0n, nanos: 6_000_000 },

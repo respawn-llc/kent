@@ -211,7 +211,6 @@ export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
 export function taskComment(value: GeneratedComment): TaskComment {
   return {
     id: value.id,
-    taskID: value.taskId,
     body: value.body,
     authorKind: taskCommentAuthor.decode(value.author),
     authorID: value.authorId ?? null,

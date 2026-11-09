@@ -107,7 +107,6 @@ export function taskActivityPage(taskID: string, count: number) {
           case: "comment",
           value: {
             id: `comment-activity-${taskID}-${index.toString()}`,
-            taskId: taskID,
             body: `Activity item ${index.toString()}`,
             author: lifecycle.CommentAuthorKind.USER,
             createdAt: timestamp(1000 - index),
