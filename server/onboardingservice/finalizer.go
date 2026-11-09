@@ -123,7 +123,7 @@ func (f *Finalizer) Finalize(_ context.Context, req *onboardingpb.FinalizeReques
 		}
 		return nil, configWriteFailed(settingsPath, "write", err)
 	}
-	return &onboardingpb.FinalizeSuccess{Completed: true, SettingsPath: path}, nil
+	return &onboardingpb.FinalizeSuccess{SettingsPath: path}, nil
 }
 
 func projectSettings(req *onboardingpb.FinalizeRequest, settings config.Settings, sources map[string]config.Origin) (config.Settings, map[string]bool, error) {

@@ -974,7 +974,7 @@ func TestStartupFinalizeActivationUsesServerOwnedContext(t *testing.T) {
 	activationCtxCanceled := true
 	service := startupFinalizeService{
 		service: finalizeServiceFunc(func(context.Context, *onboardingpb.FinalizeRequest) (*onboardingpb.FinalizeSuccess, error) {
-			return &onboardingpb.FinalizeSuccess{Completed: true, SettingsPath: "/tmp/config.toml"}, nil
+			return &onboardingpb.FinalizeSuccess{SettingsPath: "/tmp/config.toml"}, nil
 		}),
 		activationContext: context.Background(),
 		activate: func(ctx context.Context, _ *onboardingpb.FinalizeSuccess) error {
