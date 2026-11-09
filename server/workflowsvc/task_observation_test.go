@@ -52,11 +52,11 @@ type observationDefinitionStub struct {
 	definition *pb.WorkflowDefinition
 }
 
-func (s observationDefinitionStub) GetDefinition(context.Context, runtimeids.WorkflowID) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error) {
+func (s observationDefinitionStub) GetDefinition(context.Context, runtimeids.WorkflowID) (*pb.WorkflowDefinition, error) {
 	if s.definition != nil {
-		return s.definition, nil, nil
+		return s.definition, nil
 	}
-	return &pb.WorkflowDefinition{}, nil, nil
+	return &pb.WorkflowDefinition{}, nil
 }
 
 type observationAttentionStub struct {

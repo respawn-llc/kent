@@ -71,7 +71,7 @@ func (s *Service) observeWorkflowTask(ctx context.Context, req *taskpb.ObserveRe
 	if err != nil {
 		return nil, false, err
 	}
-	definition, _, err := s.readModels.Definitions.GetDefinition(ctx, workflowID)
+	definition, err := s.readModels.Definitions.GetDefinition(ctx, workflowID)
 	if err != nil {
 		return nil, false, err
 	}

@@ -362,7 +362,7 @@ func (s *Service) GetWorkflow(ctx context.Context, req *pb.GetRequest) (*pb.GetS
 	if err != nil {
 		return nil, err
 	}
-	def, _, err := s.readModels.Definitions.GetDefinition(ctx, workflowID)
+	def, err := s.readModels.Definitions.GetDefinition(ctx, workflowID)
 	if err != nil {
 		return nil, err
 	}

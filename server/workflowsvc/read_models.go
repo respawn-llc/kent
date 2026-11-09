@@ -11,7 +11,7 @@ import (
 )
 
 type WorkflowDefinitionReadModel interface {
-	GetDefinition(context.Context, runtimeids.WorkflowID) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error)
+	GetDefinition(context.Context, runtimeids.WorkflowID) (*pb.WorkflowDefinition, error)
 }
 
 type WorkflowBoardReadModel interface {
