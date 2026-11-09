@@ -27,10 +27,8 @@ func ProcessFromSnapshot(snapshot shelltool.Snapshot) *processpb.BackgroundProce
 		LogPath:        snapshot.LogPath,
 		RecentOutput:   strings.ToValidUTF8(snapshot.RecentOutput, "\uFFFD"),
 		Running:        snapshot.Running,
-		StdinOpen:      snapshot.StdinOpen,
 		Backgrounded:   snapshot.Backgrounded,
 		KillRequested:  snapshot.KillRequested,
-		LastUpdatedAt:  timestamppb.New(snapshot.LastUpdatedAt),
 	}
 	if !snapshot.FinishedAt.IsZero() {
 		result.FinishedAt = timestamppb.New(snapshot.FinishedAt)

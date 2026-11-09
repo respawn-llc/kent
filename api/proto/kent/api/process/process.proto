@@ -25,10 +25,8 @@ message BackgroundProcess {
   optional int64 exit_code = 10;
   string log_path = 11;
   bool running = 15;
-  bool stdin_open = 16;
   bool backgrounded = 17;
   bool kill_requested = 18;
-  google.protobuf.Timestamp last_updated_at = 19 [(buf.validate.field).required = true];
   string recent_output = 20;
 }
 
