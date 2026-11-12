@@ -156,7 +156,7 @@ Kent is FOSS and takes 10 minutes to get started with. Follow the [Quickstart](h
 | Grok Build | DeepSeek Coding Plan | Gemini |
 | GLM Coding Plan | Kimi Coding Plan | Muse Code |
 
-**API access:** OpenAI, xAI, and OpenAI Responses-compatible endpoints, including local model servers.
+**API access:** OpenAI, xAI, DeepSeek, and OpenAI Responses-compatible endpoints, including local model servers.
 
 See [authentication and connections](https://kent.sh/authentication/) for setup.
 

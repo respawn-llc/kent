@@ -82,12 +82,14 @@ type ConnectionScope struct {
 }
 
 const (
-	ConnectionResponses            ConnectionProtocol = "responses"
-	ConnectionChatGPT              ConnectionProtocol = "chatgpt-codex"
-	ConnectionGrokCLIProxy         ConnectionProtocol = "grok-cli-proxy"
-	ConnectionGrokOAuthAPI         ConnectionProtocol = "grok-oauth-api"
-	ConnectionGrokAPIKey           ConnectionProtocol = "grok-api-key"
-	DefaultOpenAIResponsesEndpoint                    = "https://api.openai.com/v1"
+	ConnectionResponses              ConnectionProtocol = "responses"
+	ConnectionChatGPT                ConnectionProtocol = "chatgpt-codex"
+	ConnectionGrokCLIProxy           ConnectionProtocol = "grok-cli-proxy"
+	ConnectionGrokOAuthAPI           ConnectionProtocol = "grok-oauth-api"
+	ConnectionGrokAPIKey             ConnectionProtocol = "grok-api-key"
+	ConnectionDeepSeekAPIKey         ConnectionProtocol = "deepseek-api-key"
+	DefaultOpenAIResponsesEndpoint                      = "https://api.openai.com/v1"
+	DefaultDeepSeekResponsesEndpoint                    = "https://api.deepseek.com"
 )
 
 type ProviderConnection struct {
@@ -152,6 +154,15 @@ func (c ProviderConnection) Validate() error {
 		if c.EnvironmentVariable == nil || strings.TrimSpace(*c.EnvironmentVariable) == "" {
 			return fmt.Errorf("Grok API-key connections require an environment-variable name")
 		}
+	case ConnectionDeepSeekAPIKey:
+		if c.EnvironmentVariable == nil || strings.TrimSpace(*c.EnvironmentVariable) == "" {
+			return fmt.Errorf("DeepSeek API-key connections require an environment-variable name")
+		}
+		if c.Endpoint != nil {
+			if _, err := NormalizeDeepSeekBase(*c.Endpoint); err != nil {
+				return err
+			}
+		}
 	case ConnectionResponses:
 		if c.Endpoint == nil {
 			return fmt.Errorf("Responses connections require an endpoint")
@@ -166,6 +177,41 @@ func (c ProviderConnection) Validate() error {
 		return fmt.Errorf("unsupported connection protocol %q", c.Protocol)
 	}
 	return nil
+}
+
+// NormalizeDeepSeekBase returns the non-empty absolute DeepSeek base.
+func NormalizeDeepSeekBase(value string) (string, error) {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), "/")
+	if trimmed == "" {
+		return "", fmt.Errorf("DeepSeek endpoint cannot be empty; omit it for %s", DefaultDeepSeekResponsesEndpoint)
+	}
+	if err := ValidateResponsesEndpoint(trimmed); err != nil {
+		return "", err
+	}
+	return trimmed, nil
+}
+
+// DeepSeekBase resolves a stored endpoint. An absent endpoint is the official base.
+func DeepSeekBase(endpoint *string) (string, error) {
+	if endpoint == nil {
+		return DefaultDeepSeekResponsesEndpoint, nil
+	}
+	return NormalizeDeepSeekBase(*endpoint)
+}
+
+// PersistDeepSeekEndpoint is the in-memory form of a DeepSeek base. The official base is omitted.
+func PersistDeepSeekEndpoint(endpoint *string) (*string, error) {
+	if endpoint == nil {
+		return nil, nil
+	}
+	base, err := NormalizeDeepSeekBase(*endpoint)
+	if err != nil {
+		return nil, err
+	}
+	if base == DefaultDeepSeekResponsesEndpoint {
+		return nil, nil
+	}
+	return &base, nil
 }
 
 func ValidateResponsesEndpoint(value string) error {
@@ -291,6 +337,13 @@ func (connectionsSetting) applyFile(raw settingsFile, file SourceFile, state *se
 		connection.Capabilities, err = readConnectionCapabilities(definition)
 		if err != nil {
 			return fmt.Errorf("connections.%s: %w", name, err)
+		}
+		if connection.Protocol == ConnectionDeepSeekAPIKey {
+			persisted, err := PersistDeepSeekEndpoint(connection.Endpoint)
+			if err != nil {
+				return fmt.Errorf("connections.%s: %w", name, err)
+			}
+			connection.Endpoint = persisted
 		}
 		if err := connection.Validate(); err != nil {
 			return fmt.Errorf("connections.%s: %w", name, err)

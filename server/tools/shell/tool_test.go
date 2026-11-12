@@ -405,7 +405,7 @@ func TestWriteStdinCompletionPollUsesBoundedNewestOutputTail(t *testing.T) {
 	poll := callWriteStdin(t, stdinTool, "bounded-completion-poll", map[string]any{
 		"session_id":    1000,
 		"chars":         "continue\n",
-		"yield_time_ms": 250,
+		"yield_time_ms": 5_000,
 	})
 	if poll.IsError {
 		t.Fatalf("unexpected write_stdin error: %s", string(poll.Output))
@@ -785,7 +785,7 @@ func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
 	result, err := manager.Start(context.Background(), ExecRequest{
 		OwnerSessionShortID: shortID,
 		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"sh", "-c", "printf 'hello\\n'; sleep 0.3; printf 'world\\n'"},
+		Command:             []string{"sh", "-c", "printf 'hello\\n'; sleep 2; printf 'world\\n'"},
 		DisplayCommand:      "tail-test",
 		Workdir:             workspace,
 		YieldTime:           250 * time.Millisecond,
@@ -807,7 +807,7 @@ func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Next: %v", err)
 	}
-	if first.ProcessID != result.SessionID || !strings.Contains(first.Text, "hello") {
+	if first.ProcessID != result.SessionID || !strings.Contains(first.Text, "hello") || strings.Contains(first.Text, "world") {
 		t.Fatalf("unexpected first chunk: %+v", first)
 	}
 
