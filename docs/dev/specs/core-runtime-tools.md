@@ -146,6 +146,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Command Execution
 
+- Sessions without a Session Short ID must be able to execute shell commands. Their shell logs must use the Session UUID in place of the absent Short ID.
 - A user-run shell command must execute without invoking the model and must enter model context as a User Message, not as an assistant Tool Call or tool output.
 - The User Message must contain `User ran a shell command:`, a newline, `<command>` followed by the command and `</command>`, a newline, and the shell tool's plaintext result. Failures must include their plaintext diagnostics.
 - A user-run shell command must appear as a compact shell command in ongoing and collapsed transcript views. Its full User Message text and output must appear only in expanded Desktop or expanded detail views. It must not become a prompt-history entry or a Rollback Target.
@@ -294,6 +295,8 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Sessions can stop and resume. The persistence root is configurable and defaults to `~/.kent`. Their durable location model is Project, Workspace, then Worktree.
 - A user-driven Edit or Fork must create a new interactive main Session with a new Session ID and no Task ownership, Workflow execution, inherited Agent-role continuation, or parent-agent ancestry. It must never continue the source Workflow.
 - A user fork must resolve fresh interactive settings, including model, provider, prompt, and completion settings captured in the source snapshot. It must inherit the source execution location, Worktree reminder, previous-Session provenance, complete Goal, and current desired Thinking selection unchanged. Goal and Thinking inheritance do not confer Workflow ownership.
+- A user fork must use the source Session's saved Project when creating the child, including when the workspace path belongs to several Projects.
+- If Session creation loses its required Project scope, Kent must panic in debug mode. In production, Kent must report the original failure and diagnostics.
 - A user fork must leave the parent unchanged. The copied conversation prefix must follow the fork history rules without changes. Historical Workflow instructions may appear in that history. They must not confer Workflow ownership or authorize Workflow execution in the child.
 - Workflow-internal clones are separate from user-driven forks and must follow the Workflow context-preservation contract.
 - Session rebinds must follow the execution-target transition rules below for every caller, including cross-Project moves.

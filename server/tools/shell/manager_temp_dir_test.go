@@ -12,7 +12,6 @@ import (
 	"core/internal/testharness/postprocessfixture"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
-	"core/shared/runtimeids"
 )
 
 func sessionLogRequest(t *testing.T) ExecRequest {
@@ -46,10 +45,10 @@ func TestManagerLogUsesNumericSessionDirectory(t *testing.T) {
 	}
 }
 
-func TestManagerRejectsMissingSessionShortIDWithoutExecuting(t *testing.T) {
+func TestManagerRejectsMissingSessionIdentityWithoutExecuting(t *testing.T) {
 	manager := newShellTestManager(t, 15*time.Second)
 	request := sessionLogRequest(t)
-	request.OwnerSessionShortID = runtimeids.SessionShortID{}
+	request.OwnerSessionShortID = nil
 	marker := filepath.Join(request.Workdir, "executed")
 	request.Command = []string{"/bin/sh", "-c", "touch executed"}
 	if _, err := manager.Start(context.Background(), request); err == nil {
@@ -57,6 +56,24 @@ func TestManagerRejectsMissingSessionShortIDWithoutExecuting(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("command side effect = %v, want no execution", err)
+	}
+}
+
+func TestManagerLogUsesUUIDForSessionWithoutShortID(t *testing.T) {
+	ownerID := testsetup.ShellLogSessionID(t)
+	manager := newShellTestManager(t, 15*time.Second)
+	request := sessionLogRequest(t)
+	request.OwnerSessionShortID = nil
+	request.OwnerSessionID = ownerID.String()
+	result, err := manager.Start(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(filepath.Dir(result.OutputPath)) != ownerID.String() {
+		t.Fatalf("legacy Session log path = %s", result.OutputPath)
+	}
+	if log, err := os.ReadFile(result.OutputPath); err != nil || string(log) != "first" {
+		t.Fatalf("output=%q err=%v", log, err)
 	}
 }
 

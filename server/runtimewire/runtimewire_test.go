@@ -1122,7 +1122,7 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 	ctx := tools.WithExecutionIdentity(context.Background(), tools.ExecutionIdentity{
 		StepID:         "22222222-2222-4222-8222-222222222222",
 		ToolCallID:     clientui.ToolCallID(toolCallID),
-		SessionShortID: &shortID,
+		SessionShortID: shortID,
 	})
 	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
 	result, err := handler.Call(ctx, tools.Call{

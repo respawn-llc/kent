@@ -573,7 +573,18 @@ func TestServiceResolveTransitionOpenSessionRejectsNonProvenanceTargetBeforeReso
 }
 
 func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
-	cfg, metadataStore, _, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
+	cfg, metadataStore, binding, store := createAuthoritativeSessionLifecycleSession(t, t.TempDir())
+	parentTarget, err := metadataStore.ResolveSessionExecutionTarget(t.Context(), store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherProject, err := metadataStore.RegisterWorkspaceBinding(t.Context(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadataStore.AttachWorkspaceToProject(t.Context(), otherProject.ProjectID, cfg.WorkspaceRoot); err != nil {
+		t.Fatal(err)
+	}
 	containerDir := filepath.Dir(store.Dir())
 	if err := store.SetWorkflowSnapshot(session.WorkflowSnapshot{CompletionMode: sessioncontract.WorkflowCompletionModeTool}); err != nil {
 		t.Fatal(err)
@@ -614,6 +625,17 @@ func TestServiceResolveTransitionForkRollbackCreatesFork(t *testing.T) {
 	forkID, ok := intent.SessionID()
 	if !ok || forkID.String() == store.Meta().SessionID {
 		t.Fatalf("unexpected fork session id %q/%v", forkID.String(), ok)
+	}
+	childTarget, err := metadataStore.ResolveSessionExecutionTarget(t.Context(), forkID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	childProject, err := metadataStore.ResolveSessionProjectID(t.Context(), forkID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childProject != binding.ProjectID || childTarget.GetWorkspaceId() != parentTarget.GetWorkspaceId() {
+		t.Fatalf("fork selected another Project: parent=%+v child=%+v", parentTarget, childTarget)
 	}
 	prompt := preparation.InitialPrompt
 	if prompt == nil || prompt.Text != "edited prompt" {

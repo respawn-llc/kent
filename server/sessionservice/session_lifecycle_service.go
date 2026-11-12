@@ -39,6 +39,8 @@ type SessionLifecycleService struct {
 
 type SessionLifecycleMetadata interface {
 	session.PersistedSessionResolver
+	ResolveSessionProjectID(context.Context, string) (string, error)
+	ProjectSessionStoreOptions(string) []session.StoreOption
 	SessionIdentity(context.Context, runtimeids.SessionID) (runtimeids.SessionIdentity, error)
 	ResolveSessionTarget(context.Context, *sharedpb.SessionSelector) (runtimeids.SessionID, error)
 	DeleteSession(context.Context, string) error
@@ -245,10 +247,15 @@ func (s *SessionLifecycleService) resolveForkRollbackTransition(ctx context.Cont
 	if err != nil {
 		return nil, err
 	}
+	projectID, err := s.metadata.ResolveSessionProjectID(ctx, store.Meta().SessionID)
+	if err != nil {
+		return nil, err
+	}
 	resolved, err := resolveSessionTransition(ctx, sessionTransitionResolveRequest{
-		Store:      store,
-		Transition: transition,
-		ForkTarget: targetSettings,
+		Store:            store,
+		Transition:       transition,
+		ForkTarget:       targetSettings,
+		ForkStoreOptions: s.metadata.ProjectSessionStoreOptions(projectID),
 	})
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err

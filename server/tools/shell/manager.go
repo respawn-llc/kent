@@ -145,7 +145,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		return ExecResult{}, errors.New("shell process postprocessor is required")
 	}
 
-	id, logFile, err := m.allocateProcessSlot(req.OwnerSessionShortID)
+	id, logFile, err := m.allocateProcessSlot(req.OwnerSessionID, req.OwnerSessionShortID)
 	if err != nil {
 		return ExecResult{}, err
 	}

@@ -18,6 +18,6 @@ func ExecutionContext(t testing.TB, ctx context.Context, callID string) context.
 	return tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
 		StepID:         uuid.NewString(),
 		ToolCallID:     clientui.ToolCallID(callID),
-		SessionShortID: &shortID,
+		SessionShortID: shortID,
 	})
 }

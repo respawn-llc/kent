@@ -1,4 +1,12 @@
-import { type ReactNode, type RefCallback, useCallback, useEffect, useId, useRef } from "react";
+import {
+  type ReactNode,
+  type RefCallback,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { type ApprovalDecision, type FileAccessTarget, type QuestionAttentionItem } from "@/api";
@@ -123,6 +131,7 @@ function OrdinaryQuestionForm({
       answerID={answerID}
       answerRef={suggestions.length === 0 ? primaryControlRef : undefined}
       canSubmit={canSubmit}
+      canSubmitAfterRecording
       onAnswerChange={(nextAnswer) => {
         onSelectionStateChange(withQuestionCommentary(selection, nextAnswer));
       }}
@@ -228,6 +237,7 @@ function ApprovalQuestionForm({
       answer={answer}
       answerID={answerID}
       canSubmit={canSubmit}
+      canSubmitAfterRecording={selectedDecision !== null}
       onAnswerChange={(nextAnswer) => {
         onSelectionStateChange(withQuestionCommentary(selection, nextAnswer));
       }}
@@ -260,6 +270,7 @@ function QuestionFormFrame({
   answerID,
   answerRef,
   canSubmit,
+  canSubmitAfterRecording,
   onAnswerChange,
   onRadioValueChange,
   onSubmit,
@@ -273,6 +284,7 @@ function QuestionFormFrame({
   answerID: string;
   answerRef?: RefCallback<HTMLTextAreaElement> | undefined;
   canSubmit: boolean;
+  canSubmitAfterRecording: boolean;
   onAnswerChange: (answer: string) => void;
   onRadioValueChange: (value: string) => void;
   onSubmit: () => void;
@@ -283,8 +295,9 @@ function QuestionFormFrame({
   const { t } = useTranslation();
   const taskSpeech = useTaskSpeech();
   const editor = useRef<HTMLTextAreaElement>(null);
+  const identity = taskDetailAttentionRowKey(attention);
   const speech = useSpeechField({
-    identity: taskDetailAttentionRowKey(attention),
+    identity,
     value: answer,
     onChange: onAnswerChange,
     editorRef: editor,
@@ -293,7 +306,16 @@ function QuestionFormFrame({
       editor: () => editor.current,
     }),
   });
-  const submitEnabled = canSubmit && !speech.busy;
+  const submitEnabled = speech.phase === "recording" ? canSubmitAfterRecording : canSubmit && !speech.busy;
+  const submission = useRef<Readonly<{ identity: string; canSubmit: boolean; onSubmit(): void }> | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    submission.current = { identity, canSubmit, onSubmit };
+    return () => {
+      submission.current = null;
+    };
+  });
   const bindEditor = useCallback(
     (element: HTMLTextAreaElement | null) => {
       editor.current = element;
@@ -311,9 +333,12 @@ function QuestionFormFrame({
     <form
       className="grid gap-[var(--space-2)]"
       onKeyDown={formShortcut}
-      onSubmit={(event) => {
+      onSubmit={async (event) => {
         event.preventDefault();
-        if (submitEnabled) onSubmit();
+        if (!submitEnabled) return;
+        if (speech.busy && !(await speech.finish())) return;
+        const current = submission.current;
+        if (current?.identity === identity && current.canSubmit) current.onSubmit();
       }}
     >
       {accessTargets === undefined ? null : (
@@ -349,7 +374,11 @@ function QuestionFormFrame({
         rows={3}
         value={answer}
       />
-      <ControlTooltip label={t(speech.busy ? "speech.finishBeforeSubmit" : "task.submitAnswer")}>
+      <ControlTooltip
+        label={t(
+          speech.busy && speech.phase !== "recording" ? "speech.finishBeforeSubmit" : "task.submitAnswer",
+        )}
+      >
         <Button disabled={!submitEnabled} type="submit" variant="primary">
           {t("task.submitAnswer")}
         </Button>

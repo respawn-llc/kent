@@ -28,9 +28,10 @@ type sessionTransition struct {
 }
 
 type sessionTransitionResolveRequest struct {
-	Store      *session.Store
-	Transition sessionTransition
-	ForkTarget launch.InteractiveForkTarget
+	Store            *session.Store
+	Transition       sessionTransition
+	ForkTarget       launch.InteractiveForkTarget
+	ForkStoreOptions []session.StoreOption
 }
 
 func sessionTransitionFromProto(value *sessionlaunchpb.SessionTransition) sessionTransition {
@@ -95,7 +96,7 @@ func resolveForkRollback(req sessionTransitionResolveRequest) (*sessionlaunchpb.
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
-	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkTarget.Thinking)
+	forkedStore, forkOrdinal, err := session.ForkAtUserMessage(eventLog, req.Transition.ForkUserMessageSeq, baseName, sessioncontract.SessionCategoryMain, req.ForkTarget.Thinking, req.ForkStoreOptions...)
 	if err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}

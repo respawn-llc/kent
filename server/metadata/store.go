@@ -2356,6 +2356,11 @@ func (s *Store) upsertSessionSnapshotWithQueries(
 		if errors.Is(err, sql.ErrNoRows) {
 			return sqlitegen.UpsertSessionParams{}, serverapi.ErrWorkspaceNotRegistered
 		}
+		if errors.Is(err, serverapi.ErrWorkspaceBindingAmbiguous) {
+			invariant.NewPolicy(invariant.WithSink(invariant.SinkFunc(func(diagnostic invariant.Diagnostic) {
+				log.Printf("Session creation lost its Project scope: %+v", diagnostic)
+			}))).Check(false, invariant.FailureDiagnostic(invariant.ScopeSessionPersistence, "create_session_without_project_scope", err))
+		}
 		if err != nil {
 			return sqlitegen.UpsertSessionParams{}, err
 		}

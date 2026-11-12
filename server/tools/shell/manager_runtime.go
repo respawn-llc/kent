@@ -530,8 +530,15 @@ func (m *Manager) observeUntil(ctx context.Context, entry *processEntry, deadlin
 	}
 }
 
-func (m *Manager) allocateProcessSlot(shortID runtimeids.SessionShortID) (string, *os.File, error) {
-	if _, err := runtimeids.NewSessionShortID(shortID.Int64()); err != nil {
+func (m *Manager) allocateProcessSlot(ownerID string, shortID *runtimeids.SessionShortID) (string, *os.File, error) {
+	identity := runtimeids.SessionIdentity{ShortID: shortID}
+	if shortID == nil {
+		id, err := runtimeids.ParseSessionID(ownerID)
+		if err != nil {
+			return "", nil, fmt.Errorf("shell log Session identity: %w", err)
+		}
+		identity.ID = id
+	} else if _, err := runtimeids.NewSessionShortID(shortID.Int64()); err != nil {
 		return "", nil, fmt.Errorf("shell log Session identity: %w", err)
 	}
 	m.mu.Lock()
@@ -546,7 +553,7 @@ func (m *Manager) allocateProcessSlot(shortID runtimeids.SessionShortID) (string
 	if runtime.GOOS == "windows" {
 		root = os.TempDir()
 	}
-	directory := filepath.Join(root, "kent", shortID.String())
+	directory := filepath.Join(root, "kent", identity.String())
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return "", nil, fmt.Errorf("prepare background shell log directory: %w", err)
 	}

@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ComponentProps, useState } from "react";
+import { flushSync } from "react-dom";
 import { I18nextProvider } from "react-i18next";
-import { beforeAll, describe, expect, it, mock, onTestFinished, vi } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, it, mock, onTestFinished, vi } from "bun:test";
 
 import type { PendingAsk, QuestionAnswerInput, QuestionAttentionItem } from "@/api";
 import { appI18n, initializeI18n } from "@/i18n";
@@ -23,6 +24,8 @@ type FixtureApprovalAttention = FixtureQuestionAttention &
 
 let questionAnswerMutation: QuestionAnswerMutation;
 let listPendingAsks: (sessionID: string) => Promise<readonly PendingAsk[]>;
+let speechPhase: "idle" | "preparing" | "recording" | "transcribing" = "idle";
+let finishSpeech: (write: (text: string) => void) => Promise<boolean> = async () => false;
 
 const shortcutServices = createTestServices([], undefined, { platform: "macos" });
 const actualAppFacade = await import("@/app-facade");
@@ -40,7 +43,12 @@ await mock.module("@/app-facade", () => ({
 }));
 
 await mock.module("@/shared/speech-input", () => ({
-  useSpeechField: () => ({ control: undefined, busy: false, busyReason: "Speech pending" }),
+  useSpeechField: (binding: { onChange: (text: string) => void }) => ({
+    control: undefined,
+    busy: speechPhase !== "idle",
+    phase: speechPhase,
+    finish: async () => finishSpeech(binding.onChange),
+  }),
 }));
 await mock.module("./TaskDetailSpeech", () => ({
   useTaskSpeech: () => ({ questionDraft: () => ({ read: () => null, write: () => undefined }) }),
@@ -57,6 +65,185 @@ const {
 
 beforeAll(async () => {
   await initializeI18n();
+});
+
+beforeEach(() => {
+  speechPhase = "idle";
+  finishSpeech = async () => false;
+});
+
+describe("question recording submission", () => {
+  it.each(["ordinary", "approval"] as const)(
+    "finishes recording before submitting the transcribed %s answer",
+    async (kind) => {
+      speechPhase = "recording";
+      const finished = deferred<boolean>();
+      finishSpeech = async (write) => {
+        const success = await finished.promise;
+        if (success)
+          flushSync(() => {
+            write("recorded answer");
+          });
+        return success;
+      };
+      const attention = kind === "ordinary" ? ordinaryAttention([], null) : approvalAttention(["deny"]);
+      const presentation = questionPresentation(attention);
+      const inputs: QuestionAnswerInput[] = [];
+      renderQuestionForm(
+        attention,
+        presentation,
+        anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+        recordingQuestionAnswerMutation(inputs),
+      );
+      const user = userEvent.setup({ delay: null });
+      const submit = screen.getByRole("button");
+      expect(submit).toBeEnabled();
+      await user.click(submit);
+      expect(inputs).toHaveLength(0);
+      finished.resolve(true);
+      await waitFor(() => {
+        expect(inputs).toHaveLength(1);
+      });
+      expect(inputs[0]).toMatchObject(
+        kind === "ordinary"
+          ? { kind, freeformAnswer: "recorded answer" }
+          : { kind, decision: "deny", commentary: "recorded answer" },
+      );
+    },
+  );
+
+  it("does not submit a selected answer when transcription fails", async () => {
+    speechPhase = "recording";
+    const finish = vi.fn(async () => false);
+    finishSpeech = finish;
+    const attention = ordinaryAttention(["one"], 1);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button"));
+    expect(finish).toHaveBeenCalledTimes(1);
+    expect(inputs).toHaveLength(0);
+  });
+
+  it.each(["preparing", "transcribing"] as const)("keeps Submit disabled while %s", (phase) => {
+    speechPhase = phase;
+    const attention = ordinaryAttention(["one"], 1);
+    const presentation = questionPresentation(attention);
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation([]),
+    );
+    expect(screen.getByRole("button")).toBeDisabled();
+  });
+
+  it("does not submit an empty answer after a successful recording no-op", async () => {
+    speechPhase = "recording";
+    const finish = vi.fn(async () => true);
+    finishSpeech = finish;
+    const attention = ordinaryAttention([], null);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      questionPresentation(attention),
+      emptyQuestionSelection(),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button"));
+    expect(finish).toHaveBeenCalledTimes(1);
+    expect(inputs).toHaveLength(0);
+  });
+
+  it("uses the same finish-then-submit path for Command+Enter", async () => {
+    speechPhase = "recording";
+    const finish = vi.fn(async (write: (text: string) => void) => {
+      flushSync(() => {
+        write("spoken commentary");
+      });
+      return true;
+    });
+    finishSpeech = finish;
+    const attention = ordinaryAttention(["one"], 1);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    const user = userEvent.setup({ delay: null });
+    await user.click(screen.getByRole("textbox"));
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await waitFor(() => {
+      expect(inputs).toHaveLength(1);
+    });
+    expect(finish).toHaveBeenCalledTimes(1);
+    expect(inputs[0]).toMatchObject({
+      kind: "ordinary",
+      selectedOptionNumber: 1,
+      freeformAnswer: "spoken commentary",
+    });
+  });
+
+  it("does not submit after the question form closes during transcription", async () => {
+    speechPhase = "recording";
+    const finished = deferred<boolean>();
+    const started = deferred<boolean>();
+    finishSpeech = async () => {
+      started.resolve(true);
+      return finished.promise;
+    };
+    const attention = ordinaryAttention(["one"], 1);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    const view = renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button"));
+    await started.promise;
+    view.unmount();
+    await act(async () => {
+      finished.resolve(true);
+      await finished.promise;
+    });
+    expect(inputs).toHaveLength(0);
+  });
+
+  it("does not submit a replacement question while transcription finishes", async () => {
+    speechPhase = "recording";
+    const finished = deferred<boolean>();
+    finishSpeech = async () => finished.promise;
+    const attention = ordinaryAttention(["one"], 1);
+    const presentation = questionPresentation(attention);
+    const selection = anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection);
+    const inputs: QuestionAnswerInput[] = [];
+    const answerQuestion = recordingQuestionAnswerMutation(inputs);
+    const view = renderQuestionForm(attention, presentation, selection, answerQuestion);
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button"));
+    const replacement = {
+      ...attention,
+      id: "replacement-attention",
+      question: { ...attention.question, toolCallID: "replacement-question" },
+    };
+    view.rerender(
+      questionFormTree(replacement, questionPresentation(replacement), selection, answerQuestion),
+    );
+    await act(async () => {
+      finished.resolve(true);
+      await finished.promise;
+    });
+    expect(inputs).toHaveLength(0);
+  });
 });
 
 describe("questionPresentation", () => {
