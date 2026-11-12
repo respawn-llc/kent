@@ -1,34 +1,25 @@
 import { afterEach, beforeEach, expect, it, vi } from "bun:test";
 import { installChatStorageFixture } from "./chatStorageFixture";
-import { act, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
-import { RegistryProvider } from "@effect/atom-react";
-import type { ReactNode } from "react";
 
 import { pendingWorkItemIDFromProto, type ChatInputMutationResult, type ChatSettingsRead } from "@/api";
-import { createTestServices, TestAppProviders } from "@/test-support/app-services";
+import { createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
-import {
-  queryKeys,
-  readBrowserStorage,
-  writeBrowserStorage,
-  SidebarRootContext,
-  SidebarRootOwner,
-  SidebarShellContext,
-} from "@/app-facade";
-import { createTestSidebarController, createTestSidebarShell } from "@/test-support/sidebar";
-import { useChatDestination } from "./useChatDestination";
-import type { ChatDestinationOpening } from "./ChatDestinationViewModel";
+import { queryKeys, readBrowserStorage, writeBrowserStorage } from "@/app-facade";
 import { appI18n } from "@/i18n";
-import type { ComposerCommand } from "./composerCommands";
+import {
+  worktreeBrowserFixtureRoute,
+  worktreeBrowserFixtureEntry,
+  workspaceWorktreeBrowserFixtureRoute,
+} from "@/test-support/api";
 
 import {
   opening,
   newChatTarget,
   baseline,
   catalog,
-  navigation,
   renderDestination,
 } from "@/test-support/chat-destination";
 let restoreStorage: (() => void) | undefined;
@@ -39,51 +30,7 @@ afterEach(() => {
   restoreStorage?.();
   restoreStorage = undefined;
 });
-function setup(commands: readonly ComposerCommand[] = [], selected: ChatDestinationOpening = opening) {
-  writeBrowserStorage("local", "desktop.newChatDraft", "");
-  const services = createTestServices([]);
-  const commandsRead = vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);
-  const settingsRead = vi.spyOn(services.api.chat, "getSettings").mockImplementation(async (target) => {
-    if (target.kind === "new_chat") return catalog;
-    const choice = catalog.catalog.choices[0];
-    if (choice === undefined) throw new Error("Missing default Agent");
-    return {
-      kind: "session",
-      settings: {
-        ...choice,
-        selectedAgent: choice.agent,
-        agentChoices: [choice.agent],
-        agentEditability: { kind: "editable" },
-        agentLocked: false,
-        workflowLocked: false,
-        cachingLocked: false,
-      },
-      session: { sessionID: target.sessionID, shortID: null, previousSessionID: null, task: null },
-    };
-  });
-  const draft = vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
-  const read = vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
-  const observe = vi.spyOn(services.api.chat, "getMainView");
-  const steer = vi.spyOn(services.api.chat, "steer");
-  const queue = vi.spyOn(services.api.chat, "queue");
-  const goal = vi.spyOn(services.api.chat, "setGoal");
-  const compact = vi.spyOn(services.api.chat, "compact");
-  vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({ items: [] });
-  const view = renderHook(() => useChatDestination({ opening: selected, navigation, commands }), {
-    wrapper: ({ children }: Readonly<{ children: ReactNode }>) => (
-      <RegistryProvider>
-        <TestAppProviders services={services}>
-          <SidebarRootContext.Provider value={createTestSidebarController()}>
-            <SidebarShellContext.Provider value={createTestSidebarShell()}>
-              <SidebarRootOwner>{children}</SidebarRootOwner>
-            </SidebarShellContext.Provider>
-          </SidebarRootContext.Provider>
-        </TestAppProviders>
-      </RegistryProvider>
-    ),
-  });
-  return { ...view, services, draft, read, observe, steer, queue, goal, compact, commandsRead, settingsRead };
-}
+import { setup } from "./chatDestinationFixture.test";
 
 it("preserves editing before a workspace resolves and admits no early actions", async () => {
   const view = setup([], { kind: "new_chat", projectID: opening.projectID, workspace: null });
@@ -121,27 +68,55 @@ it("preserves editing before a workspace resolves and admits no early actions", 
   expect(view.result.current.composer.text).toBe("before workspace");
 });
 
-it("restores manually typed New Chat naming without creating a Session", async () => {
+it("routes pre-creation Worktree switch locally and deletion through Workspace previews", async () => {
   const view = setup();
-  const setName = vi.spyOn(view.services.api.chat, "setSessionName");
+  const preview = vi
+    .spyOn(view.services.api, "previewWorktreeDelete")
+    .mockRejectedValue(new Error("protected"));
+  const status = vi.spyOn(view.services.api, "getWorktreeStatus");
+  const resolve = vi.spyOn(view.services.api, "resolveWorktreeSelector");
   await waitFor(() => {
     expect(view.result.current.settings.kind).toBe("ready-new-chat");
   });
-  act(() => {
-    view.result.current.composer.edit("/name Later");
+  const command = async (text: string) => {
+    act(() => {
+      view.result.current.composer.edit(text);
+    });
+    await act(async () => {
+      view.result.current.composer.submit("send");
+    });
+  };
+  await command("/wt switch topic");
+  await command("/wt delete explicit");
+  await command("/wt delete");
+  const scope = { kind: "workspace", projectID: opening.projectID, workspaceID: opening.workspace.id };
+  expect(preview).toHaveBeenNthCalledWith(1, scope, "explicit");
+  expect(preview).toHaveBeenNthCalledWith(2, scope, "topic");
+  await command("/wt leave");
+  const fixture = createTestServices([
+    worktreeBrowserFixtureRoute([worktreeBrowserFixtureEntry("mainWorkspace", true)]),
+  ]);
+  const listed = await fixture.api.listWorktrees({
+    kind: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
   });
-  expect(view.result.current.composer.suggestions).toEqual([]);
-  await act(async () => {
-    view.result.current.composer.submit("send");
+  const inventory = vi.spyOn(view.services.api, "listWorktrees").mockResolvedValue({
+    ...listed,
+    target: null,
   });
-  expect(view.result.current.composer.text).toBe("/name Later");
-  expect(view.result.current.target?.kind).toBe("new_chat");
-  expect(setName).not.toHaveBeenCalled();
+  await command("/wt delete");
+  expect(inventory).toHaveBeenCalledWith(scope);
+  expect(preview).toHaveBeenNthCalledWith(3, scope, "main");
+  inventory.mockResolvedValue({ target: null, branchSuggestion: undefined, worktrees: [] });
+  await command("/wt delete");
+  expect(preview).toHaveBeenCalledTimes(3);
+  expect(status).not.toHaveBeenCalled();
+  expect(resolve).not.toHaveBeenCalled();
   expect(view.steer).not.toHaveBeenCalled();
-  expect(view.queue).not.toHaveBeenCalled();
+  expect(view.result.current.target?.kind).toBe("new_chat");
 });
 
-it("hides Processes discovery until adoption while rejecting typed activation without creating a Session", async () => {
+it("captures Project Processes before creation and Session Processes on reopening after adoption", async () => {
   const view = setup();
   await waitFor(() => {
     expect(view.result.current.settings.kind).toBe("ready-new-chat");
@@ -149,12 +124,16 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
   act(() => {
     view.result.current.composer.edit("/ps");
   });
-  expect(view.result.current.composer.suggestions).toEqual([]);
   await act(async () => {
     view.result.current.composer.submit("send");
   });
   expect(view.steer).not.toHaveBeenCalled();
   expect(view.result.current.target?.kind).toBe("new_chat");
+  const projectDestination = view.opened.mock.calls[0]?.[0];
+  expect(projectDestination).toEqual({
+    kind: "processes",
+    scope: { kind: "project", projectID: opening.projectID, workspace: newChatTarget.workspace },
+  });
   view.steer.mockResolvedValue({
     sessionID: "created-session",
     outcome: {
@@ -179,6 +158,15 @@ it("hides Processes discovery until adoption while rejecting typed activation wi
   expect(view.result.current.composer.suggestions).toMatchObject([
     { token: "/ps", execution: { kind: "direct" } },
   ]);
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  expect(view.opened.mock.calls[1]?.[0]).toEqual({
+    kind: "processes",
+    scope: { kind: "session", projectID: opening.projectID, sessionID: "created-session" },
+  });
+  if (projectDestination?.kind !== "processes") throw new Error("Expected Processes destination");
+  expect(projectDestination.scope.kind).toBe("project");
 });
 
 it("keeps New Chat draft persistence after a local command without materializing a Session", async () => {
@@ -562,7 +550,7 @@ it("applies an existing-Session command's late result against the currently disp
 it.each(["settings", "workspace"] as const)(
   "replaces mounted Chat on cached %s failure and restores its unsent input after Retry",
   async (source) => {
-    const services = createTestServices([]);
+    const services = createTestServices([workspaceWorktreeBrowserFixtureRoute()]);
     const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(catalog);
     const workspaces = vi.spyOn(services.api, "listWorkspaces").mockResolvedValue({
       projectID: opening.projectID,
@@ -577,7 +565,7 @@ it.each(["settings", "workspace"] as const)(
     const user = userEvent.setup({ delay: null });
     await user.type(await screen.findByRole("textbox"), "unsent input");
     if (source === "workspace") {
-      await user.click(screen.getByRole("button", { name: opening.workspace.name }));
+      await user.click(screen.getByRole("button", { name: opening.workspace.name, expanded: false }));
       await waitFor(() => {
         expect(workspaces).toHaveBeenCalledTimes(1);
       });
@@ -1015,6 +1003,18 @@ it("keeps text but replaces edited settings when selecting another workspace bef
     expect(view.result.current.settings.kind).toBe("ready-new-chat");
   });
   act(() => {
+    view.result.current.composer.edit("/name Keep");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  act(() => {
+    view.result.current.composer.edit("/wt switch topic");
+  });
+  await act(async () => {
+    view.result.current.composer.submit("send");
+  });
+  act(() => {
     view.result.current.composer.edit("keep me");
     const settings = view.result.current.settings;
     if (settings.kind !== "ready-new-chat") throw new Error("Settings unavailable");
@@ -1059,6 +1059,8 @@ it("keeps text but replaces edited settings when selecting another workspace bef
         projectID: opening.projectID,
         workspace: { workspaceID: "workspace-2" },
         initialSettings: changed,
+        name: "Keep",
+        worktreeSelector: null,
       },
       { kind: "text", text: "keep me" },
       expect.anything(),

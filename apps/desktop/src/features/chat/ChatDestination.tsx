@@ -101,7 +101,8 @@ function ChatDestinationShell({
   const target = destination.target?.kind === "session" ? destination.target : null;
   useSessionSettingsObservation(target, destination.settingsModel);
   const executionTarget = mainView.kind === "session" ? (mainView.data?.executionTarget ?? null) : null;
-  const worktrees = useWorktreeList(target?.sessionID ?? null, executionTarget, "chat-label");
+  const worktreeScope = useAtomValue(destination.worktreeBinding.scope);
+  const worktrees = useWorktreeList(worktreeScope, executionTarget, "chat-label");
   const newGoal = destination.goalState;
   const shownGoal =
     target !== null
@@ -158,7 +159,7 @@ function ChatDestinationShell({
     <ChatComposerSurface composer={destination.composer} enabled={!editRequest.isPending}>
       <ChatShell
         selectedSession={destination.target}
-        sessionName={sessionName}
+        sessionName={target === null ? destination.temporaryName : sessionName}
         state={state}
         chromeAction={chromeAction}
         content={(_, bottomInset) => (
@@ -199,10 +200,11 @@ function ChatDestinationShell({
                     />
                   </div>
                 )}
-                {target !== null && (
+                {worktreeScope !== null && (
                   <WorktreeControl
-                    projectID={target.projectID}
-                    sessionID={target.sessionID}
+                    projectID={destination.projectID}
+                    sessionID={target?.sessionID ?? null}
+                    chat={destination.worktreeBinding}
                     target={executionTarget}
                     query={worktrees}
                     openSession={navigation.openParentSession}

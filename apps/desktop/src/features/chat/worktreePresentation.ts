@@ -5,7 +5,7 @@ interface WorktreeBadge {
   tone: "danger" | "neutral" | "warning";
 }
 
-export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
+export function worktreeRow(entry: WorktreeListEntry, workspaceName: string, localSelector?: string | null) {
   const topology = entry.topology.topology;
   const projection = entry.projection;
   const facts = rowFacts(topology, workspaceName, projection.fallbackIdentity);
@@ -28,10 +28,17 @@ export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
           },
     ref: ref === identity.title ? undefined : ref,
     badges: worktreeBadges(topologyIndicator, projection.isInUse),
-    selected: projection.isCurrent,
+    selected: selectedWorktree(entry, localSelector),
     switch: projection.switch,
-    delete: projection.deletePreview,
+    delete: localSelector === undefined ? projection.deletePreview : { selector: projection.selector },
   };
+}
+
+function selectedWorktree(entry: WorktreeListEntry, selector: string | null | undefined): boolean {
+  if (selector === undefined) return entry.projection.isCurrent;
+  return selector === null
+    ? entry.topology.topology.case === "mainWorkspace"
+    : selector === entry.projection.selector;
 }
 
 function worktreeBadges(indicator: "external" | "missing" | undefined, isInUse: boolean): WorktreeBadge[] {

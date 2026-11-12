@@ -11,6 +11,7 @@ import {
   errorMessage,
   type WorktreeDeletePreviewOperation,
   type WorktreeSwitch,
+  type WorktreeScope,
 } from "@/api";
 import { CopyableValue } from "@/shared/copyable-value";
 import {
@@ -40,7 +41,12 @@ import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
 import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
 export function WorktreeBrowser(props: Parameters<typeof WorktreeBrowserDestination>[0]) {
-  return <WorktreeBrowserDestination key={props.sessionID} {...props} />;
+  return (
+    <WorktreeBrowserDestination
+      key={JSON.stringify(props.scope ?? { kind: "session", sessionID: props.sessionID })}
+      {...props}
+    />
+  );
 }
 
 function WorktreeBrowserDestination({
@@ -49,27 +55,36 @@ function WorktreeBrowserDestination({
   onCreate,
   onSwitch,
   navigator,
-  switchPending = false,
+  switchPending,
   refreshOpenWorktreeList,
   onOpenSession,
+  scope,
+  workspace,
 }: Readonly<{
   projectID: string;
-  sessionID: string;
+  sessionID: string | null;
+  scope?: WorktreeScope;
+  workspace?: Readonly<{ name: string; selector: string | null; select(selector: string | null): void }>;
   onOpenSession(sessionID: string): void | Promise<void>;
   onCreate(): void;
   onSwitch(operation: WorktreeSwitch): void;
   navigator: SidebarPageNavigator;
   switchPending?: boolean;
-  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
+  refreshOpenWorktreeList(scope: WorktreeScope): void | Promise<void>;
 }>) {
   const { t } = useTranslation();
   const { nativeBridge, api } = useAppServices();
   const client = useQueryClient();
   const { push } = useStatusController();
   const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
-  const query = useWorktreeList(sessionID);
+  const managementScope = useMemo((): WorktreeScope => {
+    if (scope !== undefined) return scope;
+    if (sessionID === null) throw new Error("Worktree inventory requires a scope");
+    return { kind: "session", sessionID };
+  }, [scope, sessionID]);
+  const query = useWorktreeList(managementScope);
   const [deletionModel] = useState(() =>
-    createWorktreeDelete({ api, client, sessionID, refreshOpenWorktreeList, push, t }),
+    createWorktreeDelete({ api, client, scope: managementScope, refreshOpenWorktreeList, push, t }),
   );
   const deletionActions = useWorktreeDelete(deletionModel);
   const selected = useAtomValue(deletionModel.selector);
@@ -143,7 +158,7 @@ function WorktreeBrowserDestination({
   const preview = previewQuery?.data;
   const canIncludeBranch = preview !== undefined && hasDeletableWorktreeBranch(preview);
   const cleanliness = preview?.cleanliness;
-  const deleteButton = (operation: WorktreeDeletePreviewOperation) => (
+  const deleteButton = (operation: Pick<WorktreeDeletePreviewOperation, "selector">) => (
     <WorktreeDeleteButton
       includeBranch={includeBranch}
       disabled={deletion.isPending}
@@ -183,6 +198,8 @@ function WorktreeBrowserDestination({
     );
   if (query.data === undefined) return <LoadingState surface="plain" appearanceDelayMs={0} />;
   const { target, worktrees } = query.data;
+  const workspaceLabel = target?.workspaceName ?? workspace?.name;
+  if (workspaceLabel === undefined) throw new Error("Workspace name is required");
   return (
     <div
       className="grid min-w-0 gap-[var(--space-2)]"
@@ -196,8 +213,11 @@ function WorktreeBrowserDestination({
       ) : null}
       <AnimatePresence initial={false}>
         {worktrees.map((entry) => {
-          const row = worktreeRow(entry, target.workspaceName);
-          const deleting = row.delete !== undefined && busySelectors.has(row.delete.selector);
+          const row = worktreeRow(entry, workspaceLabel, workspace?.selector);
+          const isMain = entry.topology.topology.case === "mainWorkspace";
+          const deletionOperation = row.delete;
+          const switchOperation = row.switch;
+          const deleting = deletionOperation !== undefined && busySelectors.has(deletionOperation.selector);
           return (
             <AnimatedReveal
               key={row.key}
@@ -260,19 +280,31 @@ function WorktreeBrowserDestination({
                           originSessionLabel={row.originSession.label}
                         />
                       )}
-                      {row.switch === undefined ? null : (
+                      {switchOperation === undefined ? null : (
                         <IconTooltipButton
                           size="icon-sm"
                           label={t(switchPending ? "chat.worktree.switchPending" : "chat.worktree.switch")}
                           disabled={switchPending}
+                          loading={switchPending}
                           onClick={() => {
-                            if (row.switch !== undefined) onSwitch(row.switch);
+                            onSwitch(switchOperation);
                           }}
                         >
-                          {switchPending ? <Spinner size="sm" /> : <ArrowRightLeft size={16} />}
+                          <ArrowRightLeft size={16} />
                         </IconTooltipButton>
                       )}
-                      {row.delete === undefined ? null : deleteButton(row.delete)}
+                      {workspace === undefined || row.selected ? null : (
+                        <IconTooltipButton
+                          size="icon-sm"
+                          label={t("chat.worktree.switch")}
+                          onClick={() => {
+                            workspace.select(isMain ? null : row.key);
+                          }}
+                        >
+                          <ArrowRightLeft size={16} />
+                        </IconTooltipButton>
+                      )}
+                      {deletionOperation === undefined ? null : deleteButton(deletionOperation)}
                     </>
                   )
                 }
@@ -293,7 +325,7 @@ function WorktreeOriginSessionAction({
   originSessionID,
   originSessionLabel,
 }: Readonly<{
-  currentSessionID: string;
+  currentSessionID: string | null;
   projectID: string;
   nativeWindowsAvailable: boolean;
   onOpenSession(sessionID: string): void | Promise<void>;

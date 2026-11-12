@@ -9,7 +9,9 @@ const sessionID = "123e4567-e89b-42d3-a456-426614174000";
 const target = {
   kind: "new_chat" as const,
   projectID: "project-1",
-  workspaceID: "workspace-1",
+  workspace: { workspaceID: "workspace-1" },
+  name: "Goal manager",
+  worktreeSelector: "feature",
   initialSettings: {
     agentRole: "default" as const,
     supervisor: "off" as const,

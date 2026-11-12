@@ -7,23 +7,23 @@ import {
   worktreeListQueryOptions,
   type WorktreeListReadOwner,
 } from "@/app-facade";
-import type { ChatExecutionTarget } from "@/api";
+import type { ChatExecutionTarget, WorktreeScope } from "@/api";
 
 export function useWorktreeList(
-  sessionID: string | null,
+  scope: WorktreeScope | null,
   target?: ChatExecutionTarget | null,
   owner: WorktreeListReadOwner = "sidebar",
 ) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const query = useQuery({
-    ...worktreeListQueryOptions(api, sessionID, owner),
+    ...worktreeListQueryOptions(api, scope, owner),
     enabled: false,
   });
   const refresh = useCallback(() => {
-    if (sessionID === null) return;
-    void replaceWorktreeListRead(client, api, sessionID, owner);
-  }, [api, client, sessionID, owner]);
+    if (scope === null) return;
+    void replaceWorktreeListRead(client, api, scope, owner);
+  }, [api, client, scope, owner]);
   useEffect(() => {
     refresh();
   }, [

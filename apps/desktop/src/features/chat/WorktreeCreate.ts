@@ -11,6 +11,8 @@ import {
   type ApiService,
   type WorktreeCreateInput,
   type WorktreeSwitch,
+  type WorktreeScope,
+  type ChatMutationTarget,
 } from "@/api";
 import {
   createWorktreeTargetResolutionRequest,
@@ -20,6 +22,7 @@ import {
   queryAtom,
   type SidebarPageNavigator,
   type StatusController,
+  type ChatWorktreeBinding,
 } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
@@ -35,27 +38,39 @@ export function createWorktreeCreate({
   push,
   navigator,
   refreshOpenWorktreeList,
+  scope,
+  chat,
 }: Readonly<{
   client: QueryClient;
   api: ApiService;
   projectID: string;
-  sessionID: string;
+  sessionID: string | null;
+  scope: WorktreeScope;
+  chat?: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
   suggestion: string | undefined;
   navigator: SidebarPageNavigator;
-  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
+  refreshOpenWorktreeList(scope: WorktreeScope): void | Promise<void>;
   submitSwitch(operation: WorktreeSwitch): Promise<void>;
   push: StatusController["push"];
   t: TFunction;
 }>) {
+  const readyTarget =
+    chat?.creationTarget ??
+    Atom.make<ChatMutationTarget | null>(
+      sessionID === null ? null : { kind: "session", projectID, sessionID },
+    );
+  const inputDraft = chat?.draft ?? Atom.make("");
+  const managementScope = chat?.scope ?? Atom.make(scope);
   const target = Atom.make(suggestion ?? "");
   const trimmedTarget = Atom.make((get) => get(target).trim());
   const base = Atom.make("HEAD");
   const intent = Atom.make<string | null>(null);
   const resolver = Atom.make((get) => {
     const value = get(trimmedTarget);
-    if (value.length === 0) return null;
-    const request = createWorktreeTargetResolutionRequest(sessionID, value);
+    const selectedScope = get(managementScope);
+    if (value.length === 0 || selectedScope === null) return null;
+    const request = createWorktreeTargetResolutionRequest(selectedScope, value);
     void client.resetQueries({
       queryKey: worktreeCreateTargetResolutionQueryOptions(api, request).queryKey,
       exact: true,
@@ -75,12 +90,33 @@ export function createWorktreeCreate({
     return result?.isSuccess ? result.data.resolution : undefined;
   });
   const creator = new MutationObserver(client, {
-    mutationFn: async (input: WorktreeCreateInput) => api.createWorktree(input),
-    retry: false,
-    networkMode: "always",
-    onSuccess: (result) => {
+    ...(chat === undefined ? {} : { mutationKey: chat.creationKey }),
+    mutationFn: async (
+      request: Readonly<{
+        input: Omit<WorktreeCreateInput, "sessionID">;
+        target: ChatMutationTarget;
+        draft: string;
+      }>,
+    ) => {
+      const target = request.target;
+      const identity =
+        target.kind === "session" ? target.sessionID : await api.chat.planNewChat(target, request.draft);
+      if (target.kind === "new_chat") await chat?.delivered(identity);
+      const result = await api.createWorktree({ ...request.input, sessionID: identity });
       const operation = result.worktree?.projection?.switch;
       if (operation === undefined) throw new Error("Created worktree Switch authority is required");
+      if (target.kind === "new_chat") {
+        await api.switchWorktree(identity, operation);
+      }
+      return { operation, newChat: target.kind === "new_chat" };
+    },
+    retry: false,
+    networkMode: "always",
+    onSuccess: ({ operation, newChat }) => {
+      if (newChat) {
+        navigator.close();
+        return;
+      }
       void submitSwitch(operation);
     },
     onError: (error) => {
@@ -100,10 +136,16 @@ export function createWorktreeCreate({
       if (
         error instanceof WorktreeError &&
         error.detail.kind === "setup_retained" &&
-        navigator.replace({ kind: "worktree", projectID, sessionID, page: "list", openSession }) !==
-          "accepted"
+        navigator.replace({
+          kind: "worktree",
+          projectID,
+          sessionID,
+          page: "list",
+          openSession,
+          ...(chat === undefined ? {} : { chat }),
+        }) !== "accepted"
       ) {
-        void refreshOpenWorktreeList(sessionID);
+        void refreshOpenWorktreeList(scope);
       }
     },
   });
@@ -126,12 +168,18 @@ export function createWorktreeCreate({
             : null;
         if (baseRef === "") return;
         get.set(intent, null);
+        const captured = get(readyTarget);
+        if (captured === null) return;
+        const draft = get(inputDraft);
         yield* Effect.tryPromise(async () =>
           creator.mutate({
-            sessionID,
-            resolution: authority,
-            baseRef,
-            setupOperationID: newSetupOperationID(),
+            target: captured,
+            draft,
+            input: {
+              resolution: authority,
+              baseRef,
+              setupOperationID: newSetupOperationID(),
+            },
           }),
         ).pipe(Effect.ignore);
       }),
@@ -139,9 +187,10 @@ export function createWorktreeCreate({
   );
   const resolve = Atom.make((get) => {
     const value = get(trimmedTarget);
+    const selectedScope = get(managementScope);
     return Effect.gen(function* () {
-      if (value.length === 0) return;
-      const request = createWorktreeTargetResolutionRequest(sessionID, value);
+      if (value.length === 0 || selectedScope === null) return;
+      const request = createWorktreeTargetResolutionRequest(selectedScope, value);
       yield* Effect.addFinalizer(() =>
         Effect.promise(async () => disposeWorktreeCreateTargetResolution(client, request)),
       );

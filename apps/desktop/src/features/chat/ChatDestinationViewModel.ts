@@ -2,11 +2,18 @@ import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { openNativeChat, queryAtom, type AppServices, type StatusController } from "@/app-facade";
+import {
+  openNativeChat,
+  queryAtom,
+  mutationPendingAtom,
+  type AppServices,
+  type StatusController,
+} from "@/app-facade";
 import {
   errorMessage,
   type ChatNotAcceptedReason,
   type ChatSettingsTarget,
+  type ChatMutationTarget,
   type WorkspaceCatalogRow,
 } from "@/api";
 import { createChatSettingsViewModel } from "./ChatSettingsViewModel";
@@ -18,6 +25,10 @@ import { createNewChatGoalBinding } from "./goal/goalBinding";
 export type ChatDestinationOpening =
   | Extract<ChatSettingsTarget, { kind: "session" }>
   | Readonly<{ kind: "new_chat"; projectID: string; workspace: WorkspaceCatalogRow | null }>;
+type ChatSelection =
+  | Extract<ChatDestinationOpening, { kind: "session" }>
+  | (Extract<ChatDestinationOpening, { kind: "new_chat" }> &
+      Readonly<{ name: string | null; worktreeSelector: string | null }>);
 
 export function createChatDestinationViewModel({
   opening,
@@ -32,24 +43,46 @@ export function createChatDestinationViewModel({
   t: TFunction;
   push: StatusController["push"];
 }>) {
-  const selection = Atom.make(opening);
-  const target = Atom.make<ChatSettingsTarget | null>((get) => {
+  const selection = Atom.make<ChatSelection>(
+    opening.kind === "new_chat" ? { ...opening, name: null, worktreeSelector: null } : opening,
+  );
+  const worktreeCreationKey = ["chat-worktree-create", crypto.randomUUID()] as const;
+  const settingsSelection = Atom.make((get) => {
     const selected = get(selection);
-    return selected.kind === "session"
+    return selected.kind === "session" ? selected : selected.workspace;
+  });
+  const target = Atom.make<ChatSettingsTarget | null>((get) => {
+    const selected = get(settingsSelection);
+    return selected !== null && "kind" in selected
       ? selected
-      : selected.workspace === null
+      : selected === null
         ? null
         : {
             kind: "new_chat",
-            projectID: selected.projectID,
-            workspace: { workspaceID: selected.workspace.id },
+            projectID: opening.projectID,
+            workspace: { workspaceID: selected.id },
           };
   });
   const settings = createChatSettingsViewModel({ services, client, t, target });
   const catalog = createChatCommandCatalogViewModel({ services, client, target });
+  const creationTarget = Atom.make((get): ChatMutationTarget | null => {
+    const selected = get(selection);
+    if (selected.kind === "session") return selected;
+    const value = get(settings.state);
+    const readTarget = get(target);
+    return value.kind === "ready-new-chat" && readTarget?.kind === "new_chat"
+      ? {
+          ...readTarget,
+          initialSettings: value.initialSettings,
+          name: selected.name,
+          worktreeSelector: selected.worktreeSelector,
+        }
+      : null;
+  });
   const submission = Atom.make((get): ComposerSubmission => {
     const value = get(settings.state);
-    if (value.kind === "ready-new-chat") return { kind: "ready", initialSettings: value.initialSettings };
+    const ready = get(creationTarget);
+    if (ready?.kind === "new_chat") return { kind: "ready", target: ready };
     if (value.kind === "ready-session") return { kind: "ready" };
     return "error" in value ? { kind: "failed", error: value.error } : { kind: "loading" };
   });
@@ -116,10 +149,14 @@ export function createChatDestinationViewModel({
     api: services.api.chat,
     client,
     target,
+    creationTarget,
     settings,
     draft: composer.draft,
   });
-  const firstActionPending = Atom.make((get) => get(composer.input.pending) || get(goal.pending));
+  const worktreeCreationPending = mutationPendingAtom(client, { mutationKey: worktreeCreationKey });
+  const firstActionPending = Atom.make(
+    (get) => get(composer.input.pending) || get(goal.pending) || get(worktreeCreationPending),
+  );
   const adopt = Atom.fn<
     Readonly<{
       sessionID: string;
@@ -161,13 +198,45 @@ export function createChatDestinationViewModel({
         const current = get(selection);
         if (current.kind !== "new_chat" || get(firstActionPending) || current.workspace?.id === workspace.id)
           return;
-        get.set(selection, { ...current, workspace });
+        get.set(selection, { ...current, workspace, worktreeSelector: null });
       }),
     { concurrent: true },
   );
   return {
     selection: Atom.make((get) => get(selection)),
     target,
+    creationTarget,
+    worktreeCreationKey,
+    worktreeScope: Atom.make((get) => {
+      const selected = get(target);
+      if (selected === null || selected.kind === "session") return selected;
+      if (!("workspaceID" in selected.workspace)) throw new Error("Chat Workspace ID is required");
+      return {
+        kind: "workspace" as const,
+        projectID: selected.projectID,
+        workspaceID: selected.workspace.workspaceID,
+      };
+    }),
+    worktreeSelector: Atom.make((get) => {
+      const selected = get(selection);
+      return selected.kind === "new_chat" ? selected.worktreeSelector : null;
+    }),
+    workspaceName: Atom.make((get) => {
+      const selected = get(selection);
+      return selected.kind === "new_chat" ? (selected.workspace?.name ?? null) : null;
+    }),
+    selectWorktree: Atom.fn<string | null>()((worktreeSelector, get) =>
+      Effect.sync(() => {
+        const current = get(selection);
+        if (current.kind === "new_chat") get.set(selection, { ...current, worktreeSelector });
+      }),
+    ),
+    setName: Atom.fn<string | null>()((name, get) =>
+      Effect.sync(() => {
+        const current = get(selection);
+        if (current.kind === "new_chat") get.set(selection, { ...current, name });
+      }),
+    ),
     settings,
     composer,
     catalog,

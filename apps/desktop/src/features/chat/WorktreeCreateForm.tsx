@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { CreateTargetResolutionKind, errorMessage } from "@/api";
+import { CreateTargetResolutionKind, errorMessage, type WorktreeScope } from "@/api";
 import {
   replaceWorktreeListRead,
   useAppServices,
@@ -13,6 +13,7 @@ import {
   useTextFieldSubmitShortcut,
   worktreeListQueryOptions,
   type SidebarPageNavigator,
+  type ChatWorktreeBinding,
 } from "@/app-facade";
 import {
   Button,
@@ -29,7 +30,9 @@ import type { createWorktreeActions } from "./WorktreeActions";
 
 type Props = Readonly<{
   projectID: string;
-  sessionID: string;
+  sessionID: string | null;
+  scope?: WorktreeScope;
+  chat?: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
   navigator: SidebarPageNavigator;
   actions: ReturnType<typeof createWorktreeActions>;
@@ -39,7 +42,13 @@ export function WorktreeCreateForm(props: Props) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
-  const query = useQuery(worktreeListQueryOptions(api, props.sessionID));
+  const scope = useMemo(
+    () =>
+      props.scope ??
+      (props.sessionID === null ? null : { kind: "session" as const, sessionID: props.sessionID }),
+    [props.scope, props.sessionID],
+  );
+  const query = useQuery(worktreeListQueryOptions(api, scope));
   const header = useMemo(
     () => (
       <IconTooltipButton
@@ -51,6 +60,7 @@ export function WorktreeCreateForm(props: Props) {
             projectID: props.projectID,
             sessionID: props.sessionID,
             openSession: props.openSession,
+            ...(props.chat === undefined ? {} : { chat: props.chat }),
           })
         }
       >
@@ -70,6 +80,7 @@ export function WorktreeCreateForm(props: Props) {
         projectID: props.projectID,
         sessionID: props.sessionID,
         openSession: props.openSession,
+        ...(props.chat === undefined ? {} : { chat: props.chat }),
       });
     };
     document.addEventListener("keydown", back);
@@ -78,7 +89,9 @@ export function WorktreeCreateForm(props: Props) {
     };
   }, [props.navigator, props.projectID, props.sessionID, props.openSession]);
   if (query.data !== undefined)
-    return <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />;
+    return scope === null ? null : (
+      <CreateFields {...props} scope={scope} suggestion={query.data.branchSuggestion} query={query} />
+    );
   if (query.isError)
     return (
       <ErrorState
@@ -87,7 +100,7 @@ export function WorktreeCreateForm(props: Props) {
         body={errorMessage(query.error)}
         retryLabel={t("app.retry")}
         onRetry={() => {
-          void replaceWorktreeListRead(client, api, props.sessionID);
+          if (scope !== null) void replaceWorktreeListRead(client, api, scope);
         }}
       />
     );
@@ -102,9 +115,12 @@ function CreateFields({
   actions,
   suggestion,
   query,
+  scope,
+  chat,
 }: Props &
   Readonly<{
     suggestion: string | undefined;
+    scope: WorktreeScope;
     query: UseQueryResult<Awaited<ReturnType<ReturnType<typeof useAppServices>["api"]["listWorktrees"]>>>;
   }>) {
   const { api } = useAppServices();
@@ -118,6 +134,8 @@ function CreateFields({
       api,
       projectID,
       sessionID,
+      scope,
+      ...(chat === undefined ? {} : { chat }),
       openSession,
       navigator,
       suggestion,
@@ -143,7 +161,7 @@ function CreateFields({
         body={errorMessage(query.isError ? query.error : resolution?.error)}
         retryLabel={t("app.retry")}
         onRetry={() => {
-          if (query.isError) void replaceWorktreeListRead(client, api, sessionID);
+          if (query.isError) void replaceWorktreeListRead(client, api, scope);
           else retryResolution(undefined);
         }}
       />

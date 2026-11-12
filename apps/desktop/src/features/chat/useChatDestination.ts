@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAppServices } from "@/app-facade";
+import { useAppServices, type ChatWorktreeBinding } from "@/app-facade";
 import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createChatDestinationViewModel, type ChatDestinationOpening } from "./ChatDestinationViewModel";
 import { useChatSettings, type ChatSettingsNavigation } from "./useChatSettings";
@@ -43,33 +43,19 @@ export function useChatDestination({
   }, []);
   const [model] = useState(() => createChatDestinationViewModel({ opening, services, client, t, push }));
   const target = useAtomValue(model.target);
+  const setTemporaryName = useAtomSet(model.setName);
   useAtomMount(model.popOutRequest);
   const popOutRequest = useAtomValue(model.popOutRequest);
   const popOut = useAtomSet(model.popOut);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const focusComposer = useCallback(() => editorRef.current?.focus(), []);
-  const worktreeCommands = useWorktreeCommands(
-    target?.kind === "session" ? target.projectID : null,
-    target?.kind === "session" ? target.sessionID : null,
-    focusComposer,
-    navigation.openParentSession,
-  );
   const roots = useOwnedSidebarRoots();
   const openProcesses = useStableCallback(() => {
-    if (target?.kind !== "session") {
-      push({
-        id: "processes-session-required",
-        tone: "danger",
-        title: t("processes.title"),
-        body: t("processes.sessionRequired"),
-      });
-      return;
-    }
-    void roots
-      .open({ kind: "processes", projectID: target.projectID, sessionID: target.sessionID })
-      .lifecycle.then((outcome) => {
-        if (outcome === "closed") focusComposer();
-      });
+    if (target === null) return;
+    const scope = target.kind === "session" ? target : { ...target, kind: "project" as const };
+    void roots.open({ kind: "processes", scope }).lifecycle.then((outcome) => {
+      if (outcome === "closed") focusComposer();
+    });
   });
   const processesCommand: ComposerCommand = {
     token: "/ps",
@@ -77,7 +63,7 @@ export function useChatDestination({
     description: t("processes.title"),
     preview: null,
     execution:
-      target?.kind === "session"
+      target !== null
         ? {
             kind: "direct",
             send: async () => {
@@ -111,6 +97,30 @@ export function useChatDestination({
         ...(openCreatedSession === undefined ? {} : { openCreatedSession }),
       });
   };
+  const deliverWorktreeSession = useStableCallback(async (sessionID: string) =>
+    adopt(sessionID, { kind: "new_chat" }),
+  );
+  const selectWorktree = useAtomSet(model.selectWorktree);
+  const worktreeBinding = useMemo(
+    (): ChatWorktreeBinding => ({
+      scope: model.worktreeScope,
+      selector: model.worktreeSelector,
+      workspaceName: model.workspaceName,
+      creationTarget: model.creationTarget,
+      draft: model.composer.draft.text,
+      creationKey: model.worktreeCreationKey,
+      select: selectWorktree,
+      delivered: deliverWorktreeSession,
+    }),
+    [model, selectWorktree, deliverWorktreeSession],
+  );
+  const worktreeCommands = useWorktreeCommands({
+    projectID: opening.projectID,
+    sessionID: target?.kind === "session" ? target.sessionID : null,
+    focusComposer,
+    openSession: navigation.openParentSession,
+    chat: worktreeBinding,
+  });
   const composer = useChatComposer({
     model: model.composer,
     prepared: (id) => {
@@ -125,16 +135,8 @@ export function useChatDestination({
       processesCommand,
       createNameCommand({
         api: services.api.chat,
-        existingSession: target?.kind === "session",
         description: t("chatComposer.commands.name"),
-        notify: () => {
-          push({
-            id: "name-session-required",
-            tone: "danger",
-            title: t("chatComposer.submitFailed"),
-            body: t("chatComposer.nameSessionRequired"),
-          });
-        },
+        setTemporaryName,
       }),
       ...commands,
     ],
@@ -173,7 +175,10 @@ export function useChatDestination({
         },
   );
   return {
+    projectID: opening.projectID,
     target,
+    temporaryName: selection.kind === "new_chat" ? selection.name : null,
+    worktreeBinding,
     settings,
     settingsModel: model.settings,
     composer,

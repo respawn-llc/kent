@@ -25,7 +25,7 @@ it("keeps the viewport in place when Stop moves the leading process below runnin
   const publish = processObservationFixture(services.transport).publishRows;
   const view = render(
     <TestAppProviders services={services}>
-      <ProcessesSidebar target={{ projectID: "project-1", sessionID: "session-1" }} />
+      <ProcessesSidebar target={{ kind: "session", projectID: "project-1", sessionID: "session-1" }} />
     </TestAppProviders>,
   );
   try {

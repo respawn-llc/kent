@@ -217,7 +217,7 @@ it.each([null, "topic"])(
     const model = createWorktreeCommandDelete({
       client: new QueryClient(),
       api: services.api,
-      sessionID: "33333333-3333-4333-8333-333333333333",
+      scope: { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
       present,
       refreshOpenWorktreeList: vi.fn(),
       push,
@@ -266,7 +266,7 @@ it.each([
   const model = createWorktreeCommandDelete({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "33333333-3333-4333-8333-333333333333",
+    scope: { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
     present,
     refreshOpenWorktreeList: vi.fn(),
     push,
@@ -319,7 +319,7 @@ it("dispatches a confirmed Delete independently of an earlier pending deletion",
   const model = createWorktreeCommandDelete({
     client: new QueryClient(),
     api: services.api,
-    sessionID: "33333333-3333-4333-8333-333333333333",
+    scope: { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
     present,
     refreshOpenWorktreeList: vi.fn(),
     push,

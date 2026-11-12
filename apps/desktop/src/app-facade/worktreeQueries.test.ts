@@ -20,28 +20,27 @@ describe("Worktree query ownership", () => {
     const services = createTestServices(worktreeQueryFixtureRoutes());
     const queryClient = new QueryClient();
     const request = createWorktreeTargetResolutionRequest(
-      "33333333-3333-4333-8333-333333333333",
+      { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
       " Feature ",
     );
-    const key = queryKeys.worktreeCreateTargetResolution(request.sessionID, request.target);
-
-    expect(key).toEqual([
-      "worktree",
-      "33333333-3333-4333-8333-333333333333",
-      "create-target-resolution",
-      "Feature",
-    ]);
+    const key = worktreeCreateTargetResolutionQueryOptions(services.api, request).queryKey;
     await freshFetchWorktreeCreateTargetResolution(queryClient, services.api, request);
     await freshFetchWorktreeCreateTargetResolution(queryClient, services.api, request);
     expect(services.transport.descriptorCalls).toHaveLength(2);
     await disposeWorktreeCreateTargetResolution(queryClient, request);
     expect(queryClient.getQueryState(key)).toBeUndefined();
     const status = queryKeys.worktreeStatus("33333333-3333-4333-8333-333333333333");
-    const list = queryKeys.worktreeList("33333333-3333-4333-8333-333333333333");
-    const transient = queryKeys.worktreeDeletePreview("33333333-3333-4333-8333-333333333333", "feature");
+    const scope = { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" } as const;
+    const list = queryKeys.worktreeList(scope);
+    const transient = worktreeDeletePreviewQueryOptions(services.api, {
+      scope,
+      selector: "feature",
+    }).queryKey;
     queryClient.setQueryData(status, {});
     queryClient.setQueryData(list, {});
-    queryClient.setQueryData(transient, {});
+    await queryClient.fetchQuery(
+      worktreeDeletePreviewQueryOptions(services.api, { scope, selector: "feature" }),
+    );
     await invalidateWorktreeSessionReads(queryClient, "33333333-3333-4333-8333-333333333333");
     expect([status, list, transient].map((value) => queryClient.getQueryState(value)?.isInvalidated)).toEqual(
       [true, true, false],
@@ -53,16 +52,19 @@ describe("Worktree query ownership", () => {
     const queryClient = new QueryClient();
     const createOptions = worktreeCreateTargetResolutionQueryOptions(
       services.api,
-      createWorktreeTargetResolutionRequest("33333333-3333-4333-8333-333333333333", "feature"),
+      createWorktreeTargetResolutionRequest(
+        { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+        "feature",
+      ),
     );
     const selectorOptions = worktreeSelectorResolutionQueryOptions(
       services.api,
       createWorktreeSelectorRequest("33333333-3333-4333-8333-333333333333", "feature"),
     );
-    const deleteOptions = worktreeDeletePreviewQueryOptions(
-      services.api,
-      createWorktreeSelectorRequest("33333333-3333-4333-8333-333333333333", "feature"),
-    );
+    const deleteOptions = worktreeDeletePreviewQueryOptions(services.api, {
+      scope: { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+      selector: "feature",
+    });
 
     await queryClient.fetchQuery(createOptions);
     await queryClient.fetchQuery(selectorOptions);
@@ -91,7 +93,11 @@ describe("Worktree query ownership", () => {
       .switchWorktree("33333333-3333-4333-8333-333333333333", operation)
       .catch(() => undefined);
     await services.api
-      .deleteWorktree("33333333-3333-4333-8333-333333333333", deletion, "confirm")
+      .deleteWorktree(
+        { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+        deletion,
+        "confirm",
+      )
       .catch(() => undefined);
     expect(createWorktree).toHaveBeenCalledWith({
       sessionID: "33333333-3333-4333-8333-333333333333",
@@ -100,6 +106,10 @@ describe("Worktree query ownership", () => {
       baseRef: null,
     });
     expect(switchWorktree).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", operation);
-    expect(deleteWorktree).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333", deletion, "confirm");
+    expect(deleteWorktree).toHaveBeenCalledWith(
+      { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+      deletion,
+      "confirm",
+    );
   });
 });

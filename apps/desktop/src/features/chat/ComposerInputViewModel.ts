@@ -7,7 +7,6 @@ import type { TFunction } from "i18next";
 import {
   type ChatSettingsTarget,
   type ChatMutationTarget,
-  type InitialChatSettings,
   type ChatNotAcceptedReason,
   type PendingWorkItemID,
   pendingWorkItemIDFromProto,
@@ -36,7 +35,7 @@ export type ComposerSubmission<Kind extends ChatSettingsTarget["kind"] = ChatSet
   | Readonly<{ kind: "loading" }>
   | Readonly<{ kind: "failed"; error: unknown }>
   | (Kind extends "new_chat"
-      ? Readonly<{ kind: "ready"; initialSettings: InitialChatSettings }>
+      ? Readonly<{ kind: "ready"; target: Extract<ChatMutationTarget, { kind: "new_chat" }> }>
       : Readonly<{ kind: "ready" }>);
 type CompletedInput = Exclude<ComposerCommandResult, { kind: "local" }>;
 type SubmissionCallbacks = Readonly<{
@@ -251,8 +250,8 @@ function mutationTarget(
   if (target === null) return null;
   if (target.kind === "session") return target;
   if (submission.kind !== "ready") return null;
-  if (!("initialSettings" in submission)) throw new Error("Ready New Chat requires initial settings.");
-  return { ...target, initialSettings: submission.initialSettings };
+  if (!("target" in submission)) throw new Error("Ready New Chat requires creation inputs.");
+  return submission.target;
 }
 
 async function complete(result: ComposerCommandResult, input: Request, t: TFunction) {

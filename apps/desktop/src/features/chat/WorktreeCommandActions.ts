@@ -1,4 +1,4 @@
-import type { SidebarRootController } from "@/app-facade";
+import type { SidebarRootController, ChatWorktreeBinding } from "@/app-facade";
 import { createWorktreeActions } from "./WorktreeActions";
 import type { WorktreeCommandIntent } from "./worktreeCommand";
 
@@ -7,9 +7,12 @@ export function createWorktreeCommandActions({
   focusComposer,
   openSession,
   deleteTarget,
+  chat,
   ...dependencies
-}: Omit<Parameters<typeof createWorktreeActions>[0], "onAccepted"> &
+}: Omit<Parameters<typeof createWorktreeActions>[0], "onAccepted" | "sessionID"> &
   Readonly<{
+    sessionID: string | null;
+    chat?: ChatWorktreeBinding;
     roots: Pick<SidebarRootController, "open">;
     focusComposer(): void;
     projectID: string;
@@ -25,6 +28,7 @@ export function createWorktreeCommandActions({
           kind: "worktree",
           projectID: dependencies.projectID,
           sessionID: dependencies.sessionID,
+          ...(chat === undefined ? {} : { chat }),
           page: intent.kind,
           openSession,
         });
@@ -34,8 +38,10 @@ export function createWorktreeCommandActions({
         return;
       }
       case "switch":
+        if (dependencies.sessionID === null) return chat?.select(intent.selector);
         return transitions.submitSwitch({ kind: "selector", selector: intent.selector });
       case "leave":
+        if (dependencies.sessionID === null) return chat?.select(null);
         return transitions.submitSwitch({ kind: "leave" });
       case "delete":
         return deleteTarget(intent.selector);

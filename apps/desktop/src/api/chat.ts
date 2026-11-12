@@ -11,6 +11,7 @@ import {
   TranscriptCloseReason,
 } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
+import { planNewChat } from "./chatActivation";
 import { createChatMutationApi } from "./chatMutations";
 import { context, createChatSettingsApi } from "./chatSettings";
 import { createChatGoalApi } from "./chatGoal";
@@ -86,6 +87,7 @@ export function createChatApi(transport: RpcTransport): ChatApi {
       }),
     answerPromptBatch: async (input) => answerPromptBatch(transport, input),
     ...createChatMutationApi(transport),
+    planNewChat: async (target, draft) => planNewChat(transport, target, draft),
     ...createChatDraftApi(transport),
     ...createChatNameApi(transport),
     ...createChatSettingsApi(transport),

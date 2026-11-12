@@ -84,7 +84,6 @@ import type {
   CreateSuccess,
   CreateTargetResolveSuccess,
   DeleteSuccess,
-  ListSuccessValid as ListSuccess,
   ScheduledAcknowledgement,
   SelectorResolveSuccessValid as SelectorResolveSuccess,
   StatusSuccess,
@@ -92,9 +91,8 @@ import type {
 import type { WorkflowProjectEventHandler } from "./workflowProjectEvents";
 import type { TaskSearchInput, TaskSearchResponse } from "./taskSearch";
 import type { ChatApi } from "./chat";
-import type { ChatSessionTarget } from "./chatTypes";
 import type { PendingPrompt } from "./promptModels";
-import type { DesktopProcess, ProcessObservationError } from "./processes";
+import type { DesktopProcess, ProcessObservationError, ProcessScope } from "./processes";
 import type { SubscriptionConnection, SubscriptionBinding, SubscriptionUsage } from "./subscriptionUsage";
 
 export type ApiSubscription = Readonly<{
@@ -108,9 +106,7 @@ export interface ApiService {
   getSubscriptionUsage(connectionID: string): Promise<SubscriptionUsage | null>;
   readonly chat: ChatApi;
 
-  observeProcesses(
-    target: ChatSessionTarget,
-  ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError>;
+  observeProcesses(target: ProcessScope): Stream.Stream<readonly DesktopProcess[], ProcessObservationError>;
   killProcess(processID: string): Promise<void>;
   getReadiness(): Promise<ServerReadiness>;
   listProjects(pageToken: string | null): Promise<ProjectPage>;
@@ -201,17 +197,23 @@ export interface ApiService {
     reportOverflow: () => Promise<void>,
   ): Stream.Stream<AttentionNotificationLifecycle>;
   getWorktreeStatus(sessionID: string): Promise<StatusSuccess>;
-  listWorktrees(sessionID: string): Promise<ListSuccess>;
+  listWorktrees(scope: worktree.WorktreeScope): Promise<worktree.WorktreeList>;
   resolveWorktreeSelector(sessionID: string, selector: string): Promise<SelectorResolveSuccess>;
-  resolveWorktreeCreateTarget(sessionID: string, target: string): Promise<CreateTargetResolveSuccess>;
-  previewWorktreeDelete(sessionID: string, selector: string): Promise<worktree.WorktreeDeletePreview>;
+  resolveWorktreeCreateTarget(
+    scope: worktree.WorktreeScope,
+    target: string,
+  ): Promise<CreateTargetResolveSuccess>;
+  previewWorktreeDelete(
+    scope: worktree.WorktreeScope,
+    selector: string,
+  ): Promise<worktree.WorktreeDeletePreview>;
   createWorktree(input: worktree.WorktreeCreateInput): Promise<CreateSuccess>;
   switchWorktree(
     sessionID: string,
     operation: worktree.WorktreeTransition,
   ): Promise<ScheduledAcknowledgement>;
   deleteWorktree(
-    sessionID: string,
+    scope: worktree.WorktreeScope,
     preview: worktree.WorktreeDeletePreview,
     confirmation: worktree.WorktreeDeleteConfirmationChoice,
   ): Promise<DeleteSuccess>;

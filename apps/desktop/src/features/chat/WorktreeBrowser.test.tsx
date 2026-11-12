@@ -1,6 +1,7 @@
 import { expect, it, vi } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegistryProvider } from "@effect/atom-react";
+import * as Atom from "effect/reactivity/Atom";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useAtomValue } from "@effect/atom-react";
 import userEvent from "@testing-library/user-event";
@@ -78,6 +79,7 @@ function createFormModel() {
     api: services.api,
     projectID: "project-1",
     sessionID: "33333333-3333-4333-8333-333333333333",
+    scope: { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
     suggestion: "topic",
     navigator: createTestSidebarNavigator(),
     refreshOpenWorktreeList: vi.fn(),
@@ -87,14 +89,7 @@ function createFormModel() {
   });
   return { services, push, model };
 }
-const resolvedCreateTarget = {
-  $typeName: "kent.api.worktree.CreateTargetResolveSuccess",
-  resolution: {
-    $typeName: "kent.api.worktree.CreateTargetResolution",
-    input: "topic",
-    kind: CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH,
-  },
-} as const;
+import { resolvedCreateTarget } from "./worktreeCreateTestFixture";
 
 it("keeps an invalid typed Worktree name editable and resumes resolution after correction", async () => {
   const services = createTestServices([worktreeBrowserFixtureRoute()]);
@@ -189,7 +184,10 @@ it.each(["list", "target"] as const)(
       list.mockRejectedValueOnce(new Error("offline"));
       await act(async () => {
         await client.refetchQueries({
-          queryKey: queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"),
+          queryKey: queryKeys.worktreeList({
+            kind: "session",
+            sessionID: "33333333-3333-4333-8333-333333333333",
+          }),
         });
       });
     } else {
@@ -385,8 +383,14 @@ it.each(["registered", "missing"] as const)("copies the full %s path from its su
 it("opens with a fresh read even when the Session list is cached", async () => {
   const services = createTestServices([worktreeBrowserFixtureRoute()]);
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
-  const cached = await services.api.listWorktrees("33333333-3333-4333-8333-333333333333");
-  client.setQueryData(queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"), cached);
+  const cached = await services.api.listWorktrees({
+    kind: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
+  });
+  client.setQueryData(
+    queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" }),
+    cached,
+  );
   render(
     <BrowserProviders services={services}>
       <QueryClientProvider client={client}>
@@ -401,7 +405,9 @@ it("opens with a fresh read even when the Session list is cached", async () => {
     expect(client.isFetching()).toBe(0);
   });
   expect(
-    client.getQueryData<WorktreeList>(queryKeys.worktreeList("33333333-3333-4333-8333-333333333333")),
+    client.getQueryData<WorktreeList>(
+      queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" }),
+    ),
   ).not.toBe(cached);
 });
 
@@ -431,24 +437,31 @@ it("isolates late list delivery after changing Session", async () => {
   view.rerender(surface("44444444-4444-4444-8444-444444444444"));
   await waitFor(() => {
     expect(
-      client.getQueryData<WorktreeList>(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444")),
+      client.getQueryData<WorktreeList>(
+        queryKeys.worktreeList({ kind: "session", sessionID: "44444444-4444-4444-8444-444444444444" }),
+      ),
     ).toBeDefined();
   });
   const current = client.getQueryData<WorktreeList>(
-    queryKeys.worktreeList("44444444-4444-4444-8444-444444444444"),
+    queryKeys.worktreeList({ kind: "session", sessionID: "44444444-4444-4444-8444-444444444444" }),
   );
   await act(async () => {
     old.resolve(result);
     await old.promise;
   });
   expect(
-    client.getQueryData<WorktreeList>(queryKeys.worktreeList("44444444-4444-4444-8444-444444444444")),
+    client.getQueryData<WorktreeList>(
+      queryKeys.worktreeList({ kind: "session", sessionID: "44444444-4444-4444-8444-444444444444" }),
+    ),
   ).toBe(current);
   expect(services.transport.descriptorCalls).toHaveLength(2);
   const preview = vi.spyOn(services.api, "previewWorktreeDelete");
   fireEvent.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.delete") }));
   await screen.findByRole("checkbox");
-  expect(preview.mock.calls[0]?.[0]).toBe("44444444-4444-4444-8444-444444444444");
+  expect(preview.mock.calls[0]?.[0]).toEqual({
+    kind: "session",
+    sessionID: "44444444-4444-4444-8444-444444444444",
+  });
 });
 
 it("reopening replaces an unfinished read without accepting its late delivery", async () => {
@@ -480,7 +493,7 @@ it("reopening replaces an unfinished read without accepting its late delivery", 
   await waitFor(() => {
     expect(services.transport.descriptorCalls).toHaveLength(2);
   });
-  const key = queryKeys.worktreeList("33333333-3333-4333-8333-333333333333");
+  const key = queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" });
   await waitFor(() => {
     expect(client.getQueryData<WorktreeList>(key)).toBeDefined();
   });
@@ -494,7 +507,18 @@ it("reopening replaces an unfinished read without accepting its late delivery", 
 
 function ControlOwner() {
   const executionTarget = useChatExecutionTarget();
-  const query = useWorktreeList(target.sessionID, executionTarget);
+  const [scope] = useState(() => ({ kind: "session" as const, sessionID: target.sessionID }));
+  const query = useWorktreeList(scope, executionTarget);
+  const [chat] = useState(() => ({
+    scope: Atom.make(scope),
+    selector: Atom.make<string | null>(null),
+    workspaceName: Atom.make<string | null>(null),
+    creationTarget: Atom.make({ kind: "session" as const, ...target }),
+    draft: Atom.make(""),
+    creationKey: ["control"],
+    select: vi.fn(),
+    delivered: vi.fn(async () => undefined),
+  }));
   return (
     <ChatShell
       selectedSession={target}
@@ -512,6 +536,7 @@ function ControlOwner() {
           target={executionTarget}
           query={query}
           openSession={vi.fn()}
+          chat={chat}
         />
       )}
     />
@@ -664,7 +689,7 @@ it("Refresh retains visible rows on failure and reports it with a toast", async 
       </QueryClientProvider>
     </BrowserProviders>,
   );
-  const key = queryKeys.worktreeList("33333333-3333-4333-8333-333333333333");
+  const key = queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" });
   await waitFor(() => {
     expect(client.getQueryData<WorktreeList>(key)).toBeDefined();
   });
@@ -841,7 +866,10 @@ it("closes confirmation eagerly and keeps deletion loading local to its row thro
           onSwitch={vi.fn()}
           onOpenSession={vi.fn()}
           refreshOpenWorktreeList={async () => {
-            await replaceWorktreeListRead(client, services.api, "33333333-3333-4333-8333-333333333333");
+            await replaceWorktreeListRead(client, services.api, {
+              kind: "session",
+              sessionID: "33333333-3333-4333-8333-333333333333",
+            });
           }}
         />
       </QueryClientProvider>
@@ -877,7 +905,7 @@ it("closes confirmation eagerly and keeps deletion loading local to its row thro
   expect(unaffected).toBeInTheDocument();
   await act(async () => {
     const previous = client.getQueryData<WorktreeList>(
-      queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"),
+      queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" }),
     );
     const remaining = previous?.worktrees[1];
     if (previous === undefined || remaining === undefined) throw new Error("Expected loaded Worktrees");
@@ -908,7 +936,10 @@ it("preserves the list scroll position when its focused bottom Worktree disappea
             onSwitch={vi.fn()}
             onOpenSession={vi.fn()}
             refreshOpenWorktreeList={async () => {
-              await replaceWorktreeListRead(client, services.api, "33333333-3333-4333-8333-333333333333");
+              await replaceWorktreeListRead(client, services.api, {
+                kind: "session",
+                sessionID: "33333333-3333-4333-8333-333333333333",
+              });
             }}
           />
         </QueryClientProvider>
@@ -933,7 +964,7 @@ it("preserves the list scroll position when its focused bottom Worktree disappea
     },
   });
   const previous = client.getQueryData<WorktreeList>(
-    queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"),
+    queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" }),
   );
   if (previous === undefined) throw new Error("Expected loaded Worktrees");
   vi.spyOn(services.api, "listWorktrees").mockResolvedValue({
@@ -983,7 +1014,10 @@ it("finishes an accepted deletion and its refresh after leaving the list destina
   await waitFor(() => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
-  expect(refresh).toHaveBeenCalledWith("33333333-3333-4333-8333-333333333333");
+  expect(refresh).toHaveBeenCalledWith({
+    kind: "session",
+    sessionID: "33333333-3333-4333-8333-333333333333",
+  });
 });
 
 it.each(["operational", "precondition"] as const)(
@@ -1050,7 +1084,9 @@ it.each([
     );
     await waitFor(() => {
       expect(
-        client.getQueryState(queryKeys.worktreeList("33333333-3333-4333-8333-333333333333"))?.status,
+        client.getQueryState(
+          queryKeys.worktreeList({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" }),
+        )?.status,
       ).toBe("success");
     });
     const switchButtons = screen.queryAllByRole("button", { name: appI18n.t("chat.worktree.switch") });

@@ -213,7 +213,10 @@ describe("SidebarProvider stack", () => {
     });
     expect(result.current.shell.phase).toBe("open");
     act(() => {
-      result.current.roots.toggle({ kind: "processes", projectID: "project-1", sessionID: "session-1" });
+      result.current.roots.toggle({
+        kind: "processes",
+        scope: { kind: "session", projectID: "project-1", sessionID: "session-1" },
+      });
     });
     expect(result.current.shell.activeDestination?.kind).toBe("processes");
     expect(result.current.shell.canGoBack).toBe(false);

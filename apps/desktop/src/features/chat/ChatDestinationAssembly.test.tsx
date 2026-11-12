@@ -41,6 +41,7 @@ import {
   sessionWithPrompts,
   sessionSettingsRead,
 } from "@/test-support/chat-destination";
+import { workspaceWorktreeBrowserFixtureRoute } from "@/test-support/api";
 let restoreStorage: (() => void) | undefined;
 beforeEach(() => {
   restoreStorage = installChatStorageFixture();
@@ -515,7 +516,7 @@ it("keeps a failed Chat Worktree-label read owned by Chat through targeted Retry
 it("keeps the opening editor usable and delays its one control indicator", async () => {
   vi.useFakeTimers();
   try {
-    const services = createTestServices([]);
+    const services = createTestServices([workspaceWorktreeBrowserFixtureRoute()]);
     const loading = deferred<ChatSettingsRead>();
     vi.spyOn(services.api.chat, "getSettings").mockReturnValue(loading.promise);
     vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);
@@ -547,7 +548,7 @@ it("keeps the opening editor usable and delays its one control indicator", async
 it("does not show opening indicators when settings arrive within the reveal delay", async () => {
   vi.useFakeTimers();
   try {
-    const services = createTestServices([]);
+    const services = createTestServices([workspaceWorktreeBrowserFixtureRoute()]);
     const settingsRead = Promise.resolve(catalog);
     vi.spyOn(services.api.chat, "getSettings").mockReturnValue(settingsRead);
     vi.spyOn(services.api.chat, "getCommandCatalog").mockResolvedValue([]);

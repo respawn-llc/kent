@@ -148,6 +148,15 @@ export function worktreeBrowserFixtureRoute(worktrees: ListEntry[] = []) {
   };
 }
 
+export function workspaceWorktreeBrowserFixtureRoute(workspaceID = "workspace-1") {
+  return {
+    descriptor: ListService.method.listWorkspace,
+    result: create(ListService.method.listWorkspace.output, {
+      outcome: { case: "success", value: { workspaceId: workspaceID, worktrees: [] } },
+    }),
+  };
+}
+
 export function worktreeQueryFixtureRoutes(): readonly FakeRoute[] {
   const topology = {
     topology: {

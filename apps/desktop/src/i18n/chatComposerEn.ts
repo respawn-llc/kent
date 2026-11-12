@@ -20,7 +20,6 @@ export const chatComposerEnglish = {
   },
   saveFailed: "Could not save Chat draft",
   submitFailed: "Could not submit input",
-  nameSessionRequired: "Open an existing Session before changing its name.",
   acceptedDiagnostic: "Input accepted with a diagnostic",
   pendingFailed: "Could not update Pending Work",
   discard: "Discard",
