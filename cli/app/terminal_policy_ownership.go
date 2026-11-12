@@ -104,6 +104,22 @@ func (m *uiModel) ensureOwnershipReconciler() *ongoingOwnershipReconciler {
 	return m.ownershipReconciler
 }
 
+func (m *uiModel) adoptOngoingTranscriptOwnership() tea.Cmd {
+	if m == nil || m.ongoingTranscript == nil {
+		return nil
+	}
+	desired := desiredOngoingOwnership(m.terminalGeometry, terminalDestinationForSurface(m.surface()))
+	result, err := m.ongoingTranscript.SetNormalBufferOwned(desired)
+	if err != nil {
+		return m.handleOngoingSurfaceError(err)
+	}
+	reconciler := m.ensureOwnershipReconciler()
+	if reconciler != nil {
+		reconciler.applied = &ownershipAppliedState{owned: desired}
+	}
+	return m.handleOngoingResult(result)
+}
+
 func (m *uiModel) reconcileOngoingOwnership() tea.Cmd {
 	if m == nil || m.ongoingTranscript == nil {
 		return nil
