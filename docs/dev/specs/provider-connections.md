@@ -21,7 +21,7 @@
 
 ## Responses WebSockets
 
-- Kent must use Responses WebSockets for generation through first-party OpenAI API-key, ChatGPT Codex OAuth, and public xAI API-key and OAuth connections. Grok CLI proxy and generic Responses-compatible connections must use HTTP generation.
+- Kent must use Responses WebSockets for generation through first-party OpenAI API-key, ChatGPT Codex OAuth, and public xAI API-key and OAuth connections. Grok CLI proxy, generic Responses-compatible, and DeepSeek API-key connections must use HTTP generation.
 - A Session's socket must belong to its Active Session Runtime and follow that Runtime's existing idle retirement. Client observation must not own the socket or provider work. Ordinary completed turns must reuse the socket.
 - A WebSocket must use the credentials selected when it opens until that socket ends. Model requests on an open socket must not refresh credentials. Opening a new socket must resolve credentials through the selected Provider Connection's authentication owner.
 - Kent must send the complete prepared working context on a fresh socket. When subsequent prepared context extends the previous input and completed output unchanged, Kent must send only appended items with the prior response ID. Changed request settings or a non-prefix context must cause a complete current-context request without continuing the old response chain.
@@ -72,6 +72,7 @@
 - Confirmed usage allowance or credit exhaustion must make the affected connection unavailable during its server-wide cooldown. New Session allocations and subsequent model requests from already-bound Sessions must skip connections in cooldown.
 - Kent must identify exhaustion from provider-specific structured error codes or unambiguous provider-specific HTTP status semantics. A bare HTTP 429, temporary rate limit, authentication failure, overload, or unknown error must not trigger fallback.
 - Grok's exact WKE machine-tag format must be accepted as a provider error-code source. The `personal-team-blocked:spending-limit` code must identify exhaustion. English error wording must not determine exhaustion.
+- DeepSeek API-key HTTP 402 must identify exhaustion. DeepSeek HTTP 429, 401, 400, and 422 must not identify exhaustion.
 - Kent must select replacements only from the effective connection set configured for the affected Agent or role. Kent must not use the global list of connection definitions as an alternative set. Including incompatible members must be treated as user configuration error.
 - Fallback must use the same consumption-based selection as fresh Session allocation, excluding cooling and already-attempted members. Each replacement assignment must update the shared assignment order used to break consumption ties.
 - Kent must retry the failed Agent Step automatically on the replacement connection without confirmation. Fallback must not require keeping incomplete output from the failed attempt.
@@ -85,17 +86,22 @@
 
 - When more than one Provider Connection is configured, Session connection displays must show the Session's saved connection ID and authentication mode as `Session Connection: <id> (<mode>)`. The mode must be `Subscription`, `API Key`, or `No Auth`. With one configured connection, this row must be hidden. Reading this information must not allocate a connection or advance rotation.
 
-- Kent must offer OpenAI Subscription and API Key, Grok Subscription and API Key, and Generic Responses-compatible api key and No auth setup choices.
+- Kent must offer OpenAI Subscription and API Key, Grok Subscription and API Key, DeepSeek API Key, and Generic Responses-compatible api key and No auth setup choices.
 - The two Responses-compatible choices must share one connection model with an optional environment-variable reference. Absence must select auth-less access. A configured reference whose value is missing or empty must fail with an actionable error. It must not select anonymous access.
 - OpenAI and Grok API-key setup must use their official endpoints without an endpoint field and must request an environment-variable name. Generic API-key setup must request an endpoint and environment-variable name. Auth-less setup must require an endpoint.
+- DeepSeek API-key setup must request an environment-variable name and an endpoint. The endpoint field must default to `https://api.deepseek.com`. Saving that official base must omit `endpoint`. A different absolute HTTP or HTTPS URL must replace the base. An empty endpoint must be rejected.
 - Grok subscription setup must recommend public API OAuth and offer the CLI subscription proxy as experimental.
 - Global connection configuration must allow explicit `protocol` values `grok-cli-proxy` and `grok-oauth-api`. The first must select the official Grok Build subscription proxy. The second must select the official public xAI API with subscription OAuth.
+- Global connection configuration must allow explicit `protocol` value `deepseek-api-key`. It must select DeepSeek API-key access.
 - The terminal provider picker must offer “Grok Subscription via the API (recommended)”, “Grok Subscription via the CLI proxy (experimental)”, and “Grok API key” in that order within the Grok group.
-- The respective hints must be “Official integration path for Kent, but no free plan access”, “Emulate the official CLI. May be removed or break due to compatibility.”, and “Regular API Key billing”.
+- The terminal provider picker must offer “DeepSeek API key” in the DeepSeek group after the Grok group. Its hint must be “Regular API Key billing”.
+- The respective Grok hints must be “Official integration path for Kent, but no free plan access”, “Emulate the official CLI. May be removed or break due to compatibility.”, and “Regular API Key billing”.
 - Provider picker options must use bullets. They must not use numbers. Each hint must be faint and indented beneath its title. This rule must not change other onboarding single-choice pages.
 - Setup must save the selected protocol. Different subscription routes must form distinct Provider Connections even when they use the same account.
 - Manual changes between the two Grok subscription protocols must apply when the runtime opens or resumes. Such changes must not reroute an in-flight request.
 - Grok API-key access must use the official public xAI API and the connection's referenced server environment variable.
+- DeepSeek API-key access must use `https://api.deepseek.com` when `endpoint` is omitted, and the configured endpoint otherwise. It must read the connection's referenced server environment variable.
+- DeepSeek API-key requests must carry the complete prepared context over HTTP. They must not continue a stored response. The Session `store` setting must not enable provider-side storage for this connection. DeepSeek API-key connections must not advertise or dispatch native compaction.
 - Grok must not automatically switch between subscription routes or fall back to API-key access except between explicitly configured members under Automatic usage fallback.
 - First-run setup, Add, and reference edits must require a nonempty environment-variable name for API-key access but must not check the variable's value or probe the provider before saving. Credential failures must be reported when the connection is used.
 - Kent must not persist API keys in configuration or the OAuth credential store. API-key authentication must read the explicitly referenced server environment value.
@@ -181,11 +187,11 @@
 - First-run onboarding must implicitly select the first connection as default without confirmation.
 - After onboarding, `/login` must list Add connection first and existing connections afterward. With zero connections it must enter Add directly. Config-authored connections must appear in the same flow.
 - Add must save the new connection in global configuration. When no connections or global default are configured, Add must select the first added connection as the global default without confirmation. Otherwise, Add must offer an explicit Make default choice. Make default must change only the global default and explain any overriding workspace default. Existing role assignments and Session bindings must stay unchanged.
-- Connection setup must group choices under OpenAI, Grok, and Generic headers, in that order. Each header must use the existing bold, full-foreground header style. Each section must use the choice order specified under Authentication.
+- Connection setup must group choices under OpenAI, Grok, DeepSeek, and Generic headers, in that order. Each header must use the existing bold, full-foreground header style. Each section must use the choice order specified under Authentication.
 - Connection setup must combine provider and authentication-method selection in one scrollable list. OpenAI subscription browser and device options must appear in that list without a second method picker. Grok subscription must lead directly to device authorization. Authentication must use the shared onboarding presentation and navigation.
-- Suggested connection IDs must use the selected provider's name and the next available numbered ID. Grok subscription and API-key connections must share the `grok` prefix.
+- Suggested connection IDs must use the selected provider's name and the next available numbered ID. Grok subscription and API-key connections must share the `grok` prefix. DeepSeek API-key connections must use the `deepseek` prefix.
 - Add for a subscription connection must save its definition only after successful sign-in. Failed sign-in or cancellation before the operation is accepted must leave no definition. Observer disconnect must not cancel accepted work.
-- Selecting an existing subscription connection must re-authenticate without changing its ID or creating a duplicate. Selecting an API-key connection must show and allow replacement of its environment-variable reference, never request the secret. Selecting an auth-less connection must explain that sign-in is unnecessary without editing its endpoint.
+- Selecting an existing subscription connection must re-authenticate without changing its ID or creating a duplicate. Selecting an API-key connection must show and allow replacement of its environment-variable reference, never request the secret. Selecting a DeepSeek API-key connection must also show its endpoint, prefilled with the configured base or `https://api.deepseek.com`. Saving that official base must omit `endpoint`. Selecting an auth-less connection must explain that sign-in is unnecessary without editing its endpoint.
 - The API-key field must show: "Don't paste your API key here. This is the name of the **environment variable** Kent will read **at the server's location** to get the api key from. Alternatively, place it in a ~/.kent/.env file."
 - Connection setup and management requests must show a full-screen animated spinner without loading labels while waiting for a response, except during device authorization. Device authorization must keep its verification instructions and code visible with a waiting indicator until authorization completes or the user navigates back.
 - The server must validate connection definitions and references. Terminal forms must not define separate validation rules.

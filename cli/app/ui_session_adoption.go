@@ -166,11 +166,15 @@ func (m *uiModel) installSessionObservation(wiring *runtimeWiring, plan sessionL
 	m.statusConfig = plan.StatusConfig
 	client := wiring.runtimeClient.(*sessionRuntimeClient)
 	m.ongoingTranscript = newOngoingTranscriptController(m.ongoingSurface, m.ongoingFrameInput, client.admitTranscriptMessageState, m.applyAdmittedTranscriptMessageState)
+	// The replacement controller starts owned. Sync it to the current terminal
+	// before the transcript wait starts, or a fast history page is painted at
+	// the fallback size and the first real WindowSize erases it.
+	ownershipCmd := m.adoptOngoingTranscriptOwnership()
 	var settingsNotice tea.Cmd
 	if m.sessionSettingsErr != nil {
 		settingsNotice = m.agentSettingsFailureNotice(m.sessionSettingsErr, uiAgentPickerLoad)
 	}
-	return tea.Batch(m.startSessionObservationLoads(), settingsNotice)
+	return tea.Batch(ownershipCmd, m.startSessionObservationLoads(), settingsNotice)
 }
 
 func (m *uiModel) startSessionObservationLoads() tea.Cmd {

@@ -457,6 +457,15 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Grok public-API OAuth and API-key access must support native compaction through the selected service's `/responses/compact` endpoint. The Grok CLI subscription proxy must not advertise or dispatch native compaction. Kent must report rejected compaction without automatic fallback.
 - When current capabilities govern, a configured native mode unsupported by the Grok CLI proxy must resolve to local compaction. A Session whose locked contract selects native compaction must receive an unsupported-compaction error without a proxy-native request. Kent must not migrate that contract or retry a rejected provider request through another compaction mode.
 
+## DeepSeek Model Behavior
+
+- Kent's built-in DeepSeek catalog must include `deepseek-flash` and `deepseek-v4-pro`.
+- Both models must use a 1,000,000-token context window.
+- `deepseek-flash` must support image input. `deepseek-v4-pro` must not.
+- Both models must support Thinking efforts `none`, `low`, `high`, and `max`. DeepSeek Thinking must default to high.
+- DeepSeek must not advertise native Web Search, native compaction, fast mode, verbosity, or encrypted reasoning.
+- Consumption estimates for these models must use DeepSeek's peak cache-miss input, peak cache-hit input, and peak output prices. Off-peak discounts must not change the estimate.
+
 ## Fast Mode And Context Usage
 
 - Fast Mode is a persisted Session Chat setting available when current capability metadata for the selected Provider Connection declares support for Kent's priority service behavior. Built-in OpenAI and ChatGPT/Codex connections declare support by default. All other connections default to unsupported unless their current metadata explicitly declares support.

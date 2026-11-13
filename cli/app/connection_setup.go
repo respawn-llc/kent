@@ -30,6 +30,7 @@ const (
 	connectionTemplateGrokSubscription   connectionTemplate = "grok_subscription"
 	connectionTemplateGrokCLIProxy       connectionTemplate = "grok_cli_proxy"
 	connectionTemplateGrokAPI            connectionTemplate = "grok_api"
+	connectionTemplateDeepSeekAPI        connectionTemplate = "deepseek_api"
 )
 
 type connectionForm struct {
@@ -68,6 +69,8 @@ func connectionTemplateFor(definition config.ProviderConnection) connectionTempl
 		return connectionTemplateGrokSubscription
 	case config.ConnectionGrokAPIKey:
 		return connectionTemplateGrokAPI
+	case config.ConnectionDeepSeekAPIKey:
+		return connectionTemplateDeepSeekAPI
 	}
 	if definition.Protocol.IsSubscription() {
 		return connectionTemplateSubscription
@@ -95,6 +98,8 @@ func (f *connectionForm) selectTemplate(template connectionTemplate) {
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokCLIProxy}
 	case connectionTemplateGrokAPI:
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionGrokAPIKey}
+	case connectionTemplateDeepSeekAPI:
+		f.definition = config.ProviderConnection{Protocol: config.ConnectionDeepSeekAPIKey}
 	case connectionTemplateOpenAIAPI:
 		endpoint := config.DefaultOpenAIResponsesEndpoint
 		f.definition = config.ProviderConnection{Protocol: config.ConnectionResponses, Endpoint: &endpoint}
@@ -119,12 +124,13 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 					{ID: string(connectionTemplateGrokSubscription), Group: "Grok", Title: "Grok Subscription via the API (recommended)", Description: "Official integration path for Kent, but no free plan access"},
 					{ID: string(connectionTemplateGrokCLIProxy), Group: "Grok", Title: "Grok Subscription via the CLI proxy (experimental)", Description: "Emulate the official CLI. May be removed or break due to compatibility."},
 					{ID: string(connectionTemplateGrokAPI), Group: "Grok", Title: "Grok API key", Description: "Regular API Key billing"},
+					{ID: string(connectionTemplateDeepSeekAPI), Group: "DeepSeek", Title: "DeepSeek API key", Description: "Regular API Key billing"},
 					{ID: string(connectionTemplateAPI), Group: "Generic", Title: "Responses-compatible API key"},
 					{ID: string(connectionTemplateAnonymous), Group: "Generic", Title: "No auth"},
 				}}
 		}, apply: func(_ *onboardingFlowState, value string) error {
 			switch template := connectionTemplate(value); template {
-			case connectionTemplateSubscription, connectionTemplateSubscriptionDevice, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy, connectionTemplateGrokAPI, connectionTemplateAPI, connectionTemplateAnonymous:
+			case connectionTemplateSubscription, connectionTemplateSubscriptionDevice, connectionTemplateOpenAIAPI, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy, connectionTemplateGrokAPI, connectionTemplateDeepSeekAPI, connectionTemplateAPI, connectionTemplateAnonymous:
 				f.selectTemplate(template)
 				return nil
 			default:
@@ -142,15 +148,25 @@ func (f *connectionForm) steps() []onboardingStepDefinition {
 			return nil
 		}},
 		{id: connectionStepEndpoint, visible: func(*onboardingFlowState) bool {
-			return f.template == connectionTemplateAPI || f.template == connectionTemplateAnonymous
+			return f.template == connectionTemplateAPI || f.template == connectionTemplateAnonymous || f.template == connectionTemplateDeepSeekAPI
 		},
 			build: func(*onboardingFlowState) onboardingScreen {
 				value := ""
 				if f.definition.Endpoint != nil {
 					value = *f.definition.Endpoint
+				} else if f.template == connectionTemplateDeepSeekAPI {
+					value = config.DefaultDeepSeekResponsesEndpoint
 				}
 				return onboardingScreen{ID: connectionStepEndpoint, Kind: onboardingScreenInput, Title: "Responses endpoint", InputValue: value, Helper: "Enter the full HTTP or HTTPS base URL, including /v1 if your server requires it."}
 			}, apply: func(state *onboardingFlowState, value string) error {
+				if f.template == connectionTemplateDeepSeekAPI {
+					persisted, err := config.PersistDeepSeekEndpoint(&value)
+					if err != nil {
+						return err
+					}
+					f.definition.Endpoint = persisted
+					return nil
+				}
 				f.definition.Endpoint = &value
 				if f.template == connectionTemplateAnonymous {
 					return finish(state)
