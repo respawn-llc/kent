@@ -87,7 +87,6 @@ describe("ApiClient Task Comment pagination", () => {
               items: [
                 {
                   id: "comment-1",
-                  taskId: "task-1",
                   body: "Existing comment",
                   author: lifecycle.CommentAuthorKind.USER,
                   authorId: "Nek-12",

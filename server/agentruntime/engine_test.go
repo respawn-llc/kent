@@ -137,37 +137,6 @@ type fakeCompactionClient struct {
 	caps llm.ProviderCapabilities
 }
 
-type contextWindowClient struct {
-	contextWindow int
-
-	resolveCalls int
-}
-
-func (c *contextWindowClient) Generate(_ context.Context, _ llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
-	return llm.Response{}, nil
-}
-
-func (c *contextWindowClient) ResolveModelContextWindow(_ context.Context, _ string) (int, error) {
-	c.resolveCalls++
-	if c.contextWindow <= 0 {
-		return 0, nil
-	}
-	return c.contextWindow, nil
-}
-
-func (c *contextWindowClient) ProviderCapabilities(context.Context) (llm.ProviderCapabilities, error) {
-	return llm.ProviderCapabilities{
-		ProviderID:                    "openai",
-		SupportsResponsesAPI:          true,
-		SupportsResponsesCompact:      true,
-		SupportsPromptCacheKey:        true,
-		SupportsNativeWebSearch:       true,
-		SupportsReasoningEncrypted:    true,
-		SupportsServerSideContextEdit: true,
-		IsOpenAIFirstParty:            true,
-	}, nil
-}
-
 func (f *fakeCompactionClient) Generate(_ context.Context, req llm.Request, _ llm.StreamCallbacks) (llm.Response, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -725,7 +694,7 @@ func TestCurrentContextWindowPreservesSystemPromptAndCacheAcrossResume(t *testin
 	if _, err := firstEngine.SubmitUserMessage(context.Background(), "first"); err != nil {
 		t.Fatalf("submit first: %v", err)
 	}
-	if got := firstEngine.LiveChatContextSnapshot().Policy.ContextWindowTokens; got != 272_000 {
+	if got := firstEngine.ContextUsage().WindowTokens; got != 272_000 {
 		t.Fatalf("context window = %d, want 272000", got)
 	}
 	firstPrompt := firstClient.calls[0].SystemPrompt
@@ -756,7 +725,7 @@ func TestCurrentContextWindowPreservesSystemPromptAndCacheAcrossResume(t *testin
 	if resumedClient.calls[0].PromptCacheKey != firstPromptCacheKey {
 		t.Fatalf("expected resumed prompt cache key = %q, got %q", firstPromptCacheKey, resumedClient.calls[0].PromptCacheKey)
 	}
-	if got := resumedEngine.LiveChatContextSnapshot().Policy.ContextWindowTokens; got != 400_000 {
+	if got := resumedEngine.ContextUsage().WindowTokens; got != 400_000 {
 		t.Fatalf("resumed context window = %d, want 400000", got)
 	}
 }

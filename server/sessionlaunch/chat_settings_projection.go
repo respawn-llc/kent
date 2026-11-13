@@ -26,7 +26,9 @@ type ChatSettingsProjectionInput struct {
 func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.CompactionMode, selected string) (*chatsettingspb.NewChatCatalog, error) {
 	entries := catalog.Entries()
 	choices := catalog.Choices()
-	result := &chatsettingspb.NewChatCatalog{Choices: make([]*chatsettingspb.NewChatAgentChoice, 0, len(entries))}
+	result := &chatsettingspb.NewChatCatalog{
+		Choices: make([]*chatsettingspb.NewChatAgentChoice, 0, len(entries)), InitialAgentRole: selected,
+	}
 	for _, entry := range entries {
 		defaults, err := protoapi.SessionSettingsToProto(entry.Defaults.Settings)
 		if err != nil {
@@ -60,9 +62,6 @@ func projectNewChatCatalog(catalog launch.PreparedChatAgentCatalog, mode config.
 			Defaults:            defaults,
 			Source:              source,
 		})
-		if entry.Choice.Role == selected {
-			result.InitialSettings = baseline
-		}
 	}
 	return result, nil
 }

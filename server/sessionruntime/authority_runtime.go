@@ -60,14 +60,14 @@ func (a *Authority) openRuntime(
 	if err != nil {
 		return runtimeids.SessionResourceRef{}, err
 	}
-	var admittedStore *runtimeStoreAdmission
+	var admittedStore *session.Store
 	var resourceSelection AgentResourceSelection = OpenAgentResource{}
 	if resolvePlan != nil {
 		admittedStore, err = a.materializeRuntimeStore(descriptor)
 		if err != nil {
 			return runtimeids.SessionResourceRef{}, err
 		}
-		request.Runtime, resourceSelection, err = resolvePlan(ctx, admittedStore.store)
+		request.Runtime, resourceSelection, err = resolvePlan(ctx, admittedStore)
 		if err != nil {
 			return runtimeids.SessionResourceRef{}, err
 		}
@@ -178,7 +178,7 @@ func (a *Authority) openResource(
 	ctx context.Context,
 	descriptor session.SessionDescriptor,
 	plan *AgentRuntimePlan,
-	admittedStore *runtimeStoreAdmission,
+	admittedStore *session.Store,
 ) (*agentResource, error) {
 	sessionID := descriptor.SessionID()
 	a.mu.Lock()
@@ -254,7 +254,7 @@ func (a *Authority) replaceResource(
 	ctx context.Context,
 	descriptor session.SessionDescriptor,
 	plan *AgentRuntimePlan,
-	admittedStore *runtimeStoreAdmission,
+	admittedStore *session.Store,
 ) (*agentResource, error) {
 	sessionID := descriptor.SessionID()
 	a.mu.Lock()

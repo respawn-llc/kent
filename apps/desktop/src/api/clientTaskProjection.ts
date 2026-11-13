@@ -67,7 +67,6 @@ export function taskListPage(value: pb.ListSuccessValid): TaskListPage {
     scope: { projectID: value.scope.projectId, workflowID: value.scope.workflowId ?? null },
     matchingWorkflowCardinality: taskCardinality.decode(value.matchingWorkflowCardinality),
     nextOffset: value.nextOffset ?? null,
-    generatedAt: timestampMillis(value.generatedAt),
     tasks: value.tasks.map((task) => {
       return {
         id: task.taskId,
@@ -95,7 +94,6 @@ export function projectTaskGroupCounts(value: pb.ProjectTaskGroupCountsSuccessVa
       statusKinds: definition.statusKinds.map(taskStatusKind.decode),
     })),
     counts: { active: value.counts.active, backlog: value.counts.backlog, done: value.counts.done },
-    generatedAt: timestampMillis(value.generatedAt),
   };
 }
 
@@ -126,7 +124,7 @@ function workflowPickerItem(value: pb.WorkflowPickerItem): WorkflowPickerItem {
     description: value.description,
     version: Number(value.version),
     isProjectDefault: value.isProjectDefault,
-    validForTaskCreation: value.validForTaskCreation,
+    validForTaskCreation: !value.validationErrors.some((error) => error.blocksContext),
     validationErrors: value.validationErrors.map(workflowValidationError),
   };
 }
@@ -172,7 +170,6 @@ export function workflowBoard(value: pb.BoardValid): WorkflowBoard {
       }))
       .filter((group) => group.nodeIDs.length > 0),
     columns,
-    generatedAt: timestampMillis(value.generatedAt),
   };
 }
 
@@ -182,7 +179,6 @@ export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccessValid): Bo
     workflowID: value.workflowId,
     nodeID: value.nodeId,
     nextOffset: value.nextOffset ?? null,
-    generatedAt: timestampMillis(value.generatedAt),
     cards: value.cards.map((card) => {
       return {
         id: card.taskId,
@@ -215,7 +211,6 @@ export function taskCurrentNode(value: AttentionCurrentNode): TaskCurrentNode {
 export function taskComment(value: GeneratedComment): TaskComment {
   return {
     id: value.id,
-    taskID: value.taskId,
     body: value.body,
     authorKind: taskCommentAuthor.decode(value.author),
     authorID: value.authorId ?? null,

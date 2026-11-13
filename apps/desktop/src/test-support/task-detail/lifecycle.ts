@@ -136,8 +136,8 @@ export function taskResumeRoute(
   return { descriptor: lifecycle.TaskLifecycleService.method.resume, resultFactory: result };
 }
 
-export function taskDeleted() {
-  return create(lifecycle.DeleteResultSchema, { outcome: { case: "success", value: {} } });
+export function taskDeleted(branchCleanup?: lifecycle.DeleteSuccess["branchCleanup"]) {
+  return create(lifecycle.DeleteResultSchema, { outcome: { case: "success", value: { branchCleanup } } });
 }
 
 export function taskAlreadyDeleted(taskID: string) {
@@ -153,7 +153,7 @@ export function taskAlreadyDeleted(taskID: string) {
 }
 
 export function taskDeleteRoute(
-  result: () => lifecycle.DeleteResult | Promise<lifecycle.DeleteResult> = taskDeleted,
+  result: () => lifecycle.DeleteResult | Promise<lifecycle.DeleteResult> = () => taskDeleted(),
 ): FakeRoute {
   return { descriptor: lifecycle.TaskLifecycleService.method.delete, resultFactory: result };
 }

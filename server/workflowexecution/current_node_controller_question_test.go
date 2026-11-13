@@ -55,10 +55,10 @@ func TestCurrentNodeControllerTaskInterruptClosesWaitingQuestionAndRunningScope(
 	fixture.waitForPendingPrompt(t, question.TaskID, request.ToolCallID)
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
-		_, _ = pending.handle.Wait(context.Background())
+		_ = pending.handle.Wait(context.Background())
 	})
 
-	runningHandle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, running, sessionruntime.ScriptExecutionRequest{
+	runningHandle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, running, sessionruntime.DetachedScriptExecutionRequest{
 		Command: sessionruntime.ScriptCommand{
 			Path: shellPath,
 			Args: []string{"-c", "trap 'exit 0' TERM; while :; do sleep 1; done"},
@@ -106,7 +106,7 @@ func TestCurrentNodeControllerTaskInterruptClosesDurablyInterruptedWaitingQuesti
 	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
-		_, _ = pending.handle.Wait(context.Background())
+		_ = pending.handle.Wait(context.Background())
 	})
 	fixture.store.currentNodes = []workflow.CurrentNode{{
 		Reference: reference,
@@ -151,7 +151,7 @@ func TestCurrentNodeControllerTaskInterruptClosesDurablyInterruptedPendingApprov
 	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
-		_, _ = pending.handle.Wait(context.Background())
+		_ = pending.handle.Wait(context.Background())
 	})
 	fixture.store.currentNodes = []workflow.CurrentNode{{
 		Reference: reference,
@@ -217,7 +217,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 					t.Skipf("sh executable unavailable: %v", lookupErr)
 				}
 				siblingReference := currentNodeReferenceForControllerTest(t, test.id, "node-running-sibling")
-				sibling = startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, siblingReference, sessionruntime.ScriptExecutionRequest{
+				sibling = startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, siblingReference, sessionruntime.DetachedScriptExecutionRequest{
 					Command: sessionruntime.ScriptCommand{Path: shellPath, Args: []string{"-c", "trap 'exit 0' TERM; while :; do sleep 1; done"}},
 				})
 				waitForRunningCurrentNode(t, fixture.authority, siblingReference)
@@ -365,9 +365,9 @@ func TestCurrentNodeControllerManualMoveCancelsWaitingQuestionAndStopsSibling(t 
 	fixture.waitForPendingPrompt(t, question.TaskID, request.ToolCallID)
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
-		_, _ = pending.handle.Wait(context.Background())
+		_ = pending.handle.Wait(context.Background())
 	})
-	runningHandle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, running, sessionruntime.ScriptExecutionRequest{
+	runningHandle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, running, sessionruntime.DetachedScriptExecutionRequest{
 		Command: sessionruntime.ScriptCommand{
 			Path: shellPath,
 			Args: []string{"-c", "trap 'exit 0' TERM; while :; do sleep 1; done"},
@@ -420,7 +420,7 @@ func TestCurrentNodeControllerManualMoveCleansUpAfterQuestionResolutionPublicati
 	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
-		_, _ = pending.handle.Wait(context.Background())
+		_ = pending.handle.Wait(context.Background())
 	})
 
 	err := fixture.controller.InterruptForManualMove(context.Background(), reference.TaskID, nil)
@@ -489,7 +489,7 @@ func TestCurrentNodeControllerAnswersOnlyDurablyBoundExactPromptScope(t *testing
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for prompt response")
 	}
-	if _, err := pending.handle.Wait(context.Background()); err != nil {
+	if err := pending.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait prompt execution: %v", err)
 	}
 	if calls := fixture.store.bindingCalls(); len(calls) != 0 {
@@ -605,7 +605,7 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for independent prompt response")
 	}
-	if _, err := independent.handle.Wait(context.Background()); err != nil {
+	if err := independent.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait independent prompt execution: %v", err)
 	}
 	select {
@@ -637,7 +637,7 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for second prompt response")
 	}
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait prompt execution: %v", err)
 	}
 }
@@ -724,7 +724,7 @@ func TestCurrentNodeControllerRejectsOwnershipMismatchWithoutPromptDelivery(t *t
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for prompt response")
 	}
-	if _, err := pending.handle.Wait(context.Background()); err != nil {
+	if err := pending.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait prompt execution: %v", err)
 	}
 	if calls := fixture.store.bindingCalls(); len(calls) != 0 {

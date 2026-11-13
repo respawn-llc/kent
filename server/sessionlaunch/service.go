@@ -2,8 +2,6 @@ package sessionlaunch
 
 import (
 	"context"
-	"core/server/sessionruntime"
-	configurationpb "core/shared/protoapi/gen/kent/api/configuration"
 	"errors"
 	"fmt"
 	"strings"
@@ -578,38 +576,13 @@ func sessionPlanSuccessFromResult(result PlanResult) (*sessionlaunchpb.SessionPl
 	if err != nil {
 		return nil, err
 	}
-	enabledToolIDs := make([]configurationpb.ToolID, 0, len(result.Plan.EnabledTools))
-	for _, id := range result.Plan.EnabledTools {
-		generated, err := protoapi.SessionToolIDToProto(id)
-		if err != nil {
-			return nil, err
-		}
-		enabledToolIDs = append(enabledToolIDs, generated)
-	}
 	plan := &sessionlaunchpb.SessionPlan{
-		ConnectionScope: &sessionlaunchpb.ConnectionScope{
-			Selection:       protoapi.ConnectionSelectionToProto(result.Plan.ConnectionScope.Selection),
-			UnavailableRole: result.Plan.ConnectionScope.UnavailableRole,
-		},
-		ShortId:                  protoapi.SessionShortIDToProto(result.Identity.ShortID),
-		SessionId:                result.Plan.Descriptor.SessionID().String(),
-		ActiveSettings:           settings,
-		EnabledToolIds:           enabledToolIDs,
-		SessionName:              textutil.Pointer(result.Plan.SessionName),
-		ModelContractLocked:      result.Plan.ModelContractLocked,
-		QuestionsEnabled:         result.Plan.QuestionsEnabled,
-		AutoCompactionEnabled:    result.Plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: result.Plan.ThinkingOverrideExplicit,
-		Source:                   source,
-	}
-	selection, err := sessionruntime.AgentSelectionFromState(result.Plan.ActivationAgentSelection)
-	if err != nil {
-		return nil, err
-	}
-	plan.ActivationAgentSelection = protoapi.SessionRuntimeAgentSelectionToProto(selection)
-	plan.ExplicitToolSelection, err = protoapi.ToolSelectionToProto(result.Plan.ExplicitToolSelection)
-	if err != nil {
-		return nil, err
+		ShortId:             protoapi.SessionShortIDToProto(result.Identity.ShortID),
+		SessionId:           result.Plan.Descriptor.SessionID().String(),
+		ActiveSettings:      settings,
+		SessionName:         textutil.Pointer(result.Plan.SessionName),
+		ModelContractLocked: result.Plan.ModelContractLocked,
+		Source:              source,
 	}
 	if result.Plan.ConfiguredModelName != "" {
 		plan.ConfiguredModelName = &result.Plan.ConfiguredModelName

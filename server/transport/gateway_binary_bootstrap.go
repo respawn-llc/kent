@@ -91,7 +91,6 @@ func invokeBinaryServerReadiness(
 	if success.GetReadiness() == nil {
 		return nil, errors.New("server readiness is required")
 	}
-	success.Readiness.ServerId = g.identity.ServerID
 	success.Readiness.ProtocolVersion = g.identity.ProtocolVersion
 	return success, nil
 }

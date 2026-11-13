@@ -42,10 +42,6 @@ const (
 	compactionEngineRemote compactionEngineKind = "remote"
 )
 
-type compactionEnginePlan struct {
-	engineKind compactionEngineKind
-}
-
 type compactionPlanner struct{}
 
 func newCompactionPlanner() *compactionPlanner {
@@ -66,14 +62,14 @@ func (p *compactionPlanner) autoCompactionAvailable(snapshot compactionPlanningS
 	return snapshot.autoCompactionEnabled && snapshot.policy.CompactionMode != contextpb.CompactionMode_COMPACTION_MODE_DISABLED
 }
 
-func (p *compactionPlanner) enginePlan(snapshot compactionPlanningSnapshot) compactionEnginePlan {
+func (p *compactionPlanner) enginePlan(snapshot compactionPlanningSnapshot) compactionEngineKind {
 	switch snapshot.policy.CompactionMode {
 	case contextpb.CompactionMode_COMPACTION_MODE_DISABLED:
-		return compactionEnginePlan{engineKind: compactionEngineNone}
+		return compactionEngineNone
 	case contextpb.CompactionMode_COMPACTION_MODE_PROVIDER_NATIVE:
-		return compactionEnginePlan{engineKind: compactionEngineRemote}
+		return compactionEngineRemote
 	default:
-		return compactionEnginePlan{engineKind: compactionEngineLocal}
+		return compactionEngineLocal
 	}
 }
 

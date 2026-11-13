@@ -369,23 +369,23 @@ func assertEligibleReplacementFacts(
 		facts[2].Notice.MessageType != llm.MessageTypeCompactionSummary {
 		t.Fatalf("replacement facts = %+v, want ordered user, assistant, summary rows", facts)
 	}
-	if facts[0].User.CommittedAtUnixMs == nil {
+	if facts[0].Provenance == nil || facts[0].Provenance.CommittedAtUnixMs == nil {
 		t.Fatal("replacement user has no committed time")
 	}
-	if facts[1].Assistant.CommittedAtUnixMs == nil {
+	if facts[1].Provenance == nil || facts[1].Provenance.CommittedAtUnixMs == nil {
 		t.Fatal("replacement assistant has no committed time")
 	}
-	if facts[1].Assistant.CommittedAtUnixMs.UnixMs() != facts[0].User.CommittedAtUnixMs.UnixMs() {
+	if facts[1].Provenance.CommittedAtUnixMs.UnixMs() != facts[0].Provenance.CommittedAtUnixMs.UnixMs() {
 		t.Fatalf(
 			"assistant replacement time = %v, user = %v",
-			facts[1].Assistant.CommittedAtUnixMs,
-			facts[0].User.CommittedAtUnixMs,
+			facts[1].Provenance.CommittedAtUnixMs,
+			facts[0].Provenance.CommittedAtUnixMs,
 		)
 	}
 	if facts[2].Provenance == nil {
 		t.Fatal("replacement notice has no provenance")
 	}
-	return *facts[0].User.CommittedAtUnixMs
+	return *facts[0].Provenance.CommittedAtUnixMs
 }
 
 func assertReplacementFactsMatch(

@@ -24,10 +24,6 @@ import {
   QueueRequestSchema,
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import {
-  SessionRuntimeService,
-  SessionRuntimeActivateResultSchema,
-} from "@app/server-api-contract/gen/kent/api/session_launch/session_lifecycle_pb";
-import {
   AgentPreparationCategory,
   InitialChatSettingsSchema,
   SupervisorValue,
@@ -41,23 +37,6 @@ import {
   GoalSetResultSchema,
   GoalStatus,
 } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
-import {
-  BackgroundShellOutputMode,
-  CacheWarningMode,
-  CompactionMode,
-  ModelVerbosity,
-  SettingsSchema,
-  SourceReportSchema,
-  ShellPostprocessingMode,
-  SleepPreventionMode,
-  ToolID,
-  WorkflowCompletionMode,
-} from "@app/server-api-contract/gen/kent/api/configuration/configuration_pb";
-import {
-  SessionLaunchService,
-  SessionPlanResultSchema,
-  SessionRuntimeAgentSelectionSchema,
-} from "@app/server-api-contract/gen/kent/api/session_launch/session_launch_pb";
 
 import { requireProjectAttachment } from "./chatAttachment";
 import { ChatOperationError } from "./chatErrors";
@@ -68,86 +47,11 @@ const target = {
   sessionID,
 } as const;
 
-function runtimePlanResult(planSessionID: string) {
-  const settings = create(SettingsSchema, {
-    model: "gpt-6-sol",
-    thinkingLevel: "medium",
-    modelVerbosity: ModelVerbosity.MEDIUM,
-    modelCapabilities: { supportsReasoningEffort: true, supportsVisionInputs: false },
-    theme: "auto",
-    notificationMethod: "off",
-    toolPreambles: true,
-    priorityRequestMode: false,
-    debug: false,
-    serverHost: "127.0.0.1",
-    serverPort: 53082,
-    webSearch: "off",
-    connection: "test",
-    providerIdentifier: "openai",
-    store: true,
-    allowNonCwdEdits: false,
-    modelContextWindow: 100000,
-    contextCompactionThresholdTokens: 80000,
-    preSubmitCompactionLeadTokens: 1000,
-    minimumExecToBgSeconds: 1,
-    compactionMode: CompactionMode.LOCAL,
-    enabledTools: [{ toolId: ToolID.TOOL_ID_EXEC_COMMAND, enabled: true }],
-    skillToggles: [{ key: "example", value: true }],
-    timeouts: { modelRequestSeconds: 30 },
-    shellOutputMaxChars: 10000,
-    bgShellsOutput: BackgroundShellOutputMode.DEFAULT,
-    shell: { postprocessingMode: ShellPostprocessingMode.BUILTIN },
-    cacheWarningMode: CacheWarningMode.DEFAULT,
-    worktrees: { baseDir: "", setupScript: "", setupTimeoutSeconds: 0 },
-    workflow: {
-      completionMode: WorkflowCompletionMode.AUTO,
-      concurrency: 1,
-      maxInvalidCompletionAttempts: 1,
-      useRequiredToolCalls: false,
-      subagents: false,
-    },
-    reviewer: {
-      frequency: "off",
-      model: "gpt-6-sol",
-      thinkingLevel: "medium",
-      modelVerbosity: ModelVerbosity.MEDIUM,
-      connection: "test",
-      modelCapabilities: { supportsReasoningEffort: true, supportsVisionInputs: false },
-      modelContextWindow: 100000,
-      timeoutSeconds: 30,
-      verboseOutput: false,
-    },
-    subagents: [],
-    maxSubagentDepth: 0,
-    preventSleep: SleepPreventionMode.ACTIVE,
-  });
-  return create(SessionPlanResultSchema, {
-    outcome: {
-      case: "success",
-      value: {
-        plan: {
-          sessionId: planSessionID,
-          connectionScope: {},
-          activeSettings: settings,
-          enabledToolIds: [ToolID.TOOL_ID_EXEC_COMMAND],
-          modelContractLocked: false,
-          questionsEnabled: true,
-          autoCompactionEnabled: true,
-          thinkingOverrideExplicit: false,
-          source: create(SourceReportSchema, { sources: [] }),
-        },
-        warnings: [],
-      },
-    },
-  });
-}
-
 function transcriptHydrationPayload() {
   return create(T.HydrationSchema, {
     sessionIdentity: {
       category: SessionCategory.MAIN,
       sessionId: sessionID,
-      conversationFreshness: R.ConversationFreshness.FRESH,
     },
     sessionStatus: {
       reviewerFrequency: "off",
@@ -198,7 +102,6 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
             reviewerFrequency: "off",
             autoCompactionEnabled: true,
             questionsEnabled: true,
-            conversationFreshness: R.ConversationFreshness.FRESH,
             thinkingLevel: "medium",
             compactionMode: "local",
             contextUsage: { usedTokens: 4, windowTokens: 100 },
@@ -207,7 +110,6 @@ function mainViewResult(state: R.ActivityState, withGoal: boolean) {
           session: {
             category: SessionCategory.MAIN,
             sessionId: sessionID,
-            conversationFreshness: R.ConversationFreshness.FRESH,
             executionTarget: {
               workspaceName: "Workspace",
               workspaceRoot: "/workspace",
@@ -373,7 +275,7 @@ describe("Desktop Chat read client", () => {
     });
   });
 
-  it("reads Main View and Context and validates runtime activation identity", async () => {
+  it("reads dormant Main View and Context independently", async () => {
     const transport = new FakeRpcTransport([
       {
         descriptor: SessionReadService.method.getMainView,
@@ -413,56 +315,6 @@ describe("Desktop Chat read client", () => {
       contextWindowTokens: 100,
       remainingTokens: 96,
     });
-    for (const selection of [
-      undefined,
-      ...["worker", "default", undefined].map((agentRole) =>
-        create(SessionRuntimeAgentSelectionSchema, {
-          agentRole,
-          baseline: {
-            supervisor: "off",
-            thinking: "high",
-            fast: true,
-            questions: false,
-            autoCompaction: true,
-          },
-        }),
-      ),
-    ]) {
-      const planned = runtimePlanResult(sessionID);
-      if (planned.outcome.case !== "success" || planned.outcome.value.plan === undefined)
-        throw new Error("Plan fixture missing");
-      planned.outcome.value.plan.activationAgentSelection = selection;
-      const activationTransport = new FakeRpcTransport([
-        { descriptor: SessionLaunchService.method.plan, result: planned },
-        {
-          descriptor: SessionRuntimeService.method.activate,
-          result: create(SessionRuntimeActivateResultSchema, {
-            outcome: { case: "success", value: {} },
-          }),
-        },
-      ]);
-      const activationClient = new ApiClient(activationTransport, unexpectedProjectOverflow);
-      await activationClient.chat.activateRuntime(target);
-      if (selection === undefined) {
-        expect(activationTransport.descriptorCalls[1]?.request).not.toHaveProperty("options.agentSelection");
-      } else {
-        expect(activationTransport.descriptorCalls[1]?.request).toMatchObject({
-          options: { agentSelection: selection },
-        });
-      }
-    }
-
-    const mismatchedPlanClient = new ApiClient(
-      new FakeRpcTransport([
-        {
-          descriptor: SessionLaunchService.method.plan,
-          result: runtimePlanResult("223e4567-e89b-42d3-a456-426614174000"),
-        },
-      ]),
-      unexpectedProjectOverflow,
-    );
-    const failure = await mismatchedPlanClient.chat.activateRuntime(target).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(ContractError);
   });
 
   it("converts Goal inspection, authoritative mutation, and ordered observation", async () => {
@@ -579,8 +431,6 @@ describe("Desktop Chat read client", () => {
                 value: {
                   transcript: {
                     sessionId: sessionID,
-                    conversationFreshness:
-                      callIndex === 0 ? R.ConversationFreshness.FRESH : R.ConversationFreshness.ESTABLISHED,
                     olderCursor: 11n,
                     hasMoreAbove: true,
                     newerCursor: callIndex === 0 ? 29n : undefined,
@@ -633,7 +483,6 @@ describe("Desktop Chat read client", () => {
     const older = await client.chat.getTranscriptPage(target, { direction: "older", value: 41 });
     expect(older).toMatchObject({
       sessionID,
-      sessionName: null,
       olderCursor: 11,
       newerCursor: 29,
       entries: [
@@ -657,7 +506,6 @@ describe("Desktop Chat read client", () => {
     const newer = await client.chat.getTranscriptPage(target, { direction: "newer", value: 29 });
     expect(newer).toMatchObject({
       sessionID,
-      conversationFreshness: 1,
       hasMoreBelow: false,
       entries: [{ Kind: "assistant" }, { Kind: "user", User: { QueueItemIDs: [] } }],
     });
@@ -714,7 +562,6 @@ describe("Desktop Chat read client", () => {
               value: {
                 category: SessionCategory.MAIN,
                 sessionId: identity,
-                conversationFreshness: R.ConversationFreshness.FRESH,
               },
             },
           },

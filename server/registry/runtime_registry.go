@@ -527,6 +527,9 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	if r == nil {
 		return nil
 	}
+	if err := protoapi.Validate(feedback); err != nil {
+		return err
+	}
 	id := strings.TrimSpace(sessionID)
 	entry := r.authorityEntryBySession(id)
 	if entry == nil {
@@ -534,7 +537,7 @@ func (r *RuntimeRegistry) PublishSessionSettingFeedback(
 	}
 	return r.publishTranscriptAndMainView(entry, func() ([]*transcriptpb.Event, error) {
 		feedbackEvent := &transcriptpb.Event{Payload: &transcriptpb.Event_SessionSettingFeedback{SessionSettingFeedback: feedback}}
-		if feedback.Kind == transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME {
+		if _, renamed := feedback.Value.(*transcriptpb.SessionSettingFeedback_SessionName); renamed {
 			identity, err := r.sessionIdentity(entry, id)
 			if err != nil {
 				return nil, err

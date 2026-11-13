@@ -140,7 +140,7 @@ it("does not restore an exact prompt removed by the latest attention projection"
     expect(view.send).toHaveBeenCalledTimes(1);
   });
   act(() => {
-    view.client.setQueryData(queryKeys.taskAttention("task-1"), { items: [], generatedAt: 2 });
+    view.client.setQueryData(queryKeys.taskAttention("task-1"), { items: [] });
   });
   await act(async () => view.deliveries[0]?.reject(new Error("delivery failed")));
   await waitFor(() => {
@@ -153,12 +153,10 @@ it("does not restore an exact prompt removed by the latest attention projection"
 function setup(attention: readonly QuestionAttentionItem[]) {
   const services = createTaskDetailTestServices(taskDetailResponse);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  client.setQueryData(queryKeys.taskAttention("task-1"), { items: attention, generatedAt: 1 });
+  client.setQueryData(queryKeys.taskAttention("task-1"), { items: attention });
   const read = vi
     .spyOn(services.api, "listTaskAttention")
-    .mockImplementation(
-      async () => client.getQueryData(queryKeys.taskAttention("task-1")) ?? { items: [], generatedAt: 1 },
-    );
+    .mockImplementation(async () => client.getQueryData(queryKeys.taskAttention("task-1")) ?? { items: [] });
   const deliveries: ReturnType<typeof deferred<PromptAnswerBatchResponse>>[] = [];
   const send = vi.spyOn(services.api, "answerPromptBatch").mockImplementation(async () => {
     const delivery = deferred<PromptAnswerBatchResponse>();

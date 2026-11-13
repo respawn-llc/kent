@@ -132,17 +132,6 @@ func TestResolveRuntimeActivityKeepsPassiveQueuedFactsIdle(t *testing.T) {
 	if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE {
 		t.Fatalf("passive queued facts must not become active activity, got %+v", activity)
 	}
-
-	activity, err = ResolveRuntimeActivity(ResolverSnapshot{
-		Registry:            RegistrySnapshot{Registered: true},
-		PendingContinuation: PendingContinuationSnapshot{Promoted: true},
-	})
-	if err != nil {
-		t.Fatalf("ResolveRuntimeActivity promoted continuation: %v", err)
-	}
-	if activity.State != runtimepb.ActivityState_RUNTIME_ACTIVITY_STARTING {
-		t.Fatalf("promoted continuation activity = %+v, want starting", activity)
-	}
 }
 
 func TestResolveRuntimeActivityTreatsOpenLiveRunGroupAsBlocking(t *testing.T) {

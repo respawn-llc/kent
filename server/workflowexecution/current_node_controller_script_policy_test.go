@@ -144,7 +144,7 @@ func (*selectiveScriptFailureRunner) UsesScriptPublication(workflow.CurrentNodeR
 }
 
 func (r *selectiveScriptFailureRunner) PublishCurrentNode(_ context.Context, reference workflow.CurrentNodeReference, _ workflowruntime.TaskPromptDelivery, _ CurrentNodeAssignmentSteer, lease workflowExecutionStart, _ workflowruntime.Controller) error {
-	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.ScriptExecutionRequest{
+	_, err := startTestWorkflowScript(r.authority, lease, sessionruntime.DetachedScriptExecutionRequest{
 
 		Command: r.command,
 	})

@@ -15,46 +15,12 @@ import "kent/api/workflow_definition/workflow_definition.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/workflow_task;workflowtaskpb";
 
-enum AttentionItemKind {
-  ATTENTION_ITEM_KIND_UNSPECIFIED = 0;
-  ATTENTION_ITEM_KIND_QUESTION = 1;
-  ATTENTION_ITEM_KIND_APPROVAL = 2;
-  ATTENTION_ITEM_KIND_INTERRUPTED_CURRENT_NODE = 3;
-}
-
-enum AttentionQuestionKind {
-  ATTENTION_QUESTION_KIND_UNSPECIFIED = 0;
-  ATTENTION_QUESTION_KIND_ORDINARY = 1;
-  ATTENTION_QUESTION_KIND_APPROVAL = 2;
-}
-
-enum AttentionNotificationEventType {
-  ATTENTION_NOTIFICATION_EVENT_UNSPECIFIED = 0;
-  ATTENTION_NOTIFICATION_EVENT_PENDING = 1;
-  ATTENTION_NOTIFICATION_EVENT_RESOLVED = 2;
-  ATTENTION_NOTIFICATION_EVENT_SESSION_NAMING_FAILURE = 3;
-  ATTENTION_NOTIFICATION_EVENT_SESSION_TURN_END = 4;
-}
-
 enum AttentionNotificationKind {
   ATTENTION_NOTIFICATION_KIND_UNSPECIFIED = 0;
   ATTENTION_NOTIFICATION_KIND_QUESTION = 1;
   ATTENTION_NOTIFICATION_KIND_APPROVAL = 2;
   ATTENTION_NOTIFICATION_KIND_WORKFLOW_APPROVAL = 3;
   ATTENTION_NOTIFICATION_KIND_INTERRUPTED_CURRENT_NODE = 4;
-}
-
-enum AttentionNotificationTargetKind {
-  ATTENTION_NOTIFICATION_TARGET_UNSPECIFIED = 0;
-  ATTENTION_NOTIFICATION_TARGET_WORKFLOW_TASK = 1;
-  ATTENTION_NOTIFICATION_TARGET_SESSION_PROMPT = 2;
-}
-
-enum AttentionNotificationFocusKind {
-  ATTENTION_NOTIFICATION_FOCUS_UNSPECIFIED = 0;
-  ATTENTION_NOTIFICATION_FOCUS_QUESTION = 1;
-  ATTENTION_NOTIFICATION_FOCUS_APPROVAL = 2;
-  ATTENTION_NOTIFICATION_FOCUS_INTERRUPTED_CURRENT_NODE = 3;
 }
 
 enum ExecutionTargetUnavailableCause {
@@ -95,71 +61,6 @@ message AttentionCurrentNode {
   optional string effective_assignee = 4 [(buf.validate.field).string.min_len = 1];
   optional string effective_thinking = 5 [(buf.validate.field).string.min_len = 1];
   optional string node_display_name = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-}
-
-message OrdinaryQuestion {
-  repeated string suggestions = 1 [(buf.validate.field).repeated.items = {
-    string: {min_len: 1}
-    cel: {
-      id: "kent.workflow_task.attention_question_suggestion_nonblank"
-      message: "suggestions must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  }];
-  optional int32 recommended_option_index = 2 [(buf.validate.field).int32.gte = 1];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.attention_question_recommendation"
-    message: "recommended_option_index must identify a suggestion"
-    expression: "!has(this.recommended_option_index) || this.recommended_option_index <= size(this.suggestions)"
-  };
-}
-
-message ApprovalQuestion {
-  repeated kent.api.prompt.ApprovalDecision approval_decisions = 1 [(buf.validate.field).repeated = {
-    min_items: 1
-    items: {
-      enum: {
-        defined_only: true
-        not_in: [0]
-      }
-    }
-  }];
-  repeated kent.api.prompt.FileAccessTarget access_targets = 2 [(buf.validate.field).repeated.items.required = true];
-}
-
-message AttentionQuestionPrompt {
-  optional int64 short_id = 7 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
-  string session_id = 1 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
-  string step_id = 2 [
-    (buf.validate.field).string.uuid = true,
-    (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
-  ];
-  string tool_call_id = 3 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.attention_question_tool_call_id_trimmed"
-      message: "tool_call_id must not have surrounding whitespace"
-      expression: "this == this.trim()"
-    }
-  ];
-  AttentionQuestionKind kind = 4 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  oneof prompt {
-    option (buf.validate.oneof).required = true;
-    OrdinaryQuestion ordinary = 5;
-    ApprovalQuestion approval = 6;
-  }
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.attention_question_kind"
-    message: "question kind must match its prompt detail"
-    expression:
-      "(this.kind == 1 && has(this.ordinary)) || "
-      "(this.kind == 2 && has(this.approval))"
-  };
 }
 
 message ApprovalTarget {
@@ -297,14 +198,6 @@ message InterruptedCurrentNodeDetails {
 }
 
 message QuestionAttention {
-  optional string message = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.workflow_task.question_attention_message_nonblank"
-      message: "message must be non-blank"
-      expression: "this.trim() != ''"
-    }
-  ];
   AttentionCurrentNode current_node = 2 [(buf.validate.field).required = true];
   optional string session_name = 3 [
     (buf.validate.field).string.min_len = 1,
@@ -314,13 +207,7 @@ message QuestionAttention {
       expression: "this.trim() != ''"
     }
   ];
-  AttentionQuestionPrompt question = 4 [(buf.validate.field).required = true];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.question_attention_message"
-    message: "message is required unless an approval has access targets"
-    expression: "has(this.message) || (has(this.question.approval) && size(this.question.approval.access_targets) > 0)"
-  };
+  kent.api.prompt.ObservationQuestion question = 4 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_current_node_session_absent"
@@ -361,10 +248,6 @@ message InterruptedAttention {
 
 message AttentionItem {
   string id = 1 [(buf.validate.field).string.min_len = 1];
-  AttentionItemKind kind = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   string project_id = 3 [(buf.validate.field).string.min_len = 1];
   string workflow_id = 4 [
     (buf.validate.field).string.uuid = true,
@@ -382,17 +265,9 @@ message AttentionItem {
   }
 
   option (buf.validate.message).cel = {
-    id: "kent.workflow_task.attention_item_kind"
-    message: "attention item kind must match its detail"
-    expression:
-      "(this.kind == 1 && has(this.question)) || "
-      "(this.kind == 2 && has(this.approval)) || "
-      "(this.kind == 3 && has(this.interrupted_current_node))"
-  };
-  option (buf.validate.message).cel = {
     id: "kent.workflow_task.question_attention_occurrence"
     message: "Question attention occurrence must be after the Unix epoch"
-    expression: "this.kind != 1 || this.occurred_at > timestamp('1970-01-01T00:00:00Z')"
+    expression: "!has(this.question) || this.occurred_at > timestamp('1970-01-01T00:00:00Z')"
   };
 }
 
@@ -419,7 +294,6 @@ message AttentionRequestValidationDetails {
 message AttentionListSuccess {
   repeated AttentionItem items = 1 [(buf.validate.field).repeated.items.required = true];
   optional string next_page_token = 2 [(buf.validate.field).string.min_len = 1];
-  google.protobuf.Timestamp generated_at = 3 [(buf.validate.field).required = true];
 }
 
 message AttentionListError {
@@ -455,7 +329,6 @@ message TaskAttentionListRequest {
 
 message TaskAttentionListSuccess {
   repeated AttentionItem items = 1 [(buf.validate.field).repeated.items.required = true];
-  google.protobuf.Timestamp generated_at = 2 [(buf.validate.field).required = true];
 }
 
 message TaskAttentionListError {
@@ -524,25 +397,12 @@ message ApprovalFocus {
 message InterruptedCurrentNodeFocus {}
 
 message AttentionNotificationTaskFocus {
-  AttentionNotificationFocusKind kind = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   oneof focus {
     option (buf.validate.oneof).required = true;
     QuestionFocus question = 2;
     ApprovalFocus approval = 3;
     InterruptedCurrentNodeFocus interrupted_current_node = 4;
   }
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.notification_focus_kind"
-    message: "focus kind must match its detail"
-    expression:
-      "(this.kind == 1 && has(this.question)) || "
-      "(this.kind == 2 && has(this.approval)) || "
-      "(this.kind == 3 && has(this.interrupted_current_node))"
-  };
 }
 
 message WorkflowTaskAttentionTarget {
@@ -585,31 +445,15 @@ message SessionPromptAttentionTarget {
 }
 
 message AttentionNotificationTarget {
-  AttentionNotificationTargetKind kind = 1 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   oneof target {
     option (buf.validate.oneof).required = true;
     WorkflowTaskAttentionTarget workflow_task = 2;
     SessionPromptAttentionTarget session_prompt = 3;
   }
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.notification_target_kind"
-    message: "target kind must match its detail"
-    expression:
-      "(this.kind == 1 && has(this.workflow_task)) || "
-      "(this.kind == 2 && has(this.session_prompt))"
-  };
 }
 
 message AttentionNotification {
   AttentionNotificationID id = 1 [(buf.validate.field).required = true];
-  AttentionNotificationKind kind = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).cel = {
@@ -632,18 +476,13 @@ message AttentionNotification {
   AttentionNotificationTarget target = 9 [(buf.validate.field).required = true];
 
   option (buf.validate.message).cel = {
-    id: "kent.workflow_task.notification_identity_kind"
-    message: "notification id kind must match notification kind"
-    expression: "this.id.kind == this.kind"
-  };
-  option (buf.validate.message).cel = {
     id: "kent.workflow_task.notification_state_kind"
     message: "notification kind must match its state"
     expression:
-      "(this.kind == 1 && has(this.question)) || "
-      "(this.kind == 2 && has(this.approval)) || "
-      "(this.kind == 3 && has(this.workflow_approval)) || "
-      "(this.kind == 4 && has(this.interrupted_current_node))"
+      "(this.id.kind == 1 && has(this.question)) || "
+      "(this.id.kind == 2 && has(this.approval)) || "
+      "(this.id.kind == 3 && has(this.workflow_approval)) || "
+      "(this.id.kind == 4 && has(this.interrupted_current_node))"
   };
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.notification_approval_target"
@@ -670,21 +509,15 @@ message AttentionNotification {
   };
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.notification_question_focus"
-    message: "Workflow Task question focus must match prepared ask ids"
+    message: "Workflow Task question notifications require a Question focus"
     expression:
       "!has(this.question) || !has(this.target.workflow_task) || "
-      "(has(this.target.workflow_task.focus.question) && "
-      "this.target.workflow_task.focus.question.ask_ids.all(id, id in this.question.prepared_ask_ids) && "
-      "this.question.prepared_ask_ids.all(id, id in this.target.workflow_task.focus.question.ask_ids))"
+      "has(this.target.workflow_task.focus.question)"
   };
 }
 
 message ResolvedAttentionNotification {
   AttentionNotificationID id = 1 [(buf.validate.field).required = true];
-  AttentionNotificationKind kind = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   google.protobuf.Timestamp occurred_at = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).cel = {
@@ -693,22 +526,12 @@ message ResolvedAttentionNotification {
       expression: "this != timestamp('0001-01-01T00:00:00Z')"
     }
   ];
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.resolved_notification_kind"
-    message: "resolved notification id kind must match event kind"
-    expression: "this.id.kind == this.kind"
-  };
 }
 
 message AttentionNotificationEvent {
   uint64 sequence = 1 [(buf.validate.field).uint64 = {
     gte: 1
     lte: 9007199254740991
-  }];
-  AttentionNotificationEventType type = 3 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
   }];
   oneof payload {
     option (buf.validate.oneof).required = true;
@@ -717,16 +540,6 @@ message AttentionNotificationEvent {
     kent.api.attention.SessionNamingFailure session_naming_failure = 6;
     kent.api.attention.SessionTurnEnd session_turn_end = 7;
   }
-
-  option (buf.validate.message).cel = {
-    id: "kent.workflow_task.notification_event_type"
-    message: "attention event type must match its payload"
-    expression:
-      "(this.type == 1 && has(this.pending)) || "
-      "(this.type == 2 && has(this.resolved)) || "
-      "(this.type == 3 && has(this.session_naming_failure)) || "
-      "(this.type == 4 && has(this.session_turn_end))"
-  };
 }
 
 message AttentionNotificationStartError {

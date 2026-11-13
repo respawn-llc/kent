@@ -7,7 +7,6 @@ import (
 	"core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/textutil"
 	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
@@ -55,8 +54,7 @@ func TestCacheWarningLivePersistedHydrationAndPageParity(t *testing.T) {
 			}
 			snapshot := segment.Snapshot
 			page, err := TranscriptPageFromSegment(
-				"12345678-1234-4234-8234-123456789012", nil,
-				runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+				"12345678-1234-4234-8234-123456789012",
 				runtime.TranscriptSegmentPage{Snapshot: snapshot}, nil,
 			)
 			if err != nil {

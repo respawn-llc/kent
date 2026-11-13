@@ -74,9 +74,8 @@ func TestOngoingOpeningShowsStoredHistoryBeforeTranscriptStreamArrives(t *testin
 	row := detailTestUserRow(prompt)
 	row.Visibility = transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING
 	sessionViews := &countingSessionViewClient{page: &transcriptpb.Page{
-		SessionId:             detailTestSessionID,
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
-		Entries:               []*transcriptpb.CommittedRow{row},
+		SessionId: detailTestSessionID,
+		Entries:   []*transcriptpb.CommittedRow{row},
 	}}
 	var output bytes.Buffer
 	surface := ongoing.NewSurface(&output)

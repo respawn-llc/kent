@@ -312,8 +312,6 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 					Outcome: &serverpb.GetReadinessResult_Success{Success: &serverpb.GetReadinessSuccess{
 						Readiness: &serverpb.Readiness{
 							Ready:           true,
-							ServerId:        "server-1",
-							ServerVersion:   "test",
 							ProtocolVersion: protocol.Version,
 						},
 					}},
@@ -389,8 +387,8 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 	if err := remote.callBinary(context.Background(), method, &emptypb.Empty{}, readiness); err != nil {
 		t.Fatalf("binary GetReadiness: %v", err)
 	}
-	if readiness.GetSuccess().GetReadiness().GetServerId() != "server-1" {
-		t.Fatalf("readiness = %+v, want server-1", readiness)
+	if !readiness.GetSuccess().GetReadiness().GetReady() {
+		t.Fatalf("readiness = %+v, want ready", readiness)
 	}
 	if got := connectionCount.Load(); got != 1 {
 		t.Fatalf("connectionCount = %d, want 1", got)
@@ -489,15 +487,13 @@ func TestRemoteSessionAttachmentSurvivesUnaryControlReconnect(t *testing.T) {
 		MainView: &runtimepb.MainView{
 			Version: version,
 			Status: &runtimepb.Status{
-				ReviewerFrequency:     "never",
-				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
-				ThinkingLevel:         "medium", CompactionMode: "none",
+				ReviewerFrequency: "never",
+				ThinkingLevel:     "medium", CompactionMode: "none",
 				ContextUsage: &runtimepb.ContextUsage{WindowTokens: 1000},
 			},
 			Session: &runtimepb.SessionView{
-				Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-				SessionId:             "11111111-1111-4111-8111-111111111111",
-				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
+				Category:  projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+				SessionId: "11111111-1111-4111-8111-111111111111",
 				ExecutionTarget: &worktreepb.SessionExecutionTarget{
 					WorkspaceId: proto.String("workspace-1"), WorkspaceName: "workspace",
 					WorkspaceRoot: "/workspace", WorkspaceAvailability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,

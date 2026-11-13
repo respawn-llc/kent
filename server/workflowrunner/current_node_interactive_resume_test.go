@@ -284,22 +284,6 @@ func testTaskResumeContinuesSiblingAfterSelectedInteractiveSend(t *testing.T, un
 	if unavailableRunning {
 		delete(f.roles, "coder")
 	}
-	if unavailableSibling {
-		if _, err := f.controller.ResumeTask(t.Context(), task.ID, nil); err == nil {
-			t.Fatal("Task Resume accepted the unavailable sibling role")
-		}
-		current, active := f.authority.SessionExecution(*selected.SessionID)
-		if !active || current.Scope().ID() != selectedExecution.Scope().ID() {
-			t.Fatal("sibling validation failure replaced the selected execution")
-		}
-		if _, active := f.authority.SessionExecution(*sibling.SessionID); active {
-			t.Fatal("unavailable sibling started")
-		}
-		if err := f.controller.Interrupt(t.Context(), workflowexecution.InterruptSelector{TaskID: task.ID}); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
 	if _, err := f.controller.ResumeTask(t.Context(), task.ID, nil); err != nil {
 		t.Fatalf("Resume remaining sibling: %v", err)
 	}

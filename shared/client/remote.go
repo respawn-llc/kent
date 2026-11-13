@@ -515,7 +515,7 @@ func (c *Remote) CompleteWorkflowTask(ctx context.Context, req *taskpb.CompleteR
 		})
 }
 
-func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error) {
+func (c *Remote) DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*taskpb.DeleteSuccess, error) {
 	method := taskpb.File_kent_api_workflow_task_lifecycle_proto.Services().ByName("TaskLifecycleService").Methods().ByName("Delete")
 	return callGeneratedBinary(c, ctx, method, req, &taskpb.DeleteResult{},
 		func(failure *taskpb.DeleteError) error {
@@ -750,7 +750,6 @@ var _ apicontract.ChatContextService = (*Remote)(nil)
 var _ apicontract.SessionLaunchService = (*Remote)(nil)
 var _ apicontract.SessionViewService = (*Remote)(nil)
 var _ apicontract.SessionLifecycleService = (*Remote)(nil)
-var _ apicontract.SessionRuntimeService = (*Remote)(nil)
 var _ apicontract.RuntimeControlService = (*Remote)(nil)
 var _ apicontract.RuntimeLiveControlService = (*Remote)(nil)
 var _ apicontract.ProcessViewService = (*Remote)(nil)

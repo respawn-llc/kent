@@ -32,14 +32,7 @@ const (
 	readmeFileName      = "README.md"
 	timestampFormat     = "2006-01-02T15-04-05Z"
 
-	// Default-layout paths referenced by the user-facing strings below,
-	// assembled from the identity and directory constants at compile time so
-	// they cannot drift from the real on-disk layout (and with no
-	// init-time/runtime cost). Callers that know the active persistence root
-	// render the equivalent strings from the resolved paths instead.
-	generatedRootDir = brand.PersistenceRoot + "/" + generatedDirName
-	recoveredDir     = brand.PersistenceRoot + "/" + recoveredDirName
-	workspaceSkills  = "<workspace>/" + brand.ConfigDirName + "/" + generatedSkillsDir
+	workspaceSkills = "<workspace>/" + brand.ConfigDirName + "/" + generatedSkillsDir
 )
 
 // generatedReadme renders the generated-root README for a concrete on-disk
@@ -56,26 +49,6 @@ func generatedReadme(homeSkillsRoot, recoveryRoot string) string {
 // rather than the default <home>/.kent layout.
 func recoveredWarning(generatedRoot, recoveryRoot string) string {
 	return generatedRoot + " folder was edited. This shouldn't be done and is a user error. Your edited folder was recovered to " + recoveryRoot + ". Please clean and remove that folder to make this warning go away, and do not attempt to edit " + generatedRoot + " in the future as it is overwritten on every startup and intended for seeding files for usage by the agent only. If you wanted to disable skills there, disable them in config.toml according to documentation."
-}
-
-type GeneratedSyncOptions struct {
-	HomeDir string
-	// ConfigRoot is the absolute persistence root that owns generated assets.
-	// When non-empty it is used directly (generated assets live under
-	// <ConfigRoot>/.generated); empty falls back to <home>/.kent.
-	ConfigRoot string
-	Now        func() time.Time
-	FS         fs.FS
-}
-
-type GeneratedSyncResult struct {
-	GeneratedRoot         string
-	GeneratedSkillsRoot   string
-	RecoveryRoot          string
-	Recovered             bool
-	RecoveryPath          string
-	RecoveredWarning      string
-	RecoveredRootNonEmpty bool
 }
 
 type GeneratedLayout struct {
@@ -105,26 +78,21 @@ type treeEntry struct {
 	Content []byte
 }
 
-func GeneratedSync(ctx context.Context, opts GeneratedSyncOptions) (GeneratedSyncResult, error) {
-	paths, err := resolvePathsForRoot(opts.HomeDir, opts.ConfigRoot)
+func GeneratedSync(ctx context.Context, configRoot string) error {
+	paths, err := resolvePathsForRoot(configRoot)
 	if err != nil {
-		return GeneratedSyncResult{}, err
-	}
-	result := GeneratedSyncResult{
-		GeneratedRoot:       paths.generatedRoot,
-		GeneratedSkillsRoot: paths.generatedSkillsRoot,
-		RecoveryRoot:        paths.recoveryRoot,
+		return err
 	}
 	if err := ctx.Err(); err != nil {
-		return result, err
+		return err
 	}
-	expected, err := expectedTree(opts.FS, generatedReadme(paths.homeSkillsRoot, paths.recoveryRoot))
+	expected, err := expectedTree(generatedReadme(paths.homeSkillsRoot, paths.recoveryRoot))
 	if err != nil {
-		return result, err
+		return err
 	}
 	state, err := inspectGeneratedRoot(paths.generatedRoot)
 	if err != nil {
-		return result, err
+		return err
 	}
 	needsSeed := false
 	needsRecovery := false
@@ -143,66 +111,21 @@ func GeneratedSync(ctx context.Context, opts GeneratedSyncOptions) (GeneratedSyn
 		}
 	}
 	if needsRecovery {
-		recoveryPath, err := recoverGeneratedRoot(paths, opts.Now)
-		if err != nil {
-			return result, err
+		if err := recoverGeneratedRoot(paths); err != nil {
+			return err
 		}
-		result.Recovered = true
-		result.RecoveryPath = recoveryPath
-		result.RecoveredWarning = recoveredWarning(paths.generatedRoot, paths.recoveryRoot)
 		needsSeed = true
 	}
 	if needsSeed {
 		if err := writeExpectedTree(paths.generatedRoot, expected); err != nil {
-			return result, err
+			return err
 		}
 	}
-	if nonEmpty, err := recoveredRootNonEmpty(paths.recoveryRoot); err == nil {
-		result.RecoveredRootNonEmpty = nonEmpty
-		if nonEmpty {
-			result.RecoveredWarning = recoveredWarning(paths.generatedRoot, paths.recoveryRoot)
-		}
-	}
-	return result, nil
-}
-
-func GeneratedRoot() (string, error) {
-	layout, err := GeneratedLayoutFor("")
-	if err != nil {
-		return "", err
-	}
-	return layout.GeneratedRoot, nil
-}
-
-func GeneratedSkillsRoot() (string, error) {
-	layout, err := GeneratedLayoutFor("")
-	if err != nil {
-		return "", err
-	}
-	return layout.GeneratedSkillsRoot, nil
-}
-
-// GeneratedSkillsRootFor resolves the generated skills root under the supplied
-// persistence config root. An empty configRoot falls back to the default
-// (<home>/.kent), matching GeneratedSkillsRoot().
-func GeneratedSkillsRootFor(configRoot string) (string, error) {
-	layout, err := GeneratedLayoutFor(configRoot)
-	if err != nil {
-		return "", err
-	}
-	return layout.GeneratedSkillsRoot, nil
-}
-
-func RecoveryRoot() (string, error) {
-	layout, err := GeneratedLayoutFor("")
-	if err != nil {
-		return "", err
-	}
-	return layout.RecoveryRoot, nil
+	return nil
 }
 
 func GeneratedLayoutFor(configRoot string) (GeneratedLayout, error) {
-	paths, err := resolvePathsForRoot("", configRoot)
+	paths, err := resolvePathsForRoot(configRoot)
 	if err != nil {
 		return GeneratedLayout{}, err
 	}
@@ -214,19 +137,12 @@ func GeneratedLayoutFor(configRoot string) (GeneratedLayout, error) {
 	}, nil
 }
 
-// RecoveredWarning returns the default-root recovery warning (referring to the
-// <home>/.kent layout). Callers that know the active persistence root should
-// prefer RecoveredWarningFor so the remediation points at the right instance.
-func RecoveredWarning() string {
-	return recoveredWarning(generatedRootDir, recoveredDir)
-}
-
 // RecoveredWarningFor renders the recovery warning for the generated/recovery
 // layout under the supplied persistence config root. An empty configRoot falls
-// back to the default (<home>/.kent), matching RecoveredWarning, so the warning
-// follows the selected root the same way generated sync does.
+// back to the default (<home>/.kent), so the warning follows the selected root
+// the same way generated sync does.
 func RecoveredWarningFor(configRoot string) (string, error) {
-	paths, err := resolvePathsForRoot("", configRoot)
+	paths, err := resolvePathsForRoot(configRoot)
 	if err != nil {
 		return "", err
 	}
@@ -238,7 +154,7 @@ func RecoveredWarningFor(configRoot string) (string, error) {
 // configRoot falls back to the default (<home>/.kent), so the recovery warning
 // follows the selected root the same way generated sync does.
 func RecoveredRootNonEmptyFor(configRoot string) (bool, error) {
-	paths, err := resolvePathsForRoot("", configRoot)
+	paths, err := resolvePathsForRoot(configRoot)
 	if err != nil {
 		return false, err
 	}
@@ -255,18 +171,13 @@ type generatedPaths struct {
 }
 
 // resolvePathsForRoot resolves the generated/recovery layout. When configRoot
-// is non-empty it is used directly as the persistence root; otherwise the
-// layout falls back to <home>/.kent (resolving homeDir or the OS home).
-func resolvePathsForRoot(homeDir, configRoot string) (generatedPaths, error) {
+// is empty, the layout falls back to <home>/.kent.
+func resolvePathsForRoot(configRoot string) (generatedPaths, error) {
 	root := strings.TrimSpace(configRoot)
 	if root == "" {
-		home := strings.TrimSpace(homeDir)
-		if home == "" {
-			resolved, err := os.UserHomeDir()
-			if err != nil {
-				return generatedPaths{}, fmt.Errorf("resolve home dir: %w", err)
-			}
-			home = resolved
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return generatedPaths{}, fmt.Errorf("resolve home dir: %w", err)
 		}
 		if strings.TrimSpace(home) == "" {
 			return generatedPaths{}, errors.New("home dir is required")
@@ -333,16 +244,12 @@ func readMarker(path string) (marker, error) {
 	return parsed, nil
 }
 
-func expectedTree(customFS fs.FS, readme string) ([]treeEntry, error) {
-	source := customFS
-	if source == nil {
-		source = GeneratedSkillsFS
-	}
+func expectedTree(readme string) ([]treeEntry, error) {
 	entries := []treeEntry{
 		{Path: readmeFileName, Kind: treeEntryFile, Perm: generatedFilePerm, Content: []byte(readme)},
 		{Path: generatedSkillsDir, Kind: treeEntryDir, Perm: generatedDirPerm},
 	}
-	if err := fs.WalkDir(source, generatedSkillsDir, func(path string, entry fs.DirEntry, err error) error {
+	if err := fs.WalkDir(GeneratedSkillsFS, generatedSkillsDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -361,7 +268,7 @@ func expectedTree(customFS fs.FS, readme string) ([]treeEntry, error) {
 		if !mode.IsRegular() {
 			return fmt.Errorf("generated asset %s has unsupported mode %s", rel, mode)
 		}
-		data, err := fs.ReadFile(source, path)
+		data, err := fs.ReadFile(GeneratedSkillsFS, path)
 		if err != nil {
 			return err
 		}
@@ -576,43 +483,39 @@ func writeExpectedTree(root string, entries []treeEntry) error {
 	return nil
 }
 
-func recoverGeneratedRoot(paths generatedPaths, now func() time.Time) (string, error) {
+func recoverGeneratedRoot(paths generatedPaths) error {
 	info, err := os.Lstat(paths.generatedRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return nil
 		}
-		return "", fmt.Errorf("stat generated root for recovery: %w", err)
+		return fmt.Errorf("stat generated root for recovery: %w", err)
 	}
 	if err := os.MkdirAll(paths.recoveryRoot, 0o755); err != nil {
-		return "", fmt.Errorf("create recovery root: %w", err)
+		return fmt.Errorf("create recovery root: %w", err)
 	}
-	base, err := nextRecoveryDir(paths.recoveryRoot, now)
+	base, err := nextRecoveryDir(paths.recoveryRoot)
 	if err != nil {
-		return "", err
+		return err
 	}
 	target := filepath.Join(base, generatedDirName)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return "", fmt.Errorf("create recovery target parent: %w", err)
+		return fmt.Errorf("create recovery target parent: %w", err)
 	}
 	if !info.IsDir() && info.Mode()&os.ModeSymlink != 0 {
 		if err := os.Rename(paths.generatedRoot, target); err != nil {
-			return "", fmt.Errorf("recover generated symlink: %w", err)
+			return fmt.Errorf("recover generated symlink: %w", err)
 		}
-		return target, nil
+		return nil
 	}
 	if err := os.Rename(paths.generatedRoot, target); err != nil {
-		return "", fmt.Errorf("recover generated root: %w", err)
+		return fmt.Errorf("recover generated root: %w", err)
 	}
-	return target, nil
+	return nil
 }
 
-func nextRecoveryDir(recoveryRoot string, now func() time.Time) (string, error) {
-	current := time.Now().UTC()
-	if now != nil {
-		current = now().UTC()
-	}
-	stem := current.Format(timestampFormat)
+func nextRecoveryDir(recoveryRoot string) (string, error) {
+	stem := time.Now().UTC().Format(timestampFormat)
 	for idx := 1; ; idx++ {
 		name := stem
 		if idx > 1 {

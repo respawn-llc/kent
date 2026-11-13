@@ -51,7 +51,6 @@ type Result struct {
 	SubmitUser         bool
 	User               string
 	PromptCommand      *runtimeinput.PromptCommand
-	FreshConversation  bool
 	ThinkingLevel      string
 	FastMode           string
 	SupervisorMode     string

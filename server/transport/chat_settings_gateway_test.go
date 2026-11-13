@@ -44,8 +44,11 @@ func TestGatewayDescriptorNewChatSettingsCatalog(t *testing.T) {
 		}},
 	}, result)
 	catalog := result.GetSuccess().GetNewChat()
-	if catalog == nil || len(catalog.Choices) == 0 || catalog.InitialSettings == nil {
+	if catalog == nil || len(catalog.Choices) == 0 {
 		t.Fatalf("New Chat catalog = %v", result)
+	}
+	if err := protoapi.Validate(catalog); err != nil {
+		t.Fatal(err)
 	}
 	for _, choice := range catalog.Choices {
 		if choice.Baseline.AgentRole != choice.Agent.Role ||

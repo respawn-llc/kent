@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
 	"core/server/agentruntime"
+	"core/server/launch"
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/runtimewire"
@@ -593,7 +593,7 @@ func TestDeleteWorktreeRejectsInFlightStartAndCompletesUnrelatedWorktree(t *test
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := start.Value.Wait(waitCtx); err != nil {
+	if err := start.Value.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for started execution: %v", err)
 	}
 }
@@ -665,7 +665,7 @@ func TestDeleteWorktreeRejectsLiveRunAndCompletesUnrelatedWorktree(t *testing.T)
 	releaseRun()
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(waitCtx); err != nil {
+	if err := handle.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for live execution: %v", err)
 	}
 }
@@ -718,7 +718,7 @@ func TestDeleteWorktreeRejectsRunningReviewer(t *testing.T) {
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(waitCtx); err != nil {
+	if err := handle.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for originating execution: %v", err)
 	}
 	active, err := env.authority.HasBlockingRuntimeActivity(context.Background(), sessionID)
@@ -1004,7 +1004,7 @@ func TestDeleteWorktreeRejectsSelectedWorkflowBeforeProviderWork(t *testing.T) {
 		unblockWorkflow()
 		waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if _, err := handle.Wait(waitCtx); err != nil {
+		if err := handle.Wait(waitCtx); err != nil {
 			t.Errorf("finish selected Workflow execution: %v", err)
 		}
 	})
@@ -1145,12 +1145,11 @@ func TestDeleteWorktreeRetiresIdleRuntimeAndRetargetsSessionBeforePhysicalRemova
 	settings.Model = "gpt-6-sol"
 	settings.ModelContextWindow = 200000
 	settings.Reviewer.Frequency = "off"
-	err = api.ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, otherSession.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: settings,
-			EnabledToolIDs:        []string{string(toolspec.ToolEdit), string(toolspec.ToolExecCommand)},
-			QuestionsEnabled:      textutil.Value(true),
-			AutoCompactionEnabled: textutil.Value(true),
-			Source:                config.SourceReport{Sources: map[string]config.Origin{}}},
+	err = api.ActivateSessionRuntime(context.Background(), launch.SessionPlan{
+		Descriptor: descriptor, ActiveSettings: settings,
+		EnabledTools:     []toolspec.ID{toolspec.ToolEdit, toolspec.ToolExecCommand},
+		QuestionsEnabled: true, AutoCompactionEnabled: true,
+		Source: config.SourceReport{Sources: map[string]config.Origin{}},
 	})
 	if err != nil {
 		t.Fatalf("activate retargeted Session Runtime: %v", err)
@@ -1252,7 +1251,7 @@ func TestDeleteTaskWorktreeRejectsInFlightStartUnchanged(t *testing.T) {
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := start.Value.Wait(waitCtx); err != nil {
+	if err := start.Value.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for started execution: %v", err)
 	}
 }

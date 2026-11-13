@@ -8,6 +8,7 @@ import (
 
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/projectview"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
@@ -28,6 +29,7 @@ import (
 var errSessionWorkspaceRetargeterRequired = errors.New("session workspace retargeter is required")
 
 type SessionLifecycleService struct {
+	operations      *operation.OperationOwner
 	persistenceRoot string
 	authority       *sessionruntime.Authority
 	retargeter      sessionWorkspaceRetargeter
@@ -46,16 +48,16 @@ type SessionLifecycleMetadata interface {
 }
 
 type sessionWorkspaceRetargeter interface {
-	RetargetWorkspace(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
-	ScheduleWorkspaceRetarget(ctx context.Context, req metadata.SessionWorkspaceRetargetRequest, origin *sessionlaunchpb.RuntimeStepOrigin, operationID worktreecontract.OperationID) (*worktreepb.ScheduledAcknowledgement, error)
+	RetargetWorkspace(operation.OperationScope, metadata.SessionWorkspaceRetargetRequest, *sessionlaunchpb.RuntimeStepOrigin, worktreecontract.OperationID, func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error), func(*worktreepb.ScheduledAcknowledgement), func(error)) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error)
 }
 
 type sessionNavigationTargetResolver interface {
 	ResolveSessionNavigationBinding(ctx context.Context, sessionID string) (*sessionlaunchpb.SessionNavigationBinding, error)
 }
 
-func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, owner SessionLifecycleMetadata) *SessionLifecycleService {
+func NewGlobalSessionLifecycleService(persistenceRoot string, authority *sessionruntime.Authority, owner SessionLifecycleMetadata, operations *operation.OperationOwner) *SessionLifecycleService {
 	return &SessionLifecycleService{
+		operations:      operations,
 		persistenceRoot: strings.TrimSpace(persistenceRoot),
 		authority:       authority,
 		metadata:        owner,
@@ -141,6 +143,35 @@ func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, 
 	if s.metadata == nil {
 		return nil, errors.New("Session metadata is required")
 	}
+	type reply struct {
+		response *sessionlaunchpb.SessionRetargetWorkspaceSuccess
+		err      error
+	}
+	result := make(chan reply, 1)
+	_, err := s.operations.Start(ctx, func(scope operation.OperationScope) error {
+		scheduled := false
+		response, runErr := s.retargetSessionWorkspace(scope, req, func(ack *worktreepb.ScheduledAcknowledgement) {
+			scheduled = true
+			result <- reply{response: &sessionlaunchpb.SessionRetargetWorkspaceSuccess{Scheduled: ack}}
+		})
+		if !scheduled {
+			result <- reply{response: response, err: runErr}
+		}
+		return runErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case outcome := <-result:
+		return outcome.response, outcome.err
+	case <-ctx.Done():
+		return nil, context.Cause(ctx)
+	}
+}
+
+func (s *SessionLifecycleService) retargetSessionWorkspace(scope operation.OperationScope, req *sessionlaunchpb.SessionRetargetWorkspaceRequest, scheduled func(*worktreepb.ScheduledAcknowledgement)) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
+	ctx := scope.Context()
 	sessionID, err := s.metadata.ResolveSessionTarget(ctx, req.SessionId)
 	if err != nil {
 		return nil, err
@@ -150,19 +181,13 @@ func (s *SessionLifecycleService) RetargetSessionWorkspace(ctx context.Context, 
 		WorkspaceRoot: req.WorkspaceRoot,
 		ProjectID:     req.ProjectId,
 	}
+	var origin *sessionlaunchpb.RuntimeStepOrigin
 	if req.Origin != nil && req.Origin.SessionId == sessionID.String() {
-		acknowledgement, err := s.retargeter.ScheduleWorkspaceRetarget(
-			ctx,
-			retargetRequest,
-			req.Origin,
-			worktreecontract.NewOperationID(),
-		)
-		if err != nil {
-			return nil, err
-		}
-		return &sessionlaunchpb.SessionRetargetWorkspaceSuccess{Scheduled: acknowledgement}, nil
+		origin = req.Origin
 	}
-	return s.retargeter.RetargetWorkspace(ctx, retargetRequest)
+	return s.retargeter.RetargetWorkspace(scope, retargetRequest, origin, worktreecontract.NewOperationID(),
+		func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error) { return retargetRequest, nil },
+		scheduled, nil)
 }
 
 func completedWorkspaceRetargetResponse(result metadata.SessionWorkspaceRetargetResult) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {

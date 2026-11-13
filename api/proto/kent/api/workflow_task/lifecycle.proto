@@ -494,6 +494,10 @@ message DeleteRequest {
   string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
 }
 
+message DeleteSuccess {
+  kent.api.worktree.BranchCleanupOutcome branch_cleanup = 1;
+}
+
 message DependencyAddRequest {
   string blocker_task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string blocked_task_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
@@ -556,7 +560,6 @@ message DependencyListSuccess {
 
 message Comment {
   string id = 1 [(buf.validate.field).string.min_len = 1];
-  string task_id = 2 [(buf.validate.field).string.min_len = 1];
   string body = 3 [(buf.validate.field).string.min_len = 1];
   CommentAuthorKind author = 4 [(buf.validate.field).enum = {
     defined_only: true
@@ -1228,7 +1231,7 @@ message CompleteResult {
 message DeleteResult {
   oneof outcome {
     option (buf.validate.oneof).required = true;
-    google.protobuf.Empty success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    DeleteSuccess success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
     DeleteError error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
   }
 }

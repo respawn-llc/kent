@@ -5,6 +5,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/agentruntime"
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/registry"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
@@ -289,7 +290,10 @@ func newServiceTestEnvWithResourceLifecycle(t *testing.T, lifecycle sessionrunti
 	})
 	publisher := &serviceTestPublisher{}
 	processes := &serviceTestProcessSource{}
+	operations := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = operations.Close() })
 	service := NewService(store, nil, authority, publisher, processes, ServiceOptions{
+		Operations:                    operations,
 		PersistenceRoot:               cfg.PersistenceRoot,
 		BaseDir:                       cfg.Settings.Worktrees.BaseDir,
 		RuntimeActivitySnapshotReader: runtimeRegistry,

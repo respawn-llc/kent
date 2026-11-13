@@ -45,18 +45,14 @@ const baseline: InitialChatSettings = {
 };
 const catalog: Extract<ChatSettingsRead, { kind: "new_chat" }> = {
   kind: "new_chat",
-  initialSettings: baseline,
   catalog: {
+    initialAgentRole: baseline.agentRole,
     choices: [
       {
         agent: {
           role: "default",
           model: "local",
           thinking: "none",
-          tools: [],
-          customSystemPrompt: false,
-          customCapabilities: false,
-          agentCallable: true,
         },
         baseline,
         supervisor: { value: "edits", baseline: "edits", editability: { kind: "editable" } },

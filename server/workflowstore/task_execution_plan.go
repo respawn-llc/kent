@@ -126,7 +126,7 @@ func (s *Store) PlanTaskResume(ctx context.Context, taskID workflow.TaskID, refe
 		executionNodes[node.Reference.NodeID] = true
 	}
 	validation := workflow.ValidateDefinition(definition, workflow.ValidationOptions{
-		Context: workflow.ValidationContextExecution, RoleResolver: s.roleResolver, ExecutionNodes: executionNodes,
+		Context: workflow.ValidationContextResume, RoleResolver: s.roleResolver, ExecutionNodes: executionNodes,
 	})
 	if validation.HasBlockingErrors() {
 		return TaskResumePlan{}, WorkflowValidationError{Diagnostics: validation.BlockingErrors()}

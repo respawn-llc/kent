@@ -1,5 +1,9 @@
+import type { ValidationErrorCode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+import type { DeleteSuccess } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import type { AttentionItem } from "./attention";
 import type { TaskLiveSession } from "./taskDetailModels";
+
+export type TaskDeleteResponse = Readonly<Pick<DeleteSuccess, "branchCleanup">>;
 
 import type { WorkflowExecutionTarget, WorkflowExecutionTargetPolicy } from "./workflowExecutionTarget";
 import type {
@@ -15,7 +19,6 @@ export type {
   TaskMoveApplied,
   TaskMoveNoOp,
   TaskMoveResponse,
-  TaskMovePreviewBlocker,
   TaskMovePreviewChoice,
   TaskMovePreviewResponse,
   TaskMoveRequiredValue,
@@ -51,10 +54,7 @@ export type SubagentRoleSummary = Readonly<{
 export type ServerReadiness = Readonly<{
   globalConfigPath: string | null;
   ready: boolean;
-  serverID: string;
-  serverVersion: string;
   protocolVersion: string;
-  endpoint: string;
   subagentRoles: readonly SubagentRoleSummary[];
   causes: readonly ServerCause[];
 }>;
@@ -87,7 +87,6 @@ export type ProjectSummary = Readonly<{
 export type ProjectPage = Readonly<{
   projects: readonly ProjectSummary[];
   nextPageToken: string | null;
-  generatedAt: number;
 }>;
 
 export type WorkspaceCatalogRow = Readonly<{
@@ -121,7 +120,6 @@ export const sessionCatalogPageSize = 50;
 export type SessionCatalogSummary = Readonly<{
   id: string;
   shortID: bigint | null;
-  category: SessionCategory;
   name: string | null;
   firstPromptPreview: string | null;
   updatedAt: number;
@@ -153,7 +151,6 @@ export type WorkspaceUnlinkResponse = Readonly<{
   projectID: string;
   workspaceID: string;
   blockers: readonly WorkspaceUnlinkBlocker[];
-  project: ProjectSummary | null;
 }>;
 
 export type ProjectDeleteBlocker = Readonly<{
@@ -205,7 +202,7 @@ export type PendingAsk = Readonly<{
 export type ApprovalDecision = "allow_once" | "allow_session" | "deny";
 
 export type WorkflowValidationError = Readonly<{
-  code: string;
+  code: ValidationErrorCode;
   message: string;
   workflowID: string | null;
   nodeID: string | null;
@@ -266,7 +263,6 @@ export type WorkflowNodeGroup = Readonly<{
   key: string;
   name: string | null;
   sortOrder: number;
-  nodeIDs: readonly string[];
 }>;
 
 export const workflowNodeKinds = ["agent", "join", "script", "start", "terminal"] as const;
@@ -279,7 +275,6 @@ export type WorkflowNode = Readonly<{
   kind: string;
   name: string;
   groupID: string | null;
-  groupKey: string;
   subagentRole: string;
   completionMode?: string | undefined;
   scriptPath?: string | null | undefined;
@@ -622,7 +617,6 @@ export type WorkflowBoard = Readonly<{
   workflows: readonly WorkflowPickerItem[];
   groups: readonly BoardGroup[];
   columns: readonly BoardColumn[];
-  generatedAt: number;
 }>;
 
 export type SelectedWorkflowBoard = Omit<WorkflowBoard, "selectedWorkflow"> &
@@ -638,7 +632,6 @@ export type BoardNodeCardsPage = Readonly<{
   nodeID: string;
   cards: readonly BoardCard[];
   nextOffset: number | null;
-  generatedAt: number;
 }>;
 
 export type ApprovalSnapshot = Readonly<{
@@ -652,19 +645,16 @@ export type ApprovalSnapshot = Readonly<{
 export type AttentionPage = Readonly<{
   items: readonly AttentionItem[];
   nextPageToken: string | null;
-  generatedAt: number;
 }>;
 
 export type TaskAttention = Readonly<{
   items: readonly AttentionItem[];
-  generatedAt: number;
 }>;
 
 export type TaskCommentAuthorKind = "agent" | "user";
 
 export type TaskComment = Readonly<{
   id: string;
-  taskID: string;
   body: string;
   authorKind: TaskCommentAuthorKind;
   authorID: string | null;

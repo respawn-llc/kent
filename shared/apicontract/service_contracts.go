@@ -198,10 +198,6 @@ type SessionLifecycleService interface {
 	DeleteSession(ctx context.Context, req *sessionlaunchpb.SessionDeleteRequest) (*sessionlaunchpb.SessionDeleteSuccess, error)
 }
 
-type SessionRuntimeService interface {
-	ActivateSessionRuntime(ctx context.Context, req serverapi.SessionRuntimeActivateRequest) error
-}
-
 type SessionViewService interface {
 	GetSessionIdentityLocation(ctx context.Context, req *sessionpb.IdentityLocationRequest) (*sessionpb.IdentityLocationSuccess, error)
 	GetPromptHistory(ctx context.Context, req *sessionpb.PromptHistoryRequest) (*sessionpb.PromptHistorySuccess, error)
@@ -272,7 +268,7 @@ type WorkflowService interface {
 	PreviewWorkflowTaskMove(ctx context.Context, req *taskpb.MovePreviewRequest) (*taskpb.MovePreviewSuccess, error)
 	MoveWorkflowTask(ctx context.Context, req *taskpb.MoveRequest) (*taskpb.MoveSuccess, error)
 	CompleteWorkflowTask(ctx context.Context, req *taskpb.CompleteRequest) (*taskpb.CompleteSuccess, error)
-	DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*emptypb.Empty, error)
+	DeleteWorkflowTask(ctx context.Context, req *taskpb.DeleteRequest) (*taskpb.DeleteSuccess, error)
 	ListWorkflowAttention(ctx context.Context, req *taskpb.AttentionListRequest) (*taskpb.AttentionListSuccess, error)
 	ListWorkflowTaskAttention(ctx context.Context, req *taskpb.TaskAttentionListRequest) (*taskpb.TaskAttentionListSuccess, error)
 	AddWorkflowTaskComment(ctx context.Context, req *taskpb.CommentAddRequest) (*taskpb.CommentAddSuccess, error)

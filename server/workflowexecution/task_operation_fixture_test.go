@@ -340,7 +340,7 @@ func (f *controllerQueueFixture) automatic(controller *CurrentNodeController, re
 		}
 		seen[reference.TaskID] = true
 		completed := make(chan error, 1)
-		handle := startLiveTestWorkflowScript(f.t, controller, controller.authority, source, sessionruntime.ScriptExecutionRequest{
+		handle := startLiveTestWorkflowScript(f.t, controller, controller.authority, source, sessionruntime.DetachedScriptExecutionRequest{
 			Command: sessionruntime.ScriptCommand{Path: "/bin/sh", Args: []string{"-c", "true"}},
 			Finalize: func(ctx context.Context, scope sessionruntime.ExecutionScope, _ sessionruntime.ScriptResult, runErr error) error {
 				if runErr == nil {
@@ -357,7 +357,7 @@ func (f *controllerQueueFixture) automatic(controller *CurrentNodeController, re
 		if err := <-completed; err != nil {
 			f.t.Fatal(err)
 		}
-		if _, err := handle.Wait(context.Background()); err != nil {
+		if err := handle.Wait(context.Background()); err != nil {
 			f.t.Fatal(err)
 		}
 	}

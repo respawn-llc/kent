@@ -26,7 +26,7 @@ func TestSessionPickerUpdateHeaderProjectsResponsiveRowPolicy(t *testing.T) {
 		{name: "pending"},
 		{
 			name:          "current",
-			response:      currentUpdateStatusSuccess("1.2.3", "1.2.3"),
+			response:      currentUpdateStatusSuccess(),
 			applyResponse: true,
 		},
 		{
@@ -36,7 +36,7 @@ func TestSessionPickerUpdateHeaderProjectsResponsiveRowPolicy(t *testing.T) {
 		},
 		{
 			name:          "available",
-			response:      availableUpdateStatusSuccess("1.2.3", "123456789.123456789.123456789"),
+			response:      availableUpdateStatusSuccess("123456789.123456789.123456789"),
 			applyResponse: true,
 			additionalRow: true,
 		},

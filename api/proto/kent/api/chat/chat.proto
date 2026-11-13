@@ -26,7 +26,7 @@ message ExistingSessionTarget {
 
 message ExistingSessionRequestTarget {
   kent.api.shared.SessionSelector session_id = 1 [(buf.validate.field).required = true];
-  optional kent.api.session_launch.SessionRuntimePreparationOptions preparation = 2;
+  optional kent.api.invocation.RunPromptOverrides invocation = 2;
 }
 
 message NewChatTarget {

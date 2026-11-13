@@ -13,20 +13,19 @@ import (
 	"core/shared/textutil"
 )
 
-type blockedCloneAppend struct {
+type blockedCloneClock struct {
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
 }
 
-func (o *blockedCloneAppend) ObserveEventLogAppend(EventLogAppendObservation) {
+func (o *blockedCloneClock) now() time.Time {
 	o.once.Do(func() {
 		close(o.entered)
 		<-o.release
 	})
+	return time.Now().UTC()
 }
-
-func (*blockedCloneAppend) ObserveEventLogSync(EventLogSyncObservation) {}
 
 func TestCommittedCloneReplaysThroughTheOwningSourceStore(t *testing.T) {
 	parent := newSessionTestStoreAt(t, t.TempDir())
@@ -52,17 +51,17 @@ func TestCommittedCloneReplaysThroughTheOwningSourceStore(t *testing.T) {
 	if _, err := MaterializeCommittedClone(t.Context(), plan, mustMaterializeSessionTestEventLog(t, foreign), WithPersistenceObserver(sessionTestPersistence), WithPersistedSessionResolver(sessionTestPersistence)); err == nil {
 		t.Fatal("clone accepted another Session's source capability")
 	}
-	observer := &blockedCloneAppend{entered: make(chan struct{}), release: make(chan struct{})}
-	release := sync.OnceFunc(func() { close(observer.release) })
+	clock := &blockedCloneClock{entered: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(clock.release) })
 	t.Cleanup(release)
 	cloned := make(chan error, 1)
 	go func() {
 		_, err := MaterializeCommittedClone(t.Context(), plan, parentLog,
-			WithPersistenceObserver(sessionTestPersistence), WithPersistedSessionResolver(sessionTestPersistence), WithDurabilityObserver(observer))
+			WithPersistenceObserver(sessionTestPersistence), WithPersistedSessionResolver(sessionTestPersistence), WithClock(clock.now))
 		cloned <- err
 	}()
 	select {
-	case <-observer.entered:
+	case <-clock.entered:
 	case <-time.After(3 * time.Second):
 		t.Fatal("clone did not start replay")
 	}

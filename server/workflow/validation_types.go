@@ -15,6 +15,7 @@ const (
 	ValidationContextDraft        ValidationContext = "draft"
 	ValidationContextTaskCreation ValidationContext = "task_creation"
 	ValidationContextExecution    ValidationContext = "execution"
+	ValidationContextResume       ValidationContext = "resume"
 )
 
 type RoleResolver interface {

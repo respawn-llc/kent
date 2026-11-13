@@ -1,17 +1,10 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import {
-  errorMessage,
-  isProjectMissingError,
-  type ApiService,
-  type ProjectWorkflowLink,
-  type WorkflowRecord,
-} from "@/api";
+import { errorMessage, isProjectMissingError, type ApiService, type WorkflowRecord } from "@/api";
 import { queryAction, queryKeys, type StatusController } from "@/app-facade";
 
 export type WorkflowCreateResult = Readonly<{
   workflow: WorkflowRecord;
-  link: ProjectWorkflowLink | null;
 }>;
 
 type Submission = Readonly<{
@@ -38,7 +31,7 @@ export function createWorkflowCreateModel({
     new MutationObserver(client, {
       mutationFn: async ({ name, description }: Submission): Promise<WorkflowCreateResult> => {
         const input = { name, description };
-        if (projectID === undefined) return { workflow: await api.createWorkflow(input), link: null };
+        if (projectID === undefined) return { workflow: await api.createWorkflow(input) };
         return api.createAndLinkWorkflowToProject({ ...input, projectID });
       },
       onSuccess: async (result, submission) => {

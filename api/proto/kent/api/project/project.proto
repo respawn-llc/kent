@@ -45,21 +45,6 @@ message ProjectSummary {
       expression: "this == this.trim()"
     }
   ];
-  string project_key = 2 [
-    (buf.validate.field).string = {
-      min_len: 2
-      max_len: 8
-    },
-    (buf.validate.field).cel = {
-      id: "kent.project.summary.project_key"
-      message: "project_key must start with A-Z and contain only A-Z or 0-9"
-      expression:
-        "this.charAt(0) >= 'A' && this.charAt(0) <= 'Z' && "
-        "[0, 1, 2, 3, 4, 5, 6, 7].all(index, index >= size(this) || "
-        "(this.charAt(index) >= 'A' && this.charAt(index) <= 'Z') || "
-        "(this.charAt(index) >= '0' && this.charAt(index) <= '9'))"
-    }
-  ];
   string display_name = 3 [
     (buf.validate.field).string = {
       min_len: 1
@@ -72,11 +57,6 @@ message ProjectSummary {
     }
   ];
   string root_path = 4 [(buf.validate.field).string.min_len = 1];
-  ProjectAvailability availability = 5 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  int32 session_count = 6 [(buf.validate.field).int32.gte = 0];
   google.protobuf.Timestamp updated_at = 7 [
     (buf.validate.field).required = true,
     (buf.validate.field).timestamp.gt = {seconds: 0}
@@ -426,10 +406,6 @@ message ProjectHomeListRequest {
 message ProjectHomeListSuccess {
   repeated ProjectHomeSummary projects = 1 [(buf.validate.field).repeated.max_items = 100];
   optional string next_page_token = 2 [(buf.validate.field).string.min_len = 1];
-  google.protobuf.Timestamp generated_at = 3 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).timestamp.gt = {seconds: 0}
-  ];
 }
 
 message ProjectHomeListError {
@@ -761,9 +737,7 @@ message UpdateProjectRequest {
   ];
 }
 
-message UpdateProjectSuccess {
-  ProjectHomeSummary project = 1 [(buf.validate.field).required = true];
-}
+message UpdateProjectSuccess {}
 
 message UpdateProjectError {
   string code = 1 [
@@ -1038,7 +1012,6 @@ message UnlinkWorkspaceSuccess {
   string project_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   string workspace_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   repeated WorkspaceUnlinkBlocker blockers = 3 [(buf.validate.field).repeated.max_items = 6];
-  optional ProjectHomeSummary project = 4;
 }
 
 message UnlinkWorkspaceError {

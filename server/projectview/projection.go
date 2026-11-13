@@ -15,24 +15,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func projectSummaryToGenerated(summary clientui.ProjectSummary) (*projectpb.ProjectSummary, error) {
-	availability, err := protoapi.ProjectAvailabilityToProto(summary.Availability)
-	if err != nil {
-		return nil, err
-	}
-	sessionCount, err := nonNegativeInt32(summary.SessionCount, "project session count")
-	if err != nil {
-		return nil, err
-	}
+func projectSummaryToGenerated(summary clientui.ProjectSummary) *projectpb.ProjectSummary {
 	return &projectpb.ProjectSummary{
-		ProjectId:    summary.ProjectID,
-		ProjectKey:   summary.ProjectKey,
-		DisplayName:  summary.DisplayName,
-		RootPath:     summary.RootPath,
-		Availability: availability,
-		SessionCount: sessionCount,
-		UpdatedAt:    timestamppb.New(summary.UpdatedAt),
-	}, nil
+		ProjectId:   summary.ProjectID,
+		DisplayName: summary.DisplayName,
+		RootPath:    summary.RootPath,
+		UpdatedAt:   timestamppb.New(summary.UpdatedAt),
+	}
 }
 
 func projectHomeSummaryToGenerated(summary serverapi.ProjectHomeSummary) (*projectpb.ProjectHomeSummary, error) {
@@ -144,14 +133,9 @@ func sessionPageToGenerated(page metadata.SessionPage) (*projectpb.SessionPageSu
 		Sessions:  make([]*projectpb.SessionSummary, 0, len(page.Sessions)),
 	}
 	for _, summary := range page.Sessions {
-		summaryCategory, err := protoapi.SessionCategoryToProto(summary.Category)
-		if err != nil {
-			return nil, err
-		}
 		session := &projectpb.SessionSummary{
 			SessionId: summary.SessionID.String(),
 			ShortId:   protoapi.SessionShortIDToProto(summary.ShortID),
-			Category:  summaryCategory,
 			Name:      textutil.Pointer(summary.Name),
 			FirstPromptPreview: textutil.Pointer(
 				summary.FirstPromptPreview,

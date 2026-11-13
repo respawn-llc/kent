@@ -390,13 +390,12 @@ func protectedParameterConsumptionForEdge(
 	catalog TargetAgentCatalog,
 ) ProtectedParameterConsumption {
 	return PlanTransitionProtectedParameterConsumption(TransitionParameterContractRequest{
-		Edge:                edge,
-		SourceKind:          sourceKind,
-		TargetKind:          targetKind,
-		TargetRole:          targetRole,
-		FanOut:              fanOut,
-		TargetSessionPolicy: AssigneeSessionPolicyEstablishTarget,
-		Catalog:             catalog,
+		Edge:       edge,
+		SourceKind: sourceKind,
+		TargetKind: targetKind,
+		TargetRole: targetRole,
+		FanOut:     fanOut,
+		Catalog:    catalog,
 	})
 }
 
@@ -408,17 +407,8 @@ func filterProtectedParameterFields(
 	filtered := make([]OutputField, 0, len(fields))
 	for _, field := range fields {
 		parameter, protected := edgeParameterByKey(edge, field.Name)
-		if protected {
-			switch CanonicalParameterPurpose(parameter.Purpose) {
-			case ParameterPurposeTargetAssignee:
-				if consumption.Assignee != ProtectedParameterConsumptionRequiredValidate {
-					continue
-				}
-			case ParameterPurposeTargetThinking:
-				if consumption.Thinking != ProtectedParameterConsumptionRequiredValidate {
-					continue
-				}
-			}
+		if protected && consumption.ForParameter(parameter) != ProtectedParameterConsumptionRequiredValidate {
+			continue
 		}
 		filtered = append(filtered, field)
 	}

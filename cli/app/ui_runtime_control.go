@@ -12,7 +12,6 @@ import (
 	"core/shared/config"
 	"core/shared/protoapi"
 	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
-	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 
@@ -194,15 +193,15 @@ func (m *uiModel) applyChatSettingsProjection(settings *chatsettingspb.Settings)
 func chatSettingsMutationNoticeID(operation *chatsettingspb.MutationOperation) string {
 	switch operation.Operation.(type) {
 	case *chatsettingspb.MutationOperation_Supervisor:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR)
+		return supervisorNoticeID
 	case *chatsettingspb.MutationOperation_Thinking:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING)
+		return thinkingNoticeID
 	case *chatsettingspb.MutationOperation_FastEnabled:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE)
+		return fastModeNoticeID
 	case *chatsettingspb.MutationOperation_QuestionsEnabled:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS)
+		return questionsNoticeID
 	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
-		return sessionSettingNoticeID(transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION)
+		return autoCompactionNoticeID
 	case *chatsettingspb.MutationOperation_AgentRole:
 		return "session-setting:agent"
 	default:
@@ -278,9 +277,6 @@ func (m *uiModel) beginRuntimeControlMutation(operation runtimeControlOperation,
 		return 0, false
 	}
 	sessionID = strings.TrimSpace(sessionID)
-	if operation != runtimeControlSetSessionName {
-		return m.nextRuntimeControlToken(operation), true
-	}
 	if m.runtimeControlPending == nil {
 		m.runtimeControlPending = make(map[runtimeControlOperation]runtimeControlPendingState)
 	}
@@ -325,12 +321,27 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 		return nil
 	}
 	sessionID := strings.TrimSpace(m.currentRuntimeSessionID())
-	token, shouldStart := m.beginRuntimeControlMutation(operation, sessionID, mutation)
-	if !shouldStart {
-		return nil
+	var token uint64
+	var interrupt *uiPendingInterrupt
+	if operation == runtimeControlInterrupt {
+		interrupt = &uiPendingInterrupt{sessionID: runtimeids.SessionIDFromProto(sessionID)}
+		if m.currentStepID != "" {
+			stepID, err := runtimeids.ParseStepID(m.currentStepID)
+			if err != nil {
+				panic(err)
+			}
+			interrupt.stepID = &stepID
+		}
+		m.pendingInterrupt = interrupt
+	} else {
+		var shouldStart bool
+		token, shouldStart = m.beginRuntimeControlMutation(operation, sessionID, mutation)
+		if !shouldStart {
+			return nil
+		}
 	}
 	return func() tea.Msg {
-		msg := runtimeControlDoneMsg{token: token, sessionID: sessionID, operation: operation, name: mutation}
+		msg := runtimeControlDoneMsg{interrupt: interrupt, token: token, sessionID: sessionID, operation: operation, name: mutation}
 		switch operation {
 		case runtimeControlSetSessionName:
 			msg.err = runtimeControlCallNoResult(func(ctx context.Context) error {
@@ -347,20 +358,31 @@ func (m *uiModel) runtimeControlCommand(operation runtimeControlOperation, mutat
 }
 
 func (m *uiModel) applyRuntimeControlDone(msg runtimeControlDoneMsg) tea.Cmd {
-	if m == nil || msg.token != m.runtimeControlTokenFor(msg.operation) {
+	if m == nil {
 		return nil
 	}
-	if msg.sessionID != "" && strings.TrimSpace(m.currentRuntimeSessionID()) != "" && msg.sessionID != strings.TrimSpace(m.currentRuntimeSessionID()) {
-		m.clearRuntimeControlPending(msg.operation)
-		return nil
+	if msg.operation == runtimeControlInterrupt {
+		if msg.interrupt == nil || msg.interrupt != m.pendingInterrupt ||
+			msg.interrupt.sessionID.String() != m.currentRuntimeSessionID() {
+			return nil
+		}
+	} else {
+		if msg.token != m.runtimeControlTokenFor(msg.operation) {
+			return nil
+		}
+		if msg.sessionID != "" && strings.TrimSpace(m.currentRuntimeSessionID()) != "" && msg.sessionID != strings.TrimSpace(m.currentRuntimeSessionID()) {
+			m.clearRuntimeControlPending(msg.operation)
+			return nil
+		}
 	}
 	m.observeRuntimeRequestResult(msg.err)
 	if msg.err != nil {
-		m.clearRuntimeControlPending(msg.operation)
 		var recovery tea.Cmd
 		if msg.operation == runtimeControlInterrupt {
-			m.setPendingInterrupt(false)
+			m.pendingInterrupt = nil
 			recovery = m.startRuntimeMainViewRefresh()
+		} else {
+			m.clearRuntimeControlPending(msg.operation)
 		}
 		errText := runtimeattach.FormatSubmissionError(msg.err)
 		return sequenceCmds(

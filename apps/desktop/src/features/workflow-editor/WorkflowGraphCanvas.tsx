@@ -51,7 +51,7 @@ export type WorkflowGraphCanvasProps = Readonly<{
   graph: WorkflowGraphLayout;
   keyboardScope?: "focused" | "global" | undefined;
   toolbarPositionStrategy?: "absolute" | "fixed" | undefined;
-  onCopyText?: ((value: string) => Promise<void> | void) | undefined;
+  onCopyText: CopyText;
   onAddNode?: ((kind: CreatableWorkflowNodeKind) => void) | undefined;
   onAddConnectedNode?:
     | ((
@@ -93,7 +93,7 @@ export function WorkflowGraphCanvas({
   graph,
   keyboardScope = "global",
   toolbarPositionStrategy = "fixed",
-  onCopyText = copyTextWithNavigator,
+  onCopyText,
   onAddNode,
   onAddConnectedNode,
   onAddNodeToGroup,
@@ -531,10 +531,6 @@ function connectionGesturePoint(event: unknown): ConnectionGesturePoint | null {
     return touch === null ? null : { x: touch.clientX, y: touch.clientY };
   }
   return null;
-}
-
-function copyTextWithNavigator(value: string): void {
-  void navigator.clipboard.writeText(value).catch(() => undefined);
 }
 
 function applyViewportShortcut(key: string, instance: ReturnType<typeof useReactFlow>): boolean {

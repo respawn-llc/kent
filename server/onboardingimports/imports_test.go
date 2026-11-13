@@ -80,7 +80,7 @@ func TestDiscoverDoesNotOfferGrokBundledSkills(t *testing.T) {
 		t.Fatalf("bundled Grok skill was discovered: %+v", result.Skills.Items)
 	}
 	for _, choice := range result.Skills.Choices {
-		if choice.ProviderID != nil && *choice.ProviderID == ProviderGrok {
+		if choice.Ref.ProviderID != nil && *choice.Ref.ProviderID == ProviderGrok {
 			t.Fatalf("bundled Grok skill produced an import choice: %+v", choice)
 		}
 	}
@@ -420,10 +420,10 @@ func requireProviderChoice(t *testing.T, result Result, kind ItemKind, provider 
 		group = result.Commands
 	}
 	for _, choice := range group.Choices {
-		if choice.ProviderID == nil || *choice.ProviderID != provider {
+		if choice.Ref.ProviderID == nil || *choice.Ref.ProviderID != provider {
 			continue
 		}
-		if choice.SourceRoot == nil || *choice.SourceRoot != root || choice.ItemCount != 1 {
+		if choice.Ref.SourceRoot == nil || *choice.Ref.SourceRoot != root || choice.ItemCount != 1 {
 			t.Fatalf("provider choice = %+v, want root %q and one item", choice, root)
 		}
 		if !hasProviderTargetItem(group.Items, provider, root, target) {

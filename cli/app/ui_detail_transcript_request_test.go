@@ -3,7 +3,6 @@ package app
 import (
 	"core/cli/tui"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -21,9 +20,8 @@ func TestTranscriptIdentityDoesNotRetargetForAnEqualWorkspaceID(t *testing.T) {
 		WorkspaceId: &firstID, WorkspaceRoot: "/workspace", EffectiveWorkdir: "/workspace",
 	}
 	model.applyTranscriptSessionIdentity(&transcriptpb.SessionIdentity{
-		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-		SessionId:             detailTestSessionID,
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+		Category:  projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+		SessionId: detailTestSessionID,
 		ExecutionTarget: &worktreepb.SessionExecutionTarget{
 			WorkspaceId: &secondID, WorkspaceRoot: "/workspace", EffectiveWorkdir: "/workspace",
 		},
@@ -40,7 +38,7 @@ func TestDetailTranscriptRequestIsSingleFlight(t *testing.T) {
 		WithUISessionID(detailTestSessionID),
 		WithUIStatusConfig(uiStatusConfig{SessionViews: sessionViews}),
 	)
-	model.detailTranscript.replace(&transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+	model.detailTranscript.replace(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(25),
 		HasMoreAbove: true,
 		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("current page")}})
@@ -88,7 +86,7 @@ func TestDetailTranscriptEdgeInputsShareSingleFlightRequest(t *testing.T) {
 		t.Run(input.name, func(t *testing.T) {
 			sessionViews := newControlledTranscriptPageClient()
 			model := newDetailTranscriptRequestTestModel(sessionViews)
-			model.detailTranscript.replace(&transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+			model.detailTranscript.replace(&transcriptpb.Page{SessionId: detailTestSessionID,
 				NewerCursor:  appInt64Ptr(25),
 				HasMoreBelow: true,
 				Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("current page")}})
@@ -119,7 +117,7 @@ func TestDetailTranscriptMatchingSuccessAllowsNextRequest(t *testing.T) {
 	firstDone := runDetailTranscriptCommand(firstCmd)
 	waitForDetailTranscriptRequest(t, sessionViews)
 	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{
-		Transcript: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Transcript: &transcriptpb.Page{SessionId: detailTestSessionID,
 			OlderCursor:  appInt64Ptr(10),
 			HasMoreAbove: true,
 			NewerCursor:  appInt64Ptr(25),
@@ -167,7 +165,7 @@ func TestDetailTranscriptMatchingErrorAllowsNextRequest(t *testing.T) {
 }
 
 func TestDetailTranscriptMismatchedResponseSessionClearsPendingRequestWithoutMutatingMembershipOrTUI(t *testing.T) {
-	assertDetailTranscriptPageRejected(t, &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestReplacementSessionID,
+	assertDetailTranscriptPageRejected(t, &transcriptpb.Page{SessionId: detailTestReplacementSessionID,
 		Entries: []*transcriptpb.CommittedRow{detailTestUserRow("wrong session")}})
 }
 
@@ -178,7 +176,7 @@ func assertDetailTranscriptPageRejected(t *testing.T, page *transcriptpb.Page) {
 	defer model.Close()
 	model.view = tui.NewModel()
 	model.forwardToView(tui.SetViewportSizeMsg{Lines: 4, Width: 80})
-	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{SessionId: detailTestSessionID,
 		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("line one\nline two\nline three\nline four")}}})
 	model.view = mustUpdateTUIModel(t, model.view, tui.SetModeMsg{Mode: tui.ModeDetail})
@@ -231,7 +229,7 @@ func TestDetailTranscriptMalformedToolRowsRemainLoadable(t *testing.T) {
 	done := runDetailTranscriptCommand(cmd)
 	waitForDetailTranscriptRequest(t, sessionViews)
 	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{
-		Transcript: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Transcript: &transcriptpb.Page{SessionId: detailTestSessionID,
 			Entries: malformedRows}}}
 	model = updateUIModel(t, model, waitForDetailTranscriptCompletion(t, done))
 
@@ -249,7 +247,7 @@ func TestDetailTranscriptLoadingNoticeKeepsSelectionActionIndependent(t *testing
 	model := newDetailTranscriptRequestTestModel(sessionViews)
 	model.view = tui.NewModel()
 	model.forwardToView(tui.SetViewportSizeMsg{Lines: 4, Width: 80})
-	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{SessionId: detailTestSessionID,
 		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("line one\nline two\nline three\nline four")}}})
 	model.view = mustUpdateTUIModel(t, model.view, tui.SetModeMsg{Mode: tui.ModeDetail})
@@ -280,7 +278,7 @@ func TestDetailTranscriptMatchingSuccessClearsOnlyItsLoadingNotice(t *testing.T)
 	overtakingNotice := "newer warning"
 	model.sendTransientStatusWithNoticeID(overtakingNotice, uiStatusNoticeWarning, transientStatusDuration, uiStatusNoticeReplace, "")
 	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{
-		Transcript: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+		Transcript: &transcriptpb.Page{SessionId: detailTestSessionID,
 			NewerCursor:  appInt64Ptr(25),
 			HasMoreBelow: true,
 			Entries:      []*transcriptpb.CommittedRow{detailTestUserRow("older page")}}}}
@@ -322,7 +320,7 @@ func TestDetailTranscriptVisibleSessionReplacementCancelsOldRequestAndHydratesNe
 	sessionViews := newControlledTranscriptPageClient()
 	model := newDetailTranscriptRequestTestModel(sessionViews)
 	model.view = tui.NewModel()
-	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{SessionId: detailTestSessionID,
 		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("line one\nline two\nline three\nline four")}}})
 	model.view = mustUpdateTUIModel(t, model.view, tui.SetModeMsg{Mode: tui.ModeDetail})
@@ -357,7 +355,7 @@ func TestDetailTranscriptVisibleSessionReplacementCancelsOldRequestAndHydratesNe
 		t.Fatalf("late old completion replaced new-target notice: text=%q kind=%v", model.transientStatus, model.transientStatusKind)
 	}
 	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{
-		Transcript: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestReplacementSessionID,
+		Transcript: &transcriptpb.Page{SessionId: detailTestReplacementSessionID,
 			Entries: []*transcriptpb.CommittedRow{detailTestAssistantRow("replacement page")}}}}
 	model = updateUIModel(t, model, waitForDetailTranscriptCompletion(t, newDone))
 	got := model.detailTranscript.page()
@@ -371,7 +369,7 @@ func TestDetailTranscriptHiddenSessionReplacementResetsAndHydratesNewTarget(t *t
 	sessionViews := newControlledTranscriptPageClient()
 	model := newDetailTranscriptRequestTestModel(sessionViews)
 	model.view = tui.NewModel()
-	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+	model.forwardToView(tui.SetDetailTranscriptPageMsg{Page: &transcriptpb.Page{SessionId: detailTestSessionID,
 		Entries: []*transcriptpb.CommittedRow{
 			detailTestAssistantRow("line one\nline two\nline three\nline four")}}})
 
@@ -396,7 +394,7 @@ func TestDetailTranscriptHiddenSessionReplacementResetsAndHydratesNewTarget(t *t
 		t.Fatalf("hidden replacement hydration session = %q, want %q", request.SessionId, detailTestReplacementSessionID)
 	}
 	sessionViews.results <- controlledTranscriptPageResult{response: &transcriptpb.PageSuccess{
-		Transcript: &transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestReplacementSessionID}}}
+		Transcript: &transcriptpb.Page{SessionId: detailTestReplacementSessionID}}}
 	_ = waitForDetailTranscriptCompletion(t, done)
 }
 
@@ -407,8 +405,8 @@ func applyDetailTestSessionReplacement(t *testing.T, model *uiModel, rawSessionI
 		t.Fatalf("parse replacement session ID: %v", err)
 	}
 	return model.applyAdmittedTranscriptMessageState(transcriptTestMessage(0, &transcriptpb.SessionIdentity{SessionId: sessionID.String(),
-		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}), runtimeTupleMergeResult{})
+		Category: projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+	}), runtimeTupleMergeResult{})
 }
 
 func newDetailTranscriptRequestTestModel(sessionViews *controlledTranscriptPageClient) *uiModel {
@@ -417,7 +415,7 @@ func newDetailTranscriptRequestTestModel(sessionViews *controlledTranscriptPageC
 		WithUISessionID(detailTestSessionID),
 		WithUIStatusConfig(uiStatusConfig{SessionViews: sessionViews}),
 	)
-	model.detailTranscript.replace(&transcriptpb.Page{ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, SessionId: detailTestSessionID,
+	model.detailTranscript.replace(&transcriptpb.Page{SessionId: detailTestSessionID,
 		OlderCursor:  appInt64Ptr(25),
 		HasMoreAbove: true,
 		Entries:      []*transcriptpb.CommittedRow{detailTestAssistantRow("current page")}})

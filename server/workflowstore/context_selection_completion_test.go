@@ -83,6 +83,7 @@ func TestAutomaticCompletionPreservesRetainedTargetSessionRole(t *testing.T) {
 	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       returnedReview.Mutation.Created[0].Reference,
 		TransitionID: "audit",
+		OutputValues: map[string]string{"role": "ignored-role"},
 	})
 	if err != nil {
 		t.Fatalf("complete review with retained target session: %v", err)
@@ -91,6 +92,12 @@ func TestAutomaticCompletionPreservesRetainedTargetSessionRole(t *testing.T) {
 		t.Fatalf("completion mutation = %+v, want one target", completed.Mutation)
 	}
 	target := completed.Mutation.Created[0]
+	if value, exists := target.CurrentInputValues["role"]; exists {
+		t.Errorf("ignored retained Assignee leaked into target inputs: %q", value)
+	}
+	if value, exists := target.PriorValues.TransitionParameter("audit", "role"); !exists || value != "coder" {
+		t.Errorf("prior established Assignee = %q, %v, want unchanged coder", value, exists)
+	}
 	if target.SessionID == nil || *target.SessionID != targetSessionID {
 		t.Fatalf("target session = %v, want retained %q", target.SessionID, targetSessionID)
 	}

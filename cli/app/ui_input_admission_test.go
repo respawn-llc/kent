@@ -197,7 +197,7 @@ func TestInputAdmissionSurvivesSameSessionHydration(t *testing.T) {
 				}
 				_, command := model.inputController().handleInjectedQueueCreateDone(result)
 				if accepted {
-					if model.nextSessionID != *result.selectedSessionID || model.exitAction != UIActionOpenSession || command == nil {
+					if model.nextSessionID != *result.selectedSessionID || model.exitAction != UIActionFollowSelectedSession || command == nil {
 						t.Fatal("hydration dropped accepted Session handoff or diagnostic")
 					}
 				} else if model.mainEditor.Text() != "new draft\n\ninvocation" ||
@@ -230,7 +230,7 @@ func TestRejectedChildAdmissionRestoresInvocationWithoutChangingRunningActivity(
 		model.transientStatus != runtimeattach.FormatSubmissionError(problem) {
 		t.Fatal("rejected child hid the original invocation or diagnostic")
 	}
-	if model.exitAction == UIActionOpenSession || model.nextSessionID == child {
+	if model.exitAction == UIActionFollowSelectedSession || model.nextSessionID == child {
 		t.Fatal("rejected admission took the accepted Session handoff")
 	}
 	if model.activity != beforeActivity {

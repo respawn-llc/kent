@@ -311,39 +311,6 @@ func materializeTransitionTargetCurrentNode(
 		return transitionTargetMaterialization{}, err
 	}
 	sourceTransitionKey := workflow.ModelKey(transitionGroup.TransitionID)
-	wiring := workflow.DeriveWiringWithCatalog(definition, request.Catalog)
-	currentInputValues := make(map[string]string)
-	for _, binding := range wiring.CurrentNodeInputBindingsForEdge(edge.ID) {
-		providerNode, err := transitionTargetInputProviderNodeKey(definition, wiring, source, binding.Field)
-		if err != nil {
-			return transitionTargetMaterialization{}, err
-		}
-		value, exists := request.Value(providerNode, sourceTransitionKey, binding.Field)
-		if !exists {
-			if parameter, protected := transitionParameterByKey(edge, binding.Field); protected &&
-				workflow.CanonicalParameterPurpose(parameter.Purpose) != workflow.ParameterPurposeOrdinary {
-				continue
-			}
-			return transitionTargetMaterialization{}, CompletionValidationError{Issues: []CompletionValidationIssue{{
-				Code:    CompletionCodeRequiredOutputMissing,
-				Field:   strings.TrimSpace(binding.Field),
-				Message: "required output is missing",
-			}}}
-		}
-		currentInputValues[binding.Name] = value
-	}
-	priorValues := request.PriorValues.Clone()
-	for _, requirement := range wiring.PriorParameterRequirementsForNode(workflow.NodeIDOf(target)) {
-		value, exists := request.Value(requirement.ProviderNode, requirement.TransitionKey, requirement.ParameterName)
-		if !exists {
-			return transitionTargetMaterialization{}, CompletionValidationError{Issues: []CompletionValidationIssue{{
-				Code:    CompletionCodeRequiredOutputMissing,
-				Field:   strings.TrimSpace(requirement.ParameterName),
-				Message: "required prior Transition parameter is missing",
-			}}}
-		}
-		priorValues.SetTransitionParameter(requirement.TransitionKey, requirement.ParameterName, value)
-	}
 	contextResolution, err := resolveTransitionContext(
 		ctx,
 		q,
@@ -378,7 +345,7 @@ func materializeTransitionTargetCurrentNode(
 			}
 		}
 	}
-	selection, err := materializeTargetAgentSelection(
+	plan, err := planTransitionTargetSelection(
 		request,
 		sourceTransitionKey,
 		retainedSessionSelection,
@@ -386,12 +353,50 @@ func materializeTransitionTargetCurrentNode(
 	if err != nil {
 		return transitionTargetMaterialization{}, err
 	}
-	for _, parameter := range edge.Parameters {
+	wiring := workflow.DeriveWiringWithCatalog(definition, request.Catalog)
+	currentInputValues := make(map[string]string)
+	for _, binding := range wiring.CurrentNodeInputBindingsForEdge(edge.ID) {
+		if parameter, exists := transitionParameterByKey(edge, binding.Field); exists &&
+			plan.Contract.Consumption.ForParameter(parameter) != workflow.ProtectedParameterConsumptionRequiredValidate {
+			continue
+		}
+		providerNode, err := transitionTargetInputProviderNodeKey(definition, wiring, source, binding.Field)
+		if err != nil {
+			return transitionTargetMaterialization{}, err
+		}
+		value, exists := request.Value(providerNode, sourceTransitionKey, binding.Field)
+		if !exists {
+			if parameter, protected := transitionParameterByKey(edge, binding.Field); protected &&
+				workflow.CanonicalParameterPurpose(parameter.Purpose) != workflow.ParameterPurposeOrdinary {
+				continue
+			}
+			return transitionTargetMaterialization{}, CompletionValidationError{Issues: []CompletionValidationIssue{{
+				Code:    CompletionCodeRequiredOutputMissing,
+				Field:   strings.TrimSpace(binding.Field),
+				Message: "required output is missing",
+			}}}
+		}
+		currentInputValues[binding.Name] = value
+	}
+	priorValues := request.PriorValues.Clone()
+	for _, requirement := range wiring.PriorParameterRequirementsForNode(workflow.NodeIDOf(target)) {
+		value, exists := request.Value(requirement.ProviderNode, requirement.TransitionKey, requirement.ParameterName)
+		if !exists {
+			return transitionTargetMaterialization{}, CompletionValidationError{Issues: []CompletionValidationIssue{{
+				Code:    CompletionCodeRequiredOutputMissing,
+				Field:   strings.TrimSpace(requirement.ParameterName),
+				Message: "required prior Transition parameter is missing",
+			}}}
+		}
+		priorValues.SetTransitionParameter(requirement.TransitionKey, requirement.ParameterName, value)
+	}
+	for _, parameter := range plan.Contract.Parameters {
 		if workflow.CanonicalParameterPurpose(parameter.Purpose) == workflow.ParameterPurposeOrdinary {
 			continue
 		}
 		value, exists := request.Value(workflow.NodeKey(source), sourceTransitionKey, parameter.Key)
 		if exists {
+			currentInputValues[parameter.Key] = value
 			priorValues.SetTransitionParameter(sourceTransitionKey, parameter.Key, value)
 		}
 	}
@@ -404,7 +409,7 @@ func materializeTransitionTargetCurrentNode(
 		sessionID,
 		contextResolution.ActiveSource,
 		edge.ID,
-		selection,
+		plan.ExecutionSelection,
 	)
 	if err != nil {
 		return transitionTargetMaterialization{}, err
@@ -414,14 +419,11 @@ func materializeTransitionTargetCurrentNode(
 	return materialized, nil
 }
 
-func materializeTargetAgentSelection(
+func planTransitionTargetSelection(
 	request transitionTargetMaterializationRequest,
 	transitionKey workflow.ModelKey,
 	retainedSessionSelection *workflow.AgentExecutionSelection,
-) (*workflow.AgentExecutionSelection, error) {
-	if request.Target.Kind() != workflow.NodeKindAgent {
-		return nil, nil
-	}
+) (workflow.TransitionSelectionPlan, error) {
 	var submittedRole string
 	var submittedThinking string
 	var thinkingDescription string
@@ -444,19 +446,29 @@ func materializeTargetAgentSelection(
 			thinkingDescription = parameter.Description
 		}
 	}
-	plan, err := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
-		Edge:       request.Edge,
-		SourceKind: request.Source.Kind(),
-		TargetKind: request.Target.Kind(),
-		TargetRole: workflow.NodeSubagentRole(request.Target),
-		Catalog:    request.Catalog,
-		Materialization: &workflow.TransitionSelectionMaterializationRequest{
-			FallbackRole:        workflow.NodeSubagentRole(request.Target),
+	var materialization *workflow.TransitionSelectionMaterializationRequest
+	if request.Target.Kind() == workflow.NodeKindAgent {
+		materialization = &workflow.TransitionSelectionMaterializationRequest{
 			SubmittedRole:       submittedRole,
 			SubmittedThinking:   submittedThinking,
 			ThinkingDescription: thinkingDescription,
-			RetainedSession:     retainedSessionSelection,
-		},
+		}
+	}
+	edgeCount := 0
+	for _, edge := range request.Definition.Edges {
+		if edge.TransitionGroupID == request.Edge.TransitionGroupID {
+			edgeCount++
+		}
+	}
+	plan, err := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
+		Edge:            request.Edge,
+		SourceKind:      request.Source.Kind(),
+		TargetKind:      request.Target.Kind(),
+		TargetRole:      workflow.NodeSubagentRole(request.Target),
+		Catalog:         request.Catalog,
+		FanOut:          edgeCount > 1,
+		Materialization: materialization,
+		RetainedSession: retainedSessionSelection,
 	})
 	if err != nil {
 		var selectionErr workflow.TargetAgentSelectionError
@@ -465,17 +477,14 @@ func materializeTargetAgentSelection(
 			if selectionErr.Code == workflow.TargetAgentSelectionErrorNoSelectableRoles {
 				code = string(workflow.TargetAgentSelectionErrorUnavailableRole)
 			}
-			return nil, CompletionValidationError{Issues: []CompletionValidationIssue{{
+			return workflow.TransitionSelectionPlan{}, CompletionValidationError{Issues: []CompletionValidationIssue{{
 				Code:    code,
 				Message: selectionErr.Error(),
 			}}}
 		}
-		return nil, err
+		return workflow.TransitionSelectionPlan{}, err
 	}
-	if plan.ExecutionSelection == nil {
-		return nil, errors.New("transition selection planner omitted Agent execution selection")
-	}
-	return plan.ExecutionSelection, nil
+	return plan, nil
 }
 
 func transitionParameterByKey(edge workflow.Edge, key string) (workflow.Parameter, bool) {

@@ -40,29 +40,21 @@ func workflowDefinitionFromPreparedGraph(
 		DisplayName:           displayName,
 		ExecutionTargetPolicy: executionTargetPolicy,
 	}
-	groupMemberIDs := map[string][]workflow.NodeID{}
 	for _, group := range prepared.nodeGroups {
 		definition.NodeGroups = append(definition.NodeGroups, workflow.NodeGroup{
-			WorkflowID:    group.WorkflowID,
-			ID:            group.ID,
-			Key:           group.Key,
-			DisplayName:   group.DisplayName,
-			SortOrder:     group.SortOrder,
-			MemberNodeIDs: groupMemberIDs[group.ID],
+			WorkflowID:  group.WorkflowID,
+			ID:          group.ID,
+			Key:         group.Key,
+			DisplayName: group.DisplayName,
+			SortOrder:   group.SortOrder,
 		})
 	}
 	for _, node := range prepared.nodes {
-		if node.GroupID != nil {
-			groupMemberIDs[*node.GroupID] = append(groupMemberIDs[*node.GroupID], node.ID)
-		}
 		workflowNode, err := workflowNodeFromRecord(node)
 		if err != nil {
 			return workflow.Definition{}, err
 		}
 		definition.Nodes = append(definition.Nodes, workflowNode)
-	}
-	for index := range definition.NodeGroups {
-		definition.NodeGroups[index].MemberNodeIDs = groupMemberIDs[definition.NodeGroups[index].ID]
 	}
 	for _, group := range prepared.transitionGroups {
 		definition.TransitionGroups = append(definition.TransitionGroups, workflow.TransitionGroup{
@@ -103,10 +95,8 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		transitionGroups: make([]TransitionGroupRecord, 0, len(transitionGroups)),
 		edges:            make([]EdgeRecord, 0, len(edges)),
 	}
-	groupKeyByID := make(map[string]string, len(nodeGroups))
 	for _, group := range nodeGroups {
 		prepared.nodeGroups = append(prepared.nodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: group.WorkflowID, Key: workflow.ModelKey(group.GroupKey), DisplayName: metadata.OptionalString(group.DisplayName), SortOrder: group.SortOrder})
-		groupKeyByID[group.ID] = group.GroupKey
 	}
 	for _, node := range nodes {
 		joinProviders := []workflow.JoinInputProvider{}
@@ -121,11 +111,7 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		if node.ScriptPath.Valid {
 			scriptPath = node.ScriptPath.String
 		}
-		groupKey := ""
-		if groupID != nil {
-			groupKey = groupKeyByID[*groupID]
-		}
-		prepared.nodes = append(prepared.nodes, NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: node.WorkflowID, Key: workflow.ModelKey(node.NodeKey), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: groupID, GroupKey: groupKey, SubagentRole: node.SubagentRole, CompletionMode: node.CompletionMode, ScriptPath: scriptPath, JoinInputProviders: joinProviders, SortOrder: node.SortOrder})
+		prepared.nodes = append(prepared.nodes, NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: node.WorkflowID, Key: workflow.ModelKey(node.NodeKey), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: groupID, SubagentRole: node.SubagentRole, CompletionMode: node.CompletionMode, ScriptPath: scriptPath, JoinInputProviders: joinProviders, SortOrder: node.SortOrder})
 	}
 	for _, group := range transitionGroups {
 		prepared.transitionGroups = append(prepared.transitionGroups, TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflowID, SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName, Description: group.Description, SortOrder: group.SortOrder})

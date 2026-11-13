@@ -12,6 +12,7 @@ import (
 	"core/internal/testharness/testsetup"
 	"core/server/agentruntime"
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/sessionruntime"
 	"core/server/sessionservice"
 	"core/server/sessionstore"
@@ -44,20 +45,22 @@ type scheduledSessionRetargeterStub struct {
 	completion func(error)
 }
 
-func (s *scheduledSessionRetargeterStub) ScheduleWorkspaceRetargetResolutionWithCompletion(
-	_ context.Context,
+func (s *scheduledSessionRetargeterStub) RetargetWorkspace(
+	_ operation.OperationScope,
 	request metadata.SessionWorkspaceRetargetRequest,
 	origin *sessionlaunchpb.RuntimeStepOrigin,
 	operation worktreecontract.OperationID,
 	resolve func(context.Context) (metadata.SessionWorkspaceRetargetRequest, error),
+	scheduled func(*worktreepb.ScheduledAcknowledgement),
 	completion func(error),
-) (*worktreepb.ScheduledAcknowledgement, error) {
+) (*sessionlaunchpb.SessionRetargetWorkspaceSuccess, error) {
 	s.request = request
 	s.resolve = resolve
 	s.origin = origin
 	s.operation = operation
 	s.completion = completion
-	return &worktreepb.ScheduledAcknowledgement{OperationId: operation.String()}, nil
+	scheduled(&worktreepb.ScheduledAcknowledgement{OperationId: operation.String()})
+	return nil, nil
 }
 
 func TestEnterWorktreeSchedulesCrossWorkspaceResolutionBeforeSelectorExists(t *testing.T) {
@@ -394,8 +397,15 @@ func runTerminalMutationCase(ctx context.Context, env *serviceTestEnv, nextWorkt
 	return err
 }
 func waitTerminal[T any](t *testing.T, ready <-chan T, name string) T {
-	testsetup.RequireUntil(t, time.Now().Add(5*time.Second), time.Millisecond, func() bool { return len(ready) > 0 }, "timed out waiting for %s", name)
-	return <-ready
+	t.Helper()
+	select {
+	case value := <-ready:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+		var empty T
+		return empty
+	}
 }
 func requireTerminal(t *testing.T, ok bool, format string, args ...any) {
 	t.Helper()

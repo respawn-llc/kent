@@ -155,7 +155,7 @@ func TestExecutionStopCancelsScheduledWorkBeforeStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := next.Wait(ctx); err != nil {
+	if err := next.Wait(ctx); err != nil {
 		t.Fatalf("subsequent execution: %v", err)
 	}
 	if got := len(client.requestSnapshot()); got != 1 {
@@ -232,7 +232,7 @@ func TestContinuationWakesWhenStartingLiveGroupBecomesReady(t *testing.T) {
 	if _, err := observer.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := original.Wait(t.Context()); err != nil {
+	if err := original.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	client.mu.Lock()
@@ -296,7 +296,7 @@ func TestContinuationReservationPrecedesExecutionFinalization(t *testing.T) {
 	if err != nil || outcome.Status != runtime.RunStatusCompleted {
 		t.Fatalf("outcome=%+v err=%v", outcome, err)
 	}
-	if _, err := original.Wait(t.Context()); err != nil {
+	if err := original.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if client.callCount() != 2 {
@@ -325,7 +325,7 @@ func TestContinuationAfterFinalizationChoosesIdleLaunch(t *testing.T) {
 	}
 	<-client.firstStarted
 	close(client.releaseFirst)
-	if _, err := original.Wait(t.Context()); err != nil {
+	if err := original.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	_, changed, err := fixture.authority.ContinueAgentExecution(t.Context(), ActiveContinuation{Descriptor: request.Descriptor, Resource: ref,
@@ -349,7 +349,7 @@ func TestContinuationAfterFinalizationChoosesIdleLaunch(t *testing.T) {
 	if continued.Scope().ID() == original.Scope().ID() {
 		t.Fatal("idle continuation observed the finished execution")
 	}
-	if _, err := continued.Wait(t.Context()); err != nil {
+	if err := continued.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if len(replacementClient.requestSnapshot()) != 1 {
@@ -399,7 +399,7 @@ func TestContinuationCompetingStartRetainsAcceptingResource(t *testing.T) {
 	if _, err := observer.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := competing.Wait(t.Context()); err != nil {
+	if err := competing.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if client.callCount() != 2 || len(otherClient.requestSnapshot()) != 0 {

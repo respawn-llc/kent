@@ -30,11 +30,6 @@ type ScriptCommand struct {
 	CancellationGrace *time.Duration
 }
 
-type ScriptExecutionRequest struct {
-	Command  ScriptCommand
-	Finalize func(context.Context, ExecutionScope, ScriptResult, error) error
-}
-
 type DetachedScriptExecutionRequest struct {
 	Workflow WorkflowExecutionRef
 	Command  ScriptCommand
@@ -108,7 +103,6 @@ func (d *DetachedScriptExecution) Scope() (ExecutionScope, error) {
 func (d *DetachedScriptExecution) Publish(
 	ctx context.Context,
 	admit func() error,
-	published func(ExecutionHandle),
 ) (ExecutionHandle, func(), error) {
 	if d == nil || d.authority == nil || d.execution == nil || d.process == nil {
 		return nil, nil, errors.New("detached Script execution is required")
@@ -147,9 +141,6 @@ func (d *DetachedScriptExecution) Publish(
 	d.execution.exactMu.Unlock()
 	d.authority.mu.Unlock()
 	handle := executionHandle{execution: d.execution}
-	if published != nil {
-		published(handle)
-	}
 	return handle, func() { go d.run() }, nil
 }
 
@@ -174,7 +165,7 @@ func (d *DetachedScriptExecution) run() {
 		if d.finalize != nil {
 			finalizeErr = d.finalize(context.WithoutCancel(d.execution.ctx), d.execution.scope, ScriptResult{}, err)
 		}
-		d.execution.finish(ExecutionResult{}, errors.Join(err, invariantErr, finalizeErr), nil)
+		d.execution.finish(errors.Join(err, invariantErr, finalizeErr), nil)
 		return
 	}
 	if startErr := d.process.cmd.Start(); startErr != nil {
@@ -183,16 +174,16 @@ func (d *DetachedScriptExecution) run() {
 		if d.finalize != nil {
 			finalizeErr = d.finalize(context.WithoutCancel(d.execution.ctx), d.execution.scope, ScriptResult{}, startErr)
 		}
-		d.execution.finish(ExecutionResult{}, errors.Join(startErr, invariantErr, finalizeErr), nil)
+		d.execution.finish(errors.Join(startErr, invariantErr, finalizeErr), nil)
 		return
 	}
 	result, runErr, stopErr := d.process.wait(d.execution.ctx)
 	invariantErr := d.execution.beginWorkflowFinalization()
 	var finalizeErr error
 	if d.finalize != nil {
-		finalizeErr = d.finalize(context.WithoutCancel(d.execution.ctx), d.execution.scope, result.clone(), runErr)
+		finalizeErr = d.finalize(context.WithoutCancel(d.execution.ctx), d.execution.scope, result, runErr)
 	}
-	d.execution.finish(ExecutionResult{Script: &result}, errors.Join(runErr, invariantErr, finalizeErr), stopErr)
+	d.execution.finish(errors.Join(runErr, invariantErr, finalizeErr), stopErr)
 }
 
 type ScriptResult struct {
@@ -200,18 +191,7 @@ type ScriptResult struct {
 	Stderr         []byte
 	StdoutOverflow bool
 	StderrOverflow bool
-	ExitCode       *int
 	Canceled       bool
-}
-
-func (r ScriptResult) clone() ScriptResult {
-	r.Stdout = append([]byte(nil), r.Stdout...)
-	r.Stderr = append([]byte(nil), r.Stderr...)
-	if r.ExitCode != nil {
-		exitCode := *r.ExitCode
-		r.ExitCode = &exitCode
-	}
-	return r
 }
 
 type scriptProcess struct {
@@ -219,51 +199,6 @@ type scriptProcess struct {
 	stdout            *boundedio.Writer
 	stderr            *boundedio.Writer
 	cancellationGrace time.Duration
-}
-
-func (a *Authority) StartScriptExecution(ctx context.Context, req ScriptExecutionRequest) (ExecutionHandle, error) {
-	if a == nil {
-		return nil, fmt.Errorf("session runtime authority is required")
-	}
-	if err := context.Cause(ctx); err != nil {
-		return nil, err
-	}
-	process, err := prepareAuthorityScriptProcess(req.Command)
-	if err != nil {
-		return nil, err
-	}
-
-	a.mu.Lock()
-	execution, err := a.reserveScriptExecutionLocked(req)
-	if err != nil {
-		a.mu.Unlock()
-		return nil, err
-	}
-	handle := executionHandle{execution: execution}
-	a.byScope[execution.scope.ID()] = execution
-	a.mu.Unlock()
-
-	go func() {
-		if startErr := process.cmd.Start(); startErr != nil {
-			// A failed start never becomes running. Its completion finalizer
-			// retains exact ownership without publishing queued/running state.
-			invariantErr := execution.beginWorkflowFinalization()
-			var finalizeErr error
-			if req.Finalize != nil {
-				finalizeErr = req.Finalize(context.WithoutCancel(execution.ctx), execution.scope, ScriptResult{}, startErr)
-			}
-			execution.finish(ExecutionResult{}, errors.Join(startErr, invariantErr, finalizeErr), nil)
-			return
-		}
-		result, runErr, stopErr := process.wait(execution.ctx)
-		invariantErr := execution.beginWorkflowFinalization()
-		var finalizeErr error
-		if req.Finalize != nil {
-			finalizeErr = req.Finalize(context.WithoutCancel(execution.ctx), execution.scope, result.clone(), runErr)
-		}
-		execution.finish(ExecutionResult{Script: &result}, errors.Join(runErr, invariantErr, finalizeErr), stopErr)
-	}()
-	return handle, nil
 }
 
 func prepareAuthorityScriptProcess(command ScriptCommand) (*scriptProcess, error) {
@@ -343,13 +278,11 @@ func (p *scriptProcess) wait(ctx context.Context) (ScriptResult, error, error) {
 			waitErr = <-waitCh
 		}
 	}
-	exitCode := scriptProcessExitCode(waitErr)
 	result := ScriptResult{
 		Stdout:         p.stdout.Bytes(),
 		Stderr:         p.stderr.Bytes(),
 		StdoutOverflow: p.stdout.Overflow(),
 		StderrOverflow: p.stderr.Overflow(),
-		ExitCode:       exitCode,
 		Canceled:       canceled,
 	}
 	if canceled {
@@ -363,17 +296,4 @@ func normalizeStoppedProcessError(err error) error {
 		return nil
 	}
 	return err
-}
-
-func scriptProcessExitCode(err error) *int {
-	if err == nil {
-		exitCode := 0
-		return &exitCode
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		return nil
-	}
-	exitCode := exitErr.ExitCode()
-	return &exitCode
 }

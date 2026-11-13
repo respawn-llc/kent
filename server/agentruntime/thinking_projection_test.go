@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"reflect"
 	"testing"
 
 	"core/server/llm"
@@ -89,11 +90,15 @@ func TestThinkingRejectsUnsupportedCatalogEffortBeforeNativeProjection(t *testin
 	if err := store.AdoptOriginalThinkingEffort("high"); err != nil {
 		t.Fatal(err)
 	}
-	if err := engine.SetThinkingLevel(t.Context(), "unsupported-future-effort"); err != nil {
-		t.Fatal(err)
+	before := store.Meta().ChatSettings
+	if err := engine.SetThinkingLevel(t.Context(), "unsupported-future-effort"); err == nil {
+		t.Fatal("catalogued model accepted unsupported Thinking")
 	}
-	if _, err := PrepareInspectionRequest(t.Context(), engine, false); err == nil {
-		t.Fatal("catalogued model accepted unsupported native Thinking update")
+	if engine.ThinkingLevel() != "high" || !reflect.DeepEqual(store.Meta().ChatSettings, before) {
+		t.Fatal("rejected Thinking changed saved or live settings")
+	}
+	if _, err := PrepareInspectionRequest(t.Context(), engine, false); err != nil {
+		t.Fatal(err)
 	}
 }
 

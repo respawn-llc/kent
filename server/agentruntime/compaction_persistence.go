@@ -37,18 +37,16 @@ func (p compactionPersistence) emitStatus(
 	kind EventKind,
 	mode compactionMode,
 	engine, provider string,
-	trimmed *int,
 	count int,
 	errText string,
 ) error {
 	e := p.engine
 	status := &CompactionStatus{
-		Mode:              string(mode),
-		Engine:            strings.TrimSpace(engine),
-		Provider:          strings.TrimSpace(provider),
-		TrimmedItemsCount: textutil.Pointer(trimmed),
-		Count:             count,
-		Error:             strings.TrimSpace(errText),
+		Mode:     string(mode),
+		Engine:   strings.TrimSpace(engine),
+		Provider: strings.TrimSpace(provider),
+		Count:    count,
+		Error:    strings.TrimSpace(errText),
 	}
 
 	switch kind {

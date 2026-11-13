@@ -20,6 +20,7 @@ import (
 	"core/server/launch"
 	"core/server/metadata"
 	"core/server/nano"
+	"core/server/operation"
 
 	"core/server/agentruntime"
 	"core/server/processview"
@@ -39,6 +40,7 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowattention"
+	"core/server/workflowconfig"
 	"core/server/workflowexecution"
 	"core/server/workflowrunner"
 	"core/server/workflowstore"
@@ -48,6 +50,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/config"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -89,7 +92,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 			_ = rootLease.Close()
 		}
 	}
-	if _, err := prompts.GeneratedSync(ctx, prompts.GeneratedSyncOptions{ConfigRoot: strings.TrimSpace(cfg.PersistenceRoot)}); err != nil {
+	if err := prompts.GeneratedSync(ctx, strings.TrimSpace(cfg.PersistenceRoot)); err != nil {
 		closeRootLeaseOnFailure()
 		return nil, fmt.Errorf("persistence bundle: generated support: %w", err)
 	}
@@ -174,7 +177,8 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	if observer := sleepManager.RuntimeActiveObserver(); observer != nil {
 		runtimeRegistry.SetSleepObserver(observer)
 	}
-	projectService, err := projectview.NewMetadataService(metadataStore)
+	operationOwner := operation.NewOperationOwner()
+	projectService, err := projectview.NewMetadataService(metadataStore, operationOwner)
 	if err != nil {
 		closeRootLeaseOnFailure()
 		_ = metadataStore.Close()
@@ -214,7 +218,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	runtimeControlService := runtimecontrol.NewService(runtimeAuthority, metadataStore).
 		WithSessionSettingFeedbackPublisher(runtimeRegistry).
 		WithPromptHistoryStore(metadataStore).
-		WithWorkflowTaskSessionResolver(metadataStore).
 		WithPersistedSessionResolver(metadataStore).
 		WithLiveWatchPromptSources(runtimeRegistry, runtimeRegistry)
 	runtimeControlService.WithPromptCommandResolver(promptCommandRuntimeResolver{
@@ -226,6 +229,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 	gitInspector := worktree.NewGitInspector(nil)
 	sessionWorkspaceRetargeter := sessionservice.NewSessionWorkspaceRetargeter(metadataStore, runtimeAuthority, runtimeRegistry, background)
 	worktreeService := worktree.NewService(metadataStore, gitInspector, runtimeAuthority, runtimeRegistry, background, worktree.ServiceOptions{
+		Operations:                    operationOwner,
 		PersistenceRoot:               cfg.PersistenceRoot,
 		BaseDir:                       cfg.Settings.Worktrees.BaseDir,
 		SessionRetargeter:             sessionWorkspaceRetargeter,
@@ -244,15 +248,14 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		WithPromptHistoryReader(metadataStore).
 		WithChatContextWorkspaceResolver(workspaceConfigResolver).
 		WithCacheWarningMode(cfg.Settings.CacheWarningMode)
-	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, metadataStore).
+	sessionLifecycleService := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, runtimeAuthority, metadataStore, operationOwner).
 		WithConnectionRotation(connectionRotation).
 		WithDebugMode(cfg.Settings.Debug).
 		WithWorkspaceRetargeter(sessionWorkspaceRetargeter).
 		WithNavigationTargetResolver(metadataStore)
-	chatOperationOwner := chatmutation.NewOperationOwner()
 	var workflowRuntimeStarter *workflowrunner.Starter
 	cleanupNewFailure := func() {
-		_ = chatOperationOwner.Close()
+		_ = operationOwner.Close()
 		sleepManager.Close()
 		_ = worktreeService.Close()
 		if workflowController != nil {
@@ -266,7 +269,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		_ = metadataStore.Close()
 		_ = background.Close()
 	}
-	workflowRoleResolver := configRoleResolver{app: cfg}
+	workflowRoleResolver := workflowconfig.Catalog{App: cfg}
 	workflowStore, err := workflowstore.New(metadataStore, workflowstore.WithRoleResolver(workflowRoleResolver))
 	if err != nil {
 		cleanupNewFailure()
@@ -381,7 +384,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		TaskSessions:     workflowTaskSessions,
 		Activity:         workflowActivity,
 		Attention:        workflowAttention,
-		PendingPrompts:   runtimeRegistry,
 	}, workflowRoleResolver, workflowTaskMutations, workflowsvc.WithExecutionTargetInfrastructure(workflowExecutionTargets), workflowsvc.WithTaskWorktreeDeleter(taskWorktreeDeleter{service: worktreeService}), workflowsvc.WithCurrentNodeExecution(workflowController), workflowsvc.WithWorkflowAttentionFinalizer(workflowAttentionFinalizer), workflowsvc.WithWorkflowTaskSetupEventPublisher(worktreeService))
 	if err != nil {
 		cleanupNewFailure()
@@ -418,7 +420,6 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		attentionService:        runtimeRegistry,
 		runtimeControlService:   runtimeControlService,
 		serverStatusService:     serverStatusService,
-		sessionRuntimeAPI:       sessionRuntimeAPI,
 		sessionViewService:      sessionViewService,
 		sessionLifecycleService: sessionLifecycleService,
 		updateStatusService:     updateStatusService,
@@ -427,29 +428,15 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		workflowRuntimeStarter:  workflowRuntimeStarter,
 		worktreeService:         worktreeService,
 		sleepManager:            sleepManager,
-		chatOperationOwner:      chatOperationOwner,
+		operationOwner:          operationOwner,
 	})}
 	runtimeControlService.WithSessionSettingsPublisher(chatSettingsService{core: core})
 	namingConsumer = sessionnaming.NewService(nanoInference, runtimeAuthority, workspaceConfigResolver.Resolve, chatSettingsService{core: core}.PublishSessionSettings,
 		func(ctx context.Context, id string, cause error) {
 			binding, err := metadataStore.ResolveSessionNavigationBinding(ctx, id)
 			if err == nil {
-				sessionID, identityErr := runtimeids.ParseSessionID(id)
-				if identityErr != nil {
-					slog.ErrorContext(ctx, "Session-naming failure identity parsing failed", "session_id", id, "error", identityErr)
-					return
-				}
-				identity, identityErr := metadataStore.SessionIdentity(ctx, sessionID)
-				if identityErr != nil {
-					slog.ErrorContext(ctx, "Session-naming failure identity resolution failed", "session_id", id, "error", identityErr)
-					return
-				}
-				var shortID *int64
-				if identity.ShortID != nil {
-					shortID = textutil.Value(identity.ShortID.Int64())
-				}
 				err = attentionBroker.PublishSessionNamingFailure(&attentionpb.SessionNamingFailure{
-					ProjectId: binding.ProjectId, SessionId: id, ShortId: shortID,
+					ProjectId: binding.ProjectId, SessionId: id,
 					Error: &sharedpb.InternalFailureDetails{Cause: textutil.Value(cause.Error())},
 				})
 			}
@@ -491,7 +478,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		sessionRuntimeAPI,
 	)
 	core.bundles.Chat.mutations = chatmutation.NewService(
-		chatOperationOwner,
+		operationOwner,
 		chatTargets,
 		chatRuntimes,
 		runtimeControlService,
@@ -695,12 +682,12 @@ func (d taskWorktreeDeleter) EnsureTaskWorktreeDeletable(ctx context.Context, ta
 	return d.service.EnsureTaskWorktreeDeletable(ctx, taskID)
 }
 
-func (d taskWorktreeDeleter) DeleteTaskWorktree(ctx context.Context, taskID string) error {
+func (d taskWorktreeDeleter) DeleteTaskWorktree(ctx context.Context, taskID string) (*worktreepb.BranchCleanupOutcome, error) {
 	if d.service == nil {
-		return nil
+		return nil, nil
 	}
-	_, err := d.service.DeleteTaskWorktree(ctx, worktree.DeleteTaskWorktreeRequest{TaskID: taskID})
-	return err
+	result, err := d.service.DeleteTaskWorktree(ctx, worktree.DeleteTaskWorktreeRequest{TaskID: taskID})
+	return result.BranchCleanup, err
 }
 
 type authorityPromptResponder struct {
@@ -743,39 +730,28 @@ type workflowViewPendingPromptSource struct {
 	}
 }
 
-func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([]workflowview.PendingPromptSnapshot, error) {
+func (s workflowViewPendingPromptSource) ListPendingPrompts(sessionID string) ([]*promptpb.ObservationQuestion, error) {
 	if s.prompts == nil {
 		return nil, nil
 	}
 	items := s.prompts.ListPendingPrompts(sessionID)
-	typedSessionID, err := runtimeids.ParseSessionID(sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("pending prompt session identity: %w", err)
-	}
-	out := make([]workflowview.PendingPromptSnapshot, 0, len(items))
+	out := make([]*promptpb.ObservationQuestion, 0, len(items))
 	for _, item := range items {
-		toolCallID := clientui.ToolCallID(item.Request.ToolCallID)
-		stepID, err := runtimeids.StepIDFromProto(item.Request.StepID)
-		if err != nil {
-			return nil, fmt.Errorf("session %q pending prompt %q step identity: %w", sessionID, item.Request.ToolCallID, err)
+		prompt := &promptpb.ObservationQuestion{}
+		if item.Request.Approval {
+			approval, err := registry.ApprovalFromSnapshot(sessionID, item)
+			if err != nil {
+				return nil, err
+			}
+			prompt.Question = &promptpb.ObservationQuestion_Approval{Approval: approval}
+		} else {
+			question, err := registry.QuestionFromSnapshot(sessionID, item)
+			if err != nil {
+				return nil, err
+			}
+			prompt.Question = &promptpb.ObservationQuestion_Ask{Ask: question}
 		}
-		recommendedOptionIndex := registry.RecommendedOptionIndexFromSnapshot(item.Request.RecommendedOptionIndex)
-		decisions := make([]clientui.ApprovalDecision, 0, len(item.Request.ApprovalOptions))
-		for _, option := range item.Request.ApprovalOptions {
-			decisions = append(decisions, clientui.ApprovalDecision(option.Decision))
-		}
-		out = append(out, workflowview.PendingPromptSnapshot{
-			ToolCallID:             toolCallID,
-			SessionID:              typedSessionID,
-			StepID:                 stepID,
-			CreatedAt:              item.CreatedAt,
-			Question:               item.Request.Question,
-			Suggestions:            append([]string(nil), item.Request.Suggestions...),
-			RecommendedOptionIndex: recommendedOptionIndex,
-			Approval:               item.Request.Approval,
-			ApprovalDecisions:      decisions,
-			AccessTargets:          append([]clientui.FileAccessTarget(nil), item.Request.AccessTargets...),
-		})
+		out = append(out, prompt)
 	}
 	return out, nil
 }

@@ -78,10 +78,7 @@ describe("ApiClient", () => {
             value: {
               readiness: {
                 ready: false,
-                serverId: "server-1",
-                serverVersion: "1.3.0",
                 protocolVersion,
-                endpoint: "ws://127.0.0.1:53082/rpc",
                 subagentRoles: [{ name: "default" }, { name: "coder" }],
                 causes: [{ code: "unauthenticated", severity: ReadinessSeverity.ERROR }],
               },
@@ -95,8 +92,6 @@ describe("ApiClient", () => {
     const readiness = await client.getReadiness();
     expect(readiness).toMatchObject({
       ready: false,
-      serverID: "server-1",
-      serverVersion: "1.3.0",
       protocolVersion: protocolVersion,
       subagentRoles: [{ name: "default" }, { name: "coder" }],
       causes: [{ code: "unauthenticated", severity: "error" }],
@@ -254,7 +249,6 @@ describe("ApiClient", () => {
             case: "success",
             value: {
               items: [],
-              generatedAt: { seconds: 0n, nanos: 1_000_000 },
             },
           },
         }),
@@ -266,7 +260,6 @@ describe("ApiClient", () => {
             case: "success",
             value: {
               items: [],
-              generatedAt: { seconds: 0n, nanos: 2_000_000 },
             },
           },
         }),
@@ -274,7 +267,7 @@ describe("ApiClient", () => {
     ]);
     const client = new ApiClient(transport, unexpectedProjectOverflow);
     expect(client.listAttention("cursor-1")).resolves.toMatchObject({ items: [], nextPageToken: null });
-    expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [], generatedAt: 2 });
+    expect(client.listTaskAttention("task-1")).resolves.toMatchObject({ items: [] });
     expect(transport.descriptorCalls).toEqual([
       {
         descriptor: attention.AttentionReadService.method.list,
@@ -355,7 +348,7 @@ describe("ApiClient", () => {
         ],
       },
       workflow: { id: "11111111-1111-4111-8111-111111111111", name: "Delivery", version: 9 },
-      nodeGroups: [{ id: boundaryGraphIDs.nodeGroup, key: "core", name: "Core", nodeIDs: [] }],
+      nodeGroups: [{ id: boundaryGraphIDs.nodeGroup, key: "core", name: "Core" }],
       transitionGroups: [
         {
           description: "Choose this when implementation is complete.",
@@ -391,7 +384,7 @@ describe("ApiClient", () => {
       valid: false,
       errors: [
         {
-          code: "workflow.validation.invalid_node_kind",
+          code: wf.ValidationErrorCode.INVALID_NODE_KIND,
           workflowID: "11111111-1111-4111-8111-111111111111",
           nodeID: boundaryGraphIDs.node,
           transitionGroupID: boundaryGraphIDs.transitionGroup,
@@ -529,12 +522,6 @@ describe("ApiClient", () => {
                   mode: wf.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_NONE,
                 },
               },
-              link: {
-                id: "link-3",
-                projectId: "project-1",
-                workflowId: "33333333-3333-4333-8333-333333333333",
-                default: true,
-              },
             },
           },
         }),
@@ -583,7 +570,6 @@ describe("ApiClient", () => {
         description: "",
       }),
     ).resolves.toMatchObject({
-      link: { isDefault: true, projectID: "project-1", workflowID: "33333333-3333-4333-8333-333333333333" },
       workflow: { id: "33333333-3333-4333-8333-333333333333" },
     });
     expect(
@@ -958,7 +944,6 @@ const emptyBoard = {
     defaultWorkspaceId: "workspace-1",
     attachedWorkspaceCount: 1,
   },
-  generatedAt: { seconds: 0n, nanos: 1_000_000 },
 };
 const emptyBoardResponse = create(taskRead.BoardGetResultSchema, {
   outcome: { case: "success", value: { board: emptyBoard } },
@@ -975,7 +960,6 @@ const boardWithJoinResponse = create(taskRead.BoardGetResultSchema, {
           description: "",
           version: 1n,
           isProjectDefault: true,
-          validForTaskCreation: true,
         },
         groups: [
           {
@@ -1024,7 +1008,6 @@ const emptyBoardNodeCardsResponse = create(taskRead.BoardNodeCardsListResultSche
       workflowId: "11111111-1111-4111-8111-111111111111",
       nodeId: "node-1",
       nextOffset: 50,
-      generatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
   },
 });

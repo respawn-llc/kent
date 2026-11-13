@@ -29,6 +29,7 @@ import (
 type stubQuestionCommandRemote struct {
 	listResponses     []*promptpb.ListQuestionsSuccess
 	listRequests      []*promptpb.ListPendingRequest
+	approvalRequests  []*promptpb.ListPendingRequest
 	listAsks          func(context.Context) error
 	approvalResponses []*promptpb.ListApprovalsSuccess
 	answerRequests    []*promptpb.AnswerBatchRequest
@@ -127,8 +128,9 @@ func (r *stubQuestionCommandRemote) AnswerPromptBatch(_ context.Context, req *pr
 
 func (r *stubQuestionCommandRemote) ListPendingApprovalsBySession(
 	_ context.Context,
-	_ *promptpb.ListPendingRequest,
+	req *promptpb.ListPendingRequest,
 ) (*promptpb.ListApprovalsSuccess, error) {
+	r.approvalRequests = append(r.approvalRequests, req)
 	if len(r.approvalResponses) == 0 {
 		return &promptpb.ListApprovalsSuccess{}, nil
 	}
@@ -265,14 +267,11 @@ func taskQuestionAttention(
 	occurredAt int64,
 ) *taskpb.AttentionItem {
 	return &taskpb.AttentionItem{
-		Kind:   taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION,
 		TaskId: taskID,
 		Detail: &taskpb.AttentionItem_Question{Question: &taskpb.QuestionAttention{
-			SessionName: &sessionName, Message: &question,
-			Question: &taskpb.AttentionQuestionPrompt{
-				SessionId: sessionID, StepId: questionCommandStepID().String(), ToolCallId: askID,
-				Kind:   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
-				Prompt: &taskpb.AttentionQuestionPrompt_Ordinary{Ordinary: &taskpb.OrdinaryQuestion{}},
+			SessionName: &sessionName,
+			Question: &promptpb.ObservationQuestion{
+				Question: &promptpb.ObservationQuestion_Ask{Ask: pendingAsk(sessionID, askID, question)},
 			},
 		}},
 		OccurredAt: timestamppb.New(time.UnixMilli(occurredAt)),
@@ -592,11 +591,7 @@ func TestQuestionAnswerByTaskSelectsUniqueSession(t *testing.T) {
 	taskID := "task-1"
 	sessionID := uuid.NewString()
 	remote := &stubQuestionTaskRemote{
-		stubQuestionCommandRemote: &stubQuestionCommandRemote{
-			listResponses: []*promptpb.ListQuestionsSuccess{{
-				Questions: []*promptpb.Question{pendingAsk(sessionID, "ask-1", "Continue?")},
-			}},
-		},
+		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
 		task: &taskpb.TaskDetail{
 			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
@@ -640,6 +635,9 @@ func TestQuestionAnswerByTaskSelectsUniqueSession(t *testing.T) {
 		t.Fatalf("attention requests = %+v", remote.attentionRequests)
 	}
 	requireQuestionWatch(t, remote.stubQuestionCommandRemote, 1)
+	if len(remote.listRequests) != 0 || len(remote.approvalRequests) != 0 {
+		t.Fatal("Task answer reread Session prompts")
+	}
 }
 
 func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
@@ -649,15 +647,15 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 	toolCallID := "approval-1"
 	successorQuestion := "Next?"
 	attention := taskQuestionAttention(taskID, sessionID, "Implementer", toolCallID, "Allow access?", 1)
-	attention.GetQuestion().Question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL
-	attention.GetQuestion().Question.Prompt = &taskpb.AttentionQuestionPrompt_Approval{Approval: &taskpb.ApprovalQuestion{
-		ApprovalDecisions: []promptpb.ApprovalDecision{promptpb.ApprovalDecision_APPROVAL_DECISION_ALLOW_ONCE},
-	}}
 	approval := clientui.PendingApproval{
 		CreatedAt:  time.Unix(1, 0),
 		ToolCallID: clientui.ToolCallID(toolCallID), SessionID: mustQuestionCommandSessionID(sessionID),
-		StepID:  questionCommandStepID(),
-		Options: []clientui.ApprovalOption{{Decision: clientui.ApprovalDecisionAllowOnce}},
+		StepID: questionCommandStepID(),
+		Options: []clientui.ApprovalOption{
+			{Decision: clientui.ApprovalDecisionDeny},
+			{Decision: clientui.ApprovalDecisionAllowOnce},
+		},
+		Batch: &clientui.QuestionBatch{ToolCallIDs: []string{toolCallID, "approval-2"}, UnmaterializedCount: 1},
 		AccessTargets: []clientui.FileAccessTarget{
 			{RequestedPath: "/alias/a", ResolvedPath: "/real/file"},
 			{RequestedPath: "/alias/b", ResolvedPath: "/real/file"},
@@ -668,18 +666,23 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	attention.GetQuestion().Question = &promptpb.ObservationQuestion{
+		Question: &promptpb.ObservationQuestion_Approval{Approval: projectedApproval},
+	}
+	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{attention})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || len(candidates[0].Questions) != 1 {
+		t.Fatalf("message-less access request candidates = %+v", candidates)
+	}
+	batch := candidates[0].Questions[0].Approval.Batch
+	if batch == nil || batch.UnmaterializedCount != 1 ||
+		len(batch.ToolCallIDs) != 2 || batch.ToolCallIDs[0] != toolCallID || batch.ToolCallIDs[1] != "approval-2" {
+		t.Fatalf("access request batch = %+v", batch)
+	}
 	remote := &stubQuestionTaskRemote{
-		stubQuestionCommandRemote: &stubQuestionCommandRemote{
-			listResponses: []*promptpb.ListQuestionsSuccess{
-				{},
-				{Questions: []*promptpb.Question{pendingAsk(sessionID, "ask-next", successorQuestion)}},
-			},
-			approvalResponses: []*promptpb.ListApprovalsSuccess{
-				{Approvals: []*promptpb.Approval{projectedApproval}},
-				{Approvals: []*promptpb.Approval{projectedApproval}},
-				{},
-			},
-		},
+		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
 		task: &taskpb.TaskDetail{
 			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
@@ -709,7 +712,7 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 		previous = index
 	}
 	stdout.Reset()
-	option := 1
+	option := 2
 	exitCode := command.answerResolvedTaskQuestion(
 		selector,
 		remote,
@@ -720,7 +723,7 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 		&stderr,
 	)
 
-	if exitCode != 0 || stderr.Len() != 0 || stdout.Len() == 0 {
+	if exitCode != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), successorQuestion) {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	if len(remote.answerRequests) != 1 {
@@ -740,6 +743,9 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 		t.Fatalf("attention requests = %+v", remote.attentionRequests)
 	}
 	requireQuestionWatch(t, remote.stubQuestionCommandRemote, 1)
+	if len(remote.listRequests) != 0 || len(remote.approvalRequests) != 0 {
+		t.Fatal("Task access request reread Session prompts")
+	}
 }
 
 func TestQuestionByTaskRejectsAmbiguousSessionsWithoutAnswering(t *testing.T) {
@@ -796,13 +802,7 @@ func TestQuestionByTaskRejectsCurrentAgentSession(t *testing.T) {
 		}
 	})
 	remote := &stubQuestionTaskRemote{
-		stubQuestionCommandRemote: &stubQuestionCommandRemote{listAsks: func(context.Context) error {
-			id, err := runtimeids.ParseSessionID(sessionID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			return &serverapi.SessionSelfTargetError{SessionID: id}
-		}},
+		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
 		task: &taskpb.TaskDetail{
 			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
@@ -825,28 +825,37 @@ func TestQuestionByTaskRejectsCurrentAgentSession(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("exit=%d, want usage error", exitCode)
 	}
+	remote.attentionResponses = []*taskpb.TaskAttentionListSuccess{{
+		Items: []*taskpb.AttentionItem{
+			taskQuestionAttention(taskID, sessionID, "Current", "ask-1", "Continue?", 1),
+		},
+	}}
+	commentary := "Proceed"
+	exitCode = command.answerResolvedTaskQuestion(
+		questionTaskSelector(taskID), remote, taskID, nil, &commentary, io.Discard, io.Discard,
+	)
+	if exitCode != 2 || len(remote.answerRequests) != 0 || len(remote.watchRequests) != 0 ||
+		len(remote.listRequests) != 0 || len(remote.approvalRequests) != 0 {
+		t.Fatalf("exit=%d remote=%+v", exitCode, remote.stubQuestionCommandRemote)
+	}
 }
 
 func TestQuestionByTaskUsesOldestQuestionInSelectedSession(t *testing.T) {
 	unsetSessionIDEnvironmentForTest(t)
 	taskID := "task-1"
 	sessionID := uuid.NewString()
+	oldest := taskQuestionAttention(taskID, sessionID, "Implementer", "ask-old", "Older?", 1)
+	oldestStepID := uuid.NewString()
+	oldest.GetQuestion().Question.GetAsk().StepId = oldestStepID
 	remote := &stubQuestionTaskRemote{
-		stubQuestionCommandRemote: &stubQuestionCommandRemote{
-			listResponses: []*promptpb.ListQuestionsSuccess{{
-				Questions: []*promptpb.Question{
-					pendingAsk(sessionID, "ask-new", "Newer?"),
-					pendingAsk(sessionID, "ask-old", "Older?"),
-				},
-			}},
-		},
+		stubQuestionCommandRemote: &stubQuestionCommandRemote{},
 		task: &taskpb.TaskDetail{
 			Summary: &taskpb.TaskSummary{Id: taskID},
 		},
 		attentionResponses: []*taskpb.TaskAttentionListSuccess{{
 			Items: []*taskpb.AttentionItem{
 				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-new", "Newer?", 2),
-				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-old", "Older?", 1),
+				oldest,
 			},
 		}, {}},
 	}
@@ -869,6 +878,9 @@ func TestQuestionByTaskUsesOldestQuestionInSelectedSession(t *testing.T) {
 	if entry := requireQuestionBatchEntry(t, remote.answerRequests[0]); entry.ToolCallId != "ask-old" {
 		t.Fatalf("answered ask = %q, want oldest", entry.ToolCallId)
 	}
+	if remote.answerRequests[0].StepId != oldestStepID || remote.watchRequests[0].StepId != oldestStepID {
+		t.Fatalf("answer/watch did not preserve Step identity: answer=%+v watch=%+v", remote.answerRequests[0], remote.watchRequests[0])
+	}
 }
 
 func TestTaskQuestionCandidatesPreserveRecommendationAbsence(t *testing.T) {
@@ -890,7 +902,8 @@ func TestTaskQuestionCandidatesPreserveRecommendationAbsence(t *testing.T) {
 		2,
 	)
 	recommendedOptionIndex := int32(2)
-	withRecommendation.GetQuestion().Question.GetOrdinary().RecommendedOptionIndex = &recommendedOptionIndex
+	withRecommendation.GetQuestion().Question.GetAsk().RecommendedOptionIndex = &recommendedOptionIndex
+	withRecommendation.GetQuestion().Question.GetAsk().Suggestions = []string{"One", "Two"}
 
 	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{
 		withoutRecommendation,
@@ -913,11 +926,75 @@ func TestTaskQuestionCandidatesPreserveRecommendationAbsence(t *testing.T) {
 	}
 }
 
-func TestTaskQuestionCandidatesIgnoreWorkflowTransitionApprovals(t *testing.T) {
+func TestTaskQuestionCandidatesPreservePromptIdentityAndBatch(t *testing.T) {
+	sessionID := uuid.NewString()
+	item := taskQuestionAttention("task-1", sessionID, "Implementer", "ask-1", "Choose?", 1)
+	stepID, err := runtimeids.StepIDFromProto(uuid.NewString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shortID := int64(42)
+	ask := item.GetQuestion().Question.GetAsk()
+	ask.StepId = stepID.String()
+	ask.ShortId = &shortID
+	ask.Batch = &promptpb.QuestionBatch{
+		ToolCallIds: []string{"ask-1", "ask-2"}, UnmaterializedCount: 3,
+	}
+
+	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || len(candidates[0].Questions) != 1 {
+		t.Fatalf("candidates = %+v", candidates)
+	}
+	question := candidates[0].Questions[0]
+	if question.SessionID.String() != sessionID || question.StepID != stepID ||
+		question.ShortID == nil || question.ShortID.Int64() != shortID || question.ToolCallID != "ask-1" {
+		t.Fatalf("prompt identity = %+v", question)
+	}
+	if question.Batch == nil || question.Batch.UnmaterializedCount != 3 ||
+		len(question.Batch.ToolCallIDs) != 2 ||
+		question.Batch.ToolCallIDs[0] != "ask-1" || question.Batch.ToolCallIDs[1] != "ask-2" {
+		t.Fatalf("prompt batch = %+v", question.Batch)
+	}
+}
+
+func TestQuestionByTaskRejectsRetiredPromptWithoutSuccess(t *testing.T) {
+	unsetSessionIDEnvironmentForTest(t)
+	sessionID := uuid.NewString()
+	taskID := "task-1"
+	remote := &stubQuestionTaskRemote{
+		stubQuestionCommandRemote: &stubQuestionCommandRemote{
+			batchErr: serverapi.ErrPromptNotFound,
+		},
+		attentionResponses: []*taskpb.TaskAttentionListSuccess{{
+			Items: []*taskpb.AttentionItem{
+				taskQuestionAttention(taskID, sessionID, "Implementer", "ask-1", "Continue?", 1),
+			},
+		}},
+	}
+	commentary := "Proceed"
+	var stdout, stderr bytes.Buffer
+	exitCode := questionCommandWithTaskRemote(remote).answerResolvedTaskQuestion(
+		questionTaskSelector(taskID), remote, taskID, nil, &commentary, &stdout, &stderr,
+	)
+	if exitCode != 1 || stdout.Len() != 0 || stderr.Len() == 0 ||
+		len(remote.answerRequests) != 1 || len(remote.attentionRequests) != 1 ||
+		len(remote.listRequests) != 0 || len(remote.approvalRequests) != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q remote=%+v", exitCode, stdout.String(), stderr.String(), remote)
+	}
+	requireQuestionWatch(t, remote.stubQuestionCommandRemote, 0)
+}
+
+func TestTaskQuestionCandidatesIgnoreNonQuestionAttention(t *testing.T) {
 	approvalID := "transition-1"
 	candidates, err := taskQuestionCandidates([]*taskpb.AttentionItem{{
-		Kind:   taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_APPROVAL,
 		Detail: &taskpb.AttentionItem_Approval{Approval: &taskpb.ApprovalAttention{ApprovalId: approvalID}},
+	}, {
+		Detail: &taskpb.AttentionItem_InterruptedCurrentNode{InterruptedCurrentNode: &taskpb.InterruptedAttention{
+			CurrentNode: &taskpb.AttentionCurrentNode{NodeId: "node-1"},
+		}},
 	}})
 	if err != nil {
 		t.Fatalf("task question candidates: %v", err)

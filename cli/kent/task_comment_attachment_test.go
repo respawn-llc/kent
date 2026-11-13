@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
@@ -27,19 +28,27 @@ func TestAgentCommentUsesAuthorSessionAttachmentAcrossProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr bytes.Buffer
-	if code := taskCommentAddSubcommand([]string{
-		task.Task.Id, "--project", fixture.b.ProjectID, "--body", "Blocked on setup", "--author", "user",
-	}, &stdout, &stderr); code != 0 {
-		t.Fatalf("agent comment failed (%d): %s", code, &stderr)
-	}
-	comments, err := service.ListWorkflowTaskComments(t.Context(), &taskpb.TaskOffsetPageRequest{
-		TaskId: task.Task.Id, Limit: proto.Int32(10),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(comments.Items) != 1 || comments.Items[0].Author != taskpb.CommentAuthorKind_COMMENT_AUTHOR_KIND_AGENT {
-		t.Fatalf("comment attribution = %+v", comments.Items)
+	for i, selector := range []string{task.Task.Id, task.Task.ShortId} {
+		t.Run(selector, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := taskCommentAddSubcommand([]string{
+				selector, "--project", fixture.b.ProjectID, "--body", "Blocked on setup", "--author", "user",
+			}, &stdout, &stderr); code != 0 {
+				t.Fatalf("agent comment failed (%d): %s", code, &stderr)
+			}
+			comments, err := service.ListWorkflowTaskComments(t.Context(), &taskpb.TaskOffsetPageRequest{
+				TaskId: task.Task.Id, Limit: proto.Int32(10),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(comments.Items) != i+1 || comments.Items[0].Author != taskpb.CommentAuthorKind_COMMENT_AUTHOR_KIND_AGENT {
+				t.Fatalf("comment attribution = %+v", comments.Items)
+			}
+			expected := fmt.Sprintf("comment_id\t%s\ntask_id\t%s\n", comments.Items[0].Id, task.Task.Id)
+			if stdout.String() != expected {
+				t.Fatalf("comment add output = %q, want %q", stdout.String(), expected)
+			}
+		})
 	}
 }

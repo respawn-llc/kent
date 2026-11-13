@@ -121,9 +121,9 @@ type strictCountingStatusCollector struct {
 	baseCalls int
 }
 
-func (c *strictCountingStatusCollector) CollectBase(req uiStatusRequest) uiStatusSnapshot {
+func (c *strictCountingStatusCollector) CollectBase(_ uiStatusRequest) uiStatusSnapshot {
 	c.baseCalls++
-	return status.Snapshot{CollectedAt: req.CurrentTime}
+	return status.Snapshot{}
 }
 
 func (c *strictCountingStatusCollector) CollectAuth(context.Context, uiStatusRequest, uiStatusSnapshot) uiStatusAuthStageResult {

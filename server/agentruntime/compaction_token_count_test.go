@@ -182,10 +182,9 @@ func TestWorkflowCompactionUsageUsesSelectedProviderEstimator(t *testing.T) {
 	}
 }
 
-func TestShouldAutoCompactPrefersConfiguredThresholdOverResolvedContextWindow(t *testing.T) {
+func TestShouldAutoCompactUsesConfiguredThreshold(t *testing.T) {
 	t.Parallel()
-	client := &contextWindowClient{contextWindow: 1_000}
-	engine := mustNewTestEngine(t, mustCreateTestSession(t), client, newTestToolRegistry(t), Config{
+	engine := mustNewTestEngine(t, mustCreateTestSession(t), &fakeClient{}, newTestToolRegistry(t), Config{
 		Model:                 "gpt-6-sol",
 		ContextWindowTokens:   400_000,
 		AutoCompactTokenLimit: 360_000,
@@ -201,8 +200,8 @@ func TestShouldAutoCompactPrefersConfiguredThresholdOverResolvedContextWindow(t 
 	if usage := engine.ContextUsage(); usage.WindowTokens != 400_000 {
 		t.Fatalf("configured context window = %d, want 400000", usage.WindowTokens)
 	}
-	if engine.shouldAutoCompactWithContext(context.Background()) || client.resolveCalls != 0 {
-		t.Fatalf("configured threshold unexpectedly resolved model context window: calls=%d", client.resolveCalls)
+	if engine.shouldAutoCompactWithContext(context.Background()) {
+		t.Fatal("configured threshold unexpectedly triggered auto compaction")
 	}
 }
 

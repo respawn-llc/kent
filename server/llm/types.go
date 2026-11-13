@@ -697,33 +697,11 @@ type ReasoningItem struct {
 	EncryptedContent string                              `json:"encrypted_content,omitempty"`
 }
 
-func (u Usage) CacheHitPercent() (int, bool) {
-	if u.CachedInputTokens == nil || u.InputTokens == nil || *u.InputTokens <= 0 {
-		return 0, false
-	}
-	cached := *u.CachedInputTokens
-	if cached < 0 {
-		cached = 0
-	}
-	if cached > *u.InputTokens {
-		cached = *u.InputTokens
-	}
-	pct := (cached * 100) / *u.InputTokens
-	if pct < 0 {
-		return 0, false
-	}
-	if pct > 100 {
-		return 100, true
-	}
-	return pct, true
-}
-
 type Response struct {
 	Assistant Message `json:"assistant"`
 	// EndTurn is absent when the provider supplies no turn-completion fact.
 	EndTurn           *bool                               `json:"-"`
 	ProviderPhase     *ProviderPhase                      `json:"-"`
-	ServedModel       *string                             `json:"served_model,omitempty"`
 	ProviderEvidence  modelcontract.ProviderUsageEvidence `json:"-"`
 	ReasoningIncluded bool                                `json:"reasoning_included,omitempty"`
 	ToolCalls         []ToolCall                          `json:"tool_calls,omitempty"`
@@ -786,8 +764,4 @@ type StreamCallbacks struct {
 	OnOutputItem              func(item ResponseItem)
 	OnReasoningSummaryDelta   func(delta ReasoningSummaryDelta)
 	OnStreamActivity          func()
-}
-
-type ModelContextWindowClient interface {
-	ResolveModelContextWindow(ctx context.Context, model string) (int, error)
 }

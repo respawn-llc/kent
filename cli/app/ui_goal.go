@@ -236,9 +236,13 @@ func (m *uiModel) goalRuntimeCommandFor(
 	}
 	objective = strings.TrimSpace(objective)
 	sessionID = strings.TrimSpace(sessionID)
-	token, shouldStart := m.beginGoalRuntimeMutation(operation, sessionID, objective)
-	if !shouldStart {
-		return nil
+	token := m.goalRuntimeToken
+	if operation != goalRuntimeShow {
+		var shouldStart bool
+		token, shouldStart = m.beginGoalRuntimeMutation(operation, sessionID, objective)
+		if !shouldStart {
+			return nil
+		}
 	}
 	mutationSerial := m.goalRuntimeMutationSerial
 	if sessionID == "" {
@@ -307,7 +311,14 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	if goalRuntimeOperationMutates(msg.operation) {
+	if msg.operation == goalRuntimeShow {
+		target, ok := m.presentationTarget.(uiKnownSessionTarget)
+		if !ok || msg.sessionID != target.id.String() ||
+			msg.mutationSerial != m.goalRuntimeMutationSerial ||
+			!m.goal.open || m.goal.confirmMode != "" {
+			return nil
+		}
+	} else if goalRuntimeOperationMutates(msg.operation) {
 		if msg.token != m.goalRuntimePending.token {
 			return nil
 		}
@@ -341,9 +352,6 @@ func (m *uiModel) applyGoalRuntimeDone(msg goalRuntimeDoneMsg) tea.Cmd {
 	}
 	switch msg.operation {
 	case goalRuntimeShow:
-		if msg.mutationSerial != m.goalRuntimeMutationSerial {
-			return followUpCmd
-		}
 		m.goal.goal = goalCoreFromRuntimeGoal(msg.goal)
 		m.goal.error = ""
 		return followUpCmd

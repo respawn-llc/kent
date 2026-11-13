@@ -30,7 +30,6 @@ type Client struct {
 	calls           []llm.Request
 	compactionCalls []llm.CompactionRequest
 	caps            llm.ProviderCapabilities
-	contextWindow   int
 	allowConcurrent bool
 	active          bool
 	activeCh        chan struct{}
@@ -38,15 +37,10 @@ type Client struct {
 }
 
 func NewClient(script Script) *Client {
-	contextWindow := defaultContextWindowTokens
-	if script.ContextWindowTokens != nil {
-		contextWindow = *script.ContextWindowTokens
-	}
 	return &Client{
 		steps:           append([]Step(nil), script.Steps...),
 		compactions:     append([]llm.CompactionResponse(nil), script.Compactions...),
 		caps:            materializeCapabilities(script.Capabilities),
-		contextWindow:   contextWindow,
 		allowConcurrent: script.AllowConcurrent,
 		activeCh:        make(chan struct{}),
 	}
@@ -102,10 +96,6 @@ func materializeCapabilities(caps *llm.ProviderCapabilities) llm.ProviderCapabil
 
 func DefaultProviderCapabilities() llm.ProviderCapabilities {
 	return llm.ProviderCapabilities{ProviderID: "openai", SupportsResponsesAPI: true, IsOpenAIFirstParty: true}
-}
-
-func (c *Client) ResolveModelContextWindow(context.Context, string) (int, error) {
-	return c.contextWindow, nil
 }
 
 func (c *Client) Requests() []llm.Request {
@@ -234,4 +224,3 @@ func validateExpectedToolResults(req llm.Request, expected []ExpectedToolResult)
 var _ llm.Client = (*Client)(nil)
 var _ llm.CompactionClient = (*Client)(nil)
 var _ llm.ProviderCapabilitiesClient = (*Client)(nil)
-var _ llm.ModelContextWindowClient = (*Client)(nil)

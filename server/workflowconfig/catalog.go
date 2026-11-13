@@ -1,4 +1,4 @@
-package core
+package workflowconfig
 
 import (
 	"sort"
@@ -11,32 +11,30 @@ import (
 	"core/shared/toolspec"
 )
 
-type configTargetAgentCatalog struct {
-	app config.App
+type Catalog struct {
+	App config.App
 }
 
-type configRoleResolver = configTargetAgentCatalog
-
-func (r configTargetAgentCatalog) ResolveConfiguredRole(role string) (workflow.TargetAgentRole, bool) {
+func (r Catalog) ResolveConfiguredRole(role string) (workflow.TargetAgentRole, bool) {
 	trimmed := strings.TrimSpace(role)
 	if trimmed == "" {
 		return workflow.TargetAgentRole{}, false
 	}
-	lookup := config.LookupSubagentRole(r.app.Settings, trimmed)
+	lookup := config.LookupSubagentRole(r.App.Settings, trimmed)
 	if lookup.Status != config.SubagentRoleLookupPresent || lookup.NormalizedSelector == nil {
 		return workflow.TargetAgentRole{}, false
 	}
-	effective, err := launch.ResolveConfiguredSubagentSettings(r.app, *lookup.NormalizedSelector)
+	effective, err := launch.ResolveConfiguredSubagentSettings(r.App, *lookup.NormalizedSelector)
 	if err != nil {
 		return workflow.TargetAgentRole{}, false
 	}
-	targetRole := targetAgentRoleFromSettings(*lookup.NormalizedSelector, effective, lookup.Role.AgentCallableSet() && lookup.Role.AgentCallable)
+	targetRole := RoleFromSettings(*lookup.NormalizedSelector, effective, lookup.Role.AgentCallableSet() && lookup.Role.AgentCallable)
 	return targetRole, true
 }
 
-func (r configTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
-	roles := make([]workflow.TargetAgentRole, 0, len(r.app.Settings.Subagents))
-	for name, role := range r.app.Settings.Subagents {
+func (r Catalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
+	roles := make([]workflow.TargetAgentRole, 0, len(r.App.Settings.Subagents))
+	for name, role := range r.App.Settings.Subagents {
 		if !role.AgentCallableSet() || !role.AgentCallable {
 			continue
 		}
@@ -51,7 +49,7 @@ func (r configTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgent
 	return roles
 }
 
-func targetAgentRoleFromSettings(identity string, settings config.Settings, explicitCallable bool) workflow.TargetAgentRole {
+func RoleFromSettings(identity string, settings config.Settings, explicitCallable bool) workflow.TargetAgentRole {
 	model := strings.TrimSpace(settings.Model)
 	_, known := llm.LookupModelCapabilityContract(model)
 	capability := workflow.ThinkingCapability{

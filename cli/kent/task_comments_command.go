@@ -84,7 +84,7 @@ func taskCommentAddSubcommand(args []string, stdout io.Writer, stderr io.Writer)
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "comment_id\t%s\ntask_id\t%s\n", resp.Comment.Id, resp.Comment.TaskId)
+		fmt.Fprintf(stdout, "comment_id\t%s\ntask_id\t%s\n", resp.Comment.Id, taskID)
 		return 0
 	})
 }

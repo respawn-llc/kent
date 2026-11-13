@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sync"
 	"testing"
 
 	"core/server/llm"
@@ -12,23 +11,6 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
-
-type resultGroupFlushRecorder struct {
-	mu           sync.Mutex
-	observations []ResultGroupFlushObservation
-}
-
-func (r *resultGroupFlushRecorder) ObserveResultGroupFlush(observation ResultGroupFlushObservation) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.observations = append(r.observations, observation)
-}
-
-func (r *resultGroupFlushRecorder) snapshot() []ResultGroupFlushObservation {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]ResultGroupFlushObservation(nil), r.observations...)
-}
 
 func questionBarrierAcceptedCalls() acceptedResponseCalls {
 	return acceptedResponseCalls{
@@ -96,7 +78,6 @@ func persistAcceptedToolCallIntents(
 func TestQuestionBarrierCommitsReadyHostedSiblingBeforeInteraction(t *testing.T) {
 	store := mustCreateTestSession(t)
 	broker := tools.NewAskQuestionBroker()
-	flushes := &resultGroupFlushRecorder{}
 	var engine *Engine
 	var interactionErr error
 	broker.SetLifecycleAskHandler(func(_ context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
@@ -114,7 +95,7 @@ func TestQuestionBarrierCommitsReadyHostedSiblingBeforeInteraction(t *testing.T)
 			ID:      toolspec.ToolAskQuestion,
 			Handler: tools.NewAskQuestionTool(broker, func() bool { return true }),
 		}),
-		Config{Model: "gpt-6-sol", DurabilityObserver: flushes},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
@@ -133,12 +114,8 @@ func TestQuestionBarrierCommitsReadyHostedSiblingBeforeInteraction(t *testing.T)
 	if len(results) != 1 || results[0].IsError {
 		t.Fatalf("Question results = %+v, want one successful result", results)
 	}
-	observations := flushes.snapshot()
-	if len(observations) != 2 ||
-		observations[0].Reason != ResultGroupFlushQuestion ||
-		observations[0].ResultCount != 1 ||
-		observations[1].Reason != ResultGroupFlushStepBoundary {
-		t.Fatalf("result group flushes = %+v, want Question sibling flush then Step Boundary close", observations)
+	if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot("question"); !found {
+		t.Fatal("Question result did not commit at Step Boundary")
 	}
 }
 
@@ -171,7 +148,6 @@ func (p approvalBarrierProbe) Call(
 func TestApprovalBarrierUsesRuntimeFlushBeforeNestedApprovalVisibility(t *testing.T) {
 	store := mustCreateTestSession(t)
 	broker := tools.NewAskQuestionBroker()
-	flushes := &resultGroupFlushRecorder{}
 	var engine *Engine
 	var interactionErr error
 	broker.SetLifecycleAskHandler(func(_ context.Context, _ tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
@@ -191,7 +167,7 @@ func TestApprovalBarrierUsesRuntimeFlushBeforeNestedApprovalVisibility(t *testin
 			ID:      toolspec.ToolPatch,
 			Handler: approvalBarrierProbe{broker: broker},
 		}),
-		Config{Model: "gpt-6-sol", DurabilityObserver: flushes},
+		Config{Model: "gpt-6-sol"},
 	)
 	stepID := runtimeTestStepID("step")
 	restoreStep := setTestActiveStep(engine, stepID)
@@ -213,11 +189,7 @@ func TestApprovalBarrierUsesRuntimeFlushBeforeNestedApprovalVisibility(t *testin
 	if len(results) != 1 || results[0].IsError {
 		t.Fatalf("Approval results = %+v, want one successful result", results)
 	}
-	observations := flushes.snapshot()
-	if len(observations) != 2 ||
-		observations[0].Reason != ResultGroupFlushApproval ||
-		observations[0].ResultCount != 1 ||
-		observations[1].Reason != ResultGroupFlushStepBoundary {
-		t.Fatalf("result group flushes = %+v, want Approval sibling flush then Step Boundary close", observations)
+	if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot("patch"); !found {
+		t.Fatal("Approval result did not commit at Step Boundary")
 	}
 }

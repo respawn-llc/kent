@@ -191,11 +191,6 @@ func (m *uiModel) selectedProcess() (*processpb.BackgroundProcess, bool) {
 	return m.processList.entries[m.processList.selection], true
 }
 
-func (m *uiModel) nextProcessActionToken() uint64 {
-	m.processList.actionToken++
-	return m.processList.actionToken
-}
-
 func (m *uiModel) requestProcessListRefresh() tea.Cmd {
 	if m == nil || !m.processList.open {
 		return nil
@@ -211,8 +206,6 @@ func (m *uiModel) requestProcessListRefresh() tea.Cmd {
 		m.processList.refreshDirty = true
 		return nil
 	}
-	m.processList.refreshToken++
-	token := m.processList.refreshToken
 	m.processList.refreshInFlight = true
 	m.processList.refreshDirty = false
 	m.processList.loading = true
@@ -221,7 +214,7 @@ func (m *uiModel) requestProcessListRefresh() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), uiProcessOperationTimeout)
 		defer cancel()
 		entries, err := client.ListProcesses(ctx)
-		return processListRefreshDoneMsg{token: token, entries: entries, err: err}
+		return processListRefreshDoneMsg{entries: entries, err: err}
 	}
 }
 
@@ -232,7 +225,6 @@ func (m *uiModel) processActionCmd(action, id, logPath string, inputDraftToken u
 	if m.processList.actionInFlight {
 		return nil
 	}
-	token := m.nextProcessActionToken()
 	surfaceGeneration := m.processList.surfaceGeneration
 	client := m.processClient
 	action = strings.ToLower(strings.TrimSpace(action))
@@ -243,7 +235,6 @@ func (m *uiModel) processActionCmd(action, id, logPath string, inputDraftToken u
 		ctx, cancel := context.WithTimeout(context.Background(), uiProcessOperationTimeout)
 		defer cancel()
 		msg := processActionDoneMsg{
-			token:             token,
 			surfaceGeneration: surfaceGeneration,
 			inputDraftToken:   inputDraftToken,
 			action:            action,
@@ -287,7 +278,7 @@ func (m *uiModel) processListHasRunningEntries() bool {
 }
 
 func (m *uiModel) applyProcessActionDone(msg processActionDoneMsg) tea.Cmd {
-	if m == nil || msg.token != m.processList.actionToken {
+	if m == nil {
 		return nil
 	}
 	m.processList.actionInFlight = false

@@ -17,7 +17,6 @@ import (
 
 type PreparedUserTurn struct {
 	QueueItemID   string
-	Input         runtimeinput.Input
 	Placement     promptcommands.Placement
 	ExecutionText string
 	HistoryText   string
@@ -37,21 +36,6 @@ func queuedUserTurnResponse(queueItemID string) *runtimepb.SubmitUserTurnSuccess
 	}}
 }
 
-func canonicalUserTurnRequest(sessionID string, input runtimeinput.Input) sessionUserTurnRequest {
-	request := sessionUserTurnRequest{
-		SessionID: strings.TrimSpace(sessionID),
-		Kind:      input.Kind,
-	}
-	if input.Text != nil {
-		request.Text = *input.Text
-	}
-	if input.PromptCommand != nil {
-		request.Name = strings.TrimSpace(input.PromptCommand.Name)
-		request.Arguments = input.PromptCommand.Arguments
-	}
-	return request
-}
-
 func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input runtimeinput.Input) (PreparedUserTurn, error) {
 	if input.Kind == runtimeinput.KindPromptCommand && (s == nil || s.promptCommands == nil) {
 		return PreparedUserTurn{}, errors.New("prompt command resolver is required")
@@ -66,7 +50,7 @@ func (s *Service) PrepareUserTurn(ctx context.Context, sessionID string, input r
 		return PreparedUserTurn{}, err
 	}
 	history := input.CanonicalHistoryText()
-	return PreparedUserTurn{Input: input, Placement: placement, ExecutionText: execution, HistoryText: history}, nil
+	return PreparedUserTurn{Placement: placement, ExecutionText: execution, HistoryText: history}, nil
 }
 
 func (s *Service) SubmitUserTurn(ctx context.Context, req *runtimepb.SubmitUserTurnRequest) (*runtimepb.SubmitUserTurnSuccess, error) {
@@ -96,10 +80,10 @@ func (s *Service) admitUserTurn(
 	sessionID string,
 	projection PreparedUserTurn,
 ) (*runtimepb.SubmitUserTurnSuccess, serverapi.ChatInputAdmissionResult, error) {
-	request := canonicalUserTurnRequest(sessionID, projection.Input)
+	sessionID = strings.TrimSpace(sessionID)
 	attempt := newRuntimeCommandAttempt(ctx)
 	defer attempt.Finish()
-	response, queued, commandErr := s.submitUserTurn(attempt, request, projection)
+	response, queued, commandErr := s.submitUserTurn(attempt, sessionID, projection)
 	accepted := attempt.Accepted()
 	var admission serverapi.ChatInputAdmissionResult
 	if accepted {
@@ -108,7 +92,7 @@ func (s *Service) admitUserTurn(
 			QueueItemID:          queueItemID,
 			Disposition:          queued.Disposition,
 			Accepted:             true,
-			PromptHistoryFailure: s.recordAcceptedUserTurnHistory(request, projection),
+			PromptHistoryFailure: s.recordAcceptedUserTurnHistory(sessionID, projection),
 		}
 		commandErr = errors.Join(commandErr, parseErr)
 	}
@@ -117,12 +101,12 @@ func (s *Service) admitUserTurn(
 
 func (s *Service) submitUserTurn(
 	attempt *runtimeCommandAttempt,
-	request sessionUserTurnRequest,
+	sessionIDText string,
 	projection PreparedUserTurn,
 ) (*runtimepb.SubmitUserTurnSuccess, runtime.QueuedUserMessage, error) {
 	var response *runtimepb.SubmitUserTurnSuccess
 	var admitted runtime.QueuedUserMessage
-	sessionID := runtimeids.SessionIDFromProto(request.SessionID)
+	sessionID := runtimeids.SessionIDFromProto(sessionIDText)
 	if s == nil || s.authority == nil {
 		return nil, admitted, errors.New("session runtime authority is required")
 	}
@@ -138,11 +122,11 @@ func (s *Service) submitUserTurn(
 }
 
 func (s *Service) recordAcceptedUserTurnHistory(
-	request sessionUserTurnRequest,
+	sessionID string,
 	projection PreparedUserTurn,
 ) error {
-	if _, err := s.recordPromptHistory(context.Background(), request.SessionID, projection.HistoryText); err != nil {
-		reportErr := s.withRuntime(context.Background(), request.SessionID, func(_ context.Context, engine *runtime.Engine) error {
+	if _, err := s.recordPromptHistory(context.Background(), sessionID, projection.HistoryText); err != nil {
+		reportErr := s.withRuntime(context.Background(), sessionID, func(_ context.Context, engine *runtime.Engine) error {
 			engine.ReportPromptHistoryPersistError(err.Error())
 			return nil
 		})

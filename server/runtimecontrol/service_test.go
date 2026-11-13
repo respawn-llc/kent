@@ -448,14 +448,6 @@ func countPromptHistoryEvents(t *testing.T, store *session.Store, text string) i
 	return history.CountText(text)
 }
 
-type staticRuntimeControlWorkflowTaskResolver struct {
-	workflow bool
-}
-
-func (r staticRuntimeControlWorkflowTaskResolver) SessionHasWorkflowTask(context.Context, string) (bool, error) {
-	return r.workflow, nil
-}
-
 type runtimeControlFakeClient struct {
 	mu                  sync.Mutex
 	responses           []llm.Response
@@ -1199,7 +1191,7 @@ func TestServiceLiveSteerRecordsHistoryAfterActiveAdmission(t *testing.T) {
 		t.Fatalf("LiveSteer: %v", result.err)
 	}
 	resp := result.response
-	if resp.QueueItemId != queueItemID || resp.Text != "steer live" {
+	if resp.QueueItemId != queueItemID {
 		t.Fatalf("LiveSteer response = %+v", resp)
 	}
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), "steer live", 1)
@@ -1259,8 +1251,9 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 	sourceID := runtimeids.NewSessionID()
 	steer := runtime.NewAgentSteer(runtimeids.SessionIdentity{ID: sourceID}, "steer live")
 	sourceText := sourceID.String()
+	queueItemID := runtimeids.NewQueueItemID().String()
 	steerDone := liveSteerRuntimeControlAsync(service, &runtimepb.LiveSteerRequest{
-		QueueItemId:     runtimeids.NewQueueItemID().String(),
+		QueueItemId:     queueItemID,
 		SessionId:       requestfixture.Selector(t, store.Meta().SessionID),
 		CallerSessionId: &sourceText,
 		Text:            "steer live",
@@ -1274,8 +1267,8 @@ func TestServiceLiveSteerAgentCallerUsesOneWrappedDeveloperMessage(t *testing.T)
 		t.Fatalf("LiveSteer: %v", result.err)
 	}
 	resp := result.response
-	if steer.Message().Content == nil || resp.Text != *steer.Message().Content {
-		t.Fatalf("LiveSteer response = %+v, want wrapped text", resp)
+	if resp.QueueItemId != queueItemID {
+		t.Fatalf("LiveSteer response = %+v", resp)
 	}
 	waitForRuntimeControlPromptHistoryCount(t, runtimeControlPromptHistoryStoresLoad(t, store.Meta().SessionID), *steer.Message().Content, 1)
 	waitForRuntimeControlAssistantFinal(t, engine, "done")
@@ -1328,7 +1321,7 @@ func testServiceLiveSteerReportsAdmittedPromptHistoryErrorDiagnostically(t *test
 		t.Fatalf("LiveSteer after accepted prompt-history failure: %v", result.err)
 	}
 	resp := result.response
-	if resp.QueueItemId == "" || resp.Text != "steer live" {
+	if resp.QueueItemId == "" {
 		t.Fatalf("LiveSteer response = %+v, want accepted Queue item", resp)
 	}
 	diagnostic := <-diagnostics
@@ -2327,14 +2320,6 @@ func TestServiceWorkflowRuntimeAllowsGoalStatusTransitions(t *testing.T) {
 	}
 }
 
-func TestServiceDurableWorkflowSessionAllowsGoalControl(t *testing.T) {
-	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	service = service.WithWorkflowTaskSessionResolver(staticRuntimeControlWorkflowTaskResolver{workflow: true})
-	if _, err := service.ShowGoal(context.Background(), &runtimepb.GoalShowRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)}); err != nil {
-		t.Fatalf("ShowGoal for workflow task session = %v, want allowed", err)
-	}
-}
-
 func TestServiceSetGoalPropagatesGoalLoopStartError(t *testing.T) {
 	store, _, service := newRuntimeControlTestService(t, nil, nil, runtime.Config{})
 
@@ -3177,7 +3162,7 @@ func TestServiceInputAdmissionDoesNotCompactContext(t *testing.T) {
 	store, engine, service := newRuntimeControlTestService(t, client, nil, runtime.Config{
 		Model: "gpt-6-sol", ProviderCapabilitiesOverride: &runtimeControlOpenAICapabilities,
 	})
-	client.responses[0].Usage.InputTokens = textutil.Value(int(engine.LiveChatContextSnapshot().Policy.AutomaticThresholdTokens) - 35_000 + 1)
+	client.responses[0].Usage.InputTokens = textutil.Value(config.DefaultOnboardingSettings().ContextCompactionThresholdTokens - 35_000 + 1)
 	client.responses[0].Usage.ContextUsage = &llm.ContextUsage{
 		Tokens: *client.responses[0].Usage.InputTokens, MeasurementPoint: llm.ContextMeasurementInput,
 	}
@@ -3412,8 +3397,7 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 		t.Fatalf("published change facts = %+v, want true then false", publisher.feedback)
 	}
 	for _, feedback := range publisher.feedback {
-		if feedback.Kind != transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME ||
-			feedback.GetSessionName().Name == nil || *feedback.GetSessionName().Name != "renamed" {
+		if feedback.GetSessionName() == nil {
 			t.Fatalf("published Session Name feedback = %+v", feedback)
 		}
 	}
@@ -3435,8 +3419,9 @@ func TestSetSessionNamePublishesChangedAndUnchangedFeedback(t *testing.T) {
 	if persisted.Meta().Name != nil || store.Meta().LastSequence != beforeSequence {
 		t.Fatal("live Clear must persist absence without adding transcript content")
 	}
-	if len(publisher.feedback) != 3 || publisher.feedback[2].GetSessionName().Name != nil {
-		t.Fatal("Clear feedback did not report absence")
+	if len(publisher.feedback) != 3 || !publisher.feedback[2].Changed ||
+		publisher.feedback[2].GetSessionName() == nil {
+		t.Fatal("Clear feedback did not report the name change")
 	}
 }
 

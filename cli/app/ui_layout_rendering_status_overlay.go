@@ -96,6 +96,15 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 			lines = append(lines, padANSIRight(lineStyle.Render(line), width))
 		}
 	}
+	loading, preparationErr := m.statusPreparation()
+	if loading {
+		appendWrapped(pendingToolSpinnerFrame(m.spinnerFrame)+" Loading session...", titleStyle)
+		return lines
+	}
+	if preparationErr != nil {
+		appendWrapped("Session status unavailable: "+preparationErr.Error(), warningStyle)
+		return lines
+	}
 	appendANSI := func(line string) {
 		lines = append(lines, padANSIRight(line, width))
 	}
@@ -112,7 +121,11 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 
 	snapshot := m.status.snapshot
 
-	appendSectionTitle("Session")
+	sessionTitle := "Session"
+	if len(m.status.pendingSections) > 0 {
+		sessionTitle += " " + pendingToolSpinnerFrame(m.spinnerFrame)
+	}
+	appendSectionTitle(sessionTitle)
 	appendWrapped("CWD: "+statusValueOrFallback(snapshot.Workdir, "<unknown>"), boldStyle)
 	appendANSI(l.renderStatusModelLine(width, snapshot.Model.Summary))
 	if snapshot.AgentRole != nil {
@@ -257,7 +270,7 @@ func (l uiViewLayout) statusOverlayContentLines(width int) []string {
 }
 
 func (l uiViewLayout) statusSectionLoading(section uiStatusSection) bool {
-	return l.model.status.pendingSections != nil && l.model.status.pendingSections[section]
+	return l.model.status.pendingSections[section] > 0
 }
 
 func (l uiViewLayout) renderStatusSubscriptionLine(

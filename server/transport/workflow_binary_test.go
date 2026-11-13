@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -17,9 +18,11 @@ import (
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	"core/shared/protoapi"
+	projectpb "core/shared/protoapi/gen/kent/api/project"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
+	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/serverapi"
 	"core/shared/worktreecontract"
 
@@ -236,6 +239,83 @@ func TestWorkflowBinaryTaskUnicodeBodyCreateReadEditRoundTrip(t *testing.T) {
 		updatedDetail.GetTask().GetSummary().GetId() != taskID ||
 		updatedDetail.GetTask().GetSummary().GetBodyPreview() != updatedPreview {
 		t.Fatalf("updated Task detail = %+v, want ID %q and full body %q", updatedDetail.GetTask(), taskID, updatedBody)
+	}
+}
+
+func TestTaskDeleteBranchCleanupRoundTrip(t *testing.T) {
+	for _, mode := range []string{"unmerged", "merged", "no worktree"} {
+		t.Run(mode, func(t *testing.T) {
+			app, server := newGatewayTestServer(t)
+			task := createGatewaySearchableTask(t, app)
+			store := app.MetadataStore()
+			workspace, err := store.ResolveProjectSourceWorkspace(t.Context(), app.ProjectID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var created *worktreepb.CreateSuccess
+			if mode != "no worktree" {
+				initGatewayGitWorkspace(t, workspace.CanonicalRootPath)
+				created, err = app.WorktreeClient().CreateWorktree(t.Context(), &worktreepb.CreateRequest{
+					SetupOperationId: uuid.NewString(),
+					Scope: &worktreepb.ManagementScope{Scope: &worktreepb.ManagementScope_Workspace{
+						Workspace: &worktreepb.WorkspaceManagementTarget{Target: &projectpb.SelectedProjectWorkspace{
+							ProjectId: app.ProjectID(), WorkspaceId: workspace.ID,
+						}},
+					}},
+					Spec: &worktreepb.CreateSpec{BaseRef: proto.String("HEAD"), CreateBranch: true, BranchName: proto.String(task.ShortId)},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				facts := created.Worktree.Topology.GetRegistered().Kent
+				updated, err := store.Queries().BindInitialTaskManagedWorktree(t.Context(), sqlitegen.BindInitialTaskManagedWorktreeParams{
+					TaskID: task.Id, ManagedWorktreeID: sql.NullString{String: facts.WorktreeId, Valid: true},
+					UpdatedAtUnixMs: time.Now().UnixMilli(),
+				})
+				if err != nil || updated != 1 {
+					t.Fatalf("bind: %d, %v", updated, err)
+				}
+				if mode == "unmerged" {
+					runGatewayGit(t, facts.CanonicalRoot, "commit", "--allow-empty", "-m", "unmerged task work")
+				}
+			}
+			remote, err := remoteclient.DialRemoteURL(t.Context(), "ws"+server.URL[len("http"):])
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = remote.Close() })
+			result, err := remote.DeleteWorkflowTask(t.Context(), &taskpb.DeleteRequest{TaskId: task.Id})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := remote.GetWorkflowTask(t.Context(), &taskpb.GetRequest{TaskId: proto.String(task.Id)}); !errors.Is(err, serverapi.ErrWorkflowTaskNotFound) {
+				t.Fatalf("deleted Task lookup: %v", err)
+			}
+			if mode == "no worktree" {
+				if result.BranchCleanup != nil {
+					t.Fatalf("unexpected cleanup: %v", result)
+				}
+				return
+			}
+			facts := created.Worktree.Topology.GetRegistered().Kent
+			if _, err := os.Stat(facts.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("worktree remains: %v", err)
+			}
+			if _, err := store.GetWorktreeRecordByID(t.Context(), facts.WorktreeId); !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("worktree record remains: %v", err)
+			}
+			want := worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_DELETED
+			if mode == "unmerged" {
+				want = worktreepb.BranchCleanupOutcomeKind_WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED
+				runGatewayGit(t, workspace.CanonicalRootPath, "show-ref", "--verify", "refs/heads/"+task.ShortId)
+				if result.BranchCleanup.GetDiagnostic() == "" {
+					t.Fatal("retained cleanup lost Git diagnostic")
+				}
+			}
+			if result.BranchCleanup.GetKind() != want || result.BranchCleanup.GetBranchName() != task.ShortId {
+				t.Fatalf("cleanup: %v, want %v for %s", result, want, task.ShortId)
+			}
+		})
 	}
 }
 

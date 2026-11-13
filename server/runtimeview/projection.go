@@ -3,7 +3,6 @@ package runtimeview
 import (
 	"core/server/agentruntime"
 	"core/server/goalview"
-	"core/server/sessionstore"
 	"core/shared/protoapi"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
@@ -41,10 +40,6 @@ func StatusFromRuntime(engine *runtime.Engine) (*runtimepb.Status, error) {
 	if err != nil {
 		return &runtimepb.Status{}, err
 	}
-	freshness, err := engine.ConversationFreshness()
-	if err != nil {
-		return &runtimepb.Status{}, err
-	}
 	usage := engine.ContextUsage()
 	usedTokens, err := protoapi.Int32(usage.UsedTokens, "used tokens")
 	if err != nil {
@@ -70,7 +65,6 @@ func StatusFromRuntime(engine *runtime.Engine) (*runtimepb.Status, error) {
 		QuestionsEnabled:          engine.QuestionsEnabled(),
 		FastModeAvailable:         fastModeAvailable,
 		FastModeEnabled:           engine.FastModeEnabled(),
-		ConversationFreshness:     ConversationFreshnessFromSession(freshness),
 		PreviousSessionId:         protoapi.OptionalSessionIDToProto(engine.PreviousSessionID()),
 		ParentAgentSessionId:      protoapi.OptionalSessionIDToProto(engine.ParentAgentSessionID()),
 		NavigationTargetSessionId: protoapi.OptionalSessionIDToProto(engine.NavigationTargetSessionID()),
@@ -141,10 +135,6 @@ func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, err
 	if engine == nil {
 		return &runtimepb.SessionView{}, nil
 	}
-	freshness, err := engine.ConversationFreshness()
-	if err != nil {
-		return &runtimepb.SessionView{}, err
-	}
 	category, err := engine.SessionCategory()
 	if err != nil {
 		return nil, err
@@ -154,18 +144,10 @@ func SessionViewFromRuntime(engine *runtime.Engine) (*runtimepb.SessionView, err
 		return nil, err
 	}
 	return &runtimepb.SessionView{
-		Category:              wireCategory,
-		SessionId:             engine.SessionID(),
-		ShortId:               protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
-		SessionName:           engine.SessionName(),
-		AgentRole:             engine.ContinuationAgentRole(),
-		ConversationFreshness: ConversationFreshnessFromSession(freshness),
+		Category:    wireCategory,
+		SessionId:   engine.SessionID(),
+		ShortId:     protoapi.SessionShortIDToProto(engine.SessionIdentity().ShortID),
+		SessionName: engine.SessionName(),
+		AgentRole:   engine.ContinuationAgentRole(),
 	}, nil
-}
-
-func ConversationFreshnessFromSession(freshness session.ConversationFreshness) runtimepb.ConversationFreshness {
-	if freshness.IsFresh() {
-		return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH
-	}
-	return runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 }

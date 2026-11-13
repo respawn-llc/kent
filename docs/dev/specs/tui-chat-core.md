@@ -7,7 +7,7 @@
 
 ## Launch choices
 
-- A TUI Session opening must supply its invocation preparation choices only with its first explicit Chat action. An initial prompt counts as that action.
+- A TUI Session opening must supply only its original explicit invocation overrides with its first explicit Chat action. An initial prompt counts as that action. Dormant Runtime preparation follows [Core Runtime And Tools](core-runtime-tools.md#authority-and-client-boundaries).
 - The TUI must consume those choices when dispatching the action, including when the request fails or admission rejects it. Later actions must use current Session settings.
 - Reconnecting observation must not restore consumed launch choices or activate a Runtime.
 - While a dormant Session's transcript observation waits, the TUI must retry read-only Session state after transport loss. A successful read must clear the disconnected state without waiting for transcript hydration.

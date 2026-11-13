@@ -24,6 +24,7 @@ export function createGoalFixtureOwner(
     kind: "ready-new-chat",
     initialSettings: input.initialSettings,
     catalog: {
+      initialAgentRole: input.initialSettings.agentRole,
       choices: options.unsupported
         ? [
             {
@@ -31,10 +32,6 @@ export function createGoalFixtureOwner(
                 role: input.initialSettings.agentRole,
                 model: "fixture",
                 thinking: "none",
-                tools: [],
-                customCapabilities: false,
-                customSystemPrompt: false,
-                agentCallable: true,
               },
               baseline: input.initialSettings,
               questions: { capable: false, enabled: false, editability: { kind: "editable" } },

@@ -38,54 +38,11 @@ type compactionRuntimeState struct {
 	historyReplacementMode         *session.CompactionMode
 	workflowPostCompletionBoundary bool
 	active                         *activeCompactionState
-	contextFacts                   session.SessionContextFacts
 }
 
 type activeCompactionState struct {
 	transcript TranscriptCompactionState
 	activeKind ActiveKind
-}
-
-type liveChatContextCompactionSnapshot struct {
-	completedCompactionCount int
-	compactionRunning        bool
-	manualCompactEligible    bool
-}
-
-func (s *compactionRuntimeState) LiveChatContextSnapshot() liveChatContextCompactionSnapshot {
-	if s == nil {
-		return liveChatContextCompactionSnapshot{}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	snapshot := liveChatContextCompactionSnapshot{
-		compactionRunning: s.active != nil,
-	}
-	if s.contextFacts.CompletedCompactionCount != nil {
-		snapshot.completedCompactionCount = s.count
-	}
-	if s.contextFacts.ManualCompactEligible != nil {
-		snapshot.manualCompactEligible = s.manualEligible
-	}
-	return snapshot
-}
-
-func (s *compactionRuntimeState) SetContextFacts(facts session.SessionContextFacts) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.contextFacts = facts.Clone()
-	s.mu.Unlock()
-}
-
-func (s *compactionRuntimeState) SetPresentedManualCompactEligibility(eligible bool) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.contextFacts.ManualCompactEligible = &eligible
-	s.mu.Unlock()
 }
 
 func (s *compactionRuntimeState) ManualCompactionEligible() bool {

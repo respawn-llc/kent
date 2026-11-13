@@ -262,9 +262,9 @@ describe("questionPresentation", () => {
     const approval = approvalAttention(["allow_once", "deny"]);
     const attention = {
       ...approval,
-      message: null,
       question: {
         ...approval.question,
+        question: null,
         accessTargets: [
           { requestedPath: "/alias/a", resolvedPath: "/real/file" },
           { requestedPath: "/alias/b", resolvedPath: "/real/file" },
@@ -475,13 +475,14 @@ function ordinaryAttention(
     questionID: "ask-1",
     id: "attention-1",
     kind: "question",
-    message: "Choose an option",
     occurredAt: 0,
     projectID: "project-1",
     question: {
       toolCallID: "ask-1",
       sessionID: "33333333-3333-4333-8333-333333333333",
       stepID: "22222222-2222-4222-8222-222222222222",
+      question: "Choose an option",
+      createdAt: "2026-11-08T00:00:00.000Z",
       kind: "ordinary",
       recommendedOptionIndex,
       suggestions,
@@ -513,6 +514,8 @@ function approvalAttention(
       toolCallID: "ask-1",
       sessionID: "33333333-3333-4333-8333-333333333333",
       stepID: "22222222-2222-4222-8222-222222222222",
+      question: "Choose an option",
+      createdAt: "2026-11-08T00:00:00.000Z",
       approvalDecisions: decisions,
       accessTargets: [],
       kind: "approval",

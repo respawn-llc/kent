@@ -85,7 +85,6 @@ export function createWorkflowEditorGraphModel({
   });
   const snapshot = Atom.make<WorkflowLayoutSnapshot>({
     graphVersion: 0,
-    layout: undefined,
     validation: null,
   });
   const layoutObserver = new QueryObserver<WorkflowGraphLayout>(client, {
@@ -125,7 +124,6 @@ export function createWorkflowEditorGraphModel({
     const nextSnapshot = workflowLayoutSnapshotAfterRender(current, {
       cleanGraphVersion: draftState?.graphVersion ?? current.graphVersion,
       cleanValidation: cleanScoped.cleanValidationForSnapshot,
-      layout: layoutQuery.data,
     });
     if (nextSnapshot !== current) get.set(snapshot, nextSnapshot);
     return {
@@ -141,10 +139,8 @@ export function createWorkflowEditorGraphModel({
       layoutQuery,
       projectedGraph: resolveProjectedGraph({
         draftDefinition,
-        graphDirty: dirtyState.graphDirty,
         graphValidation: resolveGraphValidation(dirtyState.graphDirty, clean.merged),
         layout: layoutQuery.data,
-        snapshotLayout: current.layout,
       }),
     };
   });

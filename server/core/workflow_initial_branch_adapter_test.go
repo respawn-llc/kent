@@ -15,6 +15,7 @@ import (
 	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/workflow"
+	"core/server/workflowconfig"
 	"core/server/workflowstore"
 	"core/server/workflowsvc"
 	"core/server/worktreeservice"
@@ -46,7 +47,7 @@ func TestTaskStartReportsExplicitDefaultBranchFailureForNonGitSource(t *testing.
 	}
 	store, err := workflowstore.New(
 		appCore.MetadataStore(),
-		workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}),
+		workflowstore.WithRoleResolver(workflowconfig.Catalog{App: resolved.Config}),
 	)
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)
@@ -133,7 +134,7 @@ func TestTaskExecutionTargetInfrastructureCarriesPostCreationBranchAssertion(t *
 	}
 	store, err := workflowstore.New(
 		appCore.bundles.Persistence.metadataStore,
-		workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}),
+		workflowstore.WithRoleResolver(workflowconfig.Catalog{App: resolved.Config}),
 	)
 	if err != nil {
 		t.Fatalf("workflowstore.New: %v", err)

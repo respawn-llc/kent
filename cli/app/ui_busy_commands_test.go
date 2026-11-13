@@ -1,7 +1,5 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"core/cli/app/commands"
 	"core/shared/runtimeinput"
@@ -123,7 +121,6 @@ func TestBusyEnterRoutesDirectWorktreeCommands(t *testing.T) {
 func TestBusyCatalogPromptCommandRemainsTypedRuntimeSubmission(t *testing.T) {
 	client := &runtimeControlFakeClient{}
 	model := newProjectedTestUIModel(client,
-		WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED),
 		WithUIPromptCommandCatalogEntries([]commands.PromptCommandCatalogEntry{{Name: "prompt:inspect", Preview: "Inspect"}}))
 	model.commandRegistry = commands.NewDefaultRegistryWithPromptCatalog(model.promptCatalogEntries)
 	model.setRuntimeActivityBusyForTest(true)
@@ -233,7 +230,7 @@ func TestRejectedCompactionAtPendingWorkCapacityRestoresVerbatimInput(t *testing
 }
 
 func busyCommandTestModel() *uiModel {
-	model := newProjectedStaticUIModel(WithUIConversationFreshness(runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED))
+	model := newProjectedStaticUIModel()
 	model.setKnownSessionTarget(detailTestSessionID)
 	model.workspaceContext = uiWorkspaceContext{projectID: "project-1", workspaceID: "workspace-1", root: "/repo"}
 	model.sessionControls = &runtimeControlFakeClient{}

@@ -1880,7 +1880,12 @@ func (s *Store) ListProjects(ctx context.Context) ([]clientui.ProjectSummary, er
 	}
 	out := make([]clientui.ProjectSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, projectSummaryFromRow(row.ID, row.ProjectKey, row.DisplayName, row.RootPath, row.SessionCount, row.LatestActivityUnixMs))
+		out = append(out, clientui.ProjectSummary{
+			ProjectID:   row.ID,
+			DisplayName: row.DisplayName,
+			RootPath:    row.RootPath,
+			UpdatedAt:   timeFromStoredTimestamp(row.LatestActivityUnixMs),
+		})
 	}
 	return out, nil
 }
@@ -1968,13 +1973,8 @@ func (s *Store) ListSessionPage(
 		if err != nil {
 			return SessionPage{}, fmt.Errorf("validate listed session id %q: %w", row.ID, err)
 		}
-		rowCategory, err := sessioncontract.ParseSessionCategory(row.Category)
-		if err != nil {
-			return SessionPage{}, fmt.Errorf("validate listed session category for %q: %w", row.ID, err)
-		}
 		summary := clientui.SessionSummary{
 			SessionID: sessionID,
-			Category:  rowCategory,
 			UpdatedAt: timeFromStoredTimestamp(row.UpdatedAtUnixMs),
 		}
 		summary.ShortID, err = sessionShortID(row.ShortID)
@@ -2742,18 +2742,6 @@ func unmarshalStoredJSON(body string, target any) error {
 		return nil
 	}
 	return json.Unmarshal([]byte(trimmed), target)
-}
-
-func projectSummaryFromRow(projectID string, projectKey string, displayName string, rootPath string, sessionCount int64, latestActivityUnixMs int64) clientui.ProjectSummary {
-	return clientui.ProjectSummary{
-		ProjectID:    projectID,
-		ProjectKey:   projectKey,
-		DisplayName:  displayName,
-		RootPath:     rootPath,
-		Availability: clientui.ProjectAvailability(availabilityForPath(rootPath)),
-		SessionCount: int(sessionCount),
-		UpdatedAt:    timeFromStoredTimestamp(latestActivityUnixMs),
-	}
 }
 
 func projectHomeSummaryFromRow(row sqlitegen.ListProjectHomeSummariesRow) serverapi.ProjectHomeSummary {

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestProjectSessionSummariesCountVisibleSessionsByJoinKey(t *testing.T) {
+func TestListProjectsOrdersByVisibleSessionActivity(t *testing.T) {
 	db := openSQLiteFixture(t)
 	t.Cleanup(func() { _ = db.Close() })
 	if _, err := db.Exec(`
@@ -38,8 +38,12 @@ CREATE INDEX sessions_workspace_summary_idx
 	ON sessions(workspace_id, updated_at_unix_ms)
 	WHERE launch_visible <> 0;
 INSERT INTO projects VALUES ('project-1', 'Kent', 'KENT', 'workspace-1', 100);
+INSERT INTO projects VALUES ('project-2', 'Other', 'OTHER', 'workspace-3', 250);
+INSERT INTO projects VALUES ('project-3', 'Empty', 'EMPTY', 'workspace-4', 50);
 INSERT INTO workspaces VALUES ('workspace-1', 'project-1', '/workspace/one', 110, 10);
 INSERT INTO workspaces VALUES ('workspace-2', 'project-1', '/workspace/two', 120, 20);
+INSERT INTO workspaces VALUES ('workspace-3', 'project-2', '/workspace/three', 250, 20);
+INSERT INTO workspaces VALUES ('workspace-4', 'project-3', '/workspace/four', 50, 20);
 INSERT INTO sessions VALUES ('visible-1', 'project-1', 'workspace-1', 1, 200, 'wide payload');
 INSERT INTO sessions VALUES ('visible-2', 'project-1', 'workspace-1', 1, 300, 'wide payload');
 INSERT INTO sessions VALUES ('hidden', 'project-1', 'workspace-1', 0, 400, 'wide payload');`); err != nil {
@@ -51,7 +55,21 @@ INSERT INTO sessions VALUES ('hidden', 'project-1', 'workspace-1', 0, 400, 'wide
 	if err != nil {
 		t.Fatalf("get project summary: %v", err)
 	}
-	if len(summaries) != 1 || summaries[0].SessionCount != 2 || summaries[0].LatestActivityUnixMs != 300 {
-		t.Fatalf("project summaries = %+v, want two visible sessions and latest activity 300", summaries)
+	if len(summaries) != 3 {
+		t.Fatalf("project summaries = %+v, want all three projects", summaries)
+	}
+	for i, want := range []struct {
+		id       string
+		rootPath string
+		activity int64
+	}{
+		{"project-1", "/workspace/one", 300},
+		{"project-2", "/workspace/three", 250},
+		{"project-3", "/workspace/four", 50},
+	} {
+		got := summaries[i]
+		if got.ID != want.id || got.RootPath != want.rootPath || got.LatestActivityUnixMs != want.activity {
+			t.Fatalf("project summary %d = %+v, want %+v", i, got, want)
+		}
 	}
 }

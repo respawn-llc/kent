@@ -254,7 +254,6 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 				networkCalls := atomic.Int32{}
 				transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
 
-				transport.ContextWindowTokens = 0
 				transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 					networkCalls.Add(1)
 					return nil, errors.New("unexpected network request")
@@ -272,7 +271,7 @@ func TestOAuthDispatchRejectsUnrepresentableRoutingModelBeforeProviderHTTP(t *te
 	}
 }
 
-func TestOAuthDispatchRejectsMissingContextBeforeContextWindowHTTP(t *testing.T) {
+func TestOAuthDispatchRejectsMissingCodexContextBeforeProviderHTTP(t *testing.T) {
 	methods := map[string]func(*HTTPTransport) error{
 		"generate": func(transport *HTTPTransport) error {
 			_, err := transport.Generate(context.Background(), ResponsesRequest{Model: "unknown-model", ToolChoiceMode: ToolChoiceModeAutomatic, SessionID: textutil.Value("session-1")}, StreamCallbacks{})
@@ -288,7 +287,6 @@ func TestOAuthDispatchRejectsMissingContextBeforeContextWindowHTTP(t *testing.T)
 			networkCalls := atomic.Int32{}
 			transport := newTestHTTPTransport(t, oauthStaticAuth{}, testConnectionRegistration(t, config.ProviderConnection{Protocol: config.ConnectionChatGPT}))
 
-			transport.ContextWindowTokens = 0
 			transport.Client = &http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
 				networkCalls.Add(1)
 				return nil, errors.New("unexpected network request")

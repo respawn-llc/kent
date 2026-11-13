@@ -70,10 +70,9 @@ func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.B
 	selected := workflowBoardSelectorFromRequest(req).selectFrom(picker)
 	if selected == nil {
 		return &taskpb.Board{
-			ProjectId:   projectID,
-			Project:     project,
-			Workflows:   picker,
-			GeneratedAt: timestamppb.Now(),
+			ProjectId: projectID,
+			Project:   project,
+			Workflows: picker,
 		}, nil
 	}
 	selectedWorkflowID, err := runtimeids.WorkflowIDFromProto(selected.WorkflowId)
@@ -96,7 +95,6 @@ func (b *Board) Get(ctx context.Context, req *taskpb.BoardGetRequest) (*taskpb.B
 		Workflows:        picker,
 		Groups:           groups,
 		Columns:          columns,
-		GeneratedAt:      timestamppb.Now(),
 	}, nil
 }
 
@@ -160,12 +158,12 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 	if err != nil {
 		return nil, err
 	}
-	tasks := boardNodeTaskRecords(rows)
-	hasExtra := len(tasks) > pageSize
+	hasExtra := len(rows) > pageSize
 	if hasExtra {
-		tasks = tasks[:pageSize]
+		rows = rows[:pageSize]
 	}
-	projectTaskIDs := workflowTaskIDs(taskIDs(tasks))
+	taskIDStrings := taskIDs(rows)
+	projectTaskIDs := workflowTaskIDs(taskIDStrings)
 	observation, err := b.projection.Observe(projectTaskIDs)
 	if err != nil {
 		return nil, err
@@ -174,26 +172,27 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 	if err != nil {
 		return nil, err
 	}
-	labelsByTask, err := loadTaskLabelsByTask(ctx, b.queries, taskIDs(tasks))
+	labelsByTask, err := loadTaskLabelsByTask(ctx, b.queries, taskIDStrings)
 	if err != nil {
 		return nil, err
 	}
 	labelIDsByTask := taskLabelIDsByTask(labelsByTask)
-	cards := make([]*taskpb.BoardTaskCard, 0, len(tasks))
-	for _, task := range tasks {
-		projected, exists := projectedByTaskID[workflow.TaskID(task.ID)]
+	cards := make([]*taskpb.BoardTaskCard, 0, len(rows))
+	for _, row := range rows {
+		taskID := row.ID
+		projected, exists := projectedByTaskID[workflow.TaskID(taskID)]
 		if !exists {
-			return nil, fmt.Errorf("task status projection omitted Task %q", task.ID)
+			return nil, fmt.Errorf("task status projection omitted Task %q", taskID)
 		}
-		source, err := taskSourceWorkspace(ctx, b.queries, task, project.DefaultWorkspaceId)
+		source, err := taskSourceWorkspace(ctx, b.queries, projected.Task, project.DefaultWorkspaceId)
 		if err != nil {
 			return nil, err
 		}
 		card, _ := b.card(
 			projected,
-			labelIDsByTask[task.ID],
+			labelIDsByTask[taskID],
 			source,
-			dependencyProgressByTaskID[task.ID],
+			dependencyProgressByTaskID[taskID],
 		)
 		cards = append(cards, card)
 	}
@@ -206,12 +205,11 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 		nextOffset = &next
 	}
 	return &taskpb.BoardNodeCardsListSuccess{
-		ProjectId:   projectID,
-		WorkflowId:  workflowID.String(),
-		NodeId:      nodeID,
-		Cards:       cards,
-		NextOffset:  nextOffset,
-		GeneratedAt: timestamppb.Now(),
+		ProjectId:  projectID,
+		WorkflowId: workflowID.String(),
+		NodeId:     nodeID,
+		Cards:      cards,
+		NextOffset: nextOffset,
 	}, nil
 }
 
@@ -279,10 +277,10 @@ func boardDependencyProgressByTaskID(rows []sqlitegen.ListBoardNodeTasksRow) (ma
 	return projectTaskDependencyProgress(progressRows)
 }
 
-func taskIDs(tasks []sqlitegen.TaskRecord) []string {
-	ids := make([]string, 0, len(tasks))
-	for _, task := range tasks {
-		ids = append(ids, task.ID)
+func taskIDs(rows []sqlitegen.ListBoardNodeTasksRow) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
 	}
 	return ids
 }
@@ -293,35 +291,6 @@ func workflowTaskIDs(taskIDs []string) []workflow.TaskID {
 		ids = append(ids, workflow.TaskID(taskID))
 	}
 	return ids
-}
-
-func boardNodeTaskRecords(rows []sqlitegen.ListBoardNodeTasksRow) []sqlitegen.TaskRecord {
-	tasks := make([]sqlitegen.TaskRecord, 0, len(rows))
-	for _, row := range rows {
-		tasks = append(tasks, sqlitegen.TaskRecord{
-			ID:                          row.ID,
-			ProjectID:                   row.ProjectID,
-			ProjectWorkflowLinkID:       row.ProjectWorkflowLinkID,
-			WorkflowID:                  row.WorkflowID,
-			WorkflowRevisionSeen:        row.WorkflowRevisionSeen,
-			TaskSeq:                     row.TaskSeq,
-			ShortID:                     row.ShortID,
-			Title:                       row.Title,
-			Body:                        row.Body,
-			SourceUrl:                   row.SourceUrl,
-			SourceWorkspaceID:           row.SourceWorkspaceID,
-			ManagedWorktreeID:           row.ManagedWorktreeID,
-			ExecutionTargetMode:         row.ExecutionTargetMode,
-			ExecutionTargetRequestedRef: row.ExecutionTargetRequestedRef,
-			ExecutionTargetResolvedRef:  row.ExecutionTargetResolvedRef,
-			ExecutionTargetCommitOid:    row.ExecutionTargetCommitOid,
-			ExecutionTargetProvenance:   row.ExecutionTargetProvenance,
-			CreatedAtUnixMs:             row.CreatedAtUnixMs,
-			UpdatedAtUnixMs:             row.UpdatedAtUnixMs,
-			MetadataJson:                row.MetadataJson,
-		})
-	}
-	return tasks
 }
 
 func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runtimeids.WorkflowID]definitionSnapshot, []*taskpb.WorkflowPickerItem, error) {
@@ -366,13 +335,12 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 			return nil, nil, err
 		}
 		picker = append(picker, &taskpb.WorkflowPickerItem{
-			WorkflowId:           workflowID.String(),
-			DisplayName:          snapshot.api.Workflow.Name,
-			Description:          snapshot.api.Workflow.Description,
-			Version:              snapshot.api.Workflow.Version,
-			IsProjectDefault:     link.IsDefault != 0,
-			ValidForTaskCreation: !validation.HasBlockingErrors(),
-			ValidationErrors:     diagnostics,
+			WorkflowId:       workflowID.String(),
+			DisplayName:      snapshot.api.Workflow.Name,
+			Description:      snapshot.api.Workflow.Description,
+			Version:          snapshot.api.Workflow.Version,
+			IsProjectDefault: link.IsDefault != 0,
+			ValidationErrors: diagnostics,
 		})
 	}
 	sort.SliceStable(picker, func(i, j int) bool {

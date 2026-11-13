@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"core/internal/testharness/testsetup"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,8 +30,13 @@ func TestRetryTerminalEventsRedeliversOnlyUndeliveredCompletion(t *testing.T) {
 	manager.SetMinimumExecToBgTime(50 * time.Millisecond)
 	var attempts atomic.Int32
 	deliveries := make(chan Event, 2)
+	completed := make(chan Event, 1)
 	manager.SetEventHandler(func(event Event) bool {
 		if event.Type != EventCompleted && event.Type != EventKilled {
+			return true
+		}
+		if event.Snapshot.OwnerSessionID != "session-retry" {
+			completed <- event
 			return true
 		}
 		attempt := attempts.Add(1)
@@ -69,6 +75,20 @@ func TestRetryTerminalEventsRedeliversOnlyUndeliveredCompletion(t *testing.T) {
 		t.Fatalf("read initial hook calls: %v", err)
 	}
 
+	// Retention pressure must not discard a completion that its owner has not accepted.
+	manager.SetMinimumExecToBgTime(time.Millisecond)
+	builtin := postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})
+	workdir := t.TempDir()
+	for index := range 1_000 {
+		startAndCompleteRetainedShell(t, manager, builtin, completed, workdir, index)
+	}
+	if _, err := manager.Snapshot(started.SessionID); err != nil {
+		t.Fatalf("pending completion was evicted: %v", err)
+	}
+	if _, err := os.Stat(initial.Snapshot.LogPath + ".completion"); err != nil {
+		t.Fatalf("pending completion cache is unavailable: %v", err)
+	}
+
 	manager.RetryTerminalEvents("session-retry")
 	var retried Event
 	select {
@@ -91,6 +111,12 @@ func TestRetryTerminalEventsRedeliversOnlyUndeliveredCompletion(t *testing.T) {
 	}
 	if len(hookCalls) != len(initialHookCalls) {
 		t.Fatalf("postprocessing hook calls after retry = %d, want unchanged %d", len(hookCalls), len(initialHookCalls))
+	}
+	if _, err := os.Stat(initial.Snapshot.LogPath + ".completion"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("delivered completion cache error = %v, want not found", err)
+	}
+	if _, err := os.Stat(initial.Snapshot.LogPath); err != nil {
+		t.Fatalf("delivery deleted the retained raw log: %v", err)
 	}
 
 	manager.RetryTerminalEvents("session-retry")

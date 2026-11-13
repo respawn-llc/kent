@@ -385,7 +385,7 @@ func TestCurrentNodeControllerScopeFailurePersistsDespiteUnrelatedWorkerError(t 
 	if err != nil {
 		t.Skipf("sh executable unavailable: %v", err)
 	}
-	handle := startLiveTestWorkflowScript(t, controller, authority, reference, sessionruntime.ScriptExecutionRequest{
+	handle := startLiveTestWorkflowScript(t, controller, authority, reference, sessionruntime.DetachedScriptExecutionRequest{
 		Command: sessionruntime.ScriptCommand{
 			Path: shellPath,
 			Args: []string{"-c", "trap 'exit 0' TERM; while :; do sleep 1; done"},
@@ -473,7 +473,7 @@ func TestCurrentNodeControllerTaskInterruptDrainsReservationOnlyAlongsideLiveSco
 		}
 	})
 
-	startLiveTestWorkflowScript(t, controller, authority, live, sessionruntime.ScriptExecutionRequest{Command: runner.command})
+	startLiveTestWorkflowScript(t, controller, authority, live, sessionruntime.DetachedScriptExecutionRequest{Command: runner.command})
 	waitForRunningCurrentNode(t, authority, live)
 	reservedKey, err := reserved.Key()
 	if err != nil {

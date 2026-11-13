@@ -51,7 +51,7 @@ func TestEnsureTaskQuiescentRejectsPublishedExactExecution(t *testing.T) {
 		}
 		fixture := newCurrentNodeQuestionFixture(t)
 		reference := currentNodeReferenceForControllerTest(t, "task-live-script", "node-script")
-		handle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, reference, sessionruntime.ScriptExecutionRequest{
+		handle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, reference, sessionruntime.DetachedScriptExecutionRequest{
 			Command: sessionruntime.ScriptCommand{
 				Path: shellPath,
 				Args: []string{"-c", "trap 'exit 0' TERM; while :; do sleep 1; done"},
@@ -79,7 +79,7 @@ func TestEnsureTaskQuiescentRejectsPublishedExactExecution(t *testing.T) {
 		reference := currentNodeReferenceForControllerTest(t, "task-finalizing-script", "node-script")
 		finalizeEntered := make(chan struct{})
 		releaseFinalize := make(chan struct{})
-		handle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, reference, sessionruntime.ScriptExecutionRequest{
+		handle := startLiveTestWorkflowScript(t, fixture.controller, fixture.authority, reference, sessionruntime.DetachedScriptExecutionRequest{
 			Command: sessionruntime.ScriptCommand{Path: shellPath, Args: []string{"-c", "exit 0"}},
 			Finalize: func(context.Context, sessionruntime.ExecutionScope, sessionruntime.ScriptResult, error) error {
 				close(finalizeEntered)
@@ -516,7 +516,7 @@ func TestCurrentNodeControllerAgentCompletionRequiresMatchingActiveProvenance(t 
 			sessionID = assignedSessionID
 			close(start)
 			err = func() error {
-				_, waitErr := handle.Wait(context.Background())
+				waitErr := handle.Wait(context.Background())
 				return waitErr
 			}()
 			completionErr := <-completionResult

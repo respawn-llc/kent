@@ -1,3 +1,5 @@
+export { ValidationErrorCode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
+export { MovePreviewBlocker } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 export {
   assertSpeechSize,
   SpeechFailure,
@@ -172,6 +174,7 @@ export {
   CreateTargetResolutionKind,
   SelectorErrorKind,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
+export type { BranchCleanupOutcome } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 export { WorktreeError, hasDeletableWorktreeBranch } from "./clientWorktree";
 export type { WorktreeErrorDetail } from "./clientWorktree";
 export { workflowIDSchema } from "./schemas/workflowID";
@@ -217,6 +220,7 @@ export type {
   CreatedTaskSummary,
   OffsetPage,
   TaskDetail,
+  TaskDeleteResponse,
   TaskDependencies,
   TaskDependencyAddAvailability,
   TaskDependencyDirection,
@@ -231,7 +235,6 @@ export type {
   TaskMoveApplied,
   TaskMoveNoOp,
   TaskMoveResponse,
-  TaskMovePreviewBlocker,
   TaskMovePreviewChoice,
   TaskMovePreviewResponse,
   TaskMoveRequiredValue,

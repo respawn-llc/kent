@@ -41,7 +41,6 @@ export type ChatProjectionState = Readonly<{
   activeProcesses: ReadonlySet<string>;
   pendingPrompts: readonly PendingPrompt[];
   view: ChatMainView | null;
-  metadataRevision: number;
   pendingMetadata: PendingMetadata | null;
 }>;
 export type ChatProjectionInput =
@@ -50,7 +49,6 @@ export type ChatProjectionInput =
   | Readonly<{
       kind: "authoritative-read";
       read: ChatMainViewRead;
-      metadataRevisionAtStart: number;
       goalGenerationAtStart: number;
       currentGoalGeneration: number;
     }>
@@ -65,7 +63,6 @@ export type ChatProjectionResult = Readonly<{
 export function emptyChatProjectionState(): ChatProjectionState {
   return {
     view: null,
-    metadataRevision: 0,
     pendingMetadata: null,
     pendingPrompts: [],
     activeProcesses: new Set(),
@@ -114,13 +111,10 @@ function admitRead(
 ): ChatProjectionResult {
   const current = state.view;
   const activity = admitAuthorityActivity(current, input.read.mainView);
-  const metadataCurrent = state.metadataRevision === input.metadataRevisionAtStart;
   let view =
     current === null
       ? input.read.mainView
-      : metadataCurrent
-        ? { ...input.read.mainView, version: activity.version, activity: activity.activity }
-        : { ...current, version: activity.version, activity: activity.activity };
+      : { ...input.read.mainView, version: activity.version, activity: activity.activity };
   if (state.pendingMetadata !== null) view = applyPendingMetadata(view, state.pendingMetadata);
   return {
     state: { ...state, view, pendingMetadata: null },
@@ -287,14 +281,12 @@ function admitMetadata(state: ChatProjectionState, metadata: PendingMetadata): C
     return {
       ...state,
       view: null,
-      metadataRevision: state.metadataRevision + 1,
       pendingMetadata: mergeMetadata(state.pendingMetadata, metadata),
     };
   }
   return {
     ...state,
     view: applyPendingMetadata(state.view, metadata),
-    metadataRevision: state.metadataRevision + 1,
     pendingMetadata: null,
   };
 }
@@ -324,7 +316,6 @@ function applyPendingMetadata(view: ChatMainView, metadata: PendingMetadata): Ch
           : chatExecutionTarget(identity.ExecutionTarget),
       status: {
         ...next.status,
-        conversationFreshness: identity.ConversationFreshness,
       },
     };
   }

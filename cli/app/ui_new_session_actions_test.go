@@ -566,7 +566,7 @@ func TestNewSessionFirstRequestsCaptureIndependentInputs(t *testing.T) {
 		t.Fatal("pending requests shared mutable creation inputs")
 	}
 	_, fresh := model.inputController().applyCommandResult(commands.Result{
-		SubmitUser: true, FreshConversation: true, User: "fresh prompt",
+		SubmitUser: true, User: "fresh prompt",
 	}, "fresh prompt")
 	for _, msg := range collectCmdMessages(t, fresh) {
 		if _, done := msg.(newSessionActionDoneMsg); done {

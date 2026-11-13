@@ -15,7 +15,7 @@ export function WorkflowValidationIssues({ errors }: WorkflowValidationIssuesPro
   const items =
     displayErrors.length > 0
       ? displayErrors.map((issue, index) => ({
-          id: `${issue.code}-${index.toString()}`,
+          id: `${issue.code.toString()}-${index.toString()}`,
           details: workflowValidationErrorDetails(issue, t),
           message: workflowValidationErrorMessage(issue, t),
         }))

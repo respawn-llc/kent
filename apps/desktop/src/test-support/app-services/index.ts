@@ -199,10 +199,7 @@ export const startupRoutes: readonly FakeRoute[] = [
         value: {
           readiness: {
             ready: true,
-            serverId: "server-1",
-            serverVersion: "1.3.0",
             protocolVersion,
-            endpoint: "ws://127.0.0.1:53082/rpc",
             subagentRoles: [{ name: "default" }, { name: "fast" }, { name: "coder" }, { name: "reviewer" }],
             causes: [],
           },
@@ -217,7 +214,6 @@ export const startupRoutes: readonly FakeRoute[] = [
         case: "success",
         value: {
           projects: [],
-          generatedAt: { seconds: 1n, nanos: 0 },
         },
       },
     }),
@@ -227,9 +223,7 @@ export const startupRoutes: readonly FakeRoute[] = [
     result: create(AttentionReadService.method.list.output, {
       outcome: {
         case: "success",
-        value: {
-          generatedAt: { seconds: 0n, nanos: 1_000_000 },
-        },
+        value: {},
       },
     }),
   },

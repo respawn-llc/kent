@@ -83,7 +83,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 					if !sourceBelongs {
 						return llm.Response{}, errors.New("originating model Step started without source Project ownership")
 					}
-					_, err = retargeter.ScheduleWorkspaceRetarget(
+					_, err = retargeter.scheduleWorkspaceRetarget(t,
 						ctx,
 						request,
 						&sessionlaunchpb.RuntimeStepOrigin{StepId: active.StepID},
@@ -152,7 +152,7 @@ func TestCrossProjectSelfRebindContinuesWithoutAnotherUserMessage(t *testing.T) 
 
 func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *testing.T) {
 	fixture := newRealSessionRetargetFixture(t, false)
-	service := NewGlobalSessionLifecycleService(fixture.metadata.PersistenceRoot(), fixture.authority, fixture.metadata).
+	service := newTestGlobalSessionLifecycleService(t, fixture.metadata.PersistenceRoot(), fixture.authority, fixture.metadata).
 		WithWorkspaceRetargeter(fixture.retargeter(fixture.metadata, retargetProcessSource{}))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -243,7 +243,7 @@ func TestHumanRebindPreservesExecutionAndQueuedInputAfterCallerDisconnects(t *te
 	case <-ctx.Done():
 		t.Fatal(context.Cause(ctx))
 	}
-	if _, err := execution.Wait(ctx); err != nil {
+	if err := execution.Wait(ctx); err != nil {
 		t.Fatalf("wait for rebind continuation: %v", err)
 	}
 	close(requests)
@@ -289,7 +289,7 @@ func TestSelfRebindRejectsAStaleOriginWithoutInterruptingExecution(t *testing.T)
 	rejected := make(chan error, 1)
 	fixture.openRuntimeWithClient(t, rebindContinuationClient(func(ctx context.Context, _ llm.Request) (llm.Response, error) {
 		targetProject := fixture.targetProject.ProjectID
-		_, err := retargeter.ScheduleWorkspaceRetarget(ctx, metadata.SessionWorkspaceRetargetRequest{
+		_, err := retargeter.scheduleWorkspaceRetarget(t, ctx, metadata.SessionWorkspaceRetargetRequest{
 			SessionID: fixture.childID.String(), WorkspaceRoot: fixture.targetWorkspaceRoot, ProjectID: &targetProject,
 		}, &sessionlaunchpb.RuntimeStepOrigin{StepId: uuid.NewString()}, worktreecontract.NewOperationID())
 		rejected <- err

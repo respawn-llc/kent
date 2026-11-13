@@ -134,7 +134,6 @@ export function createChatRuntimeModel(
     const observer = new QueryObserver(client, {
       ...chatMainViewQueryOptions(api, target, (read) => read.mainView),
       queryFn: async ({ signal }) => {
-        const metadataRevisionAtStart = get.once(projection).metadataRevision;
         const goalGenerationAtStart = goalGeneration;
         const read = await api.getMainView(target);
         if (signal.aborted) return read.mainView;
@@ -142,7 +141,6 @@ export function createChatRuntimeModel(
           admit({
             kind: "authoritative-read",
             read,
-            metadataRevisionAtStart,
             goalGenerationAtStart,
             currentGoalGeneration: goalGeneration,
           }) ?? read.mainView

@@ -35,7 +35,7 @@ func TestSessionPickerUnnamedTitleUsesSuppliedIdentity(t *testing.T) {
 	}
 	for _, shortID := range []*runtimeids.SessionShortID{nil, &number} {
 		item := clientui.SessionSummary{SessionID: id, ShortID: shortID}
-		selector, err := runtimeids.ParseSessionSelector(sessionPickerTitle(item))
+		selector, err := runtimeids.ParseSessionSelector(sessionPickerTitle(item, sessioncontract.SessionCategoryMain))
 		var expected runtimeids.SessionSelector = id
 		if shortID != nil {
 			expected = *shortID
@@ -43,10 +43,23 @@ func TestSessionPickerUnnamedTitleUsesSuppliedIdentity(t *testing.T) {
 		if err != nil || selector != expected || item.SessionID != id {
 			t.Fatalf("picker identity = %v, %v", selector, err)
 		}
+		subagentTitle := sessionPickerTitle(item, sessioncontract.SessionCategorySubagent)
+		if shortID == nil {
+			if subagentTitle != id.String() {
+				t.Fatal("subagent picker lost UUID identity")
+			}
+		} else {
+			category := sessioncontract.SessionCategorySubagent
+			if subagentTitle != sessionDisplayTitle(nil, &category, shortID, id.String()) {
+				t.Fatal("subagent picker lost category title")
+			}
+		}
 		name := "Authored name"
 		item.Name = &name
-		if sessionPickerTitle(item) != name {
-			t.Fatal("picker replaced authored name")
+		for _, category := range []sessioncontract.SessionCategory{sessioncontract.SessionCategoryMain, sessioncontract.SessionCategorySubagent} {
+			if sessionPickerTitle(item, category) != name {
+				t.Fatal("picker replaced authored name")
+			}
 		}
 	}
 }
@@ -109,7 +122,6 @@ func pickerTestSummary(t *testing.T, raw string, updatedAt time.Time) clientui.S
 	}
 	return clientui.SessionSummary{
 		SessionID: id,
-		Category:  sessioncontract.SessionCategoryMain,
 		UpdatedAt: updatedAt,
 	}
 }

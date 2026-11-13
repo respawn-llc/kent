@@ -3,22 +3,19 @@ package app
 import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 
 import (
-	"strings"
-
 	"core/shared/clientui"
 	"core/shared/protoapi"
+	"core/shared/runtimeids"
 )
 
 type uiRuntimeLifecycle struct {
 	Run clientui.RunLifecycle
 }
 
-type uiInterruptLifecycle string
-
-const (
-	uiInterruptIdle    uiInterruptLifecycle = "idle"
-	uiInterruptPending uiInterruptLifecycle = "pending"
-)
+type uiPendingInterrupt struct {
+	sessionID runtimeids.SessionID
+	stepID    *runtimeids.StepID
+}
 
 func (m *uiModel) isBusy() bool {
 	return m != nil && m.runtimeLifecycle.Run.IsRunning()
@@ -101,22 +98,9 @@ func (m *uiModel) isReviewerActive() bool {
 }
 
 func (m *uiModel) hasPendingInterrupt() bool {
-	return m != nil && m.interruptLifecycle == uiInterruptPending
+	return m != nil && m.pendingInterrupt != nil
 }
 
 func (m *uiModel) blocksRuntimeInput() bool {
 	return m != nil && (m.finalAnswerOperation != nil || m.isBusy() || m.runtimeActivityBlocksInput())
-}
-
-func (m *uiModel) setPendingInterrupt(pending bool) {
-	if m == nil {
-		return
-	}
-	if pending {
-		m.interruptLifecycle = uiInterruptPending
-		m.interruptStepID = strings.TrimSpace(m.currentStepID)
-		return
-	}
-	m.interruptLifecycle = uiInterruptIdle
-	m.interruptStepID = ""
 }

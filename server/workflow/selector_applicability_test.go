@@ -151,6 +151,24 @@ func TestExecutionValidationRequiresDescriptionForOpenThinkingSelection(t *testi
 	}
 }
 
+func TestResumeValidatesOutgoingSelfLoopSelection(t *testing.T) {
+	def := serialAgentTargetWorkflow(t)
+	addTransitionForValidationTest(&def, "group_retry", "node_review", "retry", "Retry", "edge_retry", "retry", "node_review")
+	edge := edgeByIDForValidationTest(t, &def, "edge_retry")
+	edge.AssigneeSelection = workflow.AssigneeSelectionConfigured
+	edge.ThinkingSelection = workflow.ThinkingSelectionPreviousNode
+	edge.Parameters = []workflow.Parameter{{Key: "effort", Purpose: workflow.ParameterPurposeTargetThinking}}
+	edge.PromptTemplate = "{{.Params.effort}}"
+	edgeByIDForValidationTest(t, &def, "edge_done").PromptTemplate = "Review."
+	result := workflow.ValidateDefinition(def, workflow.ValidationOptions{
+		Context: workflow.ValidationContextResume, ExecutionNodes: map[workflow.NodeID]bool{"node_review": true},
+		RoleResolver: selectorCatalog{configured: map[string]workflow.TargetAgentRole{
+			"coder": {Identity: "coder", QuestionsEnabled: true},
+		}},
+	})
+	assertHasCodes(t, result, workflow.CodeThinkingSelectionUnavailable, workflow.CodeInvalidTemplatePlaceholder)
+}
+
 func serialAgentTargetWorkflow(t *testing.T) workflow.Definition {
 	def := validWorkflow(t)
 	workflowID := def.ID

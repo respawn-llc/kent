@@ -8,7 +8,6 @@ import (
 	"core/server/launch"
 	"core/server/sessionlaunch"
 	"core/server/sessionruntime"
-	"core/shared/apicontract"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
@@ -25,13 +24,13 @@ type PersistedSessionPlanner interface {
 type RuntimePlanner struct {
 	authority     *sessionruntime.Authority
 	sessionLaunch SessionRuntimePlannerResolver
-	runtimeAPI    apicontract.SessionRuntimeService
+	runtimeAPI    *sessionruntime.API
 }
 
 func NewRuntimePlanner(
 	authority *sessionruntime.Authority,
 	sessionLaunch SessionRuntimePlannerResolver,
-	runtimeAPI apicontract.SessionRuntimeService,
+	runtimeAPI *sessionruntime.API,
 ) *RuntimePlanner {
 	return &RuntimePlanner{
 		authority:     authority,
@@ -43,49 +42,48 @@ func NewRuntimePlanner(
 func (p *RuntimePlanner) Open(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
-	options *serverapi.SessionRuntimePreparationOptions,
+	invocation *serverapi.RunPromptOverrides,
 ) error {
 	if p == nil || p.authority == nil {
 		return errors.New("session Runtime authority is required")
 	}
-	var activation serverapi.SessionRuntimeActivateRequest
-	if options != nil {
-		activation = serverapi.SessionRuntimeActivateRequest{
-			SessionID:                        sessionID,
-			SessionRuntimePreparationOptions: *options,
-		}
-	} else {
-		err := p.authority.WithCurrentRuntime(ctx, sessionID, func(context.Context, *runtime.Engine) error { return nil })
+	if invocation == nil || invocation.AgentRole == nil {
+		err := p.authority.WithCurrentRuntime(ctx, sessionID, func(ctx context.Context, engine *runtime.Engine) error {
+			if invocation != nil && invocation.ThinkingLevel != "" {
+				return engine.SetThinkingLevel(ctx, invocation.ThinkingLevel)
+			}
+			return nil
+		})
 		if err == nil {
 			return nil
 		}
 		if !errors.Is(err, serverapi.ErrRuntimeUnavailable) {
 			return err
 		}
-		if p.sessionLaunch == nil {
-			return errors.New("persisted Session launch resolver is required")
-		}
-		service, err := p.sessionLaunch(ctx, sessionID)
-		if err != nil {
-			return err
-		}
-		if service == nil {
-			return errors.New("persisted Session launch service is required")
-		}
-		planned, err := service.PlanLaunchSession(ctx, sessionlaunch.PlanRequest{
-			Mode:   launch.ModeInteractive,
-			Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
-		})
-		if err != nil {
-			return err
-		}
-		activation, err = sessionruntime.ActivationRequestFromSessionPlan(planned.Plan)
-		if err != nil {
-			return err
-		}
+	}
+	if p.sessionLaunch == nil {
+		return errors.New("persisted Session launch resolver is required")
+	}
+	service, err := p.sessionLaunch(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if service == nil {
+		return errors.New("persisted Session launch service is required")
+	}
+	request := sessionlaunch.PlanRequest{
+		Mode:   launch.ModeInteractive,
+		Intent: serverapi.OpenExistingSessionLaunchIntent(sessionID),
+	}
+	if invocation != nil {
+		request.Overrides = *invocation
+	}
+	planned, err := service.PlanLaunchSession(ctx, request)
+	if err != nil {
+		return err
 	}
 	if p.runtimeAPI == nil {
 		return errors.New("Session Runtime service is required")
 	}
-	return p.runtimeAPI.ActivateSessionRuntime(ctx, activation)
+	return p.runtimeAPI.ActivateSessionRuntime(ctx, planned.Plan)
 }

@@ -17,7 +17,7 @@ type successfulRequestCandidate struct {
 
 func (e *Engine) commitAcceptedResponseCandidate(stepID string, candidate successfulRequestCandidate, mismatchWarningCommitted bool) (bool, error) {
 	var warningErr error
-	if servedModel := candidate.response.ServedModel; servedModel != nil && !mismatchWarningCommitted {
+	if servedModel := candidate.response.ProviderEvidence.ServedModel; servedModel != nil && !mismatchWarningCommitted {
 		requested := strings.TrimSpace(candidate.requestedModel)
 		served := strings.TrimSpace(*servedModel)
 		if requested != "" && served != "" && requested != served {

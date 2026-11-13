@@ -61,15 +61,6 @@ func (s *ResponsesStub) serveScripted(
 	case RouteCompact:
 		http.Error(writer, "scripted Responses compaction is unsupported", http.StatusBadRequest)
 		return scriptedllm.RequestNotAdmitted, nil
-	case RouteModel:
-		window, err := s.scripted.client.ResolveModelContextWindow(ctx, request.PathValue("model"))
-		if err != nil {
-			return scriptedllm.RequestNotAdmitted, err
-		}
-		return scriptedllm.RequestNotAdmitted, writeJSON(writer, http.StatusOK, map[string]any{
-			"id": request.PathValue("model"), "object": "model", "created": 0,
-			"owned_by": "kent", "context_window": window,
-		})
 	case RouteResponses:
 	default:
 		return scriptedllm.RequestNotAdmitted, fmt.Errorf("unsupported scripted Responses route %q", route)
@@ -123,8 +114,8 @@ func (s *ResponsesStub) serveScripted(
 		}
 	}
 	servedModel := llmRequest.Model
-	if outcome.Response.ServedModel != nil && strings.TrimSpace(*outcome.Response.ServedModel) != "" {
-		servedModel = strings.TrimSpace(*outcome.Response.ServedModel)
+	if model := outcome.Response.ProviderEvidence.ServedModel; model != nil && strings.TrimSpace(*model) != "" {
+		servedModel = strings.TrimSpace(*model)
 	}
 	if !s.writeResponseCompleted(writer, servedModel, output, outcome.Response.Usage) || !s.writeResponseDone(writer) {
 		return outcome.Admission, errors.New("write scripted Responses stream")

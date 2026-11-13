@@ -30,12 +30,12 @@ func NewDefinitionProjection(store *workflowstore.Store) (*DefinitionProjection,
 	return &DefinitionProjection{store: store, catalog: store.TargetAgentCatalog()}, nil
 }
 
-func (p *DefinitionProjection) GetDefinition(ctx context.Context, workflowID runtimeids.WorkflowID) (*pb.WorkflowDefinition, map[string]workflow.NodeKind, error) {
+func (p *DefinitionProjection) GetDefinition(ctx context.Context, workflowID runtimeids.WorkflowID) (*pb.WorkflowDefinition, error) {
 	snapshot, err := p.snapshot(ctx, workflowID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return snapshot.api, snapshot.nodeKinds, nil
+	return snapshot.api, nil
 }
 
 func workflowNodesByID(def *pb.WorkflowDefinition) map[string]*pb.WorkflowNode {

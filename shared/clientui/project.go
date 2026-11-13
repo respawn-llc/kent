@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"core/shared/runtimeids"
-	"core/shared/sessioncontract"
 )
 
 type ProjectAvailability string
@@ -17,20 +16,16 @@ const (
 )
 
 type ProjectSummary struct {
-	ProjectID    string
-	ProjectKey   string
-	DisplayName  string
-	RootPath     string
-	Availability ProjectAvailability
-	SessionCount int
-	UpdatedAt    time.Time
+	ProjectID   string
+	DisplayName string
+	RootPath    string
+	UpdatedAt   time.Time
 }
 
 type SessionSummary struct {
-	SessionID          runtimeids.SessionID            `json:"session_id"`
-	ShortID            *runtimeids.SessionShortID      `json:"short_id,omitempty"`
-	Category           sessioncontract.SessionCategory `json:"category"`
-	Name               *string                         `json:"name,omitempty"`
-	FirstPromptPreview *string                         `json:"first_prompt_preview,omitempty"`
-	UpdatedAt          time.Time                       `json:"updated_at"`
+	SessionID          runtimeids.SessionID       `json:"session_id"`
+	ShortID            *runtimeids.SessionShortID `json:"short_id,omitempty"`
+	Name               *string                    `json:"name,omitempty"`
+	FirstPromptPreview *string                    `json:"first_prompt_preview,omitempty"`
+	UpdatedAt          time.Time                  `json:"updated_at"`
 }

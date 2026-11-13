@@ -197,7 +197,6 @@ func pendingWorkMessage(message queuedUserMessage) (runtimeinput.PendingWorkItem
 		ID:             id,
 		Lane:           lane,
 		Kind:           runtimeinput.PendingWorkItemKindMessage,
-		State:          runtimeinput.PendingWorkItemStatePending,
 		CanonicalInput: text,
 		Message:        &runtimeinput.PendingWorkMessage{Text: text},
 	}

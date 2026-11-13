@@ -8,6 +8,7 @@ import type {
   WorkflowExecutionTargetSelectionMode,
   WorkflowExecutionTargetSelectionRequirement,
   TaskMovePreviewResponse,
+  MovePreviewBlocker,
 } from "@/api";
 import {
   worktreeSetupRecovery,
@@ -68,7 +69,7 @@ type Preview = Readonly<{
   taskID: string;
   targetNodeID: string;
   execute(): Promise<TaskMovePreviewResponse>;
-  onBlocked(reason: string): void;
+  onBlocked(reason: MovePreviewBlocker): void;
   onError(error: unknown): void;
 }>;
 

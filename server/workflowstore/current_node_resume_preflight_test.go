@@ -1,10 +1,146 @@
 package workflowstore
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 
 	"core/server/workflow"
 )
+
+func TestTaskResumeMissingOrdinaryInputDoesNotBlockParallelSibling(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createFanoutJoinWorkflow(t, ctx, store)
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: source.Reference, TransitionID: "split",
+		OutputValues: map[string]string{"summary": "saved summary"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	branches := completed.Mutation.Created
+	if len(branches) != 2 {
+		t.Fatalf("expected two branches: %+v", branches)
+	}
+	for _, branch := range branches {
+		if err := store.InterruptCurrentNode(ctx, branch.Reference,
+			workflow.CurrentNodeInterruptionReasonUserInterrupt,
+			workflow.CurrentNodeInterruptionDetail{Code: string(workflow.CurrentNodeInterruptionReasonUserInterrupt)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	definition, _, err := store.GetDefinition(ctx, workflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge, err := currentNodeDefinitionEnteringEdge(definition, branches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	parameters := append(edge.Parameters, workflow.Parameter{Key: "risk", Description: "Risk.", Purpose: workflow.ParameterPurposeOrdinary})
+	raw, err := marshalJSONArray(parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE workflow_edges SET parameters_json = ? WHERE id = ?`, raw, string(edge.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PlanTaskResume(ctx, task.ID, []workflow.CurrentNodeReference{branches[0].Reference}, nil); err == nil {
+		t.Fatal("Resume accepted a missing ordinary Parameter")
+	} else {
+		var validation *CurrentNodeResumeValidationError
+		if !errors.As(err, &validation) || len(validation.Diagnostics) != 1 || validation.Diagnostics[0].ParameterKey != "risk" {
+			t.Fatalf("expected typed missing-risk error: %v", err)
+		}
+	}
+	plan, err := store.PlanTaskResume(ctx, task.ID, []workflow.CurrentNodeReference{branches[1].Reference}, nil)
+	if err != nil {
+		t.Fatalf("Resume blocked independent sibling: %v", err)
+	}
+	if _, err := store.CommitTaskResume(ctx, plan, plannedSessionsForStoreTest(t, ctx, store, plan.StartContexts())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTaskResumePreservesSavedSelectionAfterIncomingSelectorEdits(t *testing.T) {
+	for _, edit := range []string{"assignee", "thinking", "deleted fallback", "deleted saved role"} {
+		t.Run(edit, func(t *testing.T) {
+			ctx, store, binding := newTestStoreContext(t)
+			workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+			linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+			task := createDefaultTask(t, ctx, store, binding.ProjectID)
+			source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+			completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+				Source: source.Reference, TransitionID: "review",
+				OutputValues: map[string]string{"summary": "saved summary"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := completed.Mutation.Created[0]
+			if err := store.InterruptCurrentNode(ctx, current.Reference,
+				workflow.CurrentNodeInterruptionReasonUserInterrupt,
+				workflow.CurrentNodeInterruptionDetail{Code: string(workflow.CurrentNodeInterruptionReasonUserInterrupt)}); err != nil {
+				t.Fatal(err)
+			}
+			switch edit {
+			case "assignee", "thinking":
+				parameters := []workflow.Parameter{{Key: "summary", Description: "Summary.", Purpose: workflow.ParameterPurposeOrdinary}}
+				assignee, thinking := workflow.AssigneeSelectionConfigured, workflow.ThinkingSelectionConfigured
+				if edit == "assignee" {
+					assignee = workflow.AssigneeSelectionPreviousNode
+					parameters = append(parameters, workflow.Parameter{Key: "role", Description: "Assignee.", Purpose: workflow.ParameterPurposeTargetAssignee})
+				} else {
+					thinking = workflow.ThinkingSelectionPreviousNode
+					parameters = append(parameters, workflow.Parameter{Key: "effort", Description: "Thinking.", Purpose: workflow.ParameterPurposeTargetThinking})
+				}
+				raw, err := marshalJSONArray(parameters)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := store.db.ExecContext(ctx, `
+UPDATE workflow_edges SET parameters_json = ?, assignee_selection = ?, thinking_selection = ? WHERE id = ?`,
+					raw, string(assignee), string(thinking), string(*current.EnteredByEdgeID)); err != nil {
+					t.Fatal(err)
+				}
+				if edit == "thinking" {
+					if _, err := store.db.ExecContext(ctx, `UPDATE workflow_edges SET prompt_template = ? WHERE id = ?`,
+						"Resume with {{.Params.effort}}.", string(*current.EnteredByEdgeID)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "deleted fallback":
+				if _, err := store.db.ExecContext(ctx, `UPDATE workflow_nodes SET subagent_role = ? WHERE id = ?`,
+					"deleted-role", string(current.Reference.NodeID)); err != nil {
+					t.Fatal(err)
+				}
+			case "deleted saved role":
+				store.roleResolver = emptyTargetAgentCatalog{}
+			}
+			plan, err := store.PlanTaskResume(ctx, task.ID, []workflow.CurrentNodeReference{current.Reference}, nil)
+			if err != nil {
+				t.Fatalf("Resume after %s edit: %v", edit, err)
+			}
+			contexts := plan.StartContexts()
+			if len(contexts) != 1 || !reflect.DeepEqual(contexts[0].CurrentNode.AgentExecutionSelection, current.AgentExecutionSelection) {
+				t.Fatalf("Resume changed saved selection: %+v", contexts)
+			}
+			resumed, err := store.CommitTaskResume(ctx, plan, plannedSessionsForStoreTest(t, ctx, store, contexts))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resumed.CurrentNodes) != 1 ||
+				!reflect.DeepEqual(resumed.CurrentNodes[0].CurrentInputValues, current.CurrentInputValues) ||
+				!reflect.DeepEqual(resumed.CurrentNodes[0].PriorValues, current.PriorValues) ||
+				!reflect.DeepEqual(resumed.CurrentNodes[0].AgentExecutionSelection, current.AgentExecutionSelection) {
+				t.Fatalf("Resume rewrote materialized values: %+v", resumed.CurrentNodes)
+			}
+		})
+	}
+}
 
 func TestPreflightTaskResumeRejectsEditedTransitionParameterWithoutMutatingCurrentNode(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)

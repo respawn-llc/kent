@@ -6,7 +6,6 @@ import (
 	tuitest "core/internal/testharness/pty"
 	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -941,7 +940,7 @@ func TestTabInsideDetailReturnsToOngoingMode(t *testing.T) {
 func TestDetailModeStatusLineOmitsActionForCompleteAssistantRow(t *testing.T) {
 	page := &transcriptpb.Page{SessionId: detailTestSessionID,
 		Entries: []*transcriptpb.CommittedRow{
-			detailTestAssistantRow("line one\nline two\nline three\nline four")}, ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH}
+			detailTestAssistantRow("line one\nline two\nline three\nline four")}}
 	m := newProjectedStaticUIModel(
 		WithUISessionID(detailTestSessionID),
 		WithUIModelName("gpt-6-sol"),

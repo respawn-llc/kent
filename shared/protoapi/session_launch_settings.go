@@ -464,10 +464,7 @@ func SessionSourceReportToProto(source config.SourceReport) (*configurationpb.So
 	if err != nil {
 		return nil, err
 	}
-	message := &configurationpb.SourceReport{
-		CreatedDefaultConfig: source.CreatedDefaultConfig,
-		Sources:              sources,
-	}
+	message := &configurationpb.SourceReport{Sources: sources}
 	for _, file := range source.Files {
 		layer, err := configFileLayerToProto(file.Layer)
 		if err != nil {
@@ -486,7 +483,7 @@ func SessionSourceReportFromProto(message *configurationpb.SourceReport) (config
 	if err != nil {
 		return config.SourceReport{}, err
 	}
-	report := config.SourceReport{CreatedDefaultConfig: message.CreatedDefaultConfig, Sources: sources}
+	report := config.SourceReport{Sources: sources}
 	for _, file := range message.Files {
 		layer := configFileLayerFromProto(file.File.Layer)
 		report.Files = append(report.Files, config.ConfigFileReport{

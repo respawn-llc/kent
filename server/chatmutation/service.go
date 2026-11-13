@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/server/operation"
 	"core/server/promptcommands"
 	"core/server/runtimecontrol"
 	"core/shared/protoapi"
@@ -27,7 +28,7 @@ type TargetResolutionService interface {
 }
 
 type RuntimeOpeningService interface {
-	Open(context.Context, runtimeids.SessionID, *serverapi.SessionRuntimePreparationOptions) error
+	Open(context.Context, runtimeids.SessionID, *serverapi.RunPromptOverrides) error
 }
 
 type RuntimeAdmissionService interface {
@@ -54,7 +55,7 @@ type ResolvedGoalSetInvoker interface {
 }
 
 type Service struct {
-	operations *OperationOwner
+	operations *operation.OperationOwner
 	targets    TargetResolutionService
 	runtimes   RuntimeOpeningService
 	admissions RuntimeAdmissionService
@@ -62,7 +63,7 @@ type Service struct {
 }
 
 func NewService(
-	operations *OperationOwner,
+	operations *operation.OperationOwner,
 	targets TargetResolutionService,
 	runtimes RuntimeOpeningService,
 	admissions RuntimeAdmissionService,
@@ -84,23 +85,13 @@ func (s *Service) SetGoal(
 	if s == nil || s.operations == nil {
 		return nil, errors.New("Chat operation owner is required")
 	}
-	var result *runtimepb.GoalSetSuccess
-	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
-		var operationErr error
-		result, operationErr = s.setGoal(scope, request)
-		return operationErr
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*runtimepb.GoalSetSuccess, error) {
+		return s.setGoal(scope, request)
 	})
-	if err != nil {
-		return nil, err
-	}
-	if err := operation.Await(ctx); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func (s *Service) setGoal(
-	scope OperationScope,
+	scope operation.OperationScope,
 	request *runtimepb.GoalSetRequest,
 ) (*runtimepb.GoalSetSuccess, error) {
 	target, err := s.resolveTarget(scope, request.Target, request.InitialInputDraft)
@@ -118,7 +109,7 @@ func (s *Service) setGoal(
 }
 
 func (s *Service) settleGoalSet(
-	scope OperationScope,
+	scope operation.OperationScope,
 	request *runtimepb.GoalSetRequest,
 	target ResolvedTarget,
 ) (*runtimepb.GoalSetSuccess, error) {
@@ -158,7 +149,7 @@ type goalSetInvocation struct {
 }
 
 func (s *Service) invokeGoal(
-	scope OperationScope,
+	scope operation.OperationScope,
 	request *runtimepb.GoalSetRequest,
 	target ResolvedTarget,
 ) (goalSetInvocation, error) {
@@ -208,7 +199,7 @@ func goalSetSuccess(
 }
 
 func (s *Service) prepareRuntimeWithDraft(
-	scope OperationScope,
+	scope operation.OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	initialDraft *string,
 ) (ResolvedTarget, error) {
@@ -220,7 +211,7 @@ func (s *Service) prepareRuntimeWithDraft(
 }
 
 func (s *Service) resolveTarget(
-	scope OperationScope,
+	scope operation.OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	initialDraft *string,
 ) (ResolvedTarget, error) {
@@ -238,13 +229,13 @@ func (s *Service) resolveTarget(
 }
 
 func (s *Service) openRuntime(
-	scope OperationScope,
+	scope operation.OperationScope,
 	target ResolvedTarget,
 ) (ResolvedTarget, error) {
 	if s == nil || s.runtimes == nil {
 		return target, errors.New("Session Runtime planner is required")
 	}
-	return target, s.runtimes.Open(scope.Context(), target.SessionID, target.Preparation)
+	return target, s.runtimes.Open(scope.Context(), target.SessionID, target.Invocation)
 }
 
 func goalSetSuccessRejected(
@@ -284,23 +275,13 @@ func (s *Service) Compact(
 	if s == nil || s.operations == nil {
 		return nil, errors.New("Chat operation owner is required")
 	}
-	var result *chatpb.CompactionMutationSuccess
-	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
-		var operationErr error
-		result, operationErr = s.compact(scope, request, draft, admission)
-		return operationErr
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*chatpb.CompactionMutationSuccess, error) {
+		return s.compact(scope, request, draft, admission)
 	})
-	if err != nil {
-		return nil, err
-	}
-	if err := operation.Await(ctx); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func (s *Service) compact(
-	scope OperationScope,
+	scope operation.OperationScope,
 	request *chatpb.CompactRequest,
 	draft string,
 	admission runtimeinput.ManualCompactionAdmission,
@@ -345,7 +326,7 @@ const (
 )
 
 func (s *Service) mutateInput(
-	scope OperationScope,
+	scope operation.OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	activation *chatpb.Activation,
 	queueItemID string,
@@ -457,23 +438,13 @@ func (s *Service) runInputMutation(
 	if s == nil || s.operations == nil {
 		return nil, errors.New("Chat operation owner is required")
 	}
-	var result *chatpb.InputMutationSuccess
-	operation, err := s.operations.Start(ctx, func(scope OperationScope) error {
-		var operationErr error
-		result, operationErr = s.mutateInput(scope, target, activation, queueItemID, initialDraft, kind)
-		return operationErr
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*chatpb.InputMutationSuccess, error) {
+		return s.mutateInput(scope, target, activation, queueItemID, initialDraft, kind)
 	})
-	if err != nil {
-		return nil, err
-	}
-	if err := operation.Await(ctx); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func (s *Service) prepareRuntime(
-	scope OperationScope,
+	scope operation.OperationScope,
 	targetRequest *chatpb.ChatTarget,
 	initialDraft string,
 ) (ResolvedTarget, error) {

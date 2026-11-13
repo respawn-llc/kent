@@ -116,7 +116,7 @@ func TestInterruptSessionDoesNotCancelSuccessorStep(t *testing.T) {
 	if err := <-interruptDone; err != nil {
 		t.Fatalf("interrupt original execution: %v", err)
 	}
-	if _, err := original.Wait(t.Context()); !errors.Is(err, context.Canceled) {
+	if err := original.Wait(t.Context()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("original execution outcome = %v, want cancellation", err)
 	}
 	successor := <-successorDone

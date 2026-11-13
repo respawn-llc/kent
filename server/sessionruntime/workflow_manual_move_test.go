@@ -34,11 +34,11 @@ func TestAuthorityManualMoveSelectionCancelsPendingQuestionsAndClosesPromptAdmis
 		},
 	})
 	if err != nil {
-		t.Fatalf("StartScriptExecution: %v", err)
+		t.Fatalf("start detached Script execution: %v", err)
 	}
 	t.Cleanup(func() {
 		handle.RequestStop()
-		_, _ = handle.Wait(context.Background())
+		_ = handle.Wait(context.Background())
 		_ = authority.Close(context.Background())
 	})
 	deadline := time.Now().Add(3 * time.Second)
@@ -130,11 +130,11 @@ func TestAuthorityManualMoveSelectionClassifiesPendingApproval(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("StartScriptExecution: %v", err)
+		t.Fatalf("start detached Script execution: %v", err)
 	}
 	t.Cleanup(func() {
 		handle.RequestStop()
-		_, _ = handle.Wait(context.Background())
+		_ = handle.Wait(context.Background())
 		_ = authority.Close(context.Background())
 	})
 	exact := handle.(executionHandle)

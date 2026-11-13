@@ -102,10 +102,10 @@ func TestCompletedAssistantTurnPublishesAttentionWithoutTranscriptSubscriber(t *
 func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
-	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
+	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: engine.SessionID()})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
@@ -114,27 +114,27 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
 
-	projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"})
+	projectPendingPromptForTest(registry, engine.SessionID(), askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"})
 	pending := nextRegistryAttentionEvent(t, sessionSub).GetPending()
-	if pending == nil || pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != "ask-1" || pending.SessionId != "11111111-1111-4111-8111-111111111111" {
+	if pending == nil || pending.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || pending.Id.Uuid != "ask-1" || pending.SessionId != engine.SessionID() {
 		t.Fatalf("pending event = %+v", pending)
 	}
 	desktopPending := nextRegistryAttentionEvent(t, desktopSub)
 	if desktopPending.GetPending().GetTarget().GetSessionPrompt().GetProjectId() != "project-1" ||
-		desktopPending.GetPending().GetTarget().GetSessionPrompt().GetSessionId() != "11111111-1111-4111-8111-111111111111" {
+		desktopPending.GetPending().GetTarget().GetSessionPrompt().GetSessionId() != engine.SessionID() {
 		t.Fatalf("desktop pending = %+v", desktopPending)
 	}
-	if question := desktopPending.GetPending().GetQuestion(); question == nil || len(question.SkippedAskIds) != 0 {
-		t.Fatalf("ordinary Session question has skipped prompts: %v", desktopPending)
+	if question := desktopPending.GetPending().GetQuestion(); question == nil || question.DisplayCount != 1 {
+		t.Fatalf("ordinary Session question state = %v", desktopPending)
 	}
-	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "ask-1")
+	resolvePendingPromptForTest(registry, engine.SessionID(), "ask-1")
 	resolved := nextRegistryAttentionEvent(t, sessionSub).GetResolved()
 	if resolved == nil || resolved.Id.Kind != attentionpb.Kind_ATTENTION_KIND_QUESTION || resolved.Id.Uuid != "ask-1" {
 		t.Fatalf("resolved event = %+v", resolved)
 	}
 	for {
 		event := nextRegistryAttentionEvent(t, desktopSub)
-		if event.Type == taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_RESOLVED {
+		if event.GetResolved() != nil {
 			if event.GetResolved().GetId().GetUuid() != "ask-1" {
 				t.Fatalf("desktop resolved = %+v", event)
 			}
@@ -146,15 +146,15 @@ func TestRuntimeRegistryDeliversGenericPromptAttentionToDesktopRootStream(t *tes
 func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
-	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
+	sessionSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: engine.SessionID()})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
 
-	projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", askquestion.AskQuestionRequest{
+	projectPendingPromptForTest(registry, engine.SessionID(), askquestion.AskQuestionRequest{
 		ToolCallID:    "approval-1",
 		StepID:        registryTestStepID,
 		Approval:      true,
@@ -171,13 +171,13 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 	}
 	if pending.GetPending() == nil ||
 		pending.GetPending().Id.Kind != attentionpb.Kind_ATTENTION_KIND_APPROVAL ||
-		pending.GetPending().SessionId != "11111111-1111-4111-8111-111111111111" ||
+		pending.GetPending().SessionId != engine.SessionID() ||
 		pending.GetPending().GetApproval() == nil ||
 		len(pending.GetPending().GetApproval().AccessTargets) != 1 ||
 		pending.GetPending().GetApproval().AccessTargets[0].RequestedPath != "../outside.txt" {
 		t.Fatalf("generic approval attention = %+v", pending)
 	}
-	newSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	newSub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: engine.SessionID()})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
@@ -190,25 +190,25 @@ func TestRuntimeRegistryPublishesGenericApprovalToSessionAttention(t *testing.T)
 func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
 	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
-	req := taskBatchAskRequest("ask-1")
-	projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", req)
+	req := taskBatchAskRequest(engine.SessionID(), "ask-1")
+	projectPendingPromptForTest(registry, engine.SessionID(), req)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
 	if pending.GetPending().GetId().GetUuid() != registryTestStepID ||
 		pending.GetPending().GetId().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION {
 		t.Fatalf("pending id = %v", pending.GetPending().GetId())
 	}
-	if pending.GetPending().GetQuestion().GetDisplayCount() != 2 || len(pending.GetPending().GetQuestion().GetCurrentUnresolvedAskIds()) != 1 {
+	if pending.GetPending().GetQuestion().GetDisplayCount() != 2 {
 		t.Fatalf("question state = %+v", pending)
 	}
-	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "ask-1")
+	resolvePendingPromptForTest(registry, engine.SessionID(), "ask-1")
 	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
 		t.Fatalf("task question resolved from prompt answer before durable clear: %+v", event)
 	}
@@ -228,9 +228,9 @@ func TestRuntimeRegistryPublishesTaskQuestionBatchWithoutGenericResolve(t *testi
 func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAttention(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
 	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
@@ -240,7 +240,7 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 		ProjectID:  "project-1",
 		WorkflowID: registryTestWorkflowID(),
 		TaskID:     "task-1",
-		SessionID:  "11111111-1111-4111-8111-111111111111",
+		SessionID:  engine.SessionID(),
 		Focus: &clientui.AttentionNotificationTaskDetailFocus{
 			Kind:   clientui.AttentionNotificationFocusQuestion,
 			AskIDs: []string{"approval-1"},
@@ -257,22 +257,22 @@ func TestRuntimeRegistryPublishesTaskApprovalPromptAsDurablyClearedQuestionAtten
 			{Decision: askquestion.AskQuestionApprovalDecisionDeny},
 		},
 	}
-	projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", req)
+	projectPendingPromptForTest(registry, engine.SessionID(), req)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING ||
-		pending.GetPending().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION ||
+	if pending.GetPending() == nil ||
+		pending.GetPending().GetId().GetKind() != taskpb.AttentionNotificationKind_ATTENTION_NOTIFICATION_KIND_QUESTION ||
 		pending.GetPending().GetTarget().GetWorkflowTask() == nil {
 		t.Fatalf("pending approval question event = %+v", pending)
 	}
 	question := pending.GetPending().GetQuestion()
-	if question == nil || question.Preview != "Approve protected path?" || len(question.CurrentUnresolvedAskIds) != 1 || question.CurrentUnresolvedAskIds[0] != "approval-1" {
+	if question == nil || question.Preview != req.Question || question.DisplayCount != 1 {
 		t.Fatalf("pending approval question state = %+v", question)
 	}
 	if pending.GetPending().GetApproval() != nil {
 		t.Fatalf("task-scoped approval prompt must not publish approval attention: %+v", pending)
 	}
-	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "approval-1")
+	resolvePendingPromptForTest(registry, engine.SessionID(), "approval-1")
 	if event, err := desktopSub.Next(shortRegistryContext(t)); err == nil {
 		t.Fatalf("prompt response resolved task approval before durable clear: %+v", event)
 	}
@@ -295,30 +295,27 @@ func (p *recordingWorkflowEventPublisher) PublishWorkflowEvent(_ context.Context
 func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterialization(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
 	desktopSub, err := registry.SubscribeAttentionNotifications(context.Background(), &emptypb.Empty{})
 	if err != nil {
 		t.Fatalf("SubscribeAttentionNotifications: %v", err)
 	}
-	first := taskBatchAskRequest("ask-1")
-	if err := registry.PrepareTaskQuestionBatch(*first.QuestionBatch, "11111111-1111-4111-8111-111111111111", first.AttentionTarget, first.Question, time.Now().UTC()); err != nil {
+	first := taskBatchAskRequest(engine.SessionID(), "ask-1")
+	if err := registry.PrepareTaskQuestionBatch(*first.QuestionBatch, engine.SessionID(), first.AttentionTarget, first.Question, time.Now().UTC()); err != nil {
 		t.Fatalf("PrepareTaskQuestionBatch: %v", err)
 	}
 	registry.MarkTaskQuestionSkipped(*first.QuestionBatch)
 
-	second := taskBatchAskRequest("ask-2")
-	projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", second)
+	second := taskBatchAskRequest(engine.SessionID(), "ask-2")
+	projectPendingPromptForTest(registry, engine.SessionID(), second)
 
 	pending := nextRegistryAttentionEvent(t, desktopSub)
-	if pending.Type != taskpb.AttentionNotificationEventType_ATTENTION_NOTIFICATION_EVENT_PENDING || pending.GetPending().GetQuestion().GetDisplayCount() != 1 {
+	if pending.GetPending() == nil || pending.GetPending().GetQuestion().GetDisplayCount() != 1 {
 		t.Fatalf("pending after skipped first ask = %+v", pending)
 	}
-	if skipped := pending.GetPending().GetQuestion().GetSkippedAskIds(); len(skipped) != 1 || skipped[0] != "ask-1" {
-		t.Fatalf("skipped ask ids = %+v", pending)
-	}
-	resolvePendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", "ask-2")
+	resolvePendingPromptForTest(registry, engine.SessionID(), "ask-2")
 	registry.MarkTaskQuestionCleared(*second.QuestionBatch, "ask-2")
 	resolved := nextRegistryAttentionEvent(t, desktopSub)
 	if !resolvedQuestionIDMatches(resolved, registryTestStepID) {
@@ -329,14 +326,14 @@ func TestRuntimeRegistrySkippedFirstTaskQuestionPreparesBatchBeforeMaterializati
 func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
 	for i := 0; i < 65; i++ {
-		projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", askquestion.AskQuestionRequest{ToolCallID: fmt.Sprintf("ask-%d", i), StepID: registryTestStepID, Question: "Proceed?"})
+		projectPendingPromptForTest(registry, engine.SessionID(), askquestion.AskQuestionRequest{ToolCallID: fmt.Sprintf("ask-%d", i), StepID: registryTestStepID, Question: "Proceed?"})
 	}
 
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: engine.SessionID()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,13 +346,13 @@ func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T
 func TestRuntimeRegistrySessionAttentionOnlyReceivesNewTaskQuestionBatchEvents(t *testing.T) {
 	broker := attentionnotify.NewBroker()
 	registry := NewRuntimeRegistry(testharness.OpenStore(t, t.TempDir())).WithAttentionNotifications(broker, testharness.SessionNavigationBinding)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
-	req := taskBatchAskRequest("ask-1")
-	projectPendingPromptForTest(registry, "11111111-1111-4111-8111-111111111111", req)
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
+	req := taskBatchAskRequest(engine.SessionID(), "ask-1")
+	projectPendingPromptForTest(registry, engine.SessionID(), req)
 
-	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: "11111111-1111-4111-8111-111111111111"})
+	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: engine.SessionID()})
 	if err != nil {
 		t.Fatalf("SubscribeSessionAttentionNotifications: %v", err)
 	}
@@ -404,7 +401,7 @@ func shortRegistryContext(t *testing.T) context.Context {
 	return ctx
 }
 
-func taskBatchAskRequest(id string) askquestion.AskQuestionRequest {
+func taskBatchAskRequest(sessionID, id string) askquestion.AskQuestionRequest {
 	currentNodeID := "node-1"
 	return askquestion.AskQuestionRequest{
 		ToolCallID: id,
@@ -422,7 +419,7 @@ func taskBatchAskRequest(id string) askquestion.AskQuestionRequest {
 			Kind:          clientui.AttentionNotificationTargetWorkflowTask,
 			WorkflowID:    registryTestWorkflowID(),
 			TaskID:        "task-1",
-			SessionID:     "11111111-1111-4111-8111-111111111111",
+			SessionID:     sessionID,
 			CurrentNodeID: &currentNodeID,
 			Focus: &clientui.AttentionNotificationTaskDetailFocus{
 				Kind:   clientui.AttentionNotificationFocusQuestion,

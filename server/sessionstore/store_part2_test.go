@@ -84,7 +84,7 @@ func TestOpenByIDUsesPersistedSessionResolver(t *testing.T) {
 
 	opened, err := OpenByID(root, target.Meta().SessionID, WithPersistedSessionResolver(stubPersistedSessionResolver{record: PersistedSessionRecord{
 		SessionDir: target.Dir(),
-		Meta:       ptrMeta(target.metaSnapshot().meta),
+		Meta:       ptrMeta(target.Meta()),
 	}}))
 	if err != nil {
 		t.Fatalf("open by id: %v", err)
@@ -441,7 +441,7 @@ func TestEventUseReconcilesMetaLastSequenceFromEventLog(t *testing.T) {
 		t.Fatalf("append event 2: %v", err)
 	}
 
-	meta := store.metaSnapshot().meta
+	meta := store.Meta()
 	meta.LastSequence = 0
 	persistence := &testSessionMetadata{records: map[string]PersistedSessionRecord{
 		meta.SessionID: {

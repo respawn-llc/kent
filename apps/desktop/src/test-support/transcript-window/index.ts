@@ -27,8 +27,6 @@ export function page(
 ): ChatTranscriptPage {
   return {
     sessionID: "session",
-    sessionName: null,
-    conversationFreshness: 0,
     latestRollbackCandidate: null,
     entries,
     olderCursor,
@@ -69,7 +67,6 @@ export function hydration(
       ShortID: null,
       SessionID: "session",
       SessionName: null,
-      ConversationFreshness: 0,
       ExecutionTarget: null,
     },
     SessionStatus: {

@@ -213,7 +213,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		t.Fatal(err)
 	}
 	if delayedSupervisor {
-		if _, err := handle.Wait(t.Context()); err != nil {
+		if err := handle.Wait(t.Context()); err != nil {
 			t.Fatalf("complete original execution before Supervisor returns: %v", err)
 		}
 		if _, live := authority.SessionExecution(id); live {
@@ -328,7 +328,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 			t.Fatalf("publish: %v", err)
 		}
 	}
-	if _, err := handle.Wait(t.Context()); err != nil && !errors.Is(err, context.Canceled) {
+	if err := handle.Wait(t.Context()); err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("execution: %v", err)
 	}
 	if delayedSupervisor {

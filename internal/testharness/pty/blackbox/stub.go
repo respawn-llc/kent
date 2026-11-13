@@ -105,7 +105,6 @@ func startResponsesStub(required []RequiredOperation, scripted *scriptedResponse
 	}
 	router := http.NewServeMux()
 	router.HandleFunc("POST /v1/responses", stub.serveRoute(RouteResponses))
-	router.HandleFunc("GET /v1/models/{model}", stub.serveRoute(RouteModel))
 	router.HandleFunc("/", stub.serveUnsupportedRoute)
 	stub.server = &http.Server{
 		Handler: router,
@@ -352,16 +351,10 @@ func (s *ResponsesStub) consume(route Route, body []byte, headers http.Header) (
 		return nil, s.failure
 	}
 	if s.index >= len(s.required) {
-		if route == RouteModel {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("unexpected model operation route=%s after required queue", route)
 	}
 	required := s.required[s.index]
 	if route != required.Route {
-		if route == RouteModel {
-			return nil, nil
-		}
 		return nil, fmt.Errorf("required model operation route=%s got=%s", required.Route, route)
 	}
 	if s.requiredInFlight {
@@ -397,16 +390,6 @@ func (s *ResponsesStub) writeOperationResponse(ctx context.Context, writer http.
 	switch route {
 	case RouteResponses:
 		s.writeResponse(ctx, writer, operation)
-	case RouteModel:
-		if err := writeJSON(writer, http.StatusOK, map[string]any{
-			"id":             "gpt-6-sol",
-			"object":         "model",
-			"created":        0,
-			"owned_by":       "kent",
-			"context_window": 200000,
-		}); err != nil {
-			s.recordFailure(fmt.Errorf("write model metadata response: %w", err))
-		}
 	case RouteCompact:
 		writer.Header().Set("Content-Type", "text/event-stream")
 		if operation != nil && operation.Outcome == OutcomeHoldSSE {
@@ -656,12 +639,6 @@ func observedCallBytes(call ObservedCall) int {
 }
 
 func validateRouteBody(route Route, body []byte) error {
-	if route == RouteModel {
-		if len(body) != 0 {
-			return errors.New("model metadata request must not include a body")
-		}
-		return nil
-	}
 	var request modelRequest
 	if err := json.Unmarshal(body, &request); err != nil {
 		return fmt.Errorf("decode %s request DTO: %w", route, err)

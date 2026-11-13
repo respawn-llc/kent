@@ -1,5 +1,6 @@
 import type { PromptUpdate } from "./promptModels";
 import type { SessionCategory } from "./models";
+import type { SessionSettingFeedback } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
 export type ChatWebSearchDetail = Readonly<{
   action:
     | Readonly<{ kind: "search"; queries: readonly string[] }>
@@ -283,14 +284,8 @@ export interface ChatTranscriptPayloadByKind {
     Restoration: Readonly<{ ItemID: string; Kind: string; CanonicalInput: string }>;
   }>;
   session_setting_feedback: Readonly<{
-    Kind: "session_name" | "thinking" | "fast_mode" | "supervisor" | "questions" | "auto_compaction";
     Changed: boolean;
-    SessionName?: string | null;
-    Thinking?: string | null;
-    FastMode?: boolean | null;
-    Supervisor?: string | null;
-    Questions?: boolean | null;
-    AutoCompaction?: boolean | null;
+    Value: Exclude<SessionSettingFeedback["value"], { case: undefined }>;
   }>;
   human_input_interrupted: Readonly<{ Items: readonly Readonly<{ QueueItemID: string; Text: string }>[] }>;
   step_state: Readonly<{
@@ -323,7 +318,6 @@ export interface ChatTranscriptPayloadByKind {
     ShortID: bigint | null;
     SessionID: string;
     SessionName: string | null;
-    ConversationFreshness: 0 | 1;
     ExecutionTarget: ChatExecutionFacts | null;
   }>;
   compaction_status: Readonly<{
