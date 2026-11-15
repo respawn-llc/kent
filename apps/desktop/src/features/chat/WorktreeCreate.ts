@@ -8,6 +8,7 @@ import {
   CreateTargetResolutionKind,
   newSetupOperationID,
   WorktreeError,
+  errorMessage,
   type ApiService,
   type WorktreeCreateInput,
   type WorktreeSwitch,
@@ -23,12 +24,14 @@ import {
   type SidebarPageNavigator,
   type StatusController,
   type ChatWorktreeBinding,
+  type AppLogger,
 } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
 export function createWorktreeCreate({
   client,
   api,
+  logger,
   projectID,
   openSession,
   suggestion,
@@ -41,6 +44,7 @@ export function createWorktreeCreate({
 }: Readonly<{
   client: QueryClient;
   api: ApiService;
+  logger: AppLogger;
   projectID: string;
   chat: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
@@ -113,6 +117,7 @@ export function createWorktreeCreate({
       void submitSwitch(operation);
     },
     onError: (error, request) => {
+      void logger.append("error", "Worktree creation failed", { cause: errorMessage(error) });
       if (
         creator.hasListeners() &&
         error instanceof WorktreeError &&

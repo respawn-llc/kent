@@ -7,7 +7,10 @@ import {
   SidebarHeaderActionProvider,
   SidebarHeaderActionSlot,
 } from "@/app-facade";
-import { TestAppProviders, type TestAppServices } from "@/test-support/app-services";
+import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
+import { QueryClient } from "@tanstack/react-query";
+import { appI18n } from "@/i18n";
+import { createWorktreeCreate } from "./WorktreeCreate";
 import * as Atom from "effect/reactivity/Atom";
 import {
   createTestSidebarNavigator,
@@ -15,6 +18,30 @@ import {
   createTestSidebarController,
 } from "@/test-support/sidebar";
 import { WorktreeBrowser as Browser } from "./WorktreeBrowser";
+
+export function createFormModel() {
+  const services = createTestServices([]);
+  const push = vi.fn();
+  const model = createWorktreeCreate({
+    openSession: vi.fn(),
+    client: new QueryClient(),
+    api: services.api,
+    logger: services.logger,
+    projectID: "project-1",
+    chat: createTestWorktreeBinding({
+      kind: "session",
+      projectID: "project-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+    }),
+    suggestion: "topic",
+    navigator: createTestSidebarNavigator(),
+    refreshOpenWorktreeList: vi.fn(),
+    submitSwitch: vi.fn(),
+    push,
+    t: appI18n.t,
+  });
+  return { services, push, model };
+}
 
 export function BrowserProviders({
   services,

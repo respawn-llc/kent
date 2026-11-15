@@ -111,7 +111,7 @@ function CreateFields({
     suggestion: string | undefined;
     query: UseQueryResult<Awaited<ReturnType<ReturnType<typeof useAppServices>["api"]["listWorktrees"]>>>;
   }>) {
-  const { api } = useAppServices();
+  const { api, logger } = useAppServices();
   const client = useQueryClient();
   const { push } = useStatusController();
   const { t } = useTranslation();
@@ -121,6 +121,7 @@ function CreateFields({
     createWorktreeCreate({
       client,
       api,
+      logger,
       projectID,
       chat,
       openSession,

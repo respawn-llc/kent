@@ -246,7 +246,12 @@ function chatReadState(
     return readFailure(composer.pending.query.error, composer.pending.refresh);
   const workspaceFailure = workspaceReadFailure(destination, t);
   if (workspaceFailure !== null) return workspaceFailure;
-  if (worktrees.isError) return readFailure(worktrees.error, worktrees.refresh);
+  if (worktrees.isError)
+    return {
+      kind: "error",
+      diagnostic: t("chat.worktree.readFailed"),
+      onRetry: worktrees.refresh,
+    };
   return { kind: "ready" };
 }
 

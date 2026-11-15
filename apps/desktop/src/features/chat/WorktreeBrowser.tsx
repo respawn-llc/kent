@@ -185,7 +185,7 @@ function WorktreeBrowserDestination({
     return (
       <ErrorState
         surface="plain"
-        body={errorMessage(query.error)}
+        body={t("chat.worktree.readFailed")}
         title={t("states.error")}
         retryLabel={t("app.retry")}
         onRetry={() => {

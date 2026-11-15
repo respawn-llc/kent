@@ -42,6 +42,8 @@ export const chatWorktreeEnglish = {
   missing: "Missing",
   inUse: "In Use",
   internalFailure: "The worktree operation failed. Try again. If it keeps failing, report the issue.",
+  readFailed: "Could not load Worktrees. Retry to load them again.",
+  createFailed: "Could not create the Worktree. Check the branch or ref and try again.",
   selectorNotFound: "Worktree “{{target}}” was not found. Refresh the list and choose another worktree.",
   mainWorkspace: "Main Workspace",
   selectorAmbiguous: "“{{target}}” matches multiple worktrees: {{candidates}}. Choose a specific worktree.",

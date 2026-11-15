@@ -40,6 +40,7 @@ it.each(["plan", "worktree"] as const)(
     const model = createWorktreeCreate({
       client: new QueryClient(),
       api: services.api,
+      logger: services.logger,
       projectID: target.projectID,
       chat: {
         scope: Atom.make(scope),

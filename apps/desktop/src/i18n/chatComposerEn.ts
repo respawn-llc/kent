@@ -40,9 +40,10 @@ export const chatComposerEnglish = {
     prompt_catalog_read: "Could not read the command catalog.",
     prompt_command_not_found: "This command was not found.",
     prompt_command_read: "Could not read this command.",
-    too_soon: "This operation is not available yet.",
+    too_soon: "There is nothing to compact yet. Complete a conversation turn first.",
     disabled: "This operation is disabled.",
     active: "This operation is already active.",
-    internal_failure: "Kent could not complete the operation.",
+    internal_failure:
+      "The action did not complete. Check the selected Worktree and Chat settings, then try again. Your draft is kept.",
   },
 };

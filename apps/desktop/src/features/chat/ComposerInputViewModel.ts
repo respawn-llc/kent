@@ -13,7 +13,7 @@ import {
   type ChatRuntimeActivity,
   type ChatInputMutationResult,
 } from "@/api";
-import { mutationPendingAtom, queryAtom, type AppServices } from "@/app-facade";
+import { mutationPendingAtom, queryAtom, type AppServices, type AppLogger } from "@/app-facade";
 import { showStatusToast } from "@/ui";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
 import {
@@ -96,7 +96,7 @@ export function createComposerInputViewModel({
       }
       if (input.command.kind === "input" && !("kind" in result) && result.outcome.kind === "not_accepted")
         input.rejected?.(input.command.queueItemID);
-      if (observer.hasListeners()) await complete(result, input, t);
+      if (observer.hasListeners()) await complete(result, input, t, services.logger);
     },
     onError: (error, input) => {
       if (input.resolveOutgoing(null)) return;
@@ -254,7 +254,7 @@ function mutationTarget(
   return submission.target;
 }
 
-async function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
+async function complete(result: ComposerCommandResult, input: Request, t: TFunction, logger: AppLogger) {
   if ("kind" in result) return;
   const delivers =
     input.target.kind === "new_chat" ||
@@ -273,6 +273,7 @@ async function complete(result: ComposerCommandResult, input: Request, t: TFunct
           .join("\n"),
       });
   } else {
+    reportChatRejection(logger, result.outcome.reason);
     if (input.command.kind !== "input" && input.original !== null)
       input.restore({ text: input.original, direction: "append" });
     if (delivers) await input.delivered?.(result, input.target);
@@ -287,10 +288,15 @@ async function complete(result: ComposerCommandResult, input: Request, t: TFunct
     });
   }
 }
+function reportChatRejection(logger: AppLogger, reason: ChatNotAcceptedReason): void {
+  if (reason.kind !== "internal_failure") return;
+  void logger.append("error", "Chat action rejected", {
+    ...(reason.operation === null ? {} : { operation: reason.operation }),
+    ...(reason.cause === null ? {} : { cause: reason.cause }),
+  });
+}
 function rejectionDetails(reason: ChatNotAcceptedReason): readonly string[] {
   if ("command" in reason) return reason.command === null ? [] : [reason.command];
-  if (reason.kind === "internal_failure")
-    return [reason.operation, reason.cause].filter((value) => value !== null);
   return [];
 }
 
