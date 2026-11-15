@@ -117,7 +117,12 @@ export function createWorktreeCreate({
       void submitSwitch(operation);
     },
     onError: (error, request) => {
-      void logger.append("error", "Worktree creation failed", { cause: errorMessage(error) });
+      void logger.append("error", "Worktree creation failed", {
+        cause: errorMessage(error),
+        ...(error instanceof WorktreeError && error.detail.kind === "create"
+          ? { diagnostic: error.detail.diagnostic }
+          : {}),
+      });
       if (
         creator.hasListeners() &&
         error instanceof WorktreeError &&
