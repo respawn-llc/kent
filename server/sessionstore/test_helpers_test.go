@@ -62,15 +62,15 @@ func (p *testSessionMetadata) WriteManualCompactEligibility(
 	return nil
 }
 
-func (p *testSessionMetadata) WriteModelToolActivity(_ context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+func (p *testSessionMetadata) WriteAgentActivity(_ context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
 	record, ok := p.sharedStore().Get(sessionID)
 	if !ok {
 		return time.Time{}, ErrSessionNotFound
 	}
-	if previous := record.ContextFacts.LastModelToolActivityAt; previous != nil && previous.After(completedAt) {
+	if previous := record.ContextFacts.LastAgentActivityAt; previous != nil && previous.After(completedAt) {
 		completedAt = *previous
 	}
-	record.ContextFacts.LastModelToolActivityAt = &completedAt
+	record.ContextFacts.LastAgentActivityAt = &completedAt
 	p.sharedStore().Put(sessionID, record)
 	return completedAt, nil
 }

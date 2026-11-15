@@ -584,7 +584,7 @@ func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, step
 	e := s.engine
 	hasConversation, unansweredReminder := e.transcriptRuntimeState().chat.idleResumeEvidence()
 	compactionCount := e.compactionRuntimeState().Count()
-	lastActivity := e.store.ContextFacts().LastModelToolActivityAt
+	lastActivity := e.store.ContextFacts().LastAgentActivityAt
 	if err := s.prepareModelTurn(ctx, stepID, prepared.items...); err != nil {
 		return llm.Request{}, false, err
 	}
@@ -598,7 +598,7 @@ func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, step
 			Role:        llm.RoleDeveloper,
 			MessageType: textutil.Value(llm.MessageTypeIdleResumeReminder),
 			Content: textutil.Value(prompts.RenderIdleResumeReminder(
-				formatIdleResumeDuration(now.Sub(*lastActivity)), now.Local().Format("2006-01-02T15:04:05"))),
+				formatIdleResumeDuration(now.Sub(*lastActivity)), formatEnvironmentTime(now))),
 		}})
 	}
 	if err := s.engine.validateWorkflowInstructions(); err != nil {

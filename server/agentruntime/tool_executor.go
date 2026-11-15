@@ -271,7 +271,7 @@ func (e *Engine) executePreparedToolCall(
 	}
 	if toolID == toolspec.ToolCompleteNode {
 		result, err := e.executeCompleteNodeTool(ctx, stepID, call)
-		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 		return result, true, err
 	}
 	if inputErr != nil {
@@ -291,7 +291,7 @@ func (e *Engine) executePreparedToolCall(
 		toolCall,
 	)
 	if toolID != toolspec.ToolAskQuestion && approvalLifecycle.CountsAsToolActivity() {
-		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) &&

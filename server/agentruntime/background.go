@@ -97,7 +97,7 @@ func (b *defaultBackgroundNoticeScheduler) recordBackgroundShellUpdateRaw(evt Ba
 func backgroundShellUpdateIntent(evt BackgroundShellEvent) steeringIntent {
 	intent := steerEventIntent(Event{Kind: EventBackgroundUpdated, Background: &evt})
 	if evt.Type.IsTerminal() && evt.FinishedAt != nil {
-		intent.items = append([]steeringItem{{modelToolActivity: evt.FinishedAt}}, intent.items...)
+		intent.items = append([]steeringItem{{agentActivity: evt.FinishedAt}}, intent.items...)
 	}
 	return intent
 }

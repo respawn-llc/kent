@@ -21,11 +21,11 @@ type failingContextFactWriter struct {
 	activityErr       error
 }
 
-func (w *failingContextFactWriter) WriteModelToolActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+func (w *failingContextFactWriter) WriteAgentActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
 	if w.activityErr != nil {
 		return time.Time{}, w.activityErr
 	}
-	return w.delegate.WriteModelToolActivity(ctx, sessionID, completedAt)
+	return w.delegate.WriteAgentActivity(ctx, sessionID, completedAt)
 }
 
 func (w *failingContextFactWriter) WriteSessionContextFacts(
@@ -199,7 +199,7 @@ func TestSuccessfulCompactionEstablishesBothAbsentContextFacts(t *testing.T) {
 
 	scheduleManualCompactionAndWait(t, engine)
 	facts := reopened.ContextFacts()
-	if facts.LastModelToolActivityAt == nil {
+	if facts.LastAgentActivityAt == nil {
 		t.Fatal("successful compaction has no activity")
 	}
 	if facts.CompletedCompactionCount == nil || *facts.CompletedCompactionCount != 1 ||

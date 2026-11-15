@@ -308,7 +308,7 @@ func TestCompactionSoonReminderPreservesIssuedStateWhenSuppressed(t *testing.T) 
 func TestRunStepLoopSkipsCompactionSoonReminderWhenImmediateAutoCompactionRuns(t *testing.T) {
 	t.Parallel()
 	store := mustCreateTestSession(t)
-	if err := store.RecordModelToolActivity(time.Now().Add(-2 * time.Hour)); err != nil {
+	if err := store.RecordAgentActivity(time.Now().Add(-2 * time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 

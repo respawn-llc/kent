@@ -24,7 +24,7 @@ func TestSuccessfulModelRequestRecordsActivity(t *testing.T) {
 	if _, err := engine.SubmitUserMessage(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if activity := store.ContextFacts().LastModelToolActivityAt; activity == nil || activity.Before(before) {
+	if activity := store.ContextFacts().LastAgentActivityAt; activity == nil || activity.Before(before) {
 		t.Fatalf("successful model activity = %v", activity)
 	}
 }
@@ -50,7 +50,7 @@ func TestOrdinaryToolCompletionRecordsActivity(t *testing.T) {
 			if !errors.Is(err, handlerErr) {
 				t.Fatal(err)
 			}
-			if activity := store.ContextFacts().LastModelToolActivityAt; activity == nil || activity.Before(before) {
+			if activity := store.ContextFacts().LastAgentActivityAt; activity == nil || activity.Before(before) {
 				t.Fatalf("completed tool activity = %v", activity)
 			}
 		})
@@ -72,7 +72,7 @@ func TestModelActivityIncludesSilentResponsesAndExcludesFailures(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			prior := time.Now().Add(-2 * time.Hour)
-			if err := store.RecordModelToolActivity(prior); err != nil {
+			if err := store.RecordAgentActivity(prior); err != nil {
 				t.Fatal(err)
 			}
 			client := &fakeClient{responses: []llm.Response{test.response}, errors: []error{test.err}}
@@ -85,7 +85,7 @@ func TestModelActivityIncludesSilentResponsesAndExcludesFailures(t *testing.T) {
 			if (err != nil) != (test.err != nil) {
 				t.Fatalf("generation error = %v", err)
 			}
-			activity := store.ContextFacts().LastModelToolActivityAt
+			activity := store.ContextFacts().LastAgentActivityAt
 			if activity == nil || (test.err != nil && !activity.Equal(prior)) ||
 				(test.err == nil && !activity.After(prior)) {
 				t.Fatalf("activity after %s = %v, prior %v", test.name, activity, prior)
@@ -120,7 +120,7 @@ func TestActivityWriteFailureSurfacesWithoutReplayingTool(t *testing.T) {
 	if len(results) != 1 || results[0].IsError || completions != 1 || diagnostics != 1 {
 		t.Fatalf("results=%v completions=%d diagnostics=%d", results, completions, diagnostics)
 	}
-	if store.ContextFacts().LastModelToolActivityAt != nil {
+	if store.ContextFacts().LastAgentActivityAt != nil {
 		t.Fatal("failed activity write published")
 	}
 }
@@ -134,17 +134,17 @@ func TestBackgroundCompletionUsesFinishTimeAndKeepsNewerActivity(t *testing.T) {
 	if err := engine.RecordBackgroundShellUpdate(event); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(finished) {
+	if got := store.ContextFacts().LastAgentActivityAt; got == nil || !got.Equal(finished) {
 		t.Fatalf("background activity = %v, want finish %v", got, finished)
 	}
 	newer := finished.Add(time.Minute)
-	if err := store.RecordModelToolActivity(newer); err != nil {
+	if err := store.RecordAgentActivity(newer); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.RecordBackgroundShellUpdate(event); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(newer) {
+	if got := store.ContextFacts().LastAgentActivityAt; got == nil || !got.Equal(newer) {
 		t.Fatalf("delayed completion replaced newer activity: %v", got)
 	}
 	if err := engine.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true,
@@ -211,7 +211,7 @@ func TestAccessApprovalWaitOnlyCountsSubsequentExecutedWork(t *testing.T) {
 			}}); err != nil {
 				t.Fatal(err)
 			}
-			if got := store.ContextFacts().LastModelToolActivityAt != nil; got != test.wantActivity {
+			if got := store.ContextFacts().LastAgentActivityAt != nil; got != test.wantActivity {
 				t.Fatalf("has activity = %v, want %v", got, test.wantActivity)
 			}
 		})

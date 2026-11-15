@@ -50,7 +50,7 @@ type steeringItem struct {
 	missingToolOutputRepair     *steeringMissingToolOutputRepair
 	modelInput                  *steeringPreparedModelInput
 	compactionActivity          *steeringCompactionActivity
-	modelToolActivity           *time.Time
+	agentActivity               *time.Time
 	event                       *Event
 	connectionReplacement       *config.ConnectionReplacement
 	streaming                   *steeringStreamingOutput
@@ -743,8 +743,8 @@ func (e *Engine) resolveCompletedResponseStream(stepID string, instruction compl
 }
 
 func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringItem) error {
-	if item.modelToolActivity != nil {
-		if err := e.store.RecordModelToolActivity(*item.modelToolActivity); err != nil {
+	if item.agentActivity != nil {
+		if err := e.store.RecordAgentActivity(*item.agentActivity); err != nil {
 			return e.emitRaw(Event{
 				Kind:   EventContextFactsPersistFailed,
 				StepID: provenance.stepID(),

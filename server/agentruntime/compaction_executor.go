@@ -156,7 +156,7 @@ func (e *Engine) compactWithRetry(ctx context.Context, stepID string, client *ob
 		}
 		if err == nil {
 			if ctx.Err() == nil {
-				e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+				e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 			}
 			return resp, nil
 		}

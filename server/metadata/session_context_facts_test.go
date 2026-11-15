@@ -36,14 +36,14 @@ func TestSessionContextFactsPersistIndependentlyFromFullSnapshots(t *testing.T) 
 		t.Fatalf("Create: %v", err)
 	}
 
-	if sessionStore.ContextFacts().LastModelToolActivityAt != nil {
+	if sessionStore.ContextFacts().LastAgentActivityAt != nil {
 		t.Fatal("new Session has activity")
 	}
 	completedAt := time.UnixMilli(1_800_000_000_123)
-	if err := sessionStore.RecordModelToolActivity(completedAt); err != nil {
-		t.Fatalf("RecordModelToolActivity: %v", err)
+	if err := sessionStore.RecordAgentActivity(completedAt); err != nil {
+		t.Fatalf("RecordAgentActivity: %v", err)
 	}
-	if err := sessionStore.RecordModelToolActivity(completedAt.Add(-time.Hour)); err != nil {
+	if err := sessionStore.RecordAgentActivity(completedAt.Add(-time.Hour)); err != nil {
 		t.Fatalf("late completion: %v", err)
 	}
 	if err := sessionStore.SetInputDraft("unsent", nil); err != nil {
@@ -63,8 +63,8 @@ func TestSessionContextFactsPersistIndependentlyFromFullSnapshots(t *testing.T) 
 		t.Fatalf("OpenByID: %v", err)
 	}
 	facts := reopened.ContextFacts()
-	if facts.LastModelToolActivityAt == nil || !facts.LastModelToolActivityAt.Equal(completedAt) {
-		t.Fatalf("reopened activity = %v, want %v", facts.LastModelToolActivityAt, completedAt)
+	if facts.LastAgentActivityAt == nil || !facts.LastAgentActivityAt.Equal(completedAt) {
+		t.Fatalf("reopened activity = %v, want %v", facts.LastAgentActivityAt, completedAt)
 	}
 	if facts.CompletedCompactionCount == nil || *facts.CompletedCompactionCount != 4 ||
 		facts.ManualCompactEligible == nil || !*facts.ManualCompactEligible {
@@ -135,8 +135,8 @@ func TestSessionContextFactWriterRejectsMissingSession(t *testing.T) {
 	if !errors.Is(err, session.ErrSessionNotFound) {
 		t.Fatalf("WriteSessionContextFacts error = %v, want Session not found", err)
 	}
-	if _, err := store.WriteModelToolActivity(t.Context(), "missing", time.Now()); !errors.Is(err, session.ErrSessionNotFound) {
-		t.Fatalf("WriteModelToolActivity error = %v, want Session not found", err)
+	if _, err := store.WriteAgentActivity(t.Context(), "missing", time.Now()); !errors.Is(err, session.ErrSessionNotFound) {
+		t.Fatalf("WriteAgentActivity error = %v, want Session not found", err)
 	}
 }
 
@@ -158,14 +158,14 @@ func TestFailedActivityWriteIsNotPublishedByLaterSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.DB().ExecContext(t.Context(), `
-CREATE TRIGGER fail_activity_write BEFORE UPDATE OF last_model_tool_activity_at_unix_ms ON sessions
+CREATE TRIGGER fail_activity_write BEFORE UPDATE OF last_agent_activity_at_unix_ms ON sessions
 BEGIN SELECT RAISE(FAIL, 'forced activity write failure'); END;`); err != nil {
 		t.Fatal(err)
 	}
-	if err := conversation.RecordModelToolActivity(time.Now()); err == nil {
+	if err := conversation.RecordAgentActivity(time.Now()); err == nil {
 		t.Fatal("activity write succeeded despite trigger")
 	}
-	if conversation.ContextFacts().LastModelToolActivityAt != nil {
+	if conversation.ContextFacts().LastAgentActivityAt != nil {
 		t.Fatal("failed activity was published")
 	}
 	if _, err := store.DB().ExecContext(t.Context(), `DROP TRIGGER fail_activity_write`); err != nil {
@@ -178,7 +178,7 @@ BEGIN SELECT RAISE(FAIL, 'forced activity write failure'); END;`); err != nil {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reopened.ContextFacts().LastModelToolActivityAt != nil {
+	if reopened.ContextFacts().LastAgentActivityAt != nil {
 		t.Fatal("snapshot persisted failed activity")
 	}
 }
@@ -197,7 +197,7 @@ VALUES ('activity-session', 'activity-project', 'sessions/activity-session', 1, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.ContextFacts.LastModelToolActivityAt != nil {
+	if record.ContextFacts.LastAgentActivityAt != nil {
 		t.Fatal("migration backfilled activity")
 	}
 }

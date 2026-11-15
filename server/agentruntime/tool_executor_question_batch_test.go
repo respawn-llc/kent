@@ -225,7 +225,7 @@ func TestFiveSlowQuestionsEmitOneReminderOnlyWhenBatchResumes(t *testing.T) {
 			if reminders.Load() != 0 {
 				t.Fatal("reminder emitted for an individual answer")
 			}
-			if activity := store.ContextFacts().LastModelToolActivityAt; activity == nil || !activity.Equal(start) {
+			if activity := store.ContextFacts().LastAgentActivityAt; activity == nil || !activity.Equal(start) {
 				t.Fatalf("answer changed model/tool activity: %v", activity)
 			}
 			client.mu.Lock()
@@ -282,14 +282,14 @@ func TestOrdinaryCompletionRecordsActivityBeforeSiblingQuestionAnswer(t *testing
 	}()
 	<-pending
 	deadline := time.After(3 * time.Second)
-	for store.ContextFacts().LastModelToolActivityAt == nil {
+	for store.ContextFacts().LastAgentActivityAt == nil {
 		select {
 		case <-deadline:
 			t.Fatal("ordinary work activity waited for Question answer")
 		case <-time.After(time.Millisecond):
 		}
 	}
-	completedAt := *store.ContextFacts().LastModelToolActivityAt
+	completedAt := *store.ContextFacts().LastAgentActivityAt
 	select {
 	case err := <-done:
 		t.Fatalf("batch finished before answer: %v", err)
@@ -299,7 +299,7 @@ func TestOrdinaryCompletionRecordsActivityBeforeSiblingQuestionAnswer(t *testing
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(completedAt) {
+	if got := store.ContextFacts().LastAgentActivityAt; got == nil || !got.Equal(completedAt) {
 		t.Fatalf("Question answer refreshed activity: %v, want %v", got, completedAt)
 	}
 }

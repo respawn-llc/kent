@@ -81,7 +81,7 @@ func (r *defaultReviewerPipeline) Run(
 		return reviewerProviderResult{err: err}
 	}
 	if ctx.Err() == nil {
-		r.engine.recordModelToolActivity(prepared.originStepID.String(), r.engine.transcriptRuntimeState().now())
+		r.engine.recordAgentActivity(prepared.originStepID.String(), r.engine.transcriptRuntimeState().now())
 	}
 	result := reviewerSuggestionsResult{}
 	if resp.Assistant.Content != nil {

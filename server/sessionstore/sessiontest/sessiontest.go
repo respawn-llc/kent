@@ -148,7 +148,7 @@ func (p *Persistence) WriteManualCompactEligibility(
 	return nil
 }
 
-func (p *Persistence) WriteModelToolActivity(_ context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+func (p *Persistence) WriteAgentActivity(_ context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
 	if p.contextWriteErr != nil {
 		return time.Time{}, p.contextWriteErr
 	}
@@ -156,10 +156,10 @@ func (p *Persistence) WriteModelToolActivity(_ context.Context, sessionID string
 	if !ok {
 		return time.Time{}, session.ErrSessionNotFound
 	}
-	if previous := record.ContextFacts.LastModelToolActivityAt; previous != nil && previous.After(completedAt) {
+	if previous := record.ContextFacts.LastAgentActivityAt; previous != nil && previous.After(completedAt) {
 		completedAt = *previous
 	}
-	record.ContextFacts.LastModelToolActivityAt = &completedAt
+	record.ContextFacts.LastAgentActivityAt = &completedAt
 	p.records.Put(sessionID, record)
 	return completedAt, nil
 }

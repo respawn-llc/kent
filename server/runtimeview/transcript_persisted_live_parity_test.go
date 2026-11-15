@@ -38,7 +38,7 @@ func TestIdleReminderProjectsTypedNoticeBeforeHumanInput(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordModelToolActivity(time.Now().Add(-2 * time.Hour)); err != nil {
+	if err := store.RecordAgentActivity(time.Now().Add(-2 * time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	threshold := 3600

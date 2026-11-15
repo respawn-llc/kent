@@ -1222,7 +1222,7 @@ func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, c
 		},
 	)
 	if err == nil && ctx.Err() == nil {
-		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 	}
 	return response, err
 }
@@ -1348,7 +1348,7 @@ func (e *Engine) executeAcceptedToolCallsCoordinated(
 			)
 		}
 		var outcome *resultGroupReportOutcome
-		e.recordModelToolActivity(stepID, e.transcriptRuntimeState().now())
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 		if err := e.steer(stepID, steerResultGroupReportIntent(
 			collector,
 			hosted.Call.ID,

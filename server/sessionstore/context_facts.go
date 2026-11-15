@@ -11,7 +11,7 @@ import (
 type SessionContextFacts struct {
 	CompletedCompactionCount *int
 	ManualCompactEligible    *bool
-	LastModelToolActivityAt  *time.Time
+	LastAgentActivityAt      *time.Time
 }
 
 type ContextSnapshot struct {
@@ -22,7 +22,7 @@ type ContextSnapshot struct {
 type SessionContextFactWriter interface {
 	WriteSessionContextFacts(context.Context, string, SessionContextFacts) error
 	WriteManualCompactEligibility(context.Context, string, bool) error
-	WriteModelToolActivity(context.Context, string, time.Time) (time.Time, error)
+	WriteAgentActivity(context.Context, string, time.Time) (time.Time, error)
 }
 
 func independentSessionContextFacts() SessionContextFacts {
@@ -36,9 +36,9 @@ func independentSessionContextFacts() SessionContextFacts {
 
 func (facts SessionContextFacts) Clone() SessionContextFacts {
 	cloned := SessionContextFacts{}
-	if facts.LastModelToolActivityAt != nil {
-		value := *facts.LastModelToolActivityAt
-		cloned.LastModelToolActivityAt = &value
+	if facts.LastAgentActivityAt != nil {
+		value := *facts.LastAgentActivityAt
+		cloned.LastAgentActivityAt = &value
 	}
 	if facts.CompletedCompactionCount != nil {
 		value := *facts.CompletedCompactionCount
@@ -106,7 +106,7 @@ func (s *Store) SetSessionContextFacts(completedCompactionCount int, manualCompa
 	return nil
 }
 
-func (s *Store) RecordModelToolActivity(completedAt time.Time) error {
+func (s *Store) RecordAgentActivity(completedAt time.Time) error {
 	if s == nil {
 		return errors.New("session store is required")
 	}
@@ -115,14 +115,14 @@ func (s *Store) RecordModelToolActivity(completedAt time.Time) error {
 	if s.options.contextFactWriter == nil {
 		return errors.New("Session Context-fact writer is required")
 	}
-	persistedAt, err := s.options.contextFactWriter.WriteModelToolActivity(
-		context.Background(), s.metaSnapshot().meta.SessionID, completedAt,
+	persistedAt, err := s.options.contextFactWriter.WriteAgentActivity(
+		context.Background(), s.Meta().SessionID, completedAt,
 	)
 	if err != nil {
 		return err
 	}
 	s.contextFactsMu.Lock()
-	s.contextFacts.LastModelToolActivityAt = &persistedAt
+	s.contextFacts.LastAgentActivityAt = &persistedAt
 	s.contextFactsMu.Unlock()
 	return nil
 }

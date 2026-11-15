@@ -53,14 +53,14 @@ func (w *recordingContextFactWriter) WriteManualCompactEligibility(
 	return nil
 }
 
-func (w *recordingContextFactWriter) WriteModelToolActivity(_ context.Context, _ string, completedAt time.Time) (time.Time, error) {
+func (w *recordingContextFactWriter) WriteAgentActivity(_ context.Context, _ string, completedAt time.Time) (time.Time, error) {
 	if w.err != nil {
 		return time.Time{}, w.err
 	}
-	if previous := w.facts.LastModelToolActivityAt; previous != nil && previous.After(completedAt) {
+	if previous := w.facts.LastAgentActivityAt; previous != nil && previous.After(completedAt) {
 		completedAt = *previous
 	}
-	w.facts.LastModelToolActivityAt = &completedAt
+	w.facts.LastAgentActivityAt = &completedAt
 	return completedAt, nil
 }
 
@@ -269,7 +269,7 @@ func TestOpenNormalizesInvalidPersistedContextFactsWithoutWriting(t *testing.T) 
 
 func TestForkAndCloneLeaveContextFactsAbsent(t *testing.T) {
 	parent := newSessionTestStore(t)
-	if err := parent.RecordModelToolActivity(time.Now()); err != nil {
+	if err := parent.RecordAgentActivity(time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	log := materializedForkEventLog(t, parent)
@@ -291,7 +291,7 @@ func TestForkAndCloneLeaveContextFactsAbsent(t *testing.T) {
 	}
 	for name, child := range map[string]*Store{"fork": forked, "clone": cloned} {
 		facts := child.ContextFacts()
-		if facts.CompletedCompactionCount != nil || facts.ManualCompactEligible != nil || facts.LastModelToolActivityAt != nil {
+		if facts.CompletedCompactionCount != nil || facts.ManualCompactEligible != nil || facts.LastAgentActivityAt != nil {
 			t.Fatalf("%s Context facts = %+v, want absent", name, facts)
 		}
 	}

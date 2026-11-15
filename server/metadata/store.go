@@ -2135,7 +2135,7 @@ func (s *Store) ResolvePersistedSession(ctx context.Context, sessionID string) (
 		ContextFacts: session.SessionContextFacts{
 			CompletedCompactionCount: optionalContextFactInt(row.CompletedCompactionCount),
 			ManualCompactEligible:    optionalContextFactBool(row.ManualCompactEligible),
-			LastModelToolActivityAt:  optionalActivityTime(row.LastModelToolActivityAtUnixMs),
+			LastAgentActivityAt:      optionalActivityTime(row.LastAgentActivityAtUnixMs),
 		},
 	}, nil
 }
@@ -2148,11 +2148,11 @@ func optionalActivityTime(value sql.NullInt64) *time.Time {
 	return &resolved
 }
 
-func (s *Store) WriteModelToolActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
+func (s *Store) WriteAgentActivity(ctx context.Context, sessionID string, completedAt time.Time) (time.Time, error) {
 	if s == nil || s.queries == nil {
 		return time.Time{}, errors.New("metadata store is required")
 	}
-	value, err := s.queries.UpdateSessionModelToolActivity(ctx, sqlitegen.UpdateSessionModelToolActivityParams{
+	value, err := s.queries.UpdateSessionAgentActivity(ctx, sqlitegen.UpdateSessionAgentActivityParams{
 		SessionID:         sessionID,
 		CompletedAtUnixMs: completedAt.UnixMilli(),
 	})

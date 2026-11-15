@@ -240,7 +240,7 @@ func TestWorkflowSessionCanApproveAnotherTask(t *testing.T) {
 	targetSessionID := bindWorkflowServiceSessionToTask(t, service, metadataStore, binding,
 		workflow.TaskID(targetTask.Task.Id), targetStarted.CurrentNodes[0])
 	priorActivity := time.Now().Add(-2 * time.Hour).Truncate(time.Millisecond)
-	if _, err := metadataStore.WriteModelToolActivity(ctx, targetSessionID.String(), priorActivity); err != nil {
+	if _, err := metadataStore.WriteAgentActivity(ctx, targetSessionID.String(), priorActivity); err != nil {
 		t.Fatal(err)
 	}
 	source := workflowServiceCurrentNodeReference(t, workflow.TaskID(targetTask.Task.Id), targetStarted.CurrentNodes[0])
@@ -266,7 +266,7 @@ func TestWorkflowSessionCanApproveAnotherTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if activity := persisted.ContextFacts.LastModelToolActivityAt; activity == nil || !activity.Equal(priorActivity) {
+	if activity := persisted.ContextFacts.LastAgentActivityAt; activity == nil || !activity.Equal(priorActivity) {
 		t.Fatalf("Workflow Task Approval alone refreshed activity: %v", activity)
 	}
 }

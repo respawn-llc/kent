@@ -132,7 +132,7 @@ func TestIdleReminderInputFreeContinuationEligibility(t *testing.T) {
 				}
 			}
 			if test.activity {
-				if err := store.RecordModelToolActivity(time.Now().Add(-test.age)); err != nil {
+				if err := store.RecordAgentActivity(time.Now().Add(-test.age)); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -172,7 +172,7 @@ func TestFirstPostCompactionInputExcludesIdleReminder(t *testing.T) {
 	})
 	now := time.Now().Add(-6 * time.Hour)
 	engine.transcriptRuntimeState().now = func() time.Time { return now }
-	if err := store.RecordModelToolActivity(now.Add(-time.Hour)); err != nil {
+	if err := store.RecordAgentActivity(now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if err := engine.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true,
@@ -181,7 +181,7 @@ func TestFirstPostCompactionInputExcludesIdleReminder(t *testing.T) {
 	}
 	engine.compactionRuntimeState().SetManualCompactionEligible(true)
 	scheduleManualCompactionAndWait(t, engine)
-	if store.ContextFacts().LastModelToolActivityAt == nil {
+	if store.ContextFacts().LastAgentActivityAt == nil {
 		t.Fatal("compaction cleared activity")
 	}
 	now = now.Add(2 * time.Hour)
@@ -217,7 +217,7 @@ func TestIdleReminderReusesUnansweredTailOnRetry(t *testing.T) {
 		[]llm.Message{{Role: llm.RoleAssistant, Content: textutil.Value("prior work")}})); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordModelToolActivity(now.Add(-2 * time.Hour)); err != nil {
+	if err := store.RecordAgentActivity(now.Add(-2 * time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := engine.SubmitUserMessage(t.Context(), "resume"); err == nil {
@@ -246,7 +246,7 @@ func TestWorkflowResumeChecksIdleWithoutHumanInput(t *testing.T) {
 	engine := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool),
 		Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}, IdleResumeReminderSeconds: textutil.Value(3600)})
 	prior := time.Now().Add(-2 * time.Hour)
-	if err := store.RecordModelToolActivity(prior); err != nil {
+	if err := store.RecordAgentActivity(prior); err != nil {
 		t.Fatal(err)
 	}
 	assignment := workflowAssignmentForCompactionTest()
@@ -257,7 +257,7 @@ func TestWorkflowResumeChecksIdleWithoutHumanInput(t *testing.T) {
 	if _, err := steer.Wait(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.ContextFacts().LastModelToolActivityAt; got == nil || !got.Equal(prior) {
+	if got := store.ContextFacts().LastAgentActivityAt; got == nil || !got.Equal(prior) {
 		t.Fatal("Workflow Resume changed activity before work")
 	}
 	if _, err := engine.SubmitWorkflowTurn(t.Context()); err != nil {
