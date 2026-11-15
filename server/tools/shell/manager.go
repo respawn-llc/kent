@@ -309,7 +309,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 	if err != nil {
 		return ExecResult{}, err
 	}
-	display, truncated, _ := truncateWithTemplate(processed.Output, maxOutputChars, backgroundTruncationBannerTemplate)
+	display, truncated, _ := truncateWithTemplate(processed.Output, maxOutputChars, truncationBannerTemplate)
 	result.Running = true
 	result.Backgrounded = true
 	result.MovedToBackground = true
@@ -449,7 +449,7 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 			return preview, snapshot.LogPath, nil
 		}
 		if strings.TrimSpace(snapshot.RecentOutput) != "" {
-			recent, _, _ := truncateWithTemplate(snapshot.RecentOutput, maxOutputChars, backgroundTruncationBannerTemplate)
+			recent, _, _ := truncateWithTemplate(snapshot.RecentOutput, maxOutputChars, truncationBannerTemplate)
 			return recent, snapshot.LogPath, nil
 		}
 		if !snapshot.Running || time.Now().After(deadline) {
