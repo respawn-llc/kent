@@ -23,6 +23,28 @@ func TestSupportedChatThinkingValuesUsesKnownModelContract(t *testing.T) {
 	}
 }
 
+func TestChatAgentChoicesProjectEffectiveFastMode(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			app := loadLaunchConfig(t, t.TempDir(),
+				`connection = "work"`,
+				`model = "gpt-6-sol"`,
+				fmt.Sprintf("priority_request_mode = %t", enabled),
+				`[connections.work]`,
+				`protocol = "chatgpt-codex"`,
+			)
+			catalog, err := PrepareChatAgentCatalog(app, true, serverapi.RunPromptOverrides{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry, ok := catalog.Lookup("default")
+			if !ok || entry.Choice.Fast == nil || entry.Choice.GetFast() != enabled {
+				t.Fatalf("fast mode not projected: %+v", entry.Choice)
+			}
+		})
+	}
+}
+
 func TestChatAgentCatalogDistinguishesConnectionSets(t *testing.T) {
 	app := loadLaunchConfig(t, t.TempDir(),
 		`connection = ["a", "b"]`,
