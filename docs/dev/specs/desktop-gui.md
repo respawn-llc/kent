@@ -47,6 +47,7 @@
 - A plain click or tap with no text selection enters editing. Dragging selects rendered Markdown without editing. Links and task-list checkboxes perform their own actions. Keyboard focus keeps the rendered presentation, and Enter or Space enters editing.
 - In disabled mode, the field renders read-only rich Markdown or its empty placeholder. It offers no editing focus or task-list interaction, and it must not change destination-owned presentation state.
 - Leaving the active editor returns the field to rendered Markdown without discarding its Draft.
+- Pressing a floating field action must keep the editor in place until the pointer click completes, including when the button does not take focus. Keyboard activation of the action must remain available.
 - When focus is in a Desktop text field outside the Workflow editor, Command+Enter on macOS and Ctrl+Enter on Windows or Linux must invoke that field's configured submit, save, or selection action. The shortcut must follow the same validation, disabled state, and confirmation behavior as that action.
 - The shortcut must do nothing when the focused text field has no submission action.
 - The shortcut must not change the field's ordinary Enter behavior.
