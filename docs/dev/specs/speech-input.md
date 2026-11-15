@@ -39,7 +39,7 @@
 ## Final text and no-ops
 
 - The server must treat transcripts without any Unicode letter or digit as successful no-ops. This includes empty, whitespace-only, punctuation-only, symbol-only, and emoji-only results.
-- Empty recordings and recordings shorter than one second must be discarded as successful no-ops. Silence may be detected through simple existing microphone-level readings without an additional analysis model or complicated algorithm. Immediate streaming need not guarantee zero provider charges for discarded recordings.
+- Empty recordings and recordings shorter than one second must be treated as successful no-ops without deleting the completed original. Silence may be detected through simple existing microphone-level readings without an additional analysis model or complicated algorithm. Immediate streaming need not guarantee zero provider charges for no-op recordings.
 - A capture failure must not count as a successful recording no-op. Desktop must report capture failures. If a capture failure leaves a nonempty original, Desktop must offer recording recovery.
 - A usable transcript must be appended exactly to the field's current text, including edits made during recording. For a nonempty field without a trailing blank line, Desktop must add a blank-line separator.
 - In Chat, transcription and Retry results must append to the composer or Question/Approval field visible when insertion occurs. Switching fields during recording or transcription must not send the transcript into a hidden draft.
@@ -53,7 +53,7 @@
 
 ## Recording preservation and recovery
 
-- Desktop must keep one compressed original recording in an OS-cleaned client temporary directory until successful insertion, successful no-op, or explicit Discard. A server staging file required for upload must be removed after use and must not become another recovery recording.
+- Native Desktop must keep one compressed original recording under `/tmp/kent` on Unix and the OS temporary directory's `kent` subdirectory on Windows. Successful insertion and successful no-op outcomes must not delete the original. Only explicit Discard may delete a completed recording. A server staging file required for upload must be removed after use and must not become another recovery recording.
 - Transcription failure, destination closure, and interrupted transport must not delete usable audio.
 - A transcription failure must open a persistent, blocking recovery dialog above app content. It must show the finalized recording path and offer Retry, Show in folder, Save a copy, and Discard. Only one recovery dialog may be visible.
 - The recovery dialog must be a narrow exception to ordinary Sonner-only operational errors and destination presentation. It must not be clipped by the originating sidebar or page.

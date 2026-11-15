@@ -112,13 +112,19 @@ pub async fn speech_create(
     {
         return Err("Invalid recording encoding or limit".into());
     }
+    let directory = if cfg!(unix) {
+        PathBuf::from("/tmp")
+    } else {
+        std::env::temp_dir()
+    }
+    .join("kent");
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     let temporary = tempfile::Builder::new()
         .prefix("kent-speech-")
         .suffix(&format!(".{}", options.extension))
-        .tempfile()
+        .tempfile_in(directory)
         .map_err(|e| e.to_string())?;
-    // Keep one original in the OS temporary directory, including on window
-    // termination. Explicit successful delivery/Discard removes it.
+    // Only explicit Discard removes originals; successful delivery retains them.
     let path = temporary.path().to_path_buf();
     let handle = state.next.fetch_add(1, Ordering::Relaxed);
     let source = Original {

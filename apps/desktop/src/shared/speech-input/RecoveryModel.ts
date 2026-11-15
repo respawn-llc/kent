@@ -67,8 +67,7 @@ export function createSpeechRecovery({
     input: Readonly<{ source: SpeechSource; target: SpeechTarget; result: SpeechResult }>,
   ) {
     const delivery = yield* speechAttempt(async () =>
-      deliverSpeech(input.source, input.target, input.result, {
-        discard: services.speech.discard,
+      deliverSpeech(input.target, input.result, {
         copy: async (text) => writeClipboardText(text, services.nativeBridge),
       }),
     );
@@ -80,16 +79,13 @@ export function createSpeechRecovery({
       source: input.source,
       target: input.target,
       delivery,
-      error:
-        delivery.kind === "cleanup-failed"
-          ? new SpeechActionError(delivery.error)
-          : new Error(t("speech.copied")),
+      error: new Error(t("speech.copied")),
     };
     if ((yield* Atom.get(entry))?.source === input.source) yield* Atom.set(entry, retained);
     else yield* Atom.set(offer, retained);
     if (delivery.kind === "copied") {
       push({ id: "speech-copied", tone: "info", title: t("speech.copied"), durationMs: Infinity });
-    } else if (delivery.kind === "copy-failed") {
+    } else {
       yield* Effect.promise(async () =>
         recoverOrThrowDebugFailure({
           context: { feature: "speech" },
@@ -108,7 +104,6 @@ export function createSpeechRecovery({
         if ((yield* Atom.get(work)).kind !== "idle") return;
         const current = yield* Atom.get(entry);
         if (current === null) return;
-        if (current.delivery?.kind === "cleanup-failed") return;
         const scope = yield* Atom.getResult(lifetime);
         const attempt = Effect.scoped(
           Effect.gen(function* () {
