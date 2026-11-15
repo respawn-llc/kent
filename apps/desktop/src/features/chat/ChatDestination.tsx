@@ -203,7 +203,6 @@ function ChatDestinationShell({
                 {worktreeScope !== null && (
                   <WorktreeControl
                     projectID={destination.projectID}
-                    sessionID={target?.sessionID ?? null}
                     chat={destination.worktreeBinding}
                     target={executionTarget}
                     query={worktrees}

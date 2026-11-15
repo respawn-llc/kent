@@ -30,7 +30,6 @@ export function createWorktreeCreate({
   client,
   api,
   projectID,
-  sessionID,
   openSession,
   suggestion,
   t,
@@ -38,15 +37,12 @@ export function createWorktreeCreate({
   push,
   navigator,
   refreshOpenWorktreeList,
-  scope,
   chat,
 }: Readonly<{
   client: QueryClient;
   api: ApiService;
   projectID: string;
-  sessionID: string | null;
-  scope: WorktreeScope;
-  chat?: ChatWorktreeBinding;
+  chat: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
   suggestion: string | undefined;
   navigator: SidebarPageNavigator;
@@ -55,13 +51,9 @@ export function createWorktreeCreate({
   push: StatusController["push"];
   t: TFunction;
 }>) {
-  const readyTarget =
-    chat?.creationTarget ??
-    Atom.make<ChatMutationTarget | null>(
-      sessionID === null ? null : { kind: "session", projectID, sessionID },
-    );
-  const inputDraft = chat?.draft ?? Atom.make("");
-  const managementScope = chat?.scope ?? Atom.make(scope);
+  const readyTarget = chat.creationTarget;
+  const inputDraft = chat.draft;
+  const managementScope = chat.scope;
   const target = Atom.make(suggestion ?? "");
   const trimmedTarget = Atom.make((get) => get(target).trim());
   const base = Atom.make("HEAD");
@@ -90,18 +82,19 @@ export function createWorktreeCreate({
     return result?.isSuccess ? result.data.resolution : undefined;
   });
   const creator = new MutationObserver(client, {
-    ...(chat === undefined ? {} : { mutationKey: chat.creationKey }),
+    mutationKey: chat.creationKey,
     mutationFn: async (
       request: Readonly<{
         input: Omit<WorktreeCreateInput, "sessionID">;
         target: ChatMutationTarget;
         draft: string;
+        scope: WorktreeScope;
       }>,
     ) => {
       const target = request.target;
       const identity =
         target.kind === "session" ? target.sessionID : await api.chat.planNewChat(target, request.draft);
-      if (target.kind === "new_chat") await chat?.delivered(identity);
+      if (target.kind === "new_chat") await chat.delivered(identity);
       const result = await api.createWorktree({ ...request.input, sessionID: identity });
       const operation = result.worktree?.projection?.switch;
       if (operation === undefined) throw new Error("Created worktree Switch authority is required");
@@ -119,7 +112,7 @@ export function createWorktreeCreate({
       }
       void submitSwitch(operation);
     },
-    onError: (error) => {
+    onError: (error, request) => {
       if (
         creator.hasListeners() &&
         error instanceof WorktreeError &&
@@ -139,13 +132,12 @@ export function createWorktreeCreate({
         navigator.replace({
           kind: "worktree",
           projectID,
-          sessionID,
           page: "list",
           openSession,
-          ...(chat === undefined ? {} : { chat }),
+          chat,
         }) !== "accepted"
       ) {
-        void refreshOpenWorktreeList(scope);
+        void refreshOpenWorktreeList(request.scope);
       }
     },
   });
@@ -169,12 +161,14 @@ export function createWorktreeCreate({
         if (baseRef === "") return;
         get.set(intent, null);
         const captured = get(readyTarget);
-        if (captured === null) return;
+        const scope = get(managementScope);
+        if (captured === null || scope === null) return;
         const draft = get(inputDraft);
         yield* Effect.tryPromise(async () =>
           creator.mutate({
             target: captured,
             draft,
+            scope,
             input: {
               resolution: authority,
               baseRef,

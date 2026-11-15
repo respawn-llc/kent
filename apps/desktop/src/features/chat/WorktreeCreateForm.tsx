@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { CreateTargetResolutionKind, errorMessage, type WorktreeScope } from "@/api";
+import { CreateTargetResolutionKind, errorMessage } from "@/api";
 import {
   replaceWorktreeListRead,
   useAppServices,
@@ -30,9 +30,7 @@ import type { createWorktreeActions } from "./WorktreeActions";
 
 type Props = Readonly<{
   projectID: string;
-  sessionID: string | null;
-  scope?: WorktreeScope;
-  chat?: ChatWorktreeBinding;
+  chat: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
   navigator: SidebarPageNavigator;
   actions: ReturnType<typeof createWorktreeActions>;
@@ -42,12 +40,7 @@ export function WorktreeCreateForm(props: Props) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
-  const scope = useMemo(
-    () =>
-      props.scope ??
-      (props.sessionID === null ? null : { kind: "session" as const, sessionID: props.sessionID }),
-    [props.scope, props.sessionID],
-  );
+  const scope = useAtomValue(props.chat.scope);
   const query = useQuery(worktreeListQueryOptions(api, scope));
   const header = useMemo(
     () => (
@@ -58,16 +51,15 @@ export function WorktreeCreateForm(props: Props) {
             kind: "worktree",
             page: "list",
             projectID: props.projectID,
-            sessionID: props.sessionID,
             openSession: props.openSession,
-            ...(props.chat === undefined ? {} : { chat: props.chat }),
+            chat: props.chat,
           })
         }
       >
         <ArrowLeft size={16} />
       </IconTooltipButton>
     ),
-    [props.navigator, props.projectID, props.sessionID, props.openSession, t],
+    [props.navigator, props.projectID, props.chat, props.openSession, t],
   );
   usePublishSidebarHeaderAction(header);
   useEffect(() => {
@@ -78,19 +70,18 @@ export function WorktreeCreateForm(props: Props) {
         kind: "worktree",
         page: "list",
         projectID: props.projectID,
-        sessionID: props.sessionID,
         openSession: props.openSession,
-        ...(props.chat === undefined ? {} : { chat: props.chat }),
+        chat: props.chat,
       });
     };
     document.addEventListener("keydown", back);
     return () => {
       document.removeEventListener("keydown", back);
     };
-  }, [props.navigator, props.projectID, props.sessionID, props.openSession]);
+  }, [props.navigator, props.projectID, props.chat, props.openSession]);
   if (query.data !== undefined)
     return scope === null ? null : (
-      <CreateFields {...props} scope={scope} suggestion={query.data.branchSuggestion} query={query} />
+      <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />
     );
   if (query.isError)
     return (
@@ -109,18 +100,15 @@ export function WorktreeCreateForm(props: Props) {
 
 function CreateFields({
   projectID,
-  sessionID,
   openSession,
   navigator,
   actions,
   suggestion,
   query,
-  scope,
   chat,
 }: Props &
   Readonly<{
     suggestion: string | undefined;
-    scope: WorktreeScope;
     query: UseQueryResult<Awaited<ReturnType<ReturnType<typeof useAppServices>["api"]["listWorktrees"]>>>;
   }>) {
   const { api } = useAppServices();
@@ -128,14 +116,13 @@ function CreateFields({
   const { push } = useStatusController();
   const { t } = useTranslation();
   const id = useId();
+  const scope = useAtomValue(chat.scope);
   const [model] = useState(() =>
     createWorktreeCreate({
       client,
       api,
       projectID,
-      sessionID,
-      scope,
-      ...(chat === undefined ? {} : { chat }),
+      chat,
       openSession,
       navigator,
       suggestion,
@@ -161,7 +148,7 @@ function CreateFields({
         body={errorMessage(query.isError ? query.error : resolution?.error)}
         retryLabel={t("app.retry")}
         onRetry={() => {
-          if (query.isError) void replaceWorktreeListRead(client, api, scope);
+          if (query.isError && scope !== null) void replaceWorktreeListRead(client, api, scope);
           else retryResolution(undefined);
         }}
       />

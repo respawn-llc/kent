@@ -22,19 +22,17 @@ import { useWorktreeActions } from "./WorktreeActions";
 
 type WorktreeCommandModel = Readonly<{
   deletion: ReturnType<typeof createWorktreeCommandDelete>;
-  actions: ReturnType<typeof createWorktreeCommandActions>;
+  actions: NonNullable<Atom.Type<ReturnType<typeof createWorktreeCommandActions>>>;
   preview: Atom.Writable<WorktreeDeletePreview | null>;
 }>;
 
 export function useWorktreeCommands({
   projectID,
-  sessionID,
   focusComposer,
   openSession,
   chat,
 }: Readonly<{
   projectID: string;
-  sessionID: string | null;
   focusComposer(): void;
   openSession(sessionID: string): void | Promise<void>;
   chat: ChatWorktreeBinding;
@@ -47,6 +45,7 @@ export function useWorktreeCommands({
   const { t } = useTranslation();
   const openOriginSession = useStableCallback(openSession);
   const managementScope = useAtomValue(chat.scope);
+  const sessionID = managementScope?.kind === "session" ? managementScope.sessionID : null;
   const temporarySelector = useAtomValue(chat.selector);
   const scope = useMemo(
     () =>
@@ -69,20 +68,22 @@ export function useWorktreeCommands({
             get.set(preview, value);
           },
         });
-        const actions = createWorktreeCommandActions({
-          client,
-          api,
-          projectID,
-          sessionID,
-          push,
-          t,
-          chat,
-          refreshOpenWorktreeList: dependencies.refreshOpenWorktreeList,
-          roots,
-          focusComposer,
-          openSession: openOriginSession,
-          deleteTarget: async (selector) => deletion.prepare(selector ?? temporarySelector),
-        });
+        const actions = get(
+          createWorktreeCommandActions({
+            client,
+            api,
+            projectID,
+            push,
+            t,
+            chat,
+            refreshOpenWorktreeList: dependencies.refreshOpenWorktreeList,
+            roots,
+            focusComposer,
+            openSession: openOriginSession,
+            deleteTarget: async (selector) => deletion.prepare(selector ?? temporarySelector),
+          }),
+        );
+        if (actions === null) return null;
         return {
           deletion,
           actions,

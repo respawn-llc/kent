@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { queryKeys, SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-facade";
-import { createTestSidebarNavigator } from "@/test-support/sidebar";
+import { createTestSidebarNavigator, createTestWorktreeBinding } from "@/test-support/sidebar";
 import { WorktreeBrowser } from "./WorktreeBrowser";
 
 import {
@@ -424,7 +424,7 @@ function ContextualWorktrees() {
           <WorktreeBrowser
             onOpenSession={vi.fn()}
             projectID={sessionTarget.projectID}
-            sessionID={sessionTarget.sessionID}
+            chat={createTestWorktreeBinding({ kind: "session", ...sessionTarget })}
             navigator={navigator}
             onCreate={vi.fn()}
             onSwitch={vi.fn()}

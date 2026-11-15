@@ -9,14 +9,12 @@ import { worktreeRow } from "./worktreePresentation";
 
 export function WorktreeControl({
   projectID,
-  sessionID,
   target,
   query,
   openSession,
   chat,
 }: Readonly<{
   projectID: string;
-  sessionID: string | null;
   chat: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
   target: ChatExecutionTarget | null;
@@ -50,7 +48,6 @@ export function WorktreeControl({
           const handle = roots.toggle({
             kind: "worktree",
             projectID,
-            sessionID,
             chat,
             page: "list",
             openSession,

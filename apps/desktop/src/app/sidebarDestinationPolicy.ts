@@ -27,7 +27,7 @@ export const sidebarDestinationPolicy: SidebarDestinationPolicy = {
   equals: (left, right) => {
     if (left.kind === "taskDetail" && right.kind === "taskDetail") return left.taskID === right.taskID;
     if (left.kind === "worktree" && right.kind === "worktree")
-      return left.sessionID === right.sessionID && left.chat === right.chat && left.page === right.page;
+      return left.chat === right.chat && left.page === right.page;
     if (left.kind === "processes" && right.kind === "processes")
       return sameProcessScope(left.scope, right.scope);
     if (left.kind === "custom" && right.kind === "custom")

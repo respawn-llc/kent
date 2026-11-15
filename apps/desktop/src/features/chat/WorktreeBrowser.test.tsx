@@ -5,7 +5,8 @@ import * as Atom from "effect/reactivity/Atom";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { useAtomValue } from "@effect/atom-react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
+import { WorktreeBrowser, BrowserProviders } from "./worktreeBrowserFixture.test";
 
 import {
   ChatRuntimeProvider,
@@ -13,10 +14,6 @@ import {
   createRefreshOpenWorktreeList,
   queryKeys,
   replaceWorktreeListRead,
-  SidebarHeaderActionProvider,
-  SidebarHeaderActionSlot,
-  SidebarRootContext,
-  SidebarRootOwner,
   worktreeTransitionOutcomeHandler,
 } from "@/app-facade";
 import { appI18n } from "@/i18n";
@@ -25,8 +22,8 @@ import {
   worktreeBrowserFixtureRoute,
   worktreeCommandFixtureRoutes,
 } from "@/test-support/api";
-import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
-import { createTestSidebarController, createTestSidebarNavigator } from "@/test-support/sidebar";
+import { createTestServices } from "@/test-support/app-services";
+import { createTestSidebarNavigator, createTestWorktreeBinding } from "@/test-support/sidebar";
 import {
   deferred,
   hydration,
@@ -49,27 +46,6 @@ import * as ui from "@/ui";
 
 type WorktreeList = Awaited<ReturnType<ApiService["listWorktrees"]>>;
 
-function BrowserProviders({
-  services,
-  children,
-}: Readonly<{ services: TestAppServices; children: ReactNode }>) {
-  const [roots] = useState(() => createTestSidebarController());
-  return (
-    <TestAppProviders services={services} skipAnimations>
-      <RegistryProvider>
-        <SidebarRootContext.Provider value={roots}>
-          <SidebarRootOwner>
-            <SidebarHeaderActionProvider>
-              <SidebarHeaderActionSlot />
-              {children}
-            </SidebarHeaderActionProvider>
-          </SidebarRootOwner>
-        </SidebarRootContext.Provider>
-      </RegistryProvider>
-    </TestAppProviders>
-  );
-}
-
 function createFormModel() {
   const services = createTestServices([]);
   const push = vi.fn();
@@ -78,8 +54,11 @@ function createFormModel() {
     client: new QueryClient(),
     api: services.api,
     projectID: "project-1",
-    sessionID: "33333333-3333-4333-8333-333333333333",
-    scope: { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+    chat: createTestWorktreeBinding({
+      kind: "session",
+      projectID: "project-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+    }),
     suggestion: "topic",
     navigator: createTestSidebarNavigator(),
     refreshOpenWorktreeList: vi.fn(),
@@ -120,7 +99,11 @@ it("keeps an invalid typed Worktree name editable and resumes resolution after c
       <QueryClientProvider client={client}>
         <WorktreeCreateForm
           projectID="project-1"
-          sessionID="33333333-3333-4333-8333-333333333333"
+          chat={createTestWorktreeBinding({
+            kind: "session",
+            projectID: "project-1",
+            sessionID: "33333333-3333-4333-8333-333333333333",
+          })}
           openSession={vi.fn()}
           navigator={createTestSidebarNavigator()}
           actions={actions}
@@ -166,7 +149,11 @@ it.each(["list", "target"] as const)(
           <WorktreeCreateForm
             projectID="project-1"
             openSession={vi.fn()}
-            sessionID="33333333-3333-4333-8333-333333333333"
+            chat={createTestWorktreeBinding({
+              kind: "session",
+              projectID: "project-1",
+              sessionID: "33333333-3333-4333-8333-333333333333",
+            })}
             navigator={createTestSidebarNavigator()}
             actions={actions}
           />
@@ -273,23 +260,6 @@ it.each(["base_ref", "form"] as const)("classifies Create rejection owned by %s"
     expect(push).toHaveBeenCalledTimes(1);
   }
 });
-
-function WorktreeBrowser({
-  onOpenSession = vi.fn(),
-  ...props
-}: Readonly<{ projectID: string; sessionID: string; onOpenSession?: (sessionID: string) => void }>) {
-  const [navigator] = useState(() => createTestSidebarNavigator());
-  return (
-    <Browser
-      {...props}
-      onOpenSession={onOpenSession}
-      navigator={navigator}
-      onCreate={vi.fn()}
-      onSwitch={vi.fn()}
-      refreshOpenWorktreeList={vi.fn()}
-    />
-  );
-}
 
 it.each(["33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"])(
   "opens origin Session %s without navigating to itself",
@@ -532,7 +502,6 @@ function ControlOwner() {
       composer={() => (
         <WorktreeControl
           projectID={target.projectID}
-          sessionID={target.sessionID}
           target={executionTarget}
           query={query}
           openSession={vi.fn()}
@@ -586,7 +555,7 @@ it("refreshes after a completed typed transition without changing Chat target or
         kind: "worktree",
         projectID: target.projectID,
         openSession: vi.fn(),
-        sessionID: target.sessionID,
+        chat: createTestWorktreeBinding({ kind: "session", ...target }),
         page: "list",
       })),
       target.sessionID,
@@ -860,7 +829,11 @@ it("closes confirmation eagerly and keeps deletion loading local to its row thro
       <QueryClientProvider client={client}>
         <Browser
           projectID="project-1"
-          sessionID="33333333-3333-4333-8333-333333333333"
+          chat={createTestWorktreeBinding({
+            kind: "session",
+            projectID: "project-1",
+            sessionID: "33333333-3333-4333-8333-333333333333",
+          })}
           navigator={navigator}
           onCreate={vi.fn()}
           onSwitch={vi.fn()}
@@ -930,7 +903,11 @@ it("preserves the list scroll position when its focused bottom Worktree disappea
         <QueryClientProvider client={client}>
           <Browser
             projectID="project-1"
-            sessionID="33333333-3333-4333-8333-333333333333"
+            chat={createTestWorktreeBinding({
+              kind: "session",
+              projectID: "project-1",
+              sessionID: "33333333-3333-4333-8333-333333333333",
+            })}
             navigator={createTestSidebarNavigator()}
             onCreate={vi.fn()}
             onSwitch={vi.fn()}
@@ -993,7 +970,11 @@ it("finishes an accepted deletion and its refresh after leaving the list destina
     <BrowserProviders services={services}>
       <Browser
         projectID="project-1"
-        sessionID="33333333-3333-4333-8333-333333333333"
+        chat={createTestWorktreeBinding({
+          kind: "session",
+          projectID: "project-1",
+          sessionID: "33333333-3333-4333-8333-333333333333",
+        })}
         navigator={createTestSidebarNavigator()}
         onCreate={vi.fn()}
         onSwitch={vi.fn()}
@@ -1059,6 +1040,51 @@ it.each(["operational", "precondition"] as const)(
     expect(preview).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledTimes(1);
     notice.mockRestore();
+  },
+);
+
+it.each([
+  ["mainWorkspace", true, true, [0, 0]],
+  ["registered", false, true, [1, 1]],
+  ["registered", true, true, [1, 0]],
+  ["registered", false, false, [0, 1]],
+  ["missing", false, false, [0, 1]],
+] as const)(
+  "offers eligible Workspace actions for %s main=%s available=%s",
+  async (kind, main, available, [switches, deletes]) => {
+    const fixture = worktreeBrowserFixtureEntry(kind, false);
+    const topology = fixture.topology?.topology;
+    if (topology?.case === "registered" && topology.value.git !== undefined) {
+      topology.value.git.isMainWorktree = main;
+      topology.value.git.pathAvailable = available;
+      if (!available && fixture.projection !== undefined) fixture.projection.switch = undefined;
+      if (main && fixture.projection !== undefined) fixture.projection.deletePreview = undefined;
+    }
+    const services = createTestServices([worktreeBrowserFixtureRoute([fixture])]);
+    const inventory = await services.api.listWorktrees({ kind: "session", sessionID: target.sessionID });
+    const entry = inventory.worktrees[0];
+    if (entry === undefined) throw new Error("Expected entry");
+    vi.spyOn(services.api, "listWorktrees").mockResolvedValue({
+      target: null,
+      branchSuggestion: undefined,
+      worktrees: [
+        { ...entry, projection: { ...entry.projection, switch: undefined, deletePreview: undefined } },
+      ],
+    });
+    render(
+      <BrowserProviders services={services}>
+        <WorktreeBrowser projectID="project-1" sessionID="33333333-3333-4333-8333-333333333333" workspace />
+      </BrowserProviders>,
+    );
+    await screen.findByRole("button", {
+      name: appI18n.t("chat.worktree.copyPath", { path: "/repo/feature" }),
+    });
+    expect(screen.queryAllByRole("button", { name: appI18n.t("chat.worktree.switch") })).toHaveLength(
+      switches,
+    );
+    expect(screen.queryAllByRole("button", { name: appI18n.t("chat.worktree.delete") })).toHaveLength(
+      deletes,
+    );
   },
 );
 

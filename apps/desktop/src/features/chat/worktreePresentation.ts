@@ -29,8 +29,28 @@ export function worktreeRow(entry: WorktreeListEntry, workspaceName: string, loc
     ref: ref === identity.title ? undefined : ref,
     badges: worktreeBadges(topologyIndicator, projection.isInUse),
     selected: selectedWorktree(entry, localSelector),
-    switch: projection.switch,
-    delete: localSelector === undefined ? projection.deletePreview : { selector: projection.selector },
+    ...rowActions(entry, git, localSelector),
+  };
+}
+
+function rowActions(
+  entry: WorktreeListEntry,
+  git: ReturnType<typeof rowFacts>["git"],
+  localSelector: string | null | undefined,
+) {
+  const main = entry.topology.topology.case === "mainWorkspace";
+  return {
+    localSwitch:
+      git?.pathAvailable === true && !selectedWorktree(entry, localSelector)
+        ? { selector: main ? null : entry.projection.selector }
+        : undefined,
+    switch: git?.pathAvailable === true ? entry.projection.switch : undefined,
+    delete:
+      main || git?.isMainWorktree === true
+        ? undefined
+        : localSelector === undefined
+          ? entry.projection.deletePreview
+          : { selector: entry.projection.selector },
   };
 }
 

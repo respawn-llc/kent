@@ -116,7 +116,6 @@ export function useChatDestination({
   );
   const worktreeCommands = useWorktreeCommands({
     projectID: opening.projectID,
-    sessionID: target?.kind === "session" ? target.sessionID : null,
     focusComposer,
     openSession: navigation.openParentSession,
     chat: worktreeBinding,

@@ -20,6 +20,7 @@ import {
   usePublishSidebarHeaderAction,
   useStatusController,
   type SidebarPageNavigator,
+  type ChatWorktreeBinding,
 } from "@/app-facade";
 import {
   ActionableListRow,
@@ -41,30 +42,23 @@ import { createWorktreeDelete, useWorktreeDelete } from "./WorktreeDelete";
 import { WorktreeDeleteButton } from "./WorktreeDeleteButton";
 
 export function WorktreeBrowser(props: Parameters<typeof WorktreeBrowserDestination>[0]) {
-  return (
-    <WorktreeBrowserDestination
-      key={JSON.stringify(props.scope ?? { kind: "session", sessionID: props.sessionID })}
-      {...props}
-    />
-  );
+  const scope = useAtomValue(props.chat.scope);
+  if (scope === null) return <LoadingState surface="plain" appearanceDelayMs={0} />;
+  return <WorktreeBrowserDestination key={JSON.stringify(scope)} {...props} />;
 }
 
 function WorktreeBrowserDestination({
   projectID,
-  sessionID,
   onCreate,
   onSwitch,
   navigator,
   switchPending,
   refreshOpenWorktreeList,
   onOpenSession,
-  scope,
-  workspace,
+  chat,
 }: Readonly<{
   projectID: string;
-  sessionID: string | null;
-  scope?: WorktreeScope;
-  workspace?: Readonly<{ name: string; selector: string | null; select(selector: string | null): void }>;
+  chat: ChatWorktreeBinding;
   onOpenSession(sessionID: string): void | Promise<void>;
   onCreate(): void;
   onSwitch(operation: WorktreeSwitch): void;
@@ -77,14 +71,17 @@ function WorktreeBrowserDestination({
   const client = useQueryClient();
   const { push } = useStatusController();
   const nativeWindowsAvailable = nativeBridge.capabilities.dialogWindows;
-  const managementScope = useMemo((): WorktreeScope => {
-    if (scope !== undefined) return scope;
-    if (sessionID === null) throw new Error("Worktree inventory requires a scope");
-    return { kind: "session", sessionID };
-  }, [scope, sessionID]);
+  const { managementScope, sessionID, workspace } = useBrowserTarget(chat);
   const query = useWorktreeList(managementScope);
   const [deletionModel] = useState(() =>
-    createWorktreeDelete({ api, client, scope: managementScope, refreshOpenWorktreeList, push, t }),
+    createWorktreeDelete({
+      api,
+      client,
+      scope: requireWorktreeScope(managementScope),
+      refreshOpenWorktreeList,
+      push,
+      t,
+    }),
   );
   const deletionActions = useWorktreeDelete(deletionModel);
   const selected = useAtomValue(deletionModel.selector);
@@ -214,9 +211,9 @@ function WorktreeBrowserDestination({
       <AnimatePresence initial={false}>
         {worktrees.map((entry) => {
           const row = worktreeRow(entry, workspaceLabel, workspace?.selector);
-          const isMain = entry.topology.topology.case === "mainWorkspace";
           const deletionOperation = row.delete;
           const switchOperation = row.switch;
+          const localSwitch = row.localSwitch;
           const deleting = deletionOperation !== undefined && busySelectors.has(deletionOperation.selector);
           return (
             <AnimatedReveal
@@ -293,12 +290,12 @@ function WorktreeBrowserDestination({
                           <ArrowRightLeft size={16} />
                         </IconTooltipButton>
                       )}
-                      {workspace === undefined || row.selected ? null : (
+                      {workspace === undefined || localSwitch === undefined ? null : (
                         <IconTooltipButton
                           size="icon-sm"
                           label={t("chat.worktree.switch")}
                           onClick={() => {
-                            workspace.select(isMain ? null : row.key);
+                            workspace.select(localSwitch.selector);
                           }}
                         >
                           <ArrowRightLeft size={16} />
@@ -315,6 +312,23 @@ function WorktreeBrowserDestination({
       </AnimatePresence>
     </div>
   );
+}
+
+function requireWorktreeScope(scope: WorktreeScope | null): WorktreeScope {
+  if (scope === null) throw new Error("Mounted Worktree inventory requires a scope");
+  return scope;
+}
+
+function useBrowserTarget(chat: ChatWorktreeBinding) {
+  const managementScope = useAtomValue(chat.scope);
+  const selector = useAtomValue(chat.selector);
+  const workspaceName = useAtomValue(chat.workspaceName);
+  const sessionID = managementScope?.kind === "session" ? managementScope.sessionID : null;
+  const workspace =
+    managementScope?.kind === "workspace" && workspaceName !== null
+      ? { name: workspaceName, selector, select: chat.select }
+      : undefined;
+  return { managementScope, sessionID, workspace };
 }
 
 function WorktreeOriginSessionAction({

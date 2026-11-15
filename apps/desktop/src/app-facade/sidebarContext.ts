@@ -66,8 +66,7 @@ export type SidebarDestination =
       openSession(sessionID: string): void | Promise<void>;
       mode?: SidebarMode;
       projectID: string;
-      sessionID: string | null;
-      chat?: ChatWorktreeBinding;
+      chat: ChatWorktreeBinding;
       page: "list" | "create";
     }>
   | (Readonly<{

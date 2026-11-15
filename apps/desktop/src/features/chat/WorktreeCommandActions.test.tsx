@@ -7,9 +7,17 @@ import { worktreeCommandFixture as fixture, worktreeCommandFixtureRoutes } from 
 import { appI18n } from "@/i18n";
 import type { WorktreeDeletePreview } from "@/api";
 import { useWorktreeActions } from "./WorktreeActions";
-import { createWorktreeCommandActions } from "./WorktreeCommandActions";
+import { createWorktreeCommandActions as createActions } from "./WorktreeCommandActions";
+import { createTestWorktreeBinding } from "@/test-support/sidebar";
 import { createWorktreeCommandDelete, useWorktreeCommandDelete } from "./WorktreeCommandDelete";
 import { deferred } from "@/test-support/chat-runtime";
+
+function createWorktreeCommandActions(input: Parameters<typeof createActions>[0]) {
+  const model = createActions(input);
+  const { result } = renderHook(() => useAtomValue(model), { wrapper: RegistryProvider });
+  if (result.current === null) throw new Error("Expected bound commands");
+  return result.current;
+}
 
 it.each([false, true])("resolves a command selector before Switch, current=%s", async (isCurrent) => {
   const services = createTestServices(worktreeCommandFixtureRoutes(isCurrent));
@@ -19,7 +27,11 @@ it.each([false, true])("resolves a command selector before Switch, current=%s", 
     client: new QueryClient(),
     api: services.api,
     projectID: "project-1",
-    sessionID: "33333333-3333-4333-8333-333333333333",
+    chat: createTestWorktreeBinding({
+      kind: "session",
+      projectID: "project-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+    }),
     roots: { open },
     focusComposer: vi.fn(),
     openSession: vi.fn(),
@@ -73,7 +85,11 @@ it("dispatches Leave without resolving or listing targets", async () => {
     client: new QueryClient(),
     api: services.api,
     projectID: "project-1",
-    sessionID: "33333333-3333-4333-8333-333333333333",
+    chat: createTestWorktreeBinding({
+      kind: "session",
+      projectID: "project-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+    }),
     roots: { open },
     focusComposer: vi.fn(),
     openSession: vi.fn(),
@@ -127,7 +143,11 @@ it.each(["resolveWorktreeSelector", "switchWorktree"] as const)(
       client: new QueryClient(),
       api: services.api,
       projectID: "project-1",
-      sessionID: "33333333-3333-4333-8333-333333333333",
+      chat: createTestWorktreeBinding({
+        kind: "session",
+        projectID: "project-1",
+        sessionID: "33333333-3333-4333-8333-333333333333",
+      }),
       roots: { open: vi.fn() },
       focusComposer: vi.fn(),
       openSession: vi.fn(),
@@ -181,7 +201,11 @@ it.each(["list", "create"] as const)("opens the ordinary %s destination", async 
     client: new QueryClient(),
     api: services.api,
     projectID: "project-1",
-    sessionID: "33333333-3333-4333-8333-333333333333",
+    chat: createTestWorktreeBinding({
+      kind: "session",
+      projectID: "project-1",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+    }),
     roots: { open },
     focusComposer: vi.fn(),
     openSession: vi.fn(),
@@ -194,7 +218,6 @@ it.each(["list", "create"] as const)("opens the ordinary %s destination", async 
   expect(open).toHaveBeenCalledWith(
     expect.objectContaining({
       kind: "worktree",
-      sessionID: "33333333-3333-4333-8333-333333333333",
       page: kind,
     }),
   );

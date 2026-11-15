@@ -41,8 +41,6 @@ it.each(["plan", "worktree"] as const)(
       client: new QueryClient(),
       api: services.api,
       projectID: target.projectID,
-      sessionID: null,
-      scope,
       chat: {
         scope: Atom.make(scope),
         selector: Atom.make("previous"),
