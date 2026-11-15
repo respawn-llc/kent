@@ -7,6 +7,7 @@ import (
 	brand "core/shared/config"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -21,6 +22,11 @@ func TestElevatedServiceOutputReachesInvokingProcess(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	for _, file := range []*os.File{output.stdout, output.stderr} {
+		if want := filepath.Join(os.TempDir(), "kent", "service"); filepath.Dir(file.Name()) != want {
+			t.Fatalf("service output path = %q, want directory %q", file.Name(), want)
+		}
+	}
 	original := []string{"service", "install", "--persistence-root", `C:\Users\Nek\.kent`}
 	args, stdout, stderr, err := openElevatedServiceOutput(output.commandArgs(original))
 	if err != nil {

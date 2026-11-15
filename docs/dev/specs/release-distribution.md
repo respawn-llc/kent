@@ -43,6 +43,7 @@
 - Interactive service-install prompts must default to Yes, including on upgrades. Unattended installs must skip service installation unless accepted through `-Service` or `-Yes` on Windows, or `--service` on macOS/Linux.
 - Declining or skipping service installation must show how to start the server manually with `kent serve`.
 - Windows must request service-install elevation only after acceptance. The elevated operation must use the invoking user's selected persistence root and return its failure diagnostics.
+- Temporary stdout and stderr capture for elevated Windows service operations must use the OS temporary directory's `kent/service` subdirectory.
 - Installing an existing matching service registration must reload or restart it so the installed binary takes effect. A differing registration must fail unless replacement is explicitly requested with `--force`.
 - Service-install failure must report the cause and leave the installed binary available. Installers must never report that the server started when service installation failed.
 - Windows one-command installs are served by `scripts/install.ps1`.

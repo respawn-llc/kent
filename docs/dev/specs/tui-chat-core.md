@@ -74,5 +74,6 @@
 ## Clipboard paste
 
 - `Ctrl+V`, `Ctrl+D`, `Alt+V`, and `Alt+D` read the system clipboard. Images are saved as temporary PNG files and their path is inserted. Text is inserted unchanged at the cursor.
+- Clipboard PNG paths must use `/tmp/kent/clip-*.png` on Unix and the OS temporary directory's `kent/clip-*.png` equivalent on Windows.
 - Terminal bracketed paste follows ordinary text-input handling and never causes a system clipboard read.
 - Paste failures, including unsupported or empty content and a missing host capability, appear as a transient status-line error that identifies the unavailable clipboard capability. Paste never fails silently.
