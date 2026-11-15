@@ -38,6 +38,44 @@ func TestIdleResumeEligibility(t *testing.T) {
 	}
 }
 
+func TestSuccessfulNoToolTurnsRemainActiveAcrossAnHour(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{}
+	for range 7 {
+		client.responses = append(client.responses, llm.Response{
+			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("done")},
+		})
+	}
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
+		Model: "gpt-6-sol", IdleResumeReminderSeconds: textutil.Value(3600),
+	})
+	now := time.Now().Add(-4 * time.Hour)
+	engine.transcriptRuntimeState().now = func() time.Time { return now }
+	for turn := range 6 {
+		if turn == 5 {
+			if _, err := runStepLoopInActiveTestRun(t, t.Context(), engine); err != nil {
+				t.Fatal(err)
+			}
+		} else if _, err := engine.SubmitUserMessage(t.Context(), "continue"); err != nil {
+			t.Fatal(err)
+		}
+		if activity := store.ContextFacts().LastAgentActivityAt; activity == nil || !activity.Equal(now) {
+			t.Fatalf("turn %d activity = %v, want %v", turn, activity, now)
+		}
+		if got := idleReminderCount(client.calls[turn]); got != 0 {
+			t.Fatalf("turn %d reminders = %d", turn, got)
+		}
+		now = now.Add(20 * time.Minute)
+	}
+	now = now.Add(41 * time.Minute)
+	if _, err := engine.SubmitUserMessage(t.Context(), "after real idle"); err != nil {
+		t.Fatal(err)
+	}
+	if got := idleReminderCount(client.calls[6]); got != 1 {
+		t.Fatalf("after idle reminders = %d", got)
+	}
+}
+
 func TestIdleReminderPrecedesAccompanyingHumanInput(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{
