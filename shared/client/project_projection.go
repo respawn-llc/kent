@@ -10,15 +10,11 @@ import (
 )
 
 func ProjectSummaryFromProto(project *projectpb.ProjectSummary) clientui.ProjectSummary {
-	availability := protoapi.ProjectAvailabilityFromProto(project.Availability)
 	return clientui.ProjectSummary{
-		ProjectID:    project.ProjectId,
-		ProjectKey:   project.ProjectKey,
-		DisplayName:  project.DisplayName,
-		RootPath:     project.RootPath,
-		Availability: availability,
-		SessionCount: int(project.SessionCount),
-		UpdatedAt:    project.UpdatedAt.AsTime(),
+		ProjectID:   project.ProjectId,
+		DisplayName: project.DisplayName,
+		RootPath:    project.RootPath,
+		UpdatedAt:   project.UpdatedAt.AsTime(),
 	}
 }
 
@@ -47,11 +43,9 @@ func ProjectBindingFromProto(binding *projectpb.ProjectBinding) serverapi.Projec
 func SessionSummaryFromProto(session *projectpb.SessionSummary) clientui.SessionSummary {
 	shortID := protoapi.SessionShortIDFromProto(session.ShortId)
 	sessionID := runtimeids.SessionIDFromProto(session.SessionId)
-	category := protoapi.SessionCategoryFromProto(session.Category)
 	return clientui.SessionSummary{
 		SessionID:          sessionID,
 		ShortID:            shortID,
-		Category:           category,
 		Name:               textutil.Pointer(session.Name),
 		FirstPromptPreview: textutil.Pointer(session.FirstPromptPreview),
 		UpdatedAt:          session.UpdatedAt.AsTime(),

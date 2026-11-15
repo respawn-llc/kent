@@ -301,6 +301,7 @@ func TestTaskSearchFiltersDurableCurrentNodeStatuses(t *testing.T) {
 			name: "active",
 			prepare: func(t *testing.T, fixture currentNodeViewFixture, task workflowstore.TaskRecord) {
 				startTaskSearchTask(t, fixture, task)
+				fixture.makeCurrentNodeReady(t, task.ID)
 			},
 			want: taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE,
 		},
@@ -372,7 +373,7 @@ func TestTaskSearchFiltersQueuedAndRunningCurrentNodeExecutions(t *testing.T) {
 	runningHandle := startTaskSearchScript(t, fixture, shellPath, running)
 	t.Cleanup(func() {
 		runningHandle.RequestStop()
-		_, _ = runningHandle.Wait(context.Background())
+		_ = runningHandle.Wait(context.Background())
 	})
 	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), 10*time.Millisecond, func() bool {
 		snapshots, snapshotErr := fixture.authority.CurrentWorkflowTaskExecutionSnapshots()
@@ -568,7 +569,7 @@ func startTaskSearchScript(
 	if err != nil {
 		t.Fatalf("PrepareDetachedScriptExecution: %v", err)
 	}
-	handle, launch, err := detached.Publish(context.Background(), func() error { return nil }, nil)
+	handle, launch, err := detached.Publish(context.Background(), func() error { return nil })
 	if err != nil {
 		t.Fatalf("Publish detached Script execution: %v", err)
 	}

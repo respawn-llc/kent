@@ -8,6 +8,7 @@ import (
 	"fmt"
 )
 import (
+	tuiinput "core/cli/tui/input"
 	"core/cli/tui/ongoing"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -223,7 +224,7 @@ func TestOngoingAllocatedInputFollowsCursor(t *testing.T) {
 					t.Fatalf("height %d input row %d = %q, want %q", height, row, got, line)
 				}
 			}
-			if realCursor && (snapshot.Cursor.Row != 6+expected.Cursor.Row-1 || snapshot.Cursor.Col != expected.Cursor.Col) {
+			if realCursor && (snapshot.Cursor.Row != 6+expected.Cursor.Row || snapshot.Cursor.Col != expected.Cursor.Col) {
 				t.Fatalf("cursor = %+v, want input cursor %+v", snapshot.Cursor, expected.Cursor)
 			}
 		}
@@ -276,8 +277,11 @@ func TestOngoingTranscriptControllerPlacesCursorAfterPrependedLiveSections(t *te
 		t.Fatalf("accept pending tool: %v", err)
 	}
 	snapshot := ongoingScreenFromOutput(t, ongoing.Size{Width: 48, Height: 10}, output.Bytes())
-	if snapshot.Cursor.Row != 7 || snapshot.Cursor.Col != 4 {
-		t.Fatalf("final cursor = %+v, want draft cell (7,4)", snapshot.Cursor)
+	cursorLine := snapshot.TextInRegion(analyzer.Region{
+		Top: snapshot.Cursor.Row, Bottom: snapshot.Cursor.Row + 1, Left: 0, Right: 48,
+	})
+	if strings.TrimSpace(cursorLine) != m.layout().mainInputPrefix()+m.mainEditor.Text() || snapshot.Cursor.Col != 4 {
+		t.Fatalf("final cursor = %+v on %q, want the draft's edited cell", snapshot.Cursor, cursorLine)
 	}
 }
 
@@ -286,8 +290,12 @@ func TestOngoingTranscriptControllerPreservesWrappedDisplayCursorTargetWithPrepe
 	m := sizedTestUIModel(newProjectedStaticUIModel(
 		WithUITerminalCursorState(newUITerminalCursorState())), width, 12)
 	testSetMainInput(m, strings.Repeat("界", 20)+" tail")
-	projected := m.layout().inputPaneProjection(width, m.layout().effectiveHeight(), uiThemeStyles(m.theme)).Cursor
-	if !projected.Visible {
+	field := tuiinput.NewField()
+	field.Editor = m.mainEditor
+	field.Prefix = m.layout().mainInputPrefix()
+	field.Cursor = true
+	rendered := field.Render(width)
+	if !rendered.Cursor.Visible {
 		t.Fatal("shared editor cursor projection is absent")
 	}
 	m.pendingWorkRefresh.collection = runtimeinput.PendingWork{Items: []runtimeinput.PendingWorkItem{
@@ -304,8 +312,11 @@ func TestOngoingTranscriptControllerPreservesWrappedDisplayCursorTargetWithPrepe
 	}
 
 	snapshot := ongoingScreenFromOutput(t, ongoing.Size{Width: width, Height: 12}, output.Bytes())
-	if snapshot.Cursor.Row != 9 || snapshot.Cursor.Col != projected.Col {
-		t.Fatalf("wrapped cursor = %+v, want last content row and column %d", snapshot.Cursor, projected.Col)
+	cursorLine := snapshot.TextInRegion(analyzer.Region{
+		Top: snapshot.Cursor.Row, Bottom: snapshot.Cursor.Row + 1, Left: 0, Right: width,
+	})
+	if strings.TrimSpace(cursorLine) != strings.TrimSpace(rendered.Lines[rendered.Cursor.Row]) || snapshot.Cursor.Col != rendered.Cursor.Col {
+		t.Fatalf("wrapped cursor = %+v on %q, want the editor's cursor line and column %d", snapshot.Cursor, cursorLine, rendered.Cursor.Col)
 	}
 }
 
@@ -347,7 +358,7 @@ func TestOngoingFrameInputAskViewportAndCursorShareBoundedProjection(t *testing.
 		t.Fatal(err)
 	}
 	snapshot := ongoingScreenFromOutput(t, frame.Size, output.Bytes())
-	if snapshot.Cursor.Row != pane.Cursor.Row-1 || snapshot.Cursor.Col != pane.Cursor.Col {
+	if snapshot.Cursor.Row != pane.Cursor.Row || snapshot.Cursor.Col != pane.Cursor.Col {
 		t.Fatalf("ask cursor = %+v, want bounded pane cursor %+v", snapshot.Cursor, pane.Cursor)
 	}
 }

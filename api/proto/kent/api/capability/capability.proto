@@ -147,8 +147,6 @@ message ImportConflictFact {
 
 message ImportChoiceFact {
   ImportChoiceRef ref = 1 [(buf.validate.field).required = true];
-  optional string import_provider_id = 2 [(buf.validate.field).string.min_len = 1];
-  optional string source_root_path = 3 [(buf.validate.field).string.min_len = 1];
   uint32 item_count = 4;
 }
 

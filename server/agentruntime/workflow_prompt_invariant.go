@@ -1,24 +1,31 @@
 package runtime
 
 import (
+	"errors"
+
 	"core/server/llm"
+	"core/shared/invariant"
 )
 
-func (e *Engine) assertWorkflowInstructionsPresent(stepNo int) {
-	if stepNo <= 1 {
-		return
-	}
+var errWorkflowInstructionsMissing = errors.New("workflow instructions are missing")
+
+func (e *Engine) validateWorkflowInstructions() error {
 	if !e.isWorkflowAgent() {
-		return
+		return nil
 	}
 	for _, item := range e.transcriptRuntimeState().SnapshotItems() {
 		if item.Type == llm.ResponseItemTypeMessage &&
 			item.MessageType != nil &&
 			*item.MessageType == llm.MessageTypeWorkflowMode {
-			return
+			return nil
 		}
 	}
-	panic("workflow mode skipped prompt")
+	return invariant.OperationalError(
+		errWorkflowInstructionsMissing,
+		e.cfg.Debug,
+		"validate_workflow_instructions",
+		errors.New("active Workflow has no workflow-mode context item"),
+	)
 }
 
 func (e *Engine) isWorkflowAgent() bool {

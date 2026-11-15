@@ -33,7 +33,7 @@ export type WorktreeTransition =
   | Readonly<{ kind: "resolved"; resolution: WorktreeSelectorResolution }>;
 export type WorktreeDeletePreview = DeepReadonly<DeletePreviewSuccess>;
 export type WorktreeCreateTargetResolution = DeepReadonly<CreateTargetResolution>;
-export type WorktreeDeleteConfirmationChoice = "confirm" | "confirm_and_branch";
+export type WorktreeDeleteConfirmationChoice = "confirm" | "confirm_and_branch" | "confirm_without_branch";
 export type WorktreeCreateInput = Readonly<{
   sessionID: string;
   setupOperationID: SetupOperationID;

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"core/internal/testharness/testsetup"
+	"core/server/operation"
 	"core/server/workflow"
 	"core/server/workflowstore"
 	"core/server/worktreeservice"
@@ -20,7 +21,10 @@ func prepareMissingWorktreeCompletion(t *testing.T, f *currentNodeRunnerFixture,
 	t.Helper()
 	testsetup.InitializeGitRepository(t, f.workspace)
 	git := worktree.NewGitInspector(nil)
+	operations := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = operations.Close() })
 	service := worktree.NewService(f.metadata, git, f.authority, f.runtimes, nil, worktree.ServiceOptions{
+		Operations:                    operations,
 		BaseDir:                       f.cfg.Settings.Worktrees.BaseDir,
 		RuntimeActivitySnapshotReader: f.runtimes,
 	})

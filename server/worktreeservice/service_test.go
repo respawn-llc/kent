@@ -519,7 +519,7 @@ func TestCreateWorktreeSetupTimeoutKeepsWorktreeAndSessionTarget(t *testing.T) {
 	}
 }
 
-func TestCreateWorktreeSetupCancellationKeepsWorktreeAndSessionTarget(t *testing.T) {
+func TestCreateWorktreeShutdownCancelsSetupAndKeepsWorktreeAndSessionTarget(t *testing.T) {
 	env := newServiceTestEnv(t)
 	startedPath := filepath.Join(t.TempDir(), "started")
 	scriptRelpath := filepath.Join("scripts", "cancel.sh")
@@ -553,20 +553,26 @@ func TestCreateWorktreeSetupCancellationKeepsWorktreeAndSessionTarget(t *testing
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for canceled create")
 	}
-	if err == nil {
-		t.Fatal("CreateWorktree succeeded, want cancellation error")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation = %v", err)
+	}
+	if err := env.service.operations.Close(); err != nil {
+		t.Fatalf("close operations: %v", err)
 	}
 	assertServiceTestSessionTarget(t, env, "", env.workspaceRoot)
 	evt := nextSetupTerminalEvent(t, sub)
 	if evt.GetFailed() == nil || evt.GetFailed().Cause.GetCanceled() == nil {
 		t.Fatalf("canceled setup event = %+v", evt)
 	}
-	var retained *worktreecontract.SetupRetainedError
-	if !errors.As(err, &retained) || retained.Details.Worktree == nil {
-		t.Fatalf("canceled setup error = %T %v, want retained worktree", err, err)
+	if len(mustListWorktrees(t, env).Worktrees) != 2 {
+		t.Fatal("shutdown removed the created Worktree")
 	}
-	if _, statErr := os.Stat(retained.Details.Worktree.Kent.CanonicalRoot); statErr != nil {
-		t.Fatalf("expected canceled setup worktree kept, stat err=%v", statErr)
+	retained := evt.GetFailed().RetainedWorktree
+	if retained == nil || retained.Kent == nil {
+		t.Fatal("shutdown failure did not identify the retained Worktree")
+	}
+	if _, err := os.Stat(retained.Kent.CanonicalRoot); err != nil {
+		t.Fatalf("retained Worktree directory: %v", err)
 	}
 }
 

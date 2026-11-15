@@ -1288,11 +1288,11 @@ func TestWorkflowGraphSaveValidatesAndPersistsV1NodeGroups(t *testing.T) {
 	if savedRecord.Version != f.record.Version+1 {
 		t.Fatalf("valid node group version = %d, want %d", savedRecord.Version, f.record.Version+1)
 	}
-	if len(savedDef.NodeGroups) != 1 || len(savedDef.NodeGroups[0].MemberNodeIDs) != 3 {
-		t.Fatalf("saved node groups = %+v, want one group with three members", savedDef.NodeGroups)
-	}
-	if savedGroupID, present := workflow.NodeGroupID(nodeByID(t, savedDef, testNodeID("node-join-"+f.workflowID.String()))); !present || savedGroupID != groupID {
-		t.Fatalf("saved join group id not persisted: %+v", nodeByID(t, savedDef, testNodeID("node-join-"+f.workflowID.String())))
+	for _, key := range []string{"node-impl-a-", "node-impl-b-", "node-join-"} {
+		node := nodeByID(t, savedDef, testNodeID(key+f.workflowID.String()))
+		if savedGroupID, present := workflow.NodeGroupID(node); !present || savedGroupID != groupID {
+			t.Fatalf("saved node group id not persisted: %+v", node)
+		}
 	}
 
 	invalid := f.request(savedRecord.Version, false, savedDef)

@@ -50,7 +50,6 @@ func TestPendingWorkQueuePrecedesSteer(t *testing.T) {
 	queue := &runtimepb.PendingWorkItem{
 		Id:             "11111111-1111-4111-8111-111111111111",
 		Lane:           runtimepb.PendingWorkLane_PENDING_WORK_LANE_QUEUE,
-		Kind:           runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MESSAGE,
 		State:          runtimepb.PendingWorkItemState_PENDING_WORK_ITEM_STATE_PENDING,
 		CanonicalInput: "queued",
 		Payload:        &runtimepb.PendingWorkItem_Message{Message: &runtimepb.PendingWorkMessage{Text: "queued"}},
@@ -58,7 +57,6 @@ func TestPendingWorkQueuePrecedesSteer(t *testing.T) {
 	steer := &runtimepb.PendingWorkItem{
 		Id:             "22222222-2222-4222-8222-222222222222",
 		Lane:           runtimepb.PendingWorkLane_PENDING_WORK_LANE_STEER,
-		Kind:           runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MESSAGE,
 		State:          runtimepb.PendingWorkItemState_PENDING_WORK_ITEM_STATE_PENDING,
 		CanonicalInput: "steered",
 		Payload:        &runtimepb.PendingWorkItem_Message{Message: &runtimepb.PendingWorkMessage{Text: "steered"}},

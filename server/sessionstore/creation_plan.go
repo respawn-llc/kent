@@ -392,7 +392,6 @@ func materializeCreationArtifacts(ctx context.Context, plan CreationPlan, record
 	if err != nil {
 		return err
 	}
-	log.durabilityObserver = opts.durabilityObserver
 	var cloneSnapshot *PersistedStoreSnapshot
 	if plan.clone != nil {
 		if opts.observer == nil {

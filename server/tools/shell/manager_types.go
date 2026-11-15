@@ -41,7 +41,6 @@ const (
 	shellOutputNotifyInterval      = 50 * time.Millisecond
 	maxFullLogPostprocessBytes     = 2 << 20
 	completedProcessRetentionLimit = 1_000
-	backgroundLogDirPrefix         = "kent-bg-shells-"
 	initialProcessID               = 1000
 )
 
@@ -153,6 +152,7 @@ type Snapshot struct {
 }
 
 type ExecRequest struct {
+	OwnerSessionShortID  runtimeids.SessionShortID
 	Command              []string
 	DisplayCommand       string
 	OwnerSessionID       string
@@ -184,22 +184,9 @@ type ExecResult struct {
 type BackgroundNoticeSummary struct {
 	DetailText    string
 	CondensedText string
-	LineCount     int
 	Truncated     bool
 	LogPath       string
 	output        backgroundNoticeOutput
-}
-
-type OutputChunk struct {
-	ProcessID       string
-	OffsetBytes     int64
-	NextOffsetBytes int64
-	Text            string
-}
-
-type OutputSubscription interface {
-	Next(ctx context.Context) (OutputChunk, error)
-	Close() error
 }
 
 type BackgroundOutputMode string
@@ -216,10 +203,9 @@ type BackgroundNoticeOptions struct {
 }
 
 type WriteRequest struct {
-	SessionID      string
-	Input          string
-	YieldTime      time.Duration
-	MaxOutputChars int
+	SessionID string
+	Input     string
+	YieldTime time.Duration
 }
 
 type PollingCanceledError struct {
@@ -243,40 +229,42 @@ func (e *PollingCanceledError) Unwrap() error {
 }
 
 type processEntry struct {
-	id                   string
-	activityID           uuid.UUID
-	ownerSessionID       string
-	ownerStepID          string
-	executionCorrelation *runtimeids.ExecutionCorrelation
-	command              string
-	workdir              string
-	raw                  bool
-	postprocessor        *postprocess.Runner
-	preserveOutput       bool
-	startedAt            time.Time
-	finishedAt           time.Time
-	exitCode             *int
-	state                string
-	backgrounded         bool
-	logPath              string
-	cmd                  *exec.Cmd
-	stdin                io.WriteCloser
-	log                  *asyncLogWriter
-	running              bool
-	stdinOpen            bool
-	lastUpdatedAt        time.Time
-	lastSignaledAt       time.Time
-	recentOutput         []byte
-	pendingOutput        []byte
-	notify               chan struct{}
-	done                 chan struct{}
-	outputFinalized      chan struct{}
-	killRequested        bool
-	terminalEvent        *terminalEventCache
-	terminalDelivered    bool
-	mu                   sync.Mutex
-	interactMu           sync.Mutex
-	publishedSnapshot    atomic.Pointer[Snapshot]
+	id                    string
+	activityID            uuid.UUID
+	ownerSessionID        string
+	ownerStepID           string
+	executionCorrelation  *runtimeids.ExecutionCorrelation
+	command               string
+	workdir               string
+	raw                   bool
+	postprocessor         *postprocess.Runner
+	preserveOutput        bool
+	startedAt             time.Time
+	finishedAt            time.Time
+	exitCode              *int
+	state                 string
+	backgrounded          bool
+	logPath               string
+	cmd                   *exec.Cmd
+	stdin                 io.WriteCloser
+	log                   *asyncLogWriter
+	running               bool
+	stdinOpen             bool
+	lastUpdatedAt         time.Time
+	lastSignaledAt        time.Time
+	recentOutput          []byte
+	recentOutputTruncated bool
+	pendingOutput         []byte
+	notify                chan struct{}
+	done                  chan struct{}
+	outputFinalized       chan struct{}
+	killRequested         bool
+	terminalEvent         *terminalEventCache
+	terminalDelivered     bool
+	accessOrder           atomic.Uint64
+	mu                    sync.Mutex
+	interactMu            sync.Mutex
+	publishedSnapshot     atomic.Pointer[Snapshot]
 }
 
 func (p *processEntry) signal() {
@@ -374,6 +362,7 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 	}
 	p.recentOutput = append(p.recentOutput, chunk...)
 	if len(p.recentOutput) > maxRecentPreviewBytes {
+		p.recentOutputTruncated = true
 		p.recentOutput = append([]byte(nil), p.recentOutput[len(p.recentOutput)-maxRecentPreviewBytes:]...)
 	}
 	p.lastUpdatedAt = time.Now().UTC()
@@ -383,6 +372,12 @@ func (p *processEntry) writeOutput(chunk []byte) error {
 		p.signal()
 	}
 	return nil
+}
+
+func (p *processEntry) recentOutputSnapshot() ([]byte, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]byte(nil), p.recentOutput...), p.recentOutputTruncated
 }
 
 func (p *processEntry) setExited(exitCode int, state string) {
@@ -407,11 +402,10 @@ func (p *processEntry) closeOnExit(exitCode int, state string) Snapshot {
 	stdin, log := p.detachResourcesLocked()
 	p.mu.Unlock()
 	closeDetachedResources(stdin, log)
-	p.finalizeOutput()
 	p.mu.Lock()
-	p.running = false
 	snapshot := p.publishSnapshotLocked()
 	p.mu.Unlock()
+	p.finalizeOutput()
 	return snapshot
 }
 

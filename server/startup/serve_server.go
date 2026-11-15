@@ -29,6 +29,7 @@ import (
 	onboardingpb "core/shared/protoapi/gen/kent/api/onboarding"
 	serverpb "core/shared/protoapi/gen/kent/api/server"
 	"core/shared/protocol"
+	"core/shared/proxyhttp"
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -36,21 +37,9 @@ import (
 
 type ServeServer struct {
 	*core.Core
-	deps *startupGatewayDependencies
-	cfg  config.App
-}
-
-func (s *ServeServer) Config() config.App {
-	if s == nil {
-		return config.App{}
-	}
-	if s.Core != nil {
-		return s.Core.Config()
-	}
-	if s.deps != nil {
-		return s.deps.snapshotConfig()
-	}
-	return s.cfg
+	deps         *startupGatewayDependencies
+	cfg          config.App
+	cancelSignIn context.CancelFunc
 }
 
 var localSocketListener = listenLocalSocket
@@ -78,8 +67,16 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	if err := serverbootstrap.ConvertProviderConfiguration(ctx, root); err != nil {
 		return nil, err
 	}
-	bootstrapReq.Environment, err = serverbootstrap.LoadEnvironment(root)
+	environment, err := serverbootstrap.LoadEnvironment(root)
 	if err != nil {
+		return nil, err
+	}
+	bootstrapReq.Environment = environment.Lookup
+	proxy, err := config.ResolveServerProxy(root, environment.FileLookup)
+	if err != nil {
+		return nil, err
+	}
+	if err := proxyhttp.Configure(proxy); err != nil {
 		return nil, err
 	}
 	resolved, err := serverbootstrap.ResolveConfig(bootstrapReq)
@@ -89,7 +86,13 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	}
 	cfg := resolved.Config
 	store := auth.NewFileStore(config.GlobalAuthConfigPath(cfg))
-	authSupport, err := serverbootstrap.BuildAuthSupport(ctx, root, store, bootstrapReq.Environment)
+	signInCtx, cancelSignIn := context.WithCancel(ctx)
+	defer func() {
+		if !transferred {
+			cancelSignIn()
+		}
+	}()
+	authSupport, err := serverbootstrap.BuildAuthSupport(signInCtx, root, store, bootstrapReq.Environment)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +102,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 			return nil, err
 		}
 		transferred = true
-		return &ServeServer{Core: appCore, cfg: appCore.Config()}, nil
+		return &ServeServer{Core: appCore, cfg: appCore.Config(), cancelSignIn: cancelSignIn}, nil
 	}
 	finalizer, err := onboarding.NewFinalizer(onboarding.Options{
 		Baseline:        cfg.Settings,
@@ -114,7 +117,7 @@ func StartServeServer(ctx context.Context, req Request) (*ServeServer, error) {
 	}
 	deps := newStartupGatewayDependencies(ctx, cfg, bootstrapReq, authSupport, rootLease, finalizer)
 	transferred = true
-	return &ServeServer{deps: deps, cfg: cfg}, nil
+	return &ServeServer{deps: deps, cfg: cfg, cancelSignIn: cancelSignIn}, nil
 }
 
 func (s *ServeServer) Serve(ctx context.Context) error {
@@ -129,15 +132,18 @@ func (s *ServeServer) Serve(ctx context.Context) error {
 	}
 	rpc, err := s.startRPC()
 	if err != nil {
+		s.stopSignIn()
 		return err
 	}
 	defer s.close()
 	select {
 	case <-ctx.Done():
+		s.stopSignIn()
 		rpc.shutdown()
 		rpc.wait()
 		return ctx.Err()
 	case serveErr := <-rpc.errCh:
+		s.stopSignIn()
 		rpc.shutdown()
 		rpc.waitRemaining()
 		return serveErr
@@ -158,6 +164,7 @@ func (s *ServeServer) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.stopSignIn()
 	if s.Core != nil {
 		return s.Core.Close()
 	}
@@ -165,6 +172,12 @@ func (s *ServeServer) Close() error {
 		return s.deps.Close()
 	}
 	return nil
+}
+
+func (s *ServeServer) stopSignIn() {
+	if s.cancelSignIn != nil {
+		s.cancelSignIn()
+	}
 }
 
 func (s *ServeServer) close() {
@@ -591,12 +604,6 @@ func (d *startupGatewayDependencies) ChatMutationClient() apicontract.ChatMutati
 func (d *startupGatewayDependencies) SessionLifecycleClient() apicontract.SessionLifecycleService {
 	if c := d.activeCore(); c != nil {
 		return c.SessionLifecycleClient()
-	}
-	return nil
-}
-func (d *startupGatewayDependencies) SessionRuntimeClient() apicontract.SessionRuntimeService {
-	if c := d.activeCore(); c != nil {
-		return c.SessionRuntimeClient()
 	}
 	return nil
 }

@@ -11,8 +11,9 @@ import (
 )
 
 type ExecutionIdentity struct {
-	StepID     string
-	ToolCallID clientui.ToolCallID
+	StepID         string
+	ToolCallID     clientui.ToolCallID
+	SessionShortID *runtimeids.SessionShortID
 }
 
 type executionIdentityContextKey struct{}

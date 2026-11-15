@@ -96,7 +96,7 @@ function TaskDetailDestination({
   const taskMissing = detail.isError && isTaskMissingError(detail.error);
   useSidebarBackWhen(taskMissing, navigator);
   if (detail.isPending) {
-    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={t("states.loading")} />;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} />;
   }
   if (detail.isError) {
     if (taskMissing && navigator !== undefined) return null;

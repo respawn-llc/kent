@@ -198,7 +198,7 @@ func newApprovalActionHarness(t *testing.T, options approvalActionHarnessOptions
 	t.Cleanup(func() {
 		h.release()
 		handle.RequestStop()
-		_, _ = handle.Wait(context.Background())
+		_ = handle.Wait(context.Background())
 		requireApproval(t, authority.Close(context.Background()) == nil, "close Approval action authority")
 	})
 	return h
@@ -278,7 +278,7 @@ func requireApprovalActionOutcome(t *testing.T, result promptBatchCallResult, wa
 func waitApprovalHandle(t *testing.T, h *approvalActionHarness) error {
 	t.Helper()
 	done := make(chan error, 1)
-	go func() { _, err := h.handle.Wait(context.Background()); done <- err }()
+	go func() { err := h.handle.Wait(context.Background()); done <- err }()
 	select {
 	case err := <-done:
 		return err
@@ -627,7 +627,7 @@ func TestApprovalActionRuntimeInterruptWinnerOrders(t *testing.T) {
 				requireApprovalActionOutcome(t, answer, want)
 				waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
-				_, err := h.handle.Wait(waitCtx)
+				err := h.handle.Wait(waitCtx)
 				requireApproval(t, !errors.Is(err, context.DeadlineExceeded), "Runtime interrupt did not stop Agent Step")
 				requireApprovalEffects(t, h, commentary, approvalFirst)
 			})

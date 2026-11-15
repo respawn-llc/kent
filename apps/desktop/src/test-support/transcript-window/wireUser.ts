@@ -1,6 +1,5 @@
 import { create } from "@app/server-api-contract";
 import * as T from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
-import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { ApiClient } from "@/api/composition";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 
@@ -16,7 +15,6 @@ export async function readWireUser(sourceID: string) {
             value: {
               transcript: {
                 sessionId: sessionID,
-                conversationFreshness: ConversationFreshness.ESTABLISHED,
                 entries: [
                   {
                     visibility: T.EntryVisibility.ONGOING,

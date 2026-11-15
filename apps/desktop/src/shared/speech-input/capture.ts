@@ -276,10 +276,8 @@ const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
   const analyser = {
     frequencyBinCount: 56,
     getByteFrequencyData: (data: Uint8Array) => {
-      // Match Web Audio's default decibel range rather than mapping linear
-      // pressure directly to pixels (ordinary speech would barely move).
-      const decibels = 20 * Math.log10(power);
-      data.fill(Math.round(Math.max(0, Math.min(1, (decibels + 100) / 70)) * 255));
+      // Native capture already converts dBFS to normalized linear amplitude.
+      data.fill(Math.round(Math.max(0, Math.min(1, power)) * 255));
     },
   };
   yield* Effect.acquireRelease(

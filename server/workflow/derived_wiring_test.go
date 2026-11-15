@@ -67,6 +67,24 @@ func TestDeriveWiringFiltersAutoConsumedSelectorProvisionFields(t *testing.T) {
 	})
 }
 
+func TestJoinRequirementsExcludeDormantProtectedParameters(t *testing.T) {
+	def := joinParameterWorkflow(t)
+	edge := edgeByIDForDerivedTest(t, &def, "edge_branch_a_join")
+	edge.Parameters = append(edge.Parameters,
+		workflow.Parameter{Key: "role", Purpose: workflow.ParameterPurposeTargetAssignee},
+		workflow.Parameter{Key: "effort", Purpose: workflow.ParameterPurposeTargetThinking},
+	)
+	derived := workflow.DeriveWiring(def)
+	for _, field := range derived.RequiredProviderFieldsForJoinEdge(edge.ID) {
+		if field.Name == "role" || field.Name == "effort" {
+			t.Fatalf("Join requires dormant selector: %+v", field)
+		}
+	}
+	if len(derived.RequiredProviderFieldsForJoinEdge(edge.ID)) == 0 {
+		t.Fatal("Join lost ordinary provider requirements")
+	}
+}
+
 func TestDeriveWiringUnionsFanoutBranchParametersPerTransitionGroup(t *testing.T) {
 	def := fanoutParameterWorkflow(t)
 

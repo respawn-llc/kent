@@ -34,7 +34,6 @@ func (m *uiModel) applyRuntimeMainViewState(view *runtimepb.MainView) tea.Cmd {
 	m.questionsEnabled = status.QuestionsEnabled
 	m.fastModeAvailable = status.FastModeAvailable
 	m.fastModeEnabled = status.FastModeEnabled
-	m.conversationFreshness = status.ConversationFreshness
 	m.setRuntimeContextUsage(view.Session.SessionId, status.ContextUsage)
 	if view.Activity != nil {
 		if err := m.applyRuntimeActivityProjection(view.Activity); err != nil {
@@ -135,7 +134,8 @@ func (m *uiModel) statusLineSpinning() bool {
 	if m == nil {
 		return false
 	}
-	if m.sessionPreparationPending() || m.isReviewerActive() || m.hasPendingInputAdmission() {
+	if m.sessionPreparationPending() || m.isReviewerActive() || m.hasPendingInputAdmission() ||
+		(m.eventDispatcher != nil && m.eventDispatcher.initialHistoryPending) {
 		return true
 	}
 	return m.runtimeActivityBusy() && m.activity != uiActivityQuestion
@@ -184,7 +184,6 @@ func (m *uiModel) localRuntimeStatus() *runtimepb.Status {
 		QuestionsEnabled:      m.questionsEnabled,
 		FastModeAvailable:     m.fastModeAvailable,
 		FastModeEnabled:       m.fastModeEnabled,
-		ConversationFreshness: m.conversationFreshness,
 		ThinkingLevel:         m.thinkingLevel,
 	}
 }

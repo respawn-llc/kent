@@ -852,7 +852,7 @@ function countsQuery(
 ) {
   return {
     data: established
-      ? { projectID: "project-1", definitions: projectTaskGroupDefinitions, counts, generatedAt: 1 }
+      ? { projectID: "project-1", definitions: projectTaskGroupDefinitions, counts }
       : undefined,
     error,
     isError: error !== null,
@@ -890,7 +890,6 @@ function groupData(
             scope: { projectID: "project-1", workflowID: null },
             matchingWorkflowCardinality: workflowCardinality(fixture.board.data.workflows.length),
             nextOffset: null,
-            generatedAt: 1,
             tasks: establishedTasks,
           },
         ]

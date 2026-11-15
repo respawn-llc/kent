@@ -149,7 +149,7 @@ func TestWorkspaceManagementKeepsForeignCallerExecutionRunning(t *testing.T) {
 	release()
 	ctx, cancel := context.WithTimeout(env.ctx, 5*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(ctx); err != nil {
+	if err := handle.Wait(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

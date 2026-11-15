@@ -4,14 +4,14 @@ import * as Effect from "effect/Effect";
 import type { TFunction } from "i18next";
 import {
   ContractError,
-  type ChatContext,
+  type ChatMainView,
   type ChatSettingsTarget,
   type ChatSettingsRead,
   type ChatSettingsMutation,
   type ChatSettingsMutationResponse,
   type ChatSettingsSnapshot,
 } from "@/api";
-import { queryAtom, type AppServices } from "@/app-facade";
+import { queryAtom, queryKeys, type AppServices } from "@/app-facade";
 import { showStatusToast } from "@/ui";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
 import { loadedState, loadingState, settingsReducer, type SettingsState } from "./chatSettingsState";
@@ -94,13 +94,28 @@ export function createChatSettingsViewModel({
       read,
       state,
       publishSettings,
-      publish(
-        response: ChatSettingsMutationResponse,
-        onContextChange: ((context: ChatContext) => void) | undefined,
-      ) {
+      publish(response: ChatSettingsMutationResponse) {
         if (get.get(target) !== selected || !observer.hasListeners()) return;
         publishSettings(response);
-        onContextChange?.(response.context);
+        const context = response.context;
+        client.setQueryData<ChatMainView>(queryKeys.chatMainView(response.session.sessionID), (view) =>
+          view === undefined
+            ? undefined
+            : {
+                ...view,
+                status: {
+                  ...view.status,
+                  autoCompactionEnabled: context.autoCompactionEnabled,
+                  compactionMode: context.compactionMode,
+                  compactionCount: context.completedCompactionCount,
+                  contextUsage: {
+                    ...view.status.contextUsage,
+                    usedTokens: context.usedTokens,
+                    windowTokens: context.contextWindowTokens,
+                  },
+                },
+              },
+        );
         if (response.result.kind === "rejected")
           report(t(`chatSettings.rejections.${response.result.reason}`));
       },
@@ -115,7 +130,6 @@ export function createChatSettingsViewModel({
   const activate = Atom.fn<
     Readonly<{
       operation: ChatSettingsMutation;
-      onContextChange?(context: ChatContext): void;
       completed(result: ChatSettingsMutationResponse | null): void;
       rejected(error: Error): void;
     }>
@@ -163,7 +177,6 @@ export function createChatSettingsViewModel({
         session: Extract<ChatSettingsTarget, { kind: "session" }>;
         input: Readonly<{
           operation: ChatSettingsMutation;
-          onContextChange?(context: ChatContext): void;
           completed(result: Response | null): void;
           rejected(error: Error): void;
         }>;
@@ -171,7 +184,7 @@ export function createChatSettingsViewModel({
       }>,
     ) => services.api.chat.mutateSettings(input.session, input.input.operation),
     onSuccess: (result, { scope, input }) => {
-      scope.publish(result, input.onContextChange);
+      scope.publish(result);
       input.completed(result);
     },
     onError: (error: Error, { scope, input }) => {

@@ -129,7 +129,7 @@ func (s *currentNodeAgentAssignmentSteer) Prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	thinkingMutation := workflowThinkingMutationFor(s.input, selection)
+	thinkingMutation := workflowThinkingMutationFor(s.input, selection, s.delivery)
 	s.mu.Lock()
 	if s.started {
 		ready := s.ready
@@ -626,7 +626,7 @@ func (s *Starter) compactOutgoingCurrentNodeSession(ctx context.Context, input w
 	if err != nil {
 		return err
 	}
-	_, err = handle.Wait(context.WithoutCancel(ctx))
+	err = handle.Wait(context.WithoutCancel(ctx))
 	if err != nil {
 		return workflowexecution.NewTaskStartPreparationError(err, workflow.NewCurrentNodeInterruptionDetail("workflow_compaction_failed", err))
 	}
@@ -827,11 +827,11 @@ func currentNodeAgentExecutionSelection(input workflowstore.CurrentNodeStartCont
 	return selection, nil
 }
 
-func workflowThinkingMutationFor(input workflowstore.CurrentNodeStartContext, selection workflow.AgentExecutionSelection) workflow.ThinkingMutation {
+func workflowThinkingMutationFor(input workflowstore.CurrentNodeStartContext, selection workflow.AgentExecutionSelection, delivery workflowruntime.TaskPromptDelivery) workflow.ThinkingMutation {
 	if selection.Thinking != nil {
 		return workflow.SetThinking(*selection.Thinking)
 	}
-	if selection.Origin == workflow.AssigneeOriginRetainedSession &&
+	if delivery != workflowruntime.TaskPromptDeliveryResume && selection.Origin == workflow.AssigneeOriginRetainedSession &&
 		workflow.CanonicalThinkingSelection(input.EnteringEdge.ThinkingSelection) == workflow.ThinkingSelectionPreviousNode {
 		return workflow.ClearThinking()
 	}

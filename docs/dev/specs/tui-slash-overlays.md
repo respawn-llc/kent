@@ -8,6 +8,19 @@
 - While an overlay change is pending, the overlay ignores input. A failed action shows its error inline while the overlay is open. If the overlay closed, the error appears as a status notice and transcript entry.
 - List selections are identity-stable: refreshes and live updates re-match the selected item by ID, never by index.
 
+## /agent
+
+- `/agent` must open a scrollable Alternate Screen Agent Role picker before or after Session creation. `/model` must be an alias for `/agent`.
+- Both commands must work immediately while the Agent is working, like `/new` and `/back`.
+- Each choice must show the role on its first line and available model and thinking information below it, matching the desktop Agent picker. The picker must initially focus the current Agent and distinguish the current Agent from keyboard selection.
+- The picker must use the shared list keys without a search field. `Esc` or `q` must close the picker without applying a choice.
+- `Enter` must confirm and apply the selected Agent. It must not show a replacement warning or a second confirmation dialog, including while the Session is busy. Replacement must follow the Agent replacement contract in [Core Runtime Tools](core-runtime-tools.md).
+- Selecting the current Agent must close the picker without changing its settings.
+- After replacement, the TUI must immediately show the new Agent's correct model and synchronize its lock state with the replacement result. It must clear the previous Agent's lock state and stale `(model locked)` label. Ordinary model freezing must still apply on the new Agent's next model request.
+- Loading and applying must show a spinner centered in the Alternate Screen surface, without loading text. Applying must keep the picker open until success, then close it.
+- After a failure, `r` or `Enter` must retry.
+- For a locked Workflow Agent, the command must show a refusal in the status line without opening the picker. The client must know the Agent-lock status from loaded Chat state without making a request to decide whether to open the picker.
+
 ## /status
 
 - The Auth section must include the conditional Session Connection row defined in [Provider Connections](provider-connections.md), styled consistently with its other rows. Grok subscription quota access and failures must follow that spec.
@@ -16,6 +29,11 @@
 - Grok's quota bar must fill with consumed allowance. If Grok reports Build and Chat contributions that account for total usage, Kent must show one stacked bar with Build first and Chat immediately afterward. Build must use Codex's quota-warning color selected from total shared usage. Chat must always use the secondary color. If the breakdown is missing or incomplete, Kent must show a single total-used bar with Codex's quota colors. The percentage left must come from Grok's reported total usage.
 
 - `/status` is read-only and loads its sections progressively.
+- During a refresh, `/status` must show available section results and warnings until replacement results arrive. Its loading indicator must be active while any status read for the current destination is outstanding.
+- Closing `/status` must hide the overlay without cancelling its reads. Reopening it must show available results and indicate outstanding reads.
+- When the Session, Working Directory, Execution Target, or selected New Session Agent changes, `/status` must discard the previous destination's results. If the overlay is open, it must automatically reload after the new observation or New Session defaults are ready.
+- Reloading settings or authentication for the same destination must not discard available results or outstanding reads. Before initial New Session defaults are ready, `/status` must show loading without reading configuration from another destination.
+- Reads from a previous destination must not change the current destination's results, cached values, or loading state, including after returning to that destination. Reads for the same destination may complete in either order.
 - Content is organized in sections — Session, Git, Context, Auth (account + subscription windows with usage bars and reset times), Config (override sources, supervisor, questions), Skills, AGENTS.md inspection, Warnings. Each section loads independently with a loading placeholder. Section failures become warnings listed in the Warnings section, never a blank overlay. The section set is contracted. Copy and layout are outside the contract.
 - Keys: scroll only (shared conventions), no actions.
 - `/status` must not show server ownership because the TUI is always a client.
@@ -39,6 +57,7 @@
 - `/goal` and `/goal show` open the overlay. `set <objective>`, `pause`, `resume`, and `clear` act directly.
 - A successful Goal Set applies its committed authoritative Goal result and then shows exactly one transient warning status when the result carries a post-commit diagnostic. The diagnostic creates no transcript entry and must not change the successful Goal result.
 - Overlay shows goal status, goal ID, and the objective rendered as Markdown. A no-goal state shows a hint to start one. Load errors render inline in the overlay.
+- Same-Session Goal Show reads may complete out of order, including across closing and reopening the overlay. A Show completion must affect Goal data, load errors, or connection status only while that Session's Goal overlay is open without a confirmation. Goal Show reads may complete while Kent checks whether a Goal edit needs confirmation. Requesting the Goal change must invalidate earlier Show completions before they affect those states.
 - Setting an objective while a goal is active opens a Replace confirmation (current vs new objective). Clearing an active goal opens a Clear confirmation. Both use a Cancel/Confirm button group (Cancel default) with `y`/`n` shortcuts. Confirming issues the mutation and closes the confirm state. Paused goals clear without confirmation.
 - Goal changes for an Active Session Runtime enter Steering as distinct typed intents in acceptance order. When a follow-up Goal mutation is pending locally, the TUI starts its RPC only after the preceding committed Goal result and transient warning settle.
 

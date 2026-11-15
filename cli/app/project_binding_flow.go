@@ -18,24 +18,25 @@ import (
 )
 
 const (
-	projectBindingPickerHeaderMarkdown   = "**Bind Workspace**"
-	projectBindingPickerHeaderFallback   = "Bind Workspace"
-	projectBindingPickerNoticeText       = "Unknown directory opened, how do you want Kent to treat it?"
-	projectBindingCreateLabel            = "Create a new project and attach this workspace"
-	projectBindingExistingLabel          = "Attach to existing project:"
-	serverProjectPickerHeaderMarkdown    = "**Open Server Project**"
-	serverProjectPickerHeaderFallback    = "Open Server Project"
-	serverProjectPickerNoticeText        = "Couldn't find the path the client requested - looks like the client & server might be in different locations. Open an existing registered project workspace, or run `kent project create` in the server location."
-	serverProjectExistingLabel           = "Available server projects:"
-	projectWorkspacePickerHeaderMarkdown = "**Select Workspace**"
-	projectWorkspacePickerHeaderFallback = "Select Workspace"
-	projectWorkspacePickerNoticeText     = "Choose the server workspace to open."
-	projectNamePromptHeaderMarkdown      = "**Name New Project**"
-	projectNamePromptHeaderFallback      = "Name New Project"
+	projectBindingPickerHeaderMarkdown       = "**Bind Workspace**"
+	projectBindingPickerHeaderFallback       = "Bind Workspace"
+	projectBindingPickerNoticeText           = "Unknown directory opened, how do you want Kent to treat it?"
+	projectBindingCreateLabel                = "Create a new project and attach this workspace"
+	projectBindingExistingLabel              = "Attach to existing project:"
+	serverProjectPickerHeaderMarkdown        = "**Open Server Project**"
+	serverProjectPickerHeaderFallback        = "Open Server Project"
+	serverProjectPickerNoticeText            = "Couldn't find the path the client requested - looks like the client & server might be in different locations. Open an existing registered project workspace, or run `kent project create` in the server location."
+	attachedWorkspaceProjectPickerNoticeText = "Choose a project attached to this workspace."
+	serverProjectExistingLabel               = "Available server projects:"
+	projectWorkspacePickerHeaderMarkdown     = "**Select Workspace**"
+	projectWorkspacePickerHeaderFallback     = "Select Workspace"
+	projectWorkspacePickerNoticeText         = "Choose the server workspace to open."
+	projectNamePromptHeaderMarkdown          = "**Name New Project**"
+	projectNamePromptHeaderFallback          = "Name New Project"
 )
 
 var runProjectBindingPickerFlow func(context.Context, []clientui.ProjectSummary, string, projectbinding.ProjectPickerSnapshot) (projectBindingPickerResult, error)
-var runServerProjectPickerFlow func(context.Context, []clientui.ProjectSummary, string, projectbinding.ProjectPickerSnapshot) (projectBindingPickerResult, error)
+var runServerProjectPickerFlow func(context.Context, []clientui.ProjectSummary, string, projectbinding.ProjectPickerSnapshot, projectbinding.ServerProjectPickerPurpose) (projectBindingPickerResult, error)
 var runProjectWorkspacePickerFlow = runProjectWorkspacePicker
 var runProjectNamePromptFlow = runProjectNamePrompt
 
@@ -317,12 +318,26 @@ func ensureInteractiveProjectBinding(ctx context.Context, server projectbinding.
 	}
 	pickServerProject := runServerProjectPickerFlow
 	if pickServerProject == nil {
-		pickServerProject = func(ctx context.Context, projects []clientui.ProjectSummary, theme string, snapshot projectbinding.ProjectPickerSnapshot) (projectBindingPickerResult, error) {
+		pickServerProject = func(
+			ctx context.Context,
+			projects []clientui.ProjectSummary,
+			theme string,
+			snapshot projectbinding.ProjectPickerSnapshot,
+			purpose projectbinding.ServerProjectPickerPurpose,
+		) (projectBindingPickerResult, error) {
+			noticeText := serverProjectPickerNoticeText
+			switch purpose {
+			case projectbinding.ServerProjectPickerPurposeBrowsing:
+			case projectbinding.ServerProjectPickerPurposeAttachedWorkspace:
+				noticeText = attachedWorkspaceProjectPickerNoticeText
+			default:
+				return nil, fmt.Errorf("unsupported server project picker purpose %d", purpose)
+			}
 			return runConfiguredProjectPicker(ctx, projects, theme, projectPickerOptions{
 				AllowCreate:    false,
 				HeaderMarkdown: serverProjectPickerHeaderMarkdown,
 				HeaderFallback: serverProjectPickerHeaderFallback,
-				NoticeText:     serverProjectPickerNoticeText,
+				NoticeText:     noticeText,
 				GroupLabel:     serverProjectExistingLabel,
 			}, snapshot)
 		}

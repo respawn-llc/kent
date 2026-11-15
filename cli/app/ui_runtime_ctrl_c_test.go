@@ -1,15 +1,151 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"context"
-	"core/shared/runtimeids"
 	"errors"
+	"fmt"
+	"testing"
+
+	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"testing"
 )
+
+func TestAcknowledgedInterruptIgnoresLateCompletion(t *testing.T) {
+	for _, stopErr := range []error{nil, errors.New("late stop failure")} {
+		t.Run(fmt.Sprintf("error=%v", stopErr), func(t *testing.T) {
+			client := &runtimeControlFakeClient{interruptErr: stopErr}
+			model := newProjectedClosedUIModel(client)
+			model.setRuntimeActivityBusyForTest(true)
+			_, stop := model.inputController().handleRuntimeCtrlC(nil)
+			done := stop().(runtimeControlDoneMsg)
+
+			_ = model.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{})
+			if model.hasPendingInterrupt() {
+				t.Fatal("human-input acknowledgement left Interrupt pending")
+			}
+			if cmd := model.applyRuntimeControlDone(done); cmd != nil {
+				t.Fatal("acknowledged Interrupt's late completion produced UI effects")
+			}
+			if model.runtimeMainViewBusy {
+				t.Fatal("acknowledged Interrupt's late completion refreshed Runtime state")
+			}
+		})
+	}
+}
+
+func TestInterruptCompletionsCannotAffectReplacementAttempt(t *testing.T) {
+	for _, replacement := range []string{"successor-step", "same-step-after-human-input"} {
+		for _, order := range []string{"old-first", "new-first"} {
+			for _, oldFails := range []bool{false, true} {
+				for _, newFails := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/%s/old-error=%t/new-error=%t", replacement, order, oldFails, newFails), func(t *testing.T) {
+						client := &runtimeControlFakeClient{}
+						model := newProjectedClosedUIModel(client)
+						model.setRuntimeActivityBusyForTest(true)
+						if oldFails {
+							client.interruptErr = errors.New("old stop failure")
+						}
+						_, first := model.inputController().handleRuntimeCtrlC(nil)
+						oldDone := first().(runtimeControlDoneMsg)
+
+						switch replacement {
+						case "successor-step":
+							activity := runtimeTupleTestRunningActivity()
+							activity.ActiveStep.StepId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+							if err := model.applyRuntimeActivityProjection(activity); err != nil {
+								t.Fatal(err)
+							}
+						case "same-step-after-human-input":
+							_ = model.applyTranscriptHumanInputInterrupted(&transcriptpb.HumanInputInterrupted{})
+						}
+						client.interruptErr = nil
+						if newFails {
+							client.interruptErr = errors.New("new stop failure")
+						}
+						_, second := model.inputController().handleRuntimeCtrlC(nil)
+						message := second()
+						newDone, ok := message.(runtimeControlDoneMsg)
+						if !ok {
+							t.Fatalf("replacement Ctrl+C produced %T instead of Interrupt", message)
+						}
+						if client.interruptCalls != 2 || !model.hasPendingInterrupt() {
+							t.Fatal("replacement Interrupt was not sent and marked pending")
+						}
+						ignoreOld := func() {
+							t.Helper()
+							pending, refreshBusy := model.hasPendingInterrupt(), model.runtimeMainViewBusy
+							if cmd := model.applyRuntimeControlDone(oldDone); cmd != nil {
+								t.Fatal("replaced Interrupt completion produced UI effects")
+							}
+							if model.hasPendingInterrupt() != pending || model.runtimeMainViewBusy != refreshBusy {
+								t.Fatal("replaced Interrupt completion changed pending state or refreshed")
+							}
+						}
+						if order == "old-first" {
+							ignoreOld()
+						}
+						if cmd := model.applyRuntimeControlDone(newDone); cmd == nil {
+							t.Fatal("current Interrupt completion did not refresh authoritative activity")
+						}
+						if model.hasPendingInterrupt() == newFails {
+							t.Fatal("current Interrupt did not retain accepted pending state or clear failed pending state")
+						}
+						if order == "new-first" {
+							ignoreOld()
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestInterruptOwnerFollowsSessionAdoption(t *testing.T) {
+	for _, fails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("error=%t", fails), func(t *testing.T) {
+			client := &runtimeControlFakeClient{}
+			if fails {
+				client.interruptErr = errors.New("departed session stop failure")
+			}
+			model := newProjectedClosedUIModel(client)
+			model.setRuntimeActivityBusyForTest(true)
+			originalSession := model.currentRuntimeSessionID()
+			_, first := model.inputController().handleRuntimeCtrlC(nil)
+			done := first().(runtimeControlDoneMsg)
+
+			_ = model.applyRuntimeSessionMetadata(&runtimepb.SessionView{SessionId: originalSession})
+			if !model.hasPendingInterrupt() {
+				t.Fatal("same-session metadata discarded the pending Interrupt")
+			}
+			adoptedSession := runtimeids.NewSessionID().String()
+			_ = model.applyRuntimeSessionMetadata(&runtimepb.SessionView{SessionId: adoptedSession})
+			if model.hasPendingInterrupt() {
+				t.Fatal("adopting another Session retained the departed Interrupt")
+			}
+			if cmd := model.applyRuntimeControlDone(done); cmd != nil || model.runtimeMainViewBusy {
+				t.Fatal("departed Session's completion produced UI effects or refreshed")
+			}
+			_ = model.applyRuntimeSessionMetadata(&runtimepb.SessionView{SessionId: originalSession})
+			if cmd := model.applyRuntimeControlDone(done); cmd != nil || model.hasPendingInterrupt() {
+				t.Fatal("returning to the old Session resurrected its departed Interrupt")
+			}
+			_ = model.applyRuntimeSessionMetadata(&runtimepb.SessionView{SessionId: adoptedSession})
+			client.interruptErr = nil
+			_, second := model.inputController().handleRuntimeCtrlC(nil)
+			for _, message := range collectCmdMessages(t, second) {
+				if _, quits := message.(tea.QuitMsg); quits {
+					t.Fatal("adopted Session inherited the old Session's second-Ctrl+C exit")
+				}
+			}
+			if client.interruptCalls != 2 || !model.hasPendingInterrupt() {
+				t.Fatal("adopted Session did not receive its own Interrupt")
+			}
+		})
+	}
+}
 
 func TestAcceptedStopReadFailureRemainsVisibleWithoutReplayingStop(t *testing.T) {
 	for _, readErr := range []error{errors.New("read failed"), context.DeadlineExceeded} {
@@ -21,7 +157,6 @@ func TestAcceptedStopReadFailureRemainsVisibleWithoutReplayingStop(t *testing.T)
 			model := newProjectedTestUIModel(client)
 			model.sessionLiveControls = controls
 			model.setRuntimeActivityBusyForTest(true)
-			model.setPendingInterrupt(true)
 			stop := model.runtimeControlCommand(runtimeControlInterrupt, nil)
 			done := stop().(runtimeControlDoneMsg)
 			if done.err != nil {
@@ -75,7 +210,6 @@ func TestAcceptedStopRefreshesAuthoritativeActivity(t *testing.T) {
 			model := newProjectedTestUIModel(client)
 			model.sessionLiveControls = controls
 			model.setRuntimeActivityBusyForTest(true)
-			model.setPendingInterrupt(true)
 			activity := runtimeTupleTestIdleActivity()
 			if test.readBusy {
 				activity = runtimeTupleTestRunningActivity()
@@ -136,13 +270,6 @@ func TestRuntimeCtrlCInterruptsRestartedAgentLoopInsteadOfQuitting(t *testing.T)
 	}
 	if client.interruptCalls != 2 {
 		t.Fatalf("interrupt calls after second-run Ctrl+C = %d, want 2", client.interruptCalls)
-	}
-	if model.interruptStepID != restartedStepID.String() {
-		t.Fatalf(
-			"pending interrupt target Step = %q, want restarted Step %q",
-			model.interruptStepID,
-			restartedStepID,
-		)
 	}
 }
 
@@ -251,6 +378,32 @@ func TestRuntimeCtrlCInterruptsAwaitingQuestionInsteadOfQuitting(t *testing.T) {
 	}
 	if client.interruptCalls != 1 {
 		t.Fatalf("interrupt calls = %d, want 1", client.interruptCalls)
+	}
+}
+
+func TestRuntimeCtrlCInterruptsPendingQuestionWithoutObservedStep(t *testing.T) {
+	client := &runtimeControlFakeClient{}
+	model := newProjectedClosedUIModel(client)
+	model, _ = updateQuestionProjection(model, askEventMsg{event: testQuestionAskEvent("ask-1", "Question?")})
+	if model.currentStepID != "" || !model.ask.hasCurrent() {
+		t.Fatal("expected a pending Question without an observed active Step")
+	}
+	_, first := model.inputController().handleRuntimeCtrlC(nil)
+	for _, message := range collectCmdMessages(t, first) {
+		if _, quits := message.(tea.QuitMsg); quits {
+			t.Fatal("first Ctrl+C detached instead of interrupting the pending Question")
+		}
+	}
+	if client.interruptCalls != 1 || !model.hasPendingInterrupt() {
+		t.Fatal("Question without an observed Step did not send Interrupt")
+	}
+	_, second := model.inputController().handleRuntimeCtrlC(nil)
+	messages := collectCmdMessages(t, second)
+	if len(messages) != 1 {
+		t.Fatalf("second Ctrl+C produced %d messages, want local detach", len(messages))
+	}
+	if _, quits := messages[0].(tea.QuitMsg); !quits || !model.forcedLocalExit || client.interruptCalls != 1 {
+		t.Fatal("second Ctrl+C did not detach locally without replaying Stop")
 	}
 }
 

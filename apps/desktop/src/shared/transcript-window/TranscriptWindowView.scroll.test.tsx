@@ -38,7 +38,6 @@ it.each(["older", "newer"] as const)(
       <TranscriptWindowView
         snapshot={window.snapshot}
         estimateSize={() => 40}
-        loadingLabel="Loading"
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={onInput}
@@ -102,7 +101,6 @@ it("opens and remounts a compacted live transcript at the bottom despite underes
       snapshot={host.snapshot}
       presentationUpdate={host.presentationUpdate}
       estimateSize={() => 40}
-      loadingLabel="Loading"
       retryLabel="Retry"
       boundaryErrorMessage={(error) => error.message}
       onInput={vi.fn()}
@@ -188,7 +186,6 @@ it.each(["following", "reading", "historical-end"])(
         snapshot={host.snapshot}
         presentationUpdate={host.presentationUpdate}
         estimateSize={() => 40}
-        loadingLabel="Loading"
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={vi.fn()}
@@ -273,7 +270,6 @@ function streamingView(history: readonly ReturnType<typeof row>[]) {
     <TranscriptWindowView
       snapshot={window.snapshot}
       estimateSize={() => 40}
-      loadingLabel="Loading"
       retryLabel="Retry"
       boundaryErrorMessage={(error) => error.message}
       onInput={onInput}
@@ -471,7 +467,6 @@ it("keeps viewport compensation and measured content geometry in the same resize
       <TranscriptWindowView
         snapshot={window.snapshot}
         estimateSize={() => 40}
-        loadingLabel="Loading"
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={vi.fn()}
@@ -618,7 +613,6 @@ it("opens at the bottom and keeps the latest content clear as composer padding g
           bottomInset={bottomInset}
           snapshot={window.snapshot}
           estimateSize={() => 40}
-          loadingLabel="Loading"
           retryLabel="Retry"
           boundaryErrorMessage={(error) => error.message}
           onInput={vi.fn()}

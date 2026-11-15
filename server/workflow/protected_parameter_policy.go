@@ -13,46 +13,15 @@ type ProtectedParameterConsumption struct {
 	Thinking ProtectedParameterConsumptionPolicy
 }
 
-type ProtectedParameterConsumptionRequest struct {
-	Edge                  Edge
-	SourceKind            NodeKind
-	TargetKind            NodeKind
-	FanOut                bool
-	TargetSessionResolved bool
-	TargetSessionPolicy   AssigneeSessionPolicy
-	ExplicitCallableRoles int
-	Thinking              ThinkingCapability
-}
-
-func ResolveProtectedParameterConsumption(request ProtectedParameterConsumptionRequest) ProtectedParameterConsumption {
-	result := ProtectedParameterConsumption{
-		Assignee: ProtectedParameterConsumptionRejectUnknown,
-		Thinking: ProtectedParameterConsumptionRejectUnknown,
+// ForParameter also covers ordinary Parameters so all value-flow consumers use
+// the same required/ignored/rejected decision.
+func (c ProtectedParameterConsumption) ForParameter(parameter Parameter) ProtectedParameterConsumptionPolicy {
+	switch CanonicalParameterPurpose(parameter.Purpose) {
+	case ParameterPurposeTargetAssignee:
+		return c.Assignee
+	case ParameterPurposeTargetThinking:
+		return c.Thinking
+	default:
+		return ProtectedParameterConsumptionRequiredValidate
 	}
-	eligible := !request.FanOut &&
-		(request.SourceKind == NodeKindAgent || request.SourceKind == NodeKindScript) &&
-		request.TargetKind == NodeKindAgent
-	if CanonicalAssigneeSelection(request.Edge.AssigneeSelection) == AssigneeSelectionPreviousNode &&
-		eligible &&
-		!(request.Edge.ContextMode == ContextModeContinueSession &&
-			CanonicalContextSource(request.Edge.ContextSource).Kind != ContextSourcePreviousTargetOrNew) {
-		switch {
-		case request.TargetSessionPolicy == AssigneeSessionPolicyPreserve:
-			result.Assignee = ProtectedParameterConsumptionIgnoreAuthorized
-		case request.ExplicitCallableRoles == 1:
-			result.Assignee = ProtectedParameterConsumptionIgnoreAuthorized
-		case request.ExplicitCallableRoles > 1:
-			result.Assignee = ProtectedParameterConsumptionRequiredValidate
-		}
-	}
-	if CanonicalThinkingSelection(request.Edge.ThinkingSelection) == ThinkingSelectionPreviousNode &&
-		eligible &&
-		request.Thinking.ReasoningCapable {
-		if !request.Thinking.Finite || len(request.Thinking.Levels) > 1 {
-			result.Thinking = ProtectedParameterConsumptionRequiredValidate
-		} else {
-			result.Thinking = ProtectedParameterConsumptionIgnoreAuthorized
-		}
-	}
-	return result
 }

@@ -70,7 +70,6 @@ export type VirtualizedInfiniteListProps<TItem> = Readonly<{
   empty?: ReactNode | undefined;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
-  loadingLabel?: string;
   loadMoreKey?: string | undefined;
   onLoadMore: () => void;
   estimateSize: () => number;
@@ -162,7 +161,6 @@ function VirtualizedInfiniteListContent<TItem>({
   empty,
   hasNextPage,
   isFetchingNextPage,
-  loadingLabel,
   loadMoreKey,
   onLoadMore,
   estimateSize,
@@ -389,7 +387,6 @@ function VirtualizedInfiniteListContent<TItem>({
       isFetchingNextPage,
       item,
       layout,
-      loadingLabel,
       nextBoundary,
       previousBoundary,
       renderItem,
@@ -440,7 +437,6 @@ function VirtualizedInfiniteListContent<TItem>({
           renderedRows,
           hasItems: items.length > 0,
           empty,
-          loadingLabel,
           flowBlock,
         })}
         {boundaries.trailing}

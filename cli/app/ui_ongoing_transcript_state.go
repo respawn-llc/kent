@@ -271,7 +271,6 @@ func (m *uiModel) applyTranscriptSessionIdentity(identity *transcriptpb.SessionI
 	category := protoapi.SessionCategoryFromProto(identity.Category)
 	m.sessionCategory = &category
 	m.sessionShortID = protoapi.SessionShortIDFromProto(identity.ShortId)
-	m.conversationFreshness = identity.ConversationFreshness
 	titleCmd := tea.SetWindowTitle(m.sessionTitle())
 	if previousTarget != nil && m.sessionExecutionTarget != nil &&
 		(!textutil.EqualOptional(previousTarget.WorkspaceId, m.sessionExecutionTarget.WorkspaceId) ||
@@ -306,7 +305,6 @@ func (m *uiModel) applyTranscriptContextUsage(usage *runtimepb.ContextUsage) {
 }
 
 func (m *uiModel) applyTranscriptUserMessageFlushed(flushed *transcriptpb.UserMessageFlushed) tea.Cmd {
-	m.conversationFreshness = runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED
 	m.localConversationTurn = true
 	return nil
 }

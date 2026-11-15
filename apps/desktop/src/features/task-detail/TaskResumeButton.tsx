@@ -12,7 +12,7 @@ import {
   type TaskInitiatingAction,
   useTaskInitiatingActionController,
 } from "@/shared/execution-target";
-import { Button, Spinner } from "@/ui";
+import { Button } from "@/ui";
 
 type TaskInitiatingActionController = Readonly<{
   resume(): void;
@@ -105,12 +105,13 @@ export function TaskResumeButton() {
     <Button
       data-testid="task-detail-resume"
       aria-busy={controller.resuming}
+      loading={controller.resuming}
       onClick={() => {
         controller.resume();
       }}
       variant="primary"
     >
-      {controller.resuming ? <Spinner /> : t("board.resume")}
+      {t("board.resume")}
     </Button>
   );
 }

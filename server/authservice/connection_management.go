@@ -98,7 +98,19 @@ func (s *BootstrapService) ConfigureConnection(_ context.Context, req *authpb.Co
 			return nil, err
 		}
 	case *authpb.ConfigureConnectionRequest_Reference:
-		if err := config.SetProviderConnectionEnvironment(path, config.ConnectionID(change.Reference.ConnectionId), change.Reference.EnvironmentVariable); err != nil {
+		id := config.ConnectionID(change.Reference.ConnectionId)
+		name := change.Reference.EnvironmentVariable
+		if change.Reference.DeepseekEndpoint != nil {
+			choice, err := protoapi.DeepSeekEndpointChoiceFromProto(change.Reference.DeepseekEndpoint)
+			if err != nil {
+				return nil, err
+			}
+			if err := config.SetDeepSeekConnectionReference(path, id, name, choice); err != nil {
+				return nil, err
+			}
+			break
+		}
+		if err := config.SetProviderConnectionEnvironment(path, id, name); err != nil {
 			return nil, err
 		}
 	case *authpb.ConfigureConnectionRequest_DefaultConnectionId:

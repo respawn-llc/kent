@@ -26,7 +26,6 @@ import {
   workflowParameterPurpose,
   workflowSelectorReason,
   workflowThinkingSelection,
-  workflowValidationCode,
   workflowValidationMode,
 } from "./workflowProtoValues";
 
@@ -59,7 +58,6 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
       key: group.groupKey,
       name: group.displayName ?? null,
       sortOrder: group.sortOrder,
-      nodeIDs: [],
     })),
     nodes: value.nodes.map((node) => ({
       id: node.id,
@@ -68,7 +66,6 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
       kind: workflowNodeKind.decode(node.kind),
       name: node.displayName,
       groupID: node.groupId ?? null,
-      groupKey: node.groupKey,
       subagentRole: node.subagentRole ?? "",
       completionMode:
         node.completionMode === undefined ? "" : workflowCompletionMode.decode(node.completionMode),
@@ -123,7 +120,7 @@ export function workflowDefinition(value: pb.WorkflowDefinitionValid): WorkflowD
 
 export function workflowValidationError(value: pb.WorkflowValidationError): WorkflowValidationError {
   return {
-    code: workflowValidationCode.decode(value.code),
+    code: value.code,
     message: value.message,
     workflowID: value.workflowId ?? null,
     nodeID: value.nodeId ?? null,

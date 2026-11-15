@@ -128,7 +128,7 @@ func (r *ConnectionResolver) ResolveDefinitionAuth(ctx context.Context, id confi
 		return nil, err
 	}
 	switch definition.Protocol {
-	case config.ConnectionResponses, config.ConnectionGrokAPIKey:
+	case config.ConnectionResponses, config.ConnectionGrokAPIKey, config.ConnectionDeepSeekAPIKey:
 		if definition.EnvironmentVariable == nil {
 			return nil, nil
 		}

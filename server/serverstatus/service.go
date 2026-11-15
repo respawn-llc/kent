@@ -12,13 +12,17 @@ import (
 )
 
 type ServerStatusService struct {
-	endpoint string
-	settings config.Settings
-	updates  *UpdateStatusService
+	settings         config.Settings
+	updates          *UpdateStatusService
+	globalConfigPath *string
 }
 
 func NewServerStatusService(cfg config.App, updates *UpdateStatusService) *ServerStatusService {
-	return &ServerStatusService{endpoint: config.ServerRPCURL(cfg), settings: cfg.Settings, updates: updates}
+	service := &ServerStatusService{settings: cfg.Settings, updates: updates}
+	if source := cfg.Source.File(config.FileGlobal); source != nil {
+		service.globalConfigPath = &source.Path
+	}
+	return service
 }
 
 func (s *ServerStatusService) GetReadiness(ctx context.Context, _ *emptypb.Empty) (*serverpb.GetReadinessSuccess, error) {
@@ -28,12 +32,11 @@ func (s *ServerStatusService) GetReadiness(ctx context.Context, _ *emptypb.Empty
 	}
 	readiness := &serverpb.Readiness{
 		Ready:           true,
-		ServerVersion:   config.Version,
 		ProtocolVersion: protocol.Version,
 		SubagentRoles:   subagentRoleSummaries(settings),
 	}
 	if s != nil {
-		readiness.Endpoint = s.endpoint
+		readiness.GlobalConfigPath = s.globalConfigPath
 	}
 	return &serverpb.GetReadinessSuccess{Readiness: readiness}, nil
 }

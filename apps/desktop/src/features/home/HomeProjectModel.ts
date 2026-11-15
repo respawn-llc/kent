@@ -44,11 +44,11 @@ export function useHomeProjectModel(projectID: string, returnHome: () => Promise
         const error = get(model.metadata).error;
         return Effect.gen(function* () {
           if (!isProjectMissingError(error)) return;
-          clearLastProjectRoute(projectID);
+          clearLastProjectRoute(services.storageNamespace, projectID);
           yield* Effect.promise(leave);
         });
       }),
-    [leave, model, projectID],
+    [leave, model, projectID, services.storageNamespace],
   );
   useAtomMount(missing);
 }

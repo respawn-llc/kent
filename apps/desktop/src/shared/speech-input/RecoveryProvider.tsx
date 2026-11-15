@@ -108,7 +108,7 @@ function RecoveryControls({
     <TooltipProvider>
       <div className="flex flex-wrap justify-end gap-[var(--space-2)]">
         {native && (
-          <ControlTooltip label={busy ? t("speech.working") : t("speech.reveal")}>
+          <ControlTooltip label={t("speech.reveal")}>
             <Button
               disabled={busy}
               loading={fileAction.waiting}
@@ -120,7 +120,7 @@ function RecoveryControls({
             </Button>
           </ControlTooltip>
         )}
-        <ControlTooltip label={busy ? t("speech.working") : t("speech.saveCopy")}>
+        <ControlTooltip label={t("speech.saveCopy")}>
           <Button
             disabled={busy}
             loading={fileAction.waiting}
@@ -146,7 +146,7 @@ function RecoveryControls({
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent>{busy ? t("speech.working") : t("speech.retry")}</TooltipContent>
+            <TooltipContent>{t("speech.retry")}</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
@@ -164,7 +164,7 @@ function RecoveryControls({
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>{discardDisabled ? t("speech.working") : t("speech.discard")}</TooltipContent>
+          <TooltipContent>{t("speech.discard")}</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

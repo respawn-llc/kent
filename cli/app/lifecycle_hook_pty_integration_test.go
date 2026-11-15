@@ -73,7 +73,7 @@ func TestLifecycleHooksLocalConfiguredPTYRunsRepresentativeFlow(t *testing.T) {
 		},
 		Dimensions: pty.MustDimensions(24, 80),
 		PhaseInputs: []pty.PhaseInputEvent{
-			{Phase: pty.PhasePromptReady, Bytes: []byte("\r")},
+			{Phase: pty.PhasePromptReady, Bytes: []byte("\x1b[B\r")},
 			{Phase: pty.PhaseLifecycleHooksObserved, Bytes: []byte{0x03, 0x03}},
 		},
 		Timeout: ptyFixtureCommandTimeout,

@@ -27,6 +27,7 @@ import (
 	remoteclient "core/shared/client"
 	"core/shared/config"
 	"core/shared/protoapi"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	connectionpb "core/shared/protoapi/gen/kent/api/connection"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
@@ -416,6 +417,56 @@ func TestGatewayRequiresExplicitWorkspaceSelectionForMultiWorkspaceProject(t *te
 	}
 }
 
+func TestGatewayAttachProjectResolvesSharedWorkspaceWithinProject(t *testing.T) {
+	home := t.TempDir()
+	workspaceA := t.TempDir()
+	sharedWorkspace := t.TempDir()
+	t.Setenv("HOME", home)
+	configureGatewayTestServerPort(t)
+
+	resolvedA := resolveGatewayTestConfig(t, workspaceA)
+	metadataStore := testsetup.OpenStore(t, resolvedA.Config.PersistenceRoot)
+	bindingA := registerGatewayTestBinding(t, metadataStore, resolvedA.Config)
+	sharedA, err := metadataStore.AttachWorkspaceToProject(t.Context(), bindingA.ProjectID, sharedWorkspace)
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject A: %v", err)
+	}
+	bindingB, err := metadataStore.CreateProjectForWorkspaceWithKey(t.Context(), sharedWorkspace, "Shared workspace", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace B: %v", err)
+	}
+
+	_, server := newGatewayTestServerForConfig(t, resolvedA.Config, metadataStore)
+	conn := dialGateway(t, server)
+	t.Cleanup(func() { _ = conn.Close() })
+	handshakeGateway(t, conn)
+
+	readMethod := chatsettingspb.File_kent_api_chat_settings_chat_settings_proto.Services().
+		ByName("ChatSettingsService").Methods().ByName("Read")
+	for _, selected := range []metadata.Binding{sharedA, bindingB} {
+		attachment := attachGatewayProject(t, conn, "attach-shared-workspace", &connectionpb.AttachProjectRequest{
+			ProjectId: selected.ProjectID,
+			Workspace: &connectionpb.AttachProjectRequest_WorkspaceRoot{WorkspaceRoot: sharedWorkspace},
+		})
+		if success := attachment.GetSuccess(); success == nil ||
+			success.GetProject().GetProjectId() != selected.ProjectID ||
+			success.GetProject().GetWorkspaceId() != selected.WorkspaceID {
+			t.Fatalf("AttachProject for %s = %+v, want its shared Workspace %s", selected.ProjectID, attachment, selected.WorkspaceID)
+		}
+
+		settings := &chatsettingspb.ReadResult{}
+		callGatewayDescriptor(t, conn, "read-shared-workspace-settings", readMethod,
+			&chatsettingspb.ReadRequest{Target: &chatsettingspb.ReadRequest_NewChat{
+				NewChat: &chatsettingspb.NewChatTarget{ProjectId: selected.ProjectID, WorkspaceId: selected.WorkspaceID},
+			}},
+			settings,
+		)
+		if settings.GetSuccess().GetNewChat() == nil {
+			t.Fatalf("New Chat settings for %s/%s = %+v", selected.ProjectID, selected.WorkspaceID, settings)
+		}
+	}
+}
+
 func TestGatewayAttachMissingNumericSessionOmitsUnknownUUID(t *testing.T) {
 	fixture := newRoutePolicyFixture(t)
 	shortID, err := runtimeids.NewSessionShortID(runtimeids.MaxSessionShortID)
@@ -524,25 +575,27 @@ func TestGatewayScopesProcessListAndAllowsGlobalProcessAccess(t *testing.T) {
 	}
 
 	ownResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
-		DisplayCommand: "printf own; sleep 1",
-		OwnerSessionID: storeA.Meta().SessionID,
-		OwnerStepID:    "step-a",
-		Workdir:        appCore.Config().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "printf own\\n; sleep 1"},
+		DisplayCommand:      "printf own; sleep 1",
+		OwnerSessionID:      storeA.Meta().SessionID,
+		OwnerStepID:         "step-a",
+		Workdir:             appCore.Config().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start own process: %v", err)
 	}
 	foreignResult, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
-		DisplayCommand: "printf foreign; sleep 1",
-		OwnerSessionID: storeB.Meta().SessionID,
-		OwnerStepID:    "step-b",
-		Workdir:        resolvedB.Config.WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "printf foreign\\n; sleep 1"},
+		DisplayCommand:      "printf foreign; sleep 1",
+		OwnerSessionID:      storeB.Meta().SessionID,
+		OwnerStepID:         "step-b",
+		Workdir:             resolvedB.Config.WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start foreign process: %v", err)
@@ -604,12 +657,13 @@ func TestGatewayProcessAccessWithoutProviderCredentials(t *testing.T) {
 	appCore.Background().SetMinimumExecToBgTime(time.Millisecond)
 	store := createGatewayAuthoritativeSession(t, appCore)
 	started, err := appCore.Background().Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-lc", "sleep 1"},
-		DisplayCommand: "sleep 1",
-		OwnerSessionID: store.Meta().SessionID,
-		Workdir:        appCore.Config().WorkspaceRoot,
-		YieldTime:      time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-lc", "sleep 1"},
+		DisplayCommand:      "sleep 1",
+		OwnerSessionID:      store.Meta().SessionID,
+		Workdir:             appCore.Config().WorkspaceRoot,
+		YieldTime:           time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("start process: %v", err)

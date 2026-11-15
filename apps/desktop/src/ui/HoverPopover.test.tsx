@@ -98,6 +98,27 @@ it("opens tooltips from hover but not keyboard focus", async () => {
   expect(await screen.findByRole("tooltip")).toBeInTheDocument();
 });
 
+it("dismisses a tooltip when its list scrolls without consuming the scroll", async () => {
+  const scroll = vi.fn();
+  render(
+    <div data-testid="scroll-container" style={{ overflow: "auto", height: 100 }} onScroll={scroll}>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger>Copy path</TooltipTrigger>
+          <TooltipContent>Path</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>,
+  );
+  const user = userEvent.setup();
+  await user.hover(screen.getByRole("button"));
+  const tooltip = await screen.findByRole("tooltip");
+  const container = screen.getByTestId("scroll-container");
+  expect(fireEvent.scroll(container)).toBe(true);
+  expect(scroll).toHaveBeenCalledTimes(1);
+  await waitForElementToBeRemoved(tooltip);
+});
+
 it("keeps the parent popup open through a nested portalled tooltip and closes after leaving both", async () => {
   function Example() {
     const [open, setOpen] = useState(false);

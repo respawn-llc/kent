@@ -29,6 +29,9 @@ import (
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/textutil"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type registryRuntimeFakeClient struct{}
@@ -476,6 +479,15 @@ func TestSessionTranscriptSubscriptionEstablishmentMayFinishWithTerminalDrain(t 
 	}
 }
 
+func TestSessionSettingPublicationWithoutRegistryIsNoOp(t *testing.T) {
+	var registry *RuntimeRegistry
+	for _, feedback := range []*transcriptpb.SessionSettingFeedback{nil, {}} {
+		if err := registry.PublishSessionSettingFeedback(runtimeids.NewSessionID().String(), feedback); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
 	store := newRegistryTestSession(t, t.TempDir(), "workspace", t.TempDir())
@@ -504,7 +516,7 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 		t.Fatal(err)
 	}
 	feedback := &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME, Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: &name}},
+		Changed: true, Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
 	}
 	if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
 		t.Fatal(err)
@@ -514,7 +526,7 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 	if state.Event.GetSessionIdentity() == nil ||
 		publishedFeedback.Event.GetSessionSettingFeedback() == nil ||
 		publishedFeedback.Sequence != state.Sequence+1 ||
-		publishedFeedback.Event.GetSessionSettingFeedback().Kind != feedback.Kind {
+		!proto.Equal(publishedFeedback.Event.GetSessionSettingFeedback(), feedback) {
 		t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
 	}
 
@@ -522,19 +534,37 @@ func TestSessionSettingPublicationBatchesAuthoritativeStateBeforeFeedback(t *tes
 	if _, _, err := engine.SetAutoCompactionEnabled(t.Context(), enabled); err != nil {
 		t.Fatal(err)
 	}
-	feedback = &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION, Changed: true, Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: enabled},
+	for _, feedback := range []*transcriptpb.SessionSettingFeedback{
+		{Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: enabled}},
+		{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: "medium"}},
+		{Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: false}},
+		{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "off"}},
+		{Value: &transcriptpb.SessionSettingFeedback_Questions{Questions: false}},
+	} {
+		for _, changed := range []bool{false, true} {
+			feedback.Changed = changed
+			if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
+				t.Fatal(err)
+			}
+			state = nextTranscriptMessage(t, subscription)
+			publishedFeedback = nextTranscriptMessage(t, subscription)
+			if state.Event.GetSessionStatus() == nil ||
+				publishedFeedback.Event.GetSessionSettingFeedback() == nil ||
+				publishedFeedback.Sequence != state.Sequence+1 ||
+				!proto.Equal(publishedFeedback.Event.GetSessionSettingFeedback(), feedback) {
+				t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
+			}
+		}
 	}
-	if err := registry.PublishSessionSettingFeedback(engine.SessionID(), feedback); err != nil {
-		t.Fatal(err)
-	}
-	state = nextTranscriptMessage(t, subscription)
-	publishedFeedback = nextTranscriptMessage(t, subscription)
-	if state.Event.GetSessionStatus() == nil ||
-		publishedFeedback.Event.GetSessionSettingFeedback() == nil ||
-		publishedFeedback.Sequence != state.Sequence+1 ||
-		publishedFeedback.Event.GetSessionSettingFeedback().Kind != feedback.Kind {
-		t.Fatalf("setting publication order = state %+v, feedback %+v", state, publishedFeedback)
+	for _, invalid := range []*transcriptpb.SessionSettingFeedback{
+		nil,
+		{},
+		{Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: " medium "}},
+		{Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "unknown"}},
+	} {
+		if err := registry.PublishSessionSettingFeedback(engine.SessionID(), invalid); err == nil {
+			t.Fatalf("invalid feedback %v accepted", invalid)
+		}
 	}
 }
 
@@ -873,7 +903,8 @@ func TestTranscriptHydrationRetiresStepOwnedStateWhenCanonicalRuntimeBecomesIdle
 
 func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
-	sessionID := runtimeids.NewSessionID()
+	engine := newRegistryTestRuntime(t, nil)
+	sessionID := engine.SessionIdentity().ID
 	predecessor := registryTestResourceRef(sessionID.String())
 	successor := runtimeids.NewSessionResourceRef(sessionID, 2)
 
@@ -881,7 +912,6 @@ func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) 
 	successorScope := runtimeids.NewExecutionScopeID()
 	request := askquestion.AskQuestionRequest{ToolCallID: "ask-1", StepID: registryTestStepID, Question: "Proceed?"}
 
-	engine := &runtime.Engine{}
 	registerResource(t, registry, predecessor, engine)
 	projectPendingPromptResourceForTest(registry, predecessor, predecessorScope, request, time.Now().UTC())
 	if err := registry.ResourceDraining(context.Background(), registryTestResource(predecessor)); err != nil {
@@ -989,10 +1019,10 @@ func TestPromptProjectionPreservesOrderedAccessTargets(t *testing.T) {
 
 func TestRuntimeRegistryAggregatesSleepObserverAcrossAuthorityResources(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
-	engineA := &runtime.Engine{}
-	engineB := &runtime.Engine{}
-	const sessionA = "11111111-1111-4111-8111-111111111111"
-	const sessionB = "22222222-2222-4222-8222-222222222222"
+	engineA := newRegistryTestRuntime(t, nil)
+	engineB := newRegistryTestRuntime(t, nil)
+	sessionA := engineA.SessionID()
+	sessionB := engineB.SessionID()
 	registerReady(t, registry, sessionA, engineA)
 	registerReady(t, registry, sessionB, engineB)
 	t.Cleanup(func() { closeRuntime(registry, sessionA, engineA) })
@@ -1060,8 +1090,8 @@ func publishRunState(registry *RuntimeRegistry, sessionID string, running bool) 
 func TestActiveRuntimeActivitySnapshotsExcludeRegisteredIdlePopulation(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
 	for range 500 {
-		sessionID := runtimeids.NewSessionID().String()
-		registerReady(t, registry, sessionID, &runtime.Engine{})
+		engine := newRegistryTestRuntime(t, nil)
+		registerReady(t, registry, engine.SessionID(), engine)
 	}
 	runningEngine, runningDone := startRegistryBlockingRuntime(t, registry)
 	questionEngine, questionDone := startRegistryBlockingRuntime(t, registry)

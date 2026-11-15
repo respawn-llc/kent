@@ -75,9 +75,9 @@ func (m *uiModel) prepareAskPresentation(message *transcriptpb.Message) {
 		m.helpVisible = false
 	}
 	document := m.layout().askDocument(size.width)
-	if m.askHasAnswerFocus() && !m.ask.freeform {
+	if m.askHasAnswerFocus() && !m.ask.freeform && m.ask.selectedOption != nil {
 		// Preserve the selected option's anchor when Markdown or wrapping changes.
-		if rows, ok := document.options[m.ask.cursor]; ok {
+		if rows, ok := document.options[*m.ask.selectedOption]; ok {
 			m.ask.dedicated.row = min(max(m.ask.dedicated.row, rows.start), rows.end-1)
 		}
 	}

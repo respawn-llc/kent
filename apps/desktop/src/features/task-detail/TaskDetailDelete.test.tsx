@@ -1,11 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, mock, vi } from "bun:test";
+import type { toast } from "sonner";
+import { BranchCleanupOutcomeKind } from "@/api";
 
 import { appI18n } from "@/i18n";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 
 const statusError = vi.fn(() => "status-error");
+const statusWarning = vi.fn<typeof toast.warning>(() => "status-warning");
 await mock.module("sonner", () => {
   const toast = Object.assign(
     vi.fn(() => "status"),
@@ -14,7 +17,7 @@ await mock.module("sonner", () => {
       error: statusError,
       info: vi.fn(() => "status-info"),
       success: vi.fn(() => "status-success"),
-      warning: vi.fn(() => "status-warning"),
+      warning: statusWarning,
     },
   );
   return { toast, Toaster: () => null };
@@ -28,6 +31,7 @@ const {
   taskDeleted,
   taskAlreadyDeleted,
 } = await import("@/test-support/task-detail");
+const { branchCleanupOutcomeFixture } = await import("@/test-support/api");
 
 function taskWithDelete(canDelete: boolean) {
   return taskActionFixture(taskDetailResponse, { canDelete });
@@ -87,6 +91,44 @@ it("dismisses its exact host after successful deletion", async () => {
     expect(removeTask).toHaveBeenCalledTimes(1);
     expect(onDeleteDismiss).toHaveBeenCalledTimes(1);
   });
+  expect(statusWarning).not.toHaveBeenCalled();
+});
+
+it("warns about retained branch cleanup after unmount while still completing deletion", async () => {
+  const branchName = "kent/retained-task-detail";
+  const diagnostic = "branch could not be removed";
+  const cleanup = branchCleanupOutcomeFixture(
+    BranchCleanupOutcomeKind.WORKTREE_BRANCH_CLEANUP_OUTCOME_RETAINED,
+    branchName,
+    diagnostic,
+  );
+  const { deferred } = await import("@/test-support/chat-runtime");
+  const response = deferred<ReturnType<typeof taskDeleted>>();
+  const onDeleteDismiss = vi.fn(async () => ({ kind: "accepted" as const }));
+  const services = mountTaskDetailSurface(taskWithDelete(true), {
+    onDeleteDismiss,
+    routes: [taskDeleteRoute(async () => response.promise)],
+  });
+  const remove = vi.spyOn(services.api, "deleteTask");
+  const user = userEvent.setup({ delay: null });
+  await user.click(await screen.findByRole("button", { name: appI18n.t("board.deleteTask") }));
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", {
+      name: appI18n.t("board.deleteTaskConfirm"),
+    }),
+  );
+  await waitFor(() => {
+    expect(remove).toHaveBeenCalledTimes(1);
+  });
+  services.unmountTaskDetail();
+  response.resolve(taskDeleted(cleanup));
+  await waitFor(() => {
+    expect(onDeleteDismiss).toHaveBeenCalledTimes(1);
+    expect(statusWarning).toHaveBeenCalledTimes(1);
+  });
+  expect(statusWarning.mock.calls[0]?.[1]?.description).toContain(branchName);
+  expect(statusWarning.mock.calls[0]?.[1]?.description).toContain(diagnostic);
+  expect(statusError).not.toHaveBeenCalled();
 });
 
 it("dismisses the exact current sidebar page after successful deletion", async () => {

@@ -14,8 +14,16 @@ type queuedPaneEntry struct {
 	ongoingLiveInput
 }
 
+func (l uiViewLayout) renderCenteredSpinner(width, height int, style uiStyles) []string {
+	spinner := lipgloss.NewStyle().Foreground(uiPalette(l.model.theme).primary).Render(pendingToolSpinnerFrame(l.model.spinnerFrame))
+	placed := lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, spinner)
+	return l.renderChatContentLines(strings.Split(placed, "\n"), width, style)
+}
+
 func (l uiViewLayout) renderChatPanel(width, height int, style uiStyles) []string {
 	switch l.model.surface() {
+	case uiSurfaceAgent:
+		return l.renderAgentPicker(width, height, style)
 	case uiSurfaceStatus:
 		return l.renderStatusOverlay(width, height, style)
 	case uiSurfaceGoal:

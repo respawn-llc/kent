@@ -105,6 +105,28 @@ func TestRunSteerAndStopRouteNumericSelectorsBeforePromptLaunch(t *testing.T) {
 	}
 }
 
+func TestIdleSteerHintDoesNotEchoSubmittedMessage(t *testing.T) {
+	t.Setenv(sessionenv.SessionIDEnv, "")
+	previous := runLiveSteerApp
+	t.Cleanup(func() { runLiveSteerApp = previous })
+	message := "private instructions that must not be echoed in the continuation hint"
+	var submitted string
+	runLiveSteerApp = func(_ context.Context, _ app.Options, _ runtimeids.SessionSelector, text string) (*runtimepb.LiveSteerSuccess, error) {
+		submitted = text
+		return nil, serverapi.ErrRuntimeNoActiveRun
+	}
+	code, _, diagnostics := captureRunOutput(t, []string{"steer", "729", message})
+	if code != 1 || submitted != message {
+		t.Fatalf("idle steer exit=%d submitted=%q", code, submitted)
+	}
+	if bytes.Contains(diagnostics, []byte(message)) {
+		t.Fatal("idle steer echoed the submitted instructions")
+	}
+	if !bytes.Contains(diagnostics, []byte("729")) {
+		t.Fatal("idle steer hint lost the Session selector")
+	}
+}
+
 func TestRunWatchStreamFailureDoesNotUseInterruptExitCode(t *testing.T) {
 	run := func(context.Context, app.Options, runtimeids.SessionSelector) app.RunLiveWatchResult {
 		return app.RunLiveWatchResult{Error: fmt.Errorf("%w: %v", serverapi.ErrStreamFailed, context.Canceled)}

@@ -26,12 +26,10 @@ it.each(["created", "attached"] as const)(
     vi.spyOn(services.api, "listProjects").mockResolvedValue({
       projects: [],
       nextPageToken: null,
-      generatedAt: 1,
     });
     vi.spyOn(services.api, "listAttention").mockResolvedValue({
       items: [],
       nextPageToken: null,
-      generatedAt: 1,
     });
     const picker = vi
       .spyOn(services.nativeBridge.directories, "selectDirectory")
@@ -49,7 +47,7 @@ it.each(["created", "attached"] as const)(
     render(
       <TestAppProviders services={services} skipAnimations>
         <SidebarRootContext.Provider value={createTestSidebarController()}>
-          <HomeRoute selectedProjectID={null} />
+          <HomeRoute destination={{ kind: "inbox" }} />
         </SidebarRootContext.Provider>
       </TestAppProviders>,
     );

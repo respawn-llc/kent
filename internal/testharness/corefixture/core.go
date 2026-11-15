@@ -19,7 +19,7 @@ func Open(t testing.TB, cfg config.App, store *metadata.Store, options core.Opti
 	if err != nil {
 		t.Fatal(err)
 	}
-	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), environment)
+	authSupport, err := serverbootstrap.BuildAuthSupport(t.Context(), cfg.PersistenceRoot, auth.NewFileStore(config.GlobalAuthConfigPath(cfg)), environment.Lookup)
 	if err != nil {
 		t.Fatal(err)
 	}

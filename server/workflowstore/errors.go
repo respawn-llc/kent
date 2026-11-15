@@ -117,7 +117,10 @@ var (
 
 	// Manual-move guards. Each names a distinct unsupported/invalid manual-move
 	// condition.
-	ErrManualMoveNoSourcePosition = errors.New("manual move has no active placement or pending approval to move from")
+	ErrManualMoveNoSourcePosition      = errors.New("manual move has no active placement or pending approval to move from")
+	ErrManualMoveDestinationUnlinked   = errors.New("destination workflow must be linked to the task's project")
+	ErrManualMoveDestinationExecutable = errors.New("cross-workflow moves require a Backlog or terminal destination")
+	ErrManualMoveSourceInProgress      = errors.New("only Backlog or terminal tasks can move between workflows")
 )
 
 type ProjectLabelNotFoundError struct {

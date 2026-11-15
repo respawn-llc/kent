@@ -2,17 +2,23 @@ package shell
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"core/server/tools/shell/postprocess"
+	"core/shared/invariant"
+	"core/shared/runtimeids"
 )
 
 func (m *Manager) List() []Snapshot {
@@ -65,6 +71,7 @@ func (m *Manager) Snapshot(id string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	m.touchEntry(entry)
 	return entry.snapshot(), nil
 }
 
@@ -233,14 +240,21 @@ func (m *Manager) Close() error {
 }
 
 func (m *Manager) entry(id string) (*processEntry, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	entry, err := m.readEntry(id)
 	if err != nil {
 		return nil, ErrResultUnavailable
 	}
-	m.touchCompletedLocked(id)
+	m.touchEntry(entry)
 	return entry, nil
+}
+
+func (m *Manager) touchEntry(entry *processEntry) {
+	order := m.accessSequence.Add(1)
+	for previous := entry.accessOrder.Load(); previous < order; previous = entry.accessOrder.Load() {
+		if entry.accessOrder.CompareAndSwap(previous, order) {
+			return
+		}
+	}
 }
 
 func (m *Manager) readEntry(id string) (*processEntry, error) {
@@ -289,9 +303,9 @@ func (m *Manager) waitForExit(entry *processEntry) {
 	if snapshot.State == "killed" {
 		eventType = EventKilled
 	}
-	m.retainCompletedEntry(entry.id)
 	event := m.buildTerminalEvent(entry, eventType, snapshot)
 	m.emitCompletionEvent(entry, event)
+	m.enforceCompletedRetention()
 	entry.signal()
 }
 
@@ -332,7 +346,7 @@ func (m *Manager) fallbackOrBareBackgroundEvent(eventType EventType, snapshot Sn
 }
 
 func (m *Manager) fallbackBackgroundEvent(eventType EventType, snapshot Snapshot, warning postprocess.Warning) (Event, error) {
-	preview, _, truncated, err := readBackgroundSummaryFromFile(snapshot.LogPath, defaultLimit, BackgroundOutputDefault, !snapshot.RawOutput)
+	preview, truncated, err := readBackgroundSummaryFromFile(snapshot.LogPath, defaultLimit, BackgroundOutputDefault, !snapshot.RawOutput)
 	if err != nil {
 		warning, err = mergeOperationalWarning(warning, fmt.Sprintf("failed to read output preview: %v", err))
 		if err != nil {
@@ -382,7 +396,10 @@ func (m *Manager) RetryTerminalEvents(ownerSessionID string) {
 
 func (m *Manager) retryTerminalEvent(entry *processEntry, ownerSessionID string) {
 	entry.interactMu.Lock()
-	defer entry.interactMu.Unlock()
+	defer func() {
+		entry.interactMu.Unlock()
+		m.enforceCompletedRetention()
+	}()
 	entry.mu.Lock()
 	if entry.ownerSessionID != ownerSessionID ||
 		entry.terminalDelivered {
@@ -402,6 +419,9 @@ func (m *Manager) retryTerminalEvent(entry *processEntry, ownerSessionID string)
 		entry.terminalEvent = nil
 	}
 	entry.mu.Unlock()
+	if delivered {
+		removeShellArtifact(entry.id, entry.logPath+".completion")
+	}
 }
 
 func cacheTerminalEvent(entry *processEntry, event Event) *terminalEventCache {
@@ -487,21 +507,31 @@ func (c *terminalEventCache) fallbackEvent(cause error) Event {
 }
 
 func (m *Manager) collectUntil(ctx context.Context, entry *processEntry, deadline time.Time) ([]byte, error) {
+	return m.observeUntil(ctx, entry, deadline, true)
+}
+
+func (m *Manager) waitUntil(ctx context.Context, entry *processEntry, deadline time.Time) error {
+	_, err := m.observeUntil(ctx, entry, deadline, false)
+	return err
+}
+
+func (m *Manager) observeUntil(ctx context.Context, entry *processEntry, deadline time.Time, collect bool) ([]byte, error) {
 	var collected bytes.Buffer
-	for {
+	collectPending := func() {
 		pending := entry.drainPending()
-		if len(pending) > 0 {
+		if collect && len(pending) > 0 {
 			_, _ = collected.Write(pending)
 		}
+	}
+	for {
+		collectPending()
 		if !entry.isRunning() {
 			select {
 			case <-entry.outputFinalized:
 			case <-ctx.Done():
 				return collected.Bytes(), ctx.Err()
 			}
-			if pending := entry.drainPending(); len(pending) > 0 {
-				_, _ = collected.Write(pending)
-			}
+			collectPending()
 			return collected.Bytes(), nil
 		}
 		remaining := time.Until(deadline)
@@ -518,22 +548,39 @@ func (m *Manager) collectUntil(ctx context.Context, entry *processEntry, deadlin
 	}
 }
 
-func (m *Manager) allocateProcessSlot() (string, string, error) {
+func (m *Manager) allocateProcessSlot(shortID runtimeids.SessionShortID) (string, *os.File, error) {
+	if _, err := runtimeids.NewSessionShortID(shortID.Int64()); err != nil {
+		return "", nil, fmt.Errorf("shell log Session identity: %w", err)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return "", "", errors.New("background shell manager is closed")
+		return "", nil, errors.New("background shell manager is closed")
 	}
 	if m.occupiedSlots >= m.maxConcurrent {
-		return "", "", &ConcurrentShellLimitError{Limit: m.maxConcurrent}
+		return "", nil, &ConcurrentShellLimitError{Limit: m.maxConcurrent}
 	}
-	if err := os.MkdirAll(m.tempDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("prepare background shell temp dir: %w", err)
+	root := "/tmp"
+	if runtime.GOOS == "windows" {
+		root = os.TempDir()
 	}
-	id := strconv.Itoa(m.nextID)
-	m.nextID++
-	m.occupiedSlots++
-	return id, filepath.Join(m.tempDir, id+".log"), nil
+	directory := filepath.Join(root, "kent", shortID.String())
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", nil, fmt.Errorf("prepare background shell log directory: %w", err)
+	}
+	for {
+		id := strconv.Itoa(m.nextID)
+		m.nextID++
+		log, err := os.OpenFile(filepath.Join(directory, id+".log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", nil, fmt.Errorf("create background shell log: %w", err)
+		}
+		m.occupiedSlots++
+		return id, log, nil
+	}
 }
 
 func (m *Manager) releaseProcessSlot() {
@@ -545,61 +592,63 @@ func (m *Manager) releaseProcessSlot() {
 func (m *Manager) releaseEntry(id string) {
 	m.mu.Lock()
 	entry, found := m.entries.LoadAndDelete(id)
-	m.removeCompletedLocked(id)
 	m.mu.Unlock()
 	if found {
 		m.notifyBackgroundListChange(entry.(*processEntry).snapshot())
 	}
 }
 
-func (m *Manager) retainCompletedEntry(id string) {
-	var removed []Snapshot
+func (m *Manager) enforceCompletedRetention() {
 	m.mu.Lock()
-	defer func() {
-		m.mu.Unlock()
-		for _, snapshot := range removed {
-			m.notifyBackgroundListChange(snapshot)
-		}
-	}()
-	entry, err := m.readEntry(id)
-	if err != nil || entry.isRunning() {
-		return
+	completed := 0
+	type candidate struct {
+		entry *processEntry
+		order uint64
 	}
-	m.removeCompletedLocked(id)
-	m.completedRecency = append(m.completedRecency, id)
-	for len(m.completedRecency) > completedProcessRetentionLimit {
-		evictedID := m.completedRecency[0]
-		m.completedRecency[0] = ""
-		m.completedRecency = m.completedRecency[1:]
-		evicted, err := m.readEntry(evictedID)
-		if err == nil && !evicted.isRunning() {
-			removed = append(removed, evicted.snapshot())
-			m.entries.Delete(evictedID)
+	var candidates []candidate
+	for _, entry := range m.processEntries() {
+		entry.mu.Lock()
+		finalized := !entry.running && (entry.terminalDelivered || entry.terminalEvent != nil)
+		delivered := entry.terminalDelivered
+		entry.mu.Unlock()
+		if finalized {
+			completed++
+			if delivered {
+				candidates = append(candidates, candidate{entry: entry, order: entry.accessOrder.Load()})
+			}
 		}
+	}
+	evictions := min(max(0, completed-completedProcessRetentionLimit), len(candidates))
+	if evictions > 0 {
+		slices.SortFunc(candidates, func(a, b candidate) int { return cmp.Compare(a.order, b.order) })
+	}
+	removed := make([]Snapshot, 0, evictions)
+	for _, candidate := range candidates[:evictions] {
+		removed = append(removed, candidate.entry.snapshot())
+		m.entries.Delete(candidate.entry.id)
+	}
+	completed -= evictions
+	overflow := completed > completedProcessRetentionLimit
+	m.mu.Unlock()
+	for _, snapshot := range removed {
+		removeShellArtifact(snapshot.ID, snapshot.LogPath)
+		removeShellArtifact(snapshot.ID, snapshot.LogPath+".completion")
+		m.notifyBackgroundListChange(snapshot)
+	}
+	if overflow {
+		invariant.NewPolicy(invariant.WithSink(invariant.SinkFunc(func(diagnostic invariant.Diagnostic) {
+			slog.Error("background shell retention invariant", "diagnostic", diagnostic)
+		}))).Check(false, invariant.FailureDiagnostic(
+			invariant.ScopeBackgroundEvent,
+			"retain_completed_shells",
+			fmt.Errorf("%d completed shells exceed limit %d because terminal notices are undelivered", completed, completedProcessRetentionLimit),
+		))
 	}
 }
 
-func (m *Manager) touchCompletedLocked(id string) {
-	for index, completedID := range m.completedRecency {
-		if completedID != id {
-			continue
-		}
-		copy(m.completedRecency[index:], m.completedRecency[index+1:])
-		m.completedRecency[len(m.completedRecency)-1] = id
-		return
-	}
-}
-
-func (m *Manager) removeCompletedLocked(id string) {
-	for index, completedID := range m.completedRecency {
-		if completedID != id {
-			continue
-		}
-		copy(m.completedRecency[index:], m.completedRecency[index+1:])
-		last := len(m.completedRecency) - 1
-		m.completedRecency[last] = ""
-		m.completedRecency = m.completedRecency[:last]
-		return
+func removeShellArtifact(processID string, path string) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.Error("remove background shell output artifact", "process_id", processID, "path", path, "error", err)
 	}
 }
 

@@ -22,6 +22,8 @@
 - Each controlling TUI may run its configured read-only lifecycle command after it accepts a lifecycle event. Desktop, headless, subagent, and server-only use never run it. The server neither supplies nor overrides the command.
 - Each client transcript subscription is ordered and sequence-numbered. Hydration is the first message and carries the global newest bounded transcript segment, authoritative `has more above`, an opaque older cursor exactly when older history exists, and no newer cursor. Every later update has the next per-subscription sequence number. Each update contains the required content. Tool completions appear in committed order. Committed assistant entries use the identity of their streamed output. Clients apply every received message once and in order. Clients receive neither total transcript counts nor absolute offsets or revisions.
 - Opening or reopening Chat never activates an Active Session Runtime. It independently loads bounded transcript history and the latest completed server-owned projections for RuntimeActivity, Session identity and status, execution target, active execution, reasoning, Reviewer, compaction, tool, Queue, prompt, background-process, context-usage, and Goal state.
+- When an explicit Chat action prepares a dormant Session, the server must resolve its current saved Session settings, selected Agent, and configuration and apply the action's explicit invocation overrides. Opening-time settings must not determine that Runtime's settings.
+- An existing live Runtime must keep its frozen settings except for explicit supported settings changes and confirmed Agent replacement.
 - A dormant Session Main View projects complete status from persisted Session facts and current read-only settings and capability policy and reports unavailable RuntimeActivity without creating an Active Session Runtime.
 - A read-only transcript subscription may wait for an Active Session Runtime without creating one. Watching changes Runtime residency only and must not start or cancel agent work.
 - The non-transcript projections may be stale and may represent different completed moments. Server authority identifies the owner of each fact. It promises no read freshness or cross-owner snapshot.
@@ -98,7 +100,6 @@
 | `write_stdin` | `session_id` | `process_id`, `shell_id` |
 | `write_stdin` | `chars` | `input`, `stdin`, `text` |
 | `write_stdin` | `yield_time_ms` | `yield_ms`, `wait_ms` |
-| `write_stdin` | `max_output_tokens` | `max_tokens`, `output_token_limit` |
 | `view_image` | `path` | `file_path`, `image_path`, `file`, `pdf_path`, `filename` |
 | `view_image` | `raw` | `raw_output`, `unoptimized`, `disable_optimization`, `original_quality` |
 | `patch` | `patch` | `diff`, `patch_text`, `content`, `patch_content`, `input` |
@@ -165,6 +166,9 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Kent applies a foreground command's terminal output or typed failure before another provider request starts.
 - A backgrounded command cannot block unrelated provider or tool work.
 - The process owner later records and delivers the background terminal result when the Session can receive it.
+- The result that moves a shell to the background must report `Shell moved to background with ID <id> after <duration>s` and the output-file path without command output. The duration must report elapsed time before backgrounding in seconds to one decimal place.
+- Each explicit output check must include wall time and the output-file path and show a bounded tail of the command output, even if it repeats output shown earlier. Automatic completion must show full output or use head-and-tail truncation. Kent must not track which output the model has viewed.
+- `write_stdin` must return a fixed bounded output tail without a `max_output_tokens` parameter. The model must be able to read the complete original command output from the reported file with `exec_command` during the existing temporary-log lifetime, including while the command runs and after completion. Raw or processed previews, truncation, and concise output must not remove command content from that file. This requirement must not change completed-process retention.
 - For output-only `write_stdin` checks, Kent must clamp a negative requested duration to zero. A check requesting zero must return available output without waiting for more output. A check requesting 1–14,999 ms must fail with `Avoid polling repeatedly for short intervals, prefer 3-15min polls depending on task. Pick a better interval and retry`. A check requesting 15 seconds through 24 hours must wait normally for its requested duration or command completion. A check requesting more than 24 hours must fail with `This poll is too long. Consider using system cron jobs and \`kent run\` headless runs for tasks that require such long wait periods`. Sending non-empty input, including whitespace, must be exempt from these output-check limits and collection-window rules.
 - A non-zero command exit is recoverable without aborting the model turn. Launch failures are not retried automatically. Interruption sends `SIGINT`, then `SIGKILL` after 10 seconds.
 - If Kent's shell-log temporary directory has been deleted, Kent must recreate the same directory before launching the next command and run that command within the same tool call without requiring a server restart.
@@ -174,9 +178,10 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - Except in `none` and `raw` modes, generic command-output sanitization runs before built-ins and the optional hook. Built-ins run before the hook. A built-in halt stops only later built-ins. In `user` and `all` modes, Kent runs the user-hook stage only when `[shell].postprocess_hook` is configured. An omitted hook silently skips that stage. A user hook receives JSON on stdin containing the original raw output before sanitization and the current output after sanitization and enabled built-in processing, and returns JSON on stdout. If a configured hook executable is missing, times out, exits nonzero, or returns invalid JSON, the current model-facing output is unchanged and Kent reports a warning.
 - The post-processing architecture must support adding processors without replacing the processing pipeline.
 - `/ps` shows background processes whose owning Session belongs to the selected Project and operates on processes selected from that list.
-- Process recent-output previews are UTF-8 text. A preview leaves valid UTF-8 unchanged and converts each contiguous run of invalid bytes to one Unicode replacement character. This preview projection must not change raw shell output, saved logs, Inline Output, or raw byte offsets.
+- Process recent-output previews are UTF-8 text. A preview leaves valid UTF-8 unchanged and converts each contiguous run of invalid bytes to one Unicode replacement character. This preview projection must not change raw shell output, saved logs, or Inline Output.
 - Background process IDs are unique for one server lifetime. Their Session association controls Project list membership, notices, and history. Process Get, Inline Output, and termination use the process ID without requiring an attached Project or revalidating Project membership.
-- Kent exposes at most 1,000 completed background processes per server lifetime. Completing another process removes the completed process with the oldest direct-access time and its saved log and completion output from `/ps` and process controls.
+- Kent must keep at most 1,000 completed background processes per server lifetime, except processes whose terminal notices await delivery. When completed processes exceed this limit, Kent must remove the already-delivered completed process with the oldest direct-access time and its saved log and completion output from `/ps` and process controls.
+- If no already-delivered completed process is eligible for removal, Kent must temporarily exceed the limit without discarding pending terminal notices. Kent must panic in debug mode and report an operator diagnostic in production mode for this overflow.
 - Kent performs terminal event creation, delivery/finalization, and only then retention eviction and artifact cleanup.
 - Direct process access refreshes completed-process recency. Listing `/ps` has no effect on recency.
 - The completed-process retention limit never removes a running process.
@@ -210,20 +215,23 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 - `exec_command` and `write_stdin` must return model-visible plaintext for execution, polling, and error results. Polling must use the same shell-output formatting as command execution. Process lifecycle metadata must not wrap that text in a model-visible JSON object.
 - Kent truncates large tool output for model context with standardized head/tail content and truncation metadata. The threshold is configurable and applies after command post-processing.
 - Foreground shell output is evaluated after sanitization, post-processing, warnings, truncation, and presentation trimming. Whitespace-only content is no output.
-- Each `shell` and `write_stdin` call independently applies the oversized-output guard after output processing and ordinary truncation. The guard carries no state between calls.
+- Each `exec_command` call must independently apply the oversized-output guard after output processing and ordinary truncation. The guard carries no state between calls. `write_stdin` must not apply this parameter-dependent guard.
 - The oversized-output threshold is half of the active Session's established context window.
 - The oversized-output guard is eligible only when the current call explicitly requests `max_output_tokens` above the threshold.
 - For an eligible call, Kent applies its standard token estimate to the final model-visible result. When that estimate exceeds the threshold, Kent omits all command output and returns a failed tool result.
 - An oversized-output failure must say `Command was executed but the output you requested exceeded 0.5 of your memory size. It was forcibly truncated still to prevent your memory overload, and the output written to ${command.output_path} . Next time be more careful with larger outputs.`, replacing `${command.output_path}` with the saved shell-log path.
 - An oversized-output failure never stops a running command or changes command execution, the complete shell log, or later independent polls.
 - When `max_output_tokens` is omitted, the requested cap is at or below the threshold, or the estimated final result is at or below the threshold, the oversized-output guard has no effect on the call.
-- A successful foreground command with output returns only that plaintext. Any completed foreground command without output returns `Exit code N, no output.`. An unsuccessful foreground command with output returns `Exit code N, output:` followed by the output.
+- A successful foreground command with full output must return only that plaintext. A successful foreground command with truncated output must return the output-file path and preview without an exit-code line.
+- A completed command without output must return `Shell <id> exited with code <N> and no output`. An unsuccessful foreground command with full output must return `Shell <id> exited with code <N>, output:` followed by a newline and the output. If that output is truncated, it must return `Shell <id> exited with code <N>, output written to <path>:` followed by a newline and the output preview.
 - Windows shell results must report the original numeric process exit status, including values above the signed 32-bit maximum. Such statuses must work in live output, background completion, and reopened transcript history without truncation, negative reinterpretation, or rejection.
-- Background completion and polling always include the exit code. Completion with no output says `Exit code N, no output.`. Lifecycle facts are separate from output summaries.
-- Completed background polling with output must list wall time, the output-file path when available, and `Exit code N, output:` in that order, followed by the command output.
-- Concise background output may hide an inline preview, but completion must expose the exit code and output-file location when output exists and must not claim there was no output. Recoverable warnings are visible and count as output, but do not imply command-log content.
+- Background completion and completed polling must include the shell ID and exit code, including code 0. Full output must use `Shell <id> exited with code <N>, output:` followed by a newline and the output. Truncated output must use `Shell <id> exited with code <N>, output written to <path>:` followed by a newline and the output preview. Completed polls must also include wall time and the output-file path without duplicating that path within the result. Full output, no output, and truncated output must be determined from that result's processed output, not from what the model saw earlier.
+- Each shell result must report each status, exit code, and output-file path at most once within that result. Paths and output tails may repeat across explicit polls.
+- Automatic completion must expose the output-file path only when the output shown to the model is truncated. Foreground results must expose the output-file path only when output is truncated.
+- Successful concise background completion must show the output-file path instead of nonempty command output. Failed completions must show failure output, and recoverable warnings must stay visible. Omitting nonempty successful output counts as truncation for completion path visibility, and the result must not claim there was no output. A concise completion must show its path only once. Recoverable warnings count as output but do not imply command-log content.
 - An invalid background-completion state fails fast with diagnostics in debug mode. Production reports the terminal process facts unchanged, records the diagnostic, and reports an explicit Kent error. It must not invent successful or empty output.
 - Transient model-step failures retry after `1s`, `2s`, `4s`, `8s`, and `16s`. Ongoing mode shows concise model/API errors. Detail and logs include full details.
+- An incomplete model response with reason `max_messages` must be treated as transient and retried at most three times after `1s`, `2s`, and `4s`. These retries must not change the request or conversation history.
 - After a provider HTTP 400, Kent may append error results for tool calls that were interrupted without output only when no matching live operation exists, rebuild the request, and retry. Each synthetic error uses the original call's output kind and states that the call was interrupted with no output. Kent never rewrites or removes history, never fabricates success, and leaves matching live operations alone. A 400 without missing outputs surfaces unchanged. Each live repair records a user-only warning with the number of closed calls.
 - Speculative compaction must use this bounded missing-tool-output repair. Each corrected request fails immediately on ordinary provider failures.
 - Before another provider request, Agent Step completion, history replacement, compaction, Question, Approval, or Workflow effect, every compatible complete tool result already owned by the current Agent Step is durable. A delayed background result becomes durable through its own Steering delivery rather than as part of an unrelated Agent Step.
@@ -308,6 +316,7 @@ Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-r
 - A session selected for an interactive workspace prompts to rebind only when its attached workspace differs from the open workspace. Detached workspace-location records neither trigger nor supply a rebind. Attached location has one authority. A detached location record is not an execution fallback.
 - Interactive Sessions are created lazily, at the first trigger that needs model work.
 - A Session stores one unsent input draft for recovery. Clients restore the draft verbatim when opening the Session.
+- Saving input drafts and prompt-history entries must not require or activate a Session Runtime.
 - Session listings expose the first-prompt preview when available. Clients decide whether to display it.
 - Immediately before a Session's first model request, and after every compaction before subsequent model work, Kent locks or refreshes the model/provider setup, generation parameters, effective tool declarations and enabled tool set, system and developer context, skills, workspace information, current model-facing date/time, and conversation context for the current Session Contract. The main prompt-cache key is the Kent Session ID throughout.
 - Transcript order is immutable for prompt-cache stability. A pre-commit Result Group persistence failure ends the Exact Execution Scope and makes no committed transcript change. Kent must not replay or reconcile a lost Session operation. A later explicit invocation is a new operation. Process death may lose the current Agent Step and process-local pending Steering as defined by the Runtime Steering specification.
@@ -381,6 +390,21 @@ Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-r
 - Main-agent, subagent, Supervisor, Workflow, worktree-setup, and read-only settings operations must use the same configuration resolution rules. Worktree setup must validate the full configuration, including agent settings.
 - If global and workspace settings resolve to the same physical file, Kent must apply it once as global settings, disable that shared workspace layer, and provide diagnostics for both resolved locations.
 
+### Proxy configuration
+
+- Proxy configuration must follow this subsection. General configuration precedence and private-file discovery rules must apply to other settings.
+- The server must resolve each proxy setting in descending precedence from process environment, the persistence-root `.env`, and global configuration. Workspace files must not configure the server proxy.
+- CLI/TUI clients must resolve each proxy setting in descending precedence from process environment, `.kent/config.local.toml` in the process's current directory, `.kent/config.toml` in that directory, and global configuration. Clients must not search parent directories or obtain proxy settings from the server.
+- TOML proxy settings must use `[proxy]` keys `http`, `https`, and `no_proxy`, corresponding to `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Missing and empty values must inherit independently from the next source. Uppercase environment names must take precedence over their lowercase equivalents within the same source.
+- Each process must resolve proxy settings once at startup. Changes must require restarting that process, including changes used by TUI reconnects.
+- All Kent-owned outbound HTTP(S) and CLI/TUI server connections must use the process's resolved proxy rules. Provider, authentication, status, catalog, and release requests must use those rules.
+- HTTP and `ws://` destinations must use the HTTP proxy setting. HTTPS and `wss://` destinations must use the HTTPS proxy setting. An omitted HTTPS proxy must not inherit the HTTP proxy.
+- Localhost, loopback addresses, and destinations matched by `NO_PROXY` must connect directly.
+- Kent must support HTTP and HTTPS proxy URLs with optional URL username/password and normal certificate verification. Kent must accept `host:port` shorthand for an HTTP proxy.
+- `NO_PROXY` must use Go's existing host/domain, IP/range, optional-port, and wildcard matching rules. The library must ignore invalid entries. `NO_PROXY=*` must bypass all proxies.
+- Kent must perform only basic proxy-address validation and must not probe connectivity at startup. Network failures must follow existing operation-specific error presentation, timeouts, and retries. Kent must not fall back to a direct connection when a selected proxy fails. Diagnostics must not disclose proxy credentials.
+- Agent-run commands and external browsers must use their existing environment behavior. Kent must not inject proxy settings resolved from `.env` or TOML into agent shells.
+
 ## Model Requests And Cache Continuity
 
 - Kent must group captured Session properties by Snapshot Policy. Refresh eligibility must be separate from permission to apply a change to the active context.
@@ -434,6 +458,15 @@ Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-r
 - Grok local context estimates must use its provider's text, image, and encrypted-content accounting without OpenAI's encrypted-envelope deduction. Provider-reported context usage must take precedence over estimates. Compaction policy must not change with estimator selection.
 - Grok public-API OAuth and API-key access must support native compaction through the selected service's `/responses/compact` endpoint. The Grok CLI subscription proxy must not advertise or dispatch native compaction. Kent must report rejected compaction without automatic fallback.
 - When current capabilities govern, a configured native mode unsupported by the Grok CLI proxy must resolve to local compaction. A Session whose locked contract selects native compaction must receive an unsupported-compaction error without a proxy-native request. Kent must not migrate that contract or retry a rejected provider request through another compaction mode.
+
+## DeepSeek Model Behavior
+
+- Kent's built-in DeepSeek catalog must include `deepseek-flash` and `deepseek-v4-pro`.
+- Both models must use a 1,000,000-token context window.
+- `deepseek-flash` must support image input. `deepseek-v4-pro` must not.
+- Both models must support Thinking efforts `none`, `low`, `high`, and `max`. DeepSeek Thinking must default to high.
+- DeepSeek must not advertise native Web Search, native compaction, fast mode, verbosity, or encrypted reasoning.
+- Consumption estimates for these models must use DeepSeek's peak cache-miss input, peak cache-hit input, and peak output prices. Off-peak discounts must not change the estimate.
 
 ## Fast Mode And Context Usage
 

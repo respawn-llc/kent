@@ -9,6 +9,26 @@ import (
 
 const webSearchImageLabel = "image"
 
+func webActionDisplayText(detail *transcriptpb.WebSearchDetail) string {
+	switch action := detail.Action.(type) {
+	case *transcriptpb.WebSearchDetail_Search:
+		if len(action.Search.Queries) > 0 {
+			return webSearchDisplayPrefix + `"` + strings.Join(action.Search.Queries, "; ") + `"`
+		}
+	case *transcriptpb.WebSearchDetail_OpenPage:
+		if action.OpenPage.Url != nil {
+			return "Read " + *action.OpenPage.Url
+		}
+	case *transcriptpb.WebSearchDetail_FindInPage:
+		if action.FindInPage.Url != nil && action.FindInPage.Pattern != nil {
+			return "Searched " + *action.FindInPage.Url + ` for "` + *action.FindInPage.Pattern + `"`
+		}
+	default:
+		panic(fmt.Sprintf("render unsupported web search action %T", action))
+	}
+	return "Web"
+}
+
 func webSearchDetailLines(detail *transcriptpb.WebSearchDetail, width int, presentation MarkdownLinkPresentation) []Line {
 	var lines []Line
 	appendItem := func(label string, destination *string) {

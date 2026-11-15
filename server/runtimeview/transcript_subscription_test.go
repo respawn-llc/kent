@@ -557,9 +557,12 @@ func TestTranscriptCommittedRowsProjectCommitTime(t *testing.T) {
 			Visibility: transcript.EntryVisibilityOngoing,
 			Integrity:  transcript.RowIntegrityValid,
 			Kind:       runtime.TranscriptCommittedRowFactUser,
-			User: &runtime.TranscriptUserRowFact{
-				Text:              "user",
+			Provenance: &runtime.TranscriptCommittedRowProvenance{
+				EventSequence:     1,
 				CommittedAtUnixMs: &committedAt,
+			},
+			User: &runtime.TranscriptUserRowFact{
+				Text: "user",
 			},
 		},
 		{
@@ -567,10 +570,13 @@ func TestTranscriptCommittedRowsProjectCommitTime(t *testing.T) {
 			Visibility: transcript.EntryVisibilityOngoing,
 			Integrity:  transcript.RowIntegrityValid,
 			Kind:       runtime.TranscriptCommittedRowFactAssistant,
-			Assistant: &runtime.TranscriptAssistantRowFact{
-				Text:              "assistant",
-				Phase:             llm.MessagePhaseFinal,
+			Provenance: &runtime.TranscriptCommittedRowProvenance{
+				EventSequence:     1,
 				CommittedAtUnixMs: &committedAt,
+			},
+			Assistant: &runtime.TranscriptAssistantRowFact{
+				Text:  "assistant",
+				Phase: llm.MessagePhaseFinal,
 			},
 		},
 	} {
@@ -586,6 +592,46 @@ func TestTranscriptCommittedRowsProjectCommitTime(t *testing.T) {
 		case row.GetAssistant() != nil:
 			if row.GetAssistant().CommittedAt == nil || row.GetAssistant().CommittedAt.AsTime().UnixMilli() != committedAt.UnixMs() {
 				t.Fatalf("assistant committed time = %v, want %d", row.GetAssistant().CommittedAt, committedAt.UnixMs())
+			}
+		default:
+			t.Fatalf("projected row = %+v, want user or assistant", row)
+		}
+	}
+}
+
+func TestTranscriptCommittedRowsOmitCommitTimeWithoutProvenanceTimestamp(t *testing.T) {
+	stepID := runtimeStepIDPointer(transcriptProjectionStepID)
+	for _, fact := range []runtime.TranscriptCommittedRowFact{
+		{
+			Visibility: transcript.EntryVisibilityOngoing,
+			Integrity:  transcript.RowIntegrityValid,
+			Kind:       runtime.TranscriptCommittedRowFactUser,
+			User:       &runtime.TranscriptUserRowFact{Text: "user"},
+		},
+		{
+			StepID:     stepID,
+			Visibility: transcript.EntryVisibilityOngoing,
+			Integrity:  transcript.RowIntegrityValid,
+			Kind:       runtime.TranscriptCommittedRowFactAssistant,
+			Provenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 1},
+			Assistant: &runtime.TranscriptAssistantRowFact{
+				Text:  "assistant",
+				Phase: llm.MessagePhaseFinal,
+			},
+		},
+	} {
+		row, err := transcriptRowFromFact(fact, nil)
+		if err != nil {
+			t.Fatalf("project committed row without timestamp: %v", err)
+		}
+		switch {
+		case row.GetUser() != nil:
+			if row.GetUser().CommittedAt != nil {
+				t.Fatalf("user committed time = %v, want omission", row.GetUser().CommittedAt)
+			}
+		case row.GetAssistant() != nil:
+			if row.GetAssistant().CommittedAt != nil {
+				t.Fatalf("assistant committed time = %v, want omission", row.GetAssistant().CommittedAt)
 			}
 		default:
 			t.Fatalf("projected row = %+v, want user or assistant", row)
@@ -679,9 +725,8 @@ func TestRuntimeScopedToolCompletionProjectsLiveAndHydratedWithoutExactStep(t *t
 		t.Fatalf("Runtime hydration rows = %+v, want user and tool", hydration.TailSegment.Entries)
 	}
 	hydration.SessionIdentity = &transcriptpb.SessionIdentity{
-		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-		SessionId:             projectionWorkspaceID,
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+		Category:  projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+		SessionId: projectionWorkspaceID,
 	}
 	hydration.SessionStatus = &transcriptpb.SessionStatus{
 		ReviewerFrequency: "off",
@@ -759,8 +804,6 @@ func TestQuestionAnswererProjectsAcrossLiveHydrationAndPageRows(t *testing.T) {
 	}}}
 	page, err := TranscriptPageFromSegment(
 		"12345678-1234-4234-8234-123456789012",
-		textutil.Value("session"),
-		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: snapshot},
 		identities,
 	)
@@ -856,8 +899,6 @@ func TestTranscriptReasoningDurationProjectsHydrationAndBoundedPage(t *testing.T
 
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		textutil.Value("name"),
-		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
 			StepID:     runtimeStepIDPointer(transcriptProjectionStepID),
 			Role:       string(transcript.EntryRoleReasoning),
@@ -1028,7 +1069,7 @@ func TestWebSearchLiveAndReopenedPage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := TranscriptPageFromSegment(projectionWorkspaceID, textutil.Value("search"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, segment, nil)
+			page, err := TranscriptPageFromSegment(projectionWorkspaceID, segment, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1067,8 +1108,6 @@ func TestTranscriptPagePreservesRollbackTargetIdentity(t *testing.T) {
 	}
 	page, err := TranscriptPageFromSegment(
 		"58e121b5-30f7-4d0f-a1fa-fb3e6695e39c",
-		textutil.Value("name"),
-		runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
 		runtime.TranscriptSegmentPage{
 			LatestRollbackCandidate: locator,
 			Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{{
@@ -1123,7 +1162,7 @@ func TestTranscriptProjectionCanonicalizesBlankPersistedAssistantPhase(t *testin
 func TestTranscriptPageProjectsReviewerAndBackgroundMetadata(t *testing.T) {
 	exitCode := 9
 	activityID := uuid.New()
-	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", textutil.Value("name"), runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED, runtime.TranscriptSegmentPage{
+	page, err := TranscriptPageFromSegment("58e121b5-30f7-4d0f-a1fa-fb3e6695e39c", runtime.TranscriptSegmentPage{
 		Snapshot: runtime.ChatSnapshot{Entries: []runtime.ChatEntry{
 			{Role: "reviewer_status", Text: "review complete", CommittedProvenance: &runtime.TranscriptCommittedRowProvenance{EventSequence: 6}},
 			{

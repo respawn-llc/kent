@@ -14,11 +14,12 @@ esac
 
 usage() {
 	cat <<'USAGE'
-Usage: just test [server|desktop|integration|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [-- TOOL-ARGS...]
+Usage: just test [server|desktop|integration|docs|tui|rust] [--timeout SECONDS] [--workers COUNT] [--inherit-env] [--dom|--plain] [-- TOOL-ARGS...]
 
 The timeout controls Go package and Bun per-test execution, not total command runtime.
 Without an explicit timeout, Bun uses its native per-test default.
 Bare `just test` runs server, desktop, and production-binary integration tests concurrently.
+Desktop --dom runs TSX tests with DOM setup; --plain runs TS tests without it.
 USAGE
 }
 
@@ -29,6 +30,7 @@ desktop_workers=8
 native_timeout_args=()
 inherit_env=0
 tool_args=()
+desktop_environment=all
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -53,6 +55,11 @@ while [ "$#" -gt 0 ]; do
 		inherit_env=1
 		shift
 		;;
+	--dom | --plain)
+		[ "$desktop_environment" = all ] || { echo "Select one Desktop test environment" >&2; exit 2; }
+		desktop_environment="${1#--}"
+		shift
+		;;
 	-h | --help)
 		usage
 		exit 0
@@ -69,6 +76,11 @@ while [ "$#" -gt 0 ]; do
 		;;
 	esac
 done
+
+if [ "$desktop_environment" != all ] && [ "$target" != desktop ]; then
+	echo "--dom and --plain require the desktop target" >&2
+	exit 2
+fi
 
 case "$timeout_seconds" in
 '' | *[!0-9]*) echo "--timeout must be a positive integer" >&2; exit 2 ;;
@@ -184,8 +196,12 @@ run_server() {
 
 run_desktop_tests() {
 	local status=0
-	bun test "$@" '--path-ignore-patterns=**/*.test.tsx' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
-	bun test "$@" --preload=./test/setup.ts '--path-ignore-patterns=**/*.test.ts' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	if [ "$desktop_environment" != dom ]; then
+		bun test "$@" '--path-ignore-patterns=**/*.test.tsx' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	fi
+	if [ "$desktop_environment" != plain ]; then
+		bun test "$@" --preload=./test/setup.ts '--path-ignore-patterns=**/*.test.ts' "${native_timeout_args[@]}" "${tool_args[@]}" || status=$?
+	fi
 	return "$status"
 }
 

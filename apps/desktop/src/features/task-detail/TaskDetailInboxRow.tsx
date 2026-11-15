@@ -32,7 +32,7 @@ export function TaskDetailInboxRow({
   promptAnswerState: PromptAnswerState;
 }>): ReactNode {
   if (attentionPending) {
-    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={undefined} />;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} />;
   }
   return (
     <TaskInbox

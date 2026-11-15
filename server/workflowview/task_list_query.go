@@ -55,16 +55,8 @@ type workflowTaskListNarrowedQueryFacts struct {
 	columnKeys []string
 }
 
-type workflowTaskListRow struct {
-	item                  *taskpb.ListItem
-	titleSort             string
-	primaryStatusRank     int
-	columnRank            *int
-	matchingWorkflowCount int
-}
-
 type workflowTaskListPageResult struct {
-	rows                  []workflowTaskListRow
+	rows                  []*taskpb.ListItem
 	matchingWorkflowCount int
 }
 
@@ -155,7 +147,7 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 		return workflowTaskListPageResult{}, errors.New("workflow task list query omitted its summary row")
 	}
 	result := workflowTaskListPageResult{
-		rows:                  make([]workflowTaskListRow, 0, len(rows)-1),
+		rows:                  make([]*taskpb.ListItem, 0, len(rows)-1),
 		matchingWorkflowCount: int(rows[0].MatchingWorkflowCount),
 	}
 	for _, row := range rows {
@@ -198,22 +190,16 @@ func (l *TaskList) queryRows(ctx context.Context, req workflowTaskListQueryReque
 			value := row.WorkflowName.String
 			workflowName = &value
 		}
-		result.rows = append(result.rows, workflowTaskListRow{
-			item: &taskpb.ListItem{
-				TaskId:       row.ID.String,
-				ShortId:      row.ShortID.String,
-				WorkflowId:   row.WorkflowID.String(),
-				WorkflowName: workflowName,
-				Title:        row.Title.String,
-				CreatedAt:    timestamppb.New(time.UnixMilli(row.CreatedAtUnixMs.Int64)),
-				UpdatedAt:    timestamppb.New(time.UnixMilli(row.UpdatedAtUnixMs.Int64)),
-				ColumnKeys:   columnKeys,
-				Status:       statusFact.Status,
-			},
-			titleSort:             row.TitleSort.String,
-			primaryStatusRank:     int(row.PrimaryStatusRank.Int64),
-			columnRank:            columnRank,
-			matchingWorkflowCount: int(row.MatchingWorkflowCount),
+		result.rows = append(result.rows, &taskpb.ListItem{
+			TaskId:       row.ID.String,
+			ShortId:      row.ShortID.String,
+			WorkflowId:   row.WorkflowID.String(),
+			WorkflowName: workflowName,
+			Title:        row.Title.String,
+			CreatedAt:    timestamppb.New(time.UnixMilli(row.CreatedAtUnixMs.Int64)),
+			UpdatedAt:    timestamppb.New(time.UnixMilli(row.UpdatedAtUnixMs.Int64)),
+			ColumnKeys:   columnKeys,
+			Status:       statusFact.Status,
 		})
 	}
 	return result, nil

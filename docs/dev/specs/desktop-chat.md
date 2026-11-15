@@ -1,5 +1,9 @@
 ## Authority and scope
 
+- Chat and Chat Settings must support Projects with multiple Workspaces and Workspace paths attached to multiple Projects without ambiguity errors.
+- New Chat must use the Project selected through the existing Project menu. Workspace selection must be available through the existing Workspace menu.
+- Opening an existing Session must use that Session's Project and Workspace without changing its ownership, files, or history.
+
 - Chat must support non-Git workspaces. Confirmed absence of a Git repository must produce an empty Git Worktree inventory without a whole-Chat failure. Genuine Git inspection failures must produce observable errors.
 - Transcript rows must use compact, consistent spacing, including skill guidance, developer context, and Goal nudges.
 - Message bubbles must have horizontal inset aligned with the collapsed-row icon column rather than touching the transcript edge. Working/Thinking Status must be a flat, background-free spinner-and-text row.
@@ -717,12 +721,13 @@
 - Selected answer text must be bold and primary-colored. Unselected answer text must use the secondary foreground tone.
 - A recommended option must show an inline primary-colored star after its text. Hovering the star must show `Recommended by the agent`. The star must not confirm an answer.
 - Every answer option except `Neither` must show a mouse-hover background highlight.
-- A server-recommended option begins selected but not confirmed. Selection and confirmation are separate local draft states.
+- In a batch originally containing one prompt, no suggested answer or Approval decision must begin selected. In a batch originally containing multiple prompts, a server-recommended option must begin selected but not confirmed. Selection and confirmation are separate local draft states.
 - When the server provides no recommended option, no answer starts selected.
 - Answered versus unanswered is completely hidden from the user. It exists only to decide navigation and when the batch is ready to submit.
 - The picker has no Confirm or Answer button.
-- With empty commentary, clicking a suggested answer must confirm it immediately.
-- With non-empty commentary, the first option click must only select it, including a preselected recommendation. A second click on that same option must confirm it. Further typing or selecting a different option must require a new first click.
+- In a batch originally containing one prompt, clicking a suggested answer or Approval decision must only select it. A native double-click must select and confirm it, with or without commentary. Separate slow clicks must not confirm it.
+- In a batch originally containing multiple prompts, clicking a suggested answer or Approval decision with empty commentary must confirm it immediately. With non-empty commentary, a click must only select it and a native double-click must select and confirm it. Separate slow clicks must not confirm it.
+- Double-click recognition must follow the platform's native timing rather than a Kent-specific threshold.
 - Clicking `Neither` must only select it and immediately focus the commentary field, even if commentary already exists or the option is clicked repeatedly. The operator must enter an answer and use Enter or the composer's Send action to confirm it.
 - While a prompt is visible, the composer's Send action must confirm that prompt through the same action as Enter, without sending or clearing the ordinary message draft.
 - Keyboard movement within the radio group changes selection without confirming. Enter confirms the selected suggested answer.

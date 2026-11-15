@@ -29,10 +29,9 @@ const (
 )
 
 type Options struct {
-	WorkspaceRoot            string
-	ConfigRoot               string
-	Policy                   brand.SkillPolicy
-	IncludeEmbeddedGenerated bool
+	WorkspaceRoot string
+	ConfigRoot    string
+	Policy        brand.SkillPolicy
 }
 
 type Issue struct {
@@ -132,7 +131,7 @@ func Discover(opts Options) (Result, error) {
 	seenLoadedPaths := map[string]bool{}
 	userSkillNames := map[string]bool{}
 	for _, root := range roots {
-		rootInspections, err := discoverRoot(root, opts.IncludeEmbeddedGenerated)
+		rootInspections, err := discoverRoot(root)
 		if err != nil {
 			return Result{}, err
 		}
@@ -203,10 +202,7 @@ func Roots(workspaceRoot, configRoot string) ([]Root, error) {
 	return roots, nil
 }
 
-func discoverRoot(root Root, includeEmbeddedGenerated bool) ([]Inspection, error) {
-	if root.Kind == SourceKindGenerated && includeEmbeddedGenerated {
-		return discoverEmbeddedGenerated(root.Path)
-	}
+func discoverRoot(root Root) ([]Inspection, error) {
 	entries, err := os.ReadDir(root.Path)
 	if err != nil {
 		if os.IsNotExist(err) {

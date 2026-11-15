@@ -13,6 +13,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
+	"core/shared/proxyhttp"
 	"core/shared/sessioncontract"
 )
 
@@ -118,6 +119,9 @@ func loadRemoteAttachConfig(opts Options) (config.Connection, error) {
 func resolveRunPromptWorkspaceConfig(opts Options) (runPromptWorkspaceConfig, error) {
 	result, err := startupconfig.ResolveRunPromptConfig(startupConfigRequest(opts))
 	if err != nil {
+		return runPromptWorkspaceConfig{}, err
+	}
+	if err := proxyhttp.Configure(result.Proxy); err != nil {
 		return runPromptWorkspaceConfig{}, err
 	}
 	resolvedOpts := opts

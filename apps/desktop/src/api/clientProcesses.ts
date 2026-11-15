@@ -91,7 +91,6 @@ function processFromGenerated(process: BackgroundProcessValid): DesktopProcess {
     exitCode: process.exitCode === undefined ? null : safeNumber(process.exitCode),
     recentOutput: process.recentOutput,
     running: process.running,
-    backgrounded: process.backgrounded,
     killRequested: process.killRequested,
   };
 }

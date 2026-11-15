@@ -43,7 +43,7 @@ export function createWorktreeCreate({
   openSession(sessionID: string): void | Promise<void>;
   suggestion: string | undefined;
   navigator: SidebarPageNavigator;
-  refreshOpenWorktreeList(sessionID: string): void;
+  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
   submitSwitch(operation: WorktreeSwitch): Promise<void>;
   push: StatusController["push"];
   t: TFunction;
@@ -103,7 +103,7 @@ export function createWorktreeCreate({
         navigator.replace({ kind: "worktree", projectID, sessionID, page: "list", openSession }) !==
           "accepted"
       ) {
-        refreshOpenWorktreeList(sessionID);
+        void refreshOpenWorktreeList(sessionID);
       }
     },
   });

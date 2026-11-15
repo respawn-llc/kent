@@ -94,7 +94,6 @@ function boardCardsData(taskIDs: readonly string[]): InfiniteData<BoardNodeCards
         nodeID: "node-1",
         cards: taskIDs.map(boardCard),
         nextOffset: null,
-        generatedAt: 0,
       },
     ],
   };

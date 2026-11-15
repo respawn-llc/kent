@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"io"
 	"testing"
 
 	"core/cli/app/internal/projectbinding"
@@ -14,10 +13,9 @@ import (
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
-	"core/shared/toolspec"
 )
 
-func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
+func TestTUIOpeningDormantSessionReadsHistoryWithoutActivatingRuntime(t *testing.T) {
 	_, workspace := newConfiguredAppWorkspace(t)
 	provider, hits := newFakeResponsesServer(t, nil)
 	defer provider.Close()
@@ -30,7 +28,7 @@ func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
 	created, opening := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
 		Mode:   launchModeInteractive,
 		Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
-	}, io.Discard, "create dormant fixture")
+	})
 	closeRuntimeLaunchPlan(t, opening)
 	id, err := runtimeids.ParseSessionID(created.SessionID)
 	if err != nil {
@@ -38,8 +36,12 @@ func TestTUIOpeningDormantSessionReadsStateWithoutHydration(t *testing.T) {
 	}
 	_, reopened := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
 		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.OpenExistingSessionLaunchIntent(id)),
-	}, io.Discard, "open dormant fixture")
+	})
 	defer closeRuntimeLaunchPlan(t, reopened)
+	history := nextTranscriptEvent(t, reopened.Wiring.eventDispatcher.transcriptEvents)
+	if history.Kind != ongoingTranscriptEventHistory || history.Err != nil || history.Page == nil || history.Page.SessionId != id.String() {
+		t.Fatalf("dormant history = %+v", history)
+	}
 	view, err := reopened.Wiring.runtimeClient.RefreshMainView()
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +108,7 @@ func TestRemoteNoAuthUnregisteredWorkspaceBindingCanPrepareRuntime(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensureInteractiveProjectBinding: %v", err)
 	}
-	_, runtimePlan := prepareAppRuntimePlan(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote no-auth rebound runtime")
+	_, runtimePlan := prepareAppRuntimePlan(t, bound, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))})
 	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring, "hello after rebound no auth")
 	requireQueuedAppTestUserTurn(t, submission, err)
 	waitForRemoteTranscriptAssistantFinal(
@@ -145,13 +147,10 @@ func TestStartSessionServerUsesInvocationOverridesWhenAttachingToDiscoveredDaemo
 	plan, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{
 		Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin())),
 		Overrides: runPromptOverridesFromOptions(options),
-	}, io.Discard, "test remote interactive runtime override")
+	})
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 	if plan.ActiveSettings.Model != "gpt-6-luna" {
 		t.Fatalf("model = %q, want gpt-6-luna", plan.ActiveSettings.Model)
-	}
-	if len(plan.EnabledTools) != 1 || plan.EnabledTools[0] != toolspec.ToolExecCommand {
-		t.Fatalf("enabled tools = %+v, want only shell", plan.EnabledTools)
 	}
 
 	submission, err := submitRuntimeClientForTest(t, runtimePlan.Wiring, "hello through interactive override")
@@ -189,7 +188,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 	}, nil)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
-	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote prompt round trip")
+	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))})
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring, "start prompt round trip")

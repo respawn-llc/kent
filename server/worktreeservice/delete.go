@@ -10,12 +10,19 @@ import (
 	"strings"
 
 	"core/server/metadata"
+	"core/server/operation"
 	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
 
 func (s *Service) DeleteWorktree(ctx context.Context, req *worktreepb.DeleteRequest) (*worktreepb.DeleteSuccess, error) {
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*worktreepb.DeleteSuccess, error) {
+		return s.deleteWorktree(scope.Context(), req)
+	})
+}
+
+func (s *Service) deleteWorktree(ctx context.Context, req *worktreepb.DeleteRequest) (*worktreepb.DeleteSuccess, error) {
 	release, management, err := s.beginManagementMutation(ctx, req.Scope)
 	if err != nil {
 		return nil, err
@@ -77,14 +84,7 @@ func (s *Service) executeDeleteLocked(
 		return nil, err
 	}
 	if target != nil {
-		var err error
-		if req.ForceFolderRemoval && entry.GetRegistered() != nil &&
-			entry.GetRegistered().GetGit().PrunableReason != nil {
-			err = s.git.ForceRemovePrunableWorktree(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot)
-		} else {
-			err = s.git.Remove(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot, req.ForceFolderRemoval)
-		}
-		if err != nil {
+		if err := s.git.Remove(ctx, workspaceCtx.CanonicalRoot, target.record.CanonicalRoot, req.ForceFolderRemoval); err != nil {
 			return nil, err
 		}
 	}
@@ -165,7 +165,7 @@ func (s *Service) retainManagedTaskWorktreeRecord(ctx context.Context, record *m
 	if record == nil {
 		return false, nil
 	}
-	taskManagers, err := s.metadata.Queries().CountNonTerminalTasksByManagedWorktree(ctx, sql.NullString{
+	taskManagers, err := s.metadata.Queries().CountInProgressTasksByManagedWorktree(ctx, sql.NullString{
 		String: strings.TrimSpace(record.ID),
 		Valid:  strings.TrimSpace(record.ID) != "",
 	})

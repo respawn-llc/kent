@@ -63,7 +63,7 @@ func TestExecuteBuiltinPromptCommandsSubmitFreshUserTurns(t *testing.T) {
 		{input: "/init starter repo", command: runtimeinput.BuiltinPromptCommandInit, suffix: "starter repo"},
 	} {
 		got := registry.Execute(test.input)
-		if !got.Handled || got.PromptCommand == nil || got.Action != ActionNone || !got.FreshConversation {
+		if !got.Handled || got.PromptCommand == nil || got.Action != ActionNone {
 			t.Fatalf("Execute(%q) = %+v, want fresh user submission", test.input, got)
 		}
 		if got.PromptCommand.Name != test.command.Name() ||

@@ -106,7 +106,7 @@ func (s *remoteAppServer) manageConnectionSelection(ctx context.Context, catalog
 		switch connectionTemplateFor(definition) {
 		case connectionTemplateSubscription, connectionTemplateGrokSubscription, connectionTemplateGrokCLIProxy:
 			err = signInConnection(ctx, s.remote, selectedTheme, protoapi.ExistingConnectionTarget(id), true, nil)
-		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI:
+		case connectionTemplateAPI, connectionTemplateOpenAIAPI, connectionTemplateGrokAPI, connectionTemplateDeepSeekAPI:
 			err = editConnectionReference(ctx, s.remote, selectedTheme, id, definition)
 		case connectionTemplateAnonymous:
 			picked, infoErr := runStartupPickerFlow(newStartupPickerModel("**"+selected.Id+"**", selected.Id, selectedTheme,
@@ -167,14 +167,45 @@ func editConnectionReference(ctx context.Context, remote apicontract.ConnectionM
 		return err
 	}
 	state := onboardingFlowState{selections: onboardingSelections{theme: theme}}
-	steps := form.steps()
-	model := newOnboardingFormModel(state, onboardingWorkflow{steps: steps[len(steps)-1:]})
+	editSteps, err := referenceEditSteps(form)
+	if err != nil {
+		return err
+	}
+	model := newOnboardingFormModel(state, onboardingWorkflow{steps: editSteps})
 	return runConnectionForm(ctx, model, func() error {
+		reference := &authpb.ConnectionReferenceEdit{ConnectionId: string(id), EnvironmentVariable: *form.definition.EnvironmentVariable}
+		if form.template == connectionTemplateDeepSeekAPI {
+			choice := &authpb.DeepSeekEndpointChoice{}
+			if form.definition.Endpoint == nil {
+				choice.Choice = &authpb.DeepSeekEndpointChoice_Official{Official: &emptypb.Empty{}}
+			} else {
+				choice.Choice = &authpb.DeepSeekEndpointChoice_Endpoint{Endpoint: *form.definition.Endpoint}
+			}
+			reference.DeepseekEndpoint = choice
+		}
 		_, err := runConnectionOperation(ctx, selectedTheme, func() (*emptypb.Empty, error) {
-			return remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Reference{
-				Reference: &authpb.ConnectionReferenceEdit{ConnectionId: string(id), EnvironmentVariable: *form.definition.EnvironmentVariable},
-			}})
+			return remote.ConfigureConnection(ctx, &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_Reference{Reference: reference}})
 		})
 		return err
 	})
+}
+
+func referenceEditSteps(form *connectionForm) ([]onboardingStepDefinition, error) {
+	needed := []onboardingStepID{connectionStepEnvironment}
+	if form.template == connectionTemplateDeepSeekAPI {
+		needed = []onboardingStepID{connectionStepEndpoint, connectionStepEnvironment}
+	}
+	byID := make(map[onboardingStepID]onboardingStepDefinition, len(form.steps()))
+	for _, step := range form.steps() {
+		byID[step.id] = step
+	}
+	selected := make([]onboardingStepDefinition, 0, len(needed))
+	for _, id := range needed {
+		step, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("connection edit is missing step %s", id)
+		}
+		selected = append(selected, step)
+	}
+	return selected, nil
 }

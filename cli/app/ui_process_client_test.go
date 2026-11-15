@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"testing"
 	"time"
@@ -98,12 +99,13 @@ func TestUIProcessClientProjectsManagerSnapshots(t *testing.T) {
 
 	workdir := t.TempDir()
 	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 7"},
-		DisplayCommand: "project-test",
-		OwnerSessionID: uiProcessTestSessionID,
-		Workdir:        workdir,
-		YieldTime:      fastBackgroundTestYield})
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 7"},
+		DisplayCommand:      "project-test",
+		OwnerSessionID:      uiProcessTestSessionID,
+		Workdir:             workdir,
+		YieldTime:           fastBackgroundTestYield})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)
 	}
@@ -213,13 +215,14 @@ func TestUIProcessClientDoesNotBypassSharedReadBoundaryOnError(t *testing.T) {
 
 	workdir := t.TempDir()
 	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 0"},
-		DisplayCommand: "fallback-process",
-		OwnerSessionID: uiProcessTestSessionID,
-		OwnerStepID:    "step-1",
-		Workdir:        workdir,
-		YieldTime:      fastBackgroundTestYield})
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf 'done\n'; sleep 0.05; exit 0"},
+		DisplayCommand:      "fallback-process",
+		OwnerSessionID:      uiProcessTestSessionID,
+		OwnerStepID:         "step-1",
+		Workdir:             workdir,
+		YieldTime:           fastBackgroundTestYield})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)
 	}
@@ -260,11 +263,12 @@ func TestUIProcessClientDoesNotBypassSharedControlBoundaryOnError(t *testing.T) 
 
 	workdir := t.TempDir()
 	res, err := manager.Start(context.Background(), shelltool.ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"sh", "-c", "printf 'fallback-control\n'; sleep 1"},
-		DisplayCommand: "fallback-control",
-		Workdir:        workdir,
-		YieldTime:      fastBackgroundTestYield})
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"sh", "-c", "printf 'fallback-control\n'; sleep 1"},
+		DisplayCommand:      "fallback-control",
+		Workdir:             workdir,
+		YieldTime:           fastBackgroundTestYield})
 	if err != nil {
 		t.Fatalf("start background process: %v", err)
 	}

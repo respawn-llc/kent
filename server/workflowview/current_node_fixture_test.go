@@ -21,6 +21,7 @@ import (
 	"core/server/workflowstore"
 	"core/shared/clientui"
 	"core/shared/config"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 
@@ -73,6 +74,13 @@ func (s currentNodeViewStatusObservationSource) ObserveWorkflowTaskExecutions(ta
 type startedCurrentNodeViewTask struct {
 	task        workflowstore.TaskRecord
 	currentNode workflow.CurrentNodeReference
+}
+
+func (f currentNodeViewFixture) makeCurrentNodeReady(t *testing.T, taskID workflow.TaskID) {
+	t.Helper()
+	if _, err := f.metadata.DB().ExecContext(f.ctx, `UPDATE task_current_nodes SET scheduling_state = 'ready' WHERE task_id = ?`, string(taskID)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 type currentNodeViewPrompt struct {
@@ -485,7 +493,7 @@ func (p currentNodeViewPrompt) resolve(t *testing.T, ctx context.Context, resolu
 	if err := resolveWorkflowViewPrompt(p.authority, p.sessionID, p.request, resolution); err != nil {
 		t.Fatalf("ResolvePromptBatch: %v", err)
 	}
-	if _, err := p.handle.Wait(ctx); err != nil {
+	if err := p.handle.Wait(ctx); err != nil {
 		t.Fatalf("wait prompt execution: %v", err)
 	}
 }
@@ -696,15 +704,15 @@ func (currentNodeViewLLMClient) ProviderCapabilities(context.Context) (llm.Provi
 }
 
 type currentNodeViewPrompts struct {
-	bySession map[string][]PendingPromptSnapshot
+	bySession map[string][]*promptpb.ObservationQuestion
 }
 
-func (p currentNodeViewPrompts) ListPendingPrompts(sessionID string) ([]PendingPromptSnapshot, error) {
-	return append([]PendingPromptSnapshot(nil), p.bySession[sessionID]...), nil
+func (p currentNodeViewPrompts) ListPendingPrompts(sessionID string) ([]*promptpb.ObservationQuestion, error) {
+	return append([]*promptpb.ObservationQuestion(nil), p.bySession[sessionID]...), nil
 }
 
 type emptyCurrentNodeViewPrompts struct{}
 
-func (emptyCurrentNodeViewPrompts) ListPendingPrompts(string) ([]PendingPromptSnapshot, error) {
-	return []PendingPromptSnapshot{}, nil
+func (emptyCurrentNodeViewPrompts) ListPendingPrompts(string) ([]*promptpb.ObservationQuestion, error) {
+	return nil, nil
 }

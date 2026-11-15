@@ -407,13 +407,6 @@ func TestListTaskSearchPageDescriptorsFiltersProjectAndStatusBeforeAllocatingNew
 	if len(second) != 1 || second[0].TaskID != "task-c" || second[0].Ordinal != 1 {
 		t.Fatalf("offset second page = %+v, want task-c ordinal 1", second)
 	}
-	if second[0].TaskWeightedRank != first[0].TaskWeightedRank {
-		t.Fatalf(
-			"same-source Task ranks = %f and %f, want exact tie resolved by Task ID",
-			first[0].TaskWeightedRank,
-			second[0].TaskWeightedRank,
-		)
-	}
 }
 
 func TestListTaskSearchPageDescriptorsOrdersCommentsByWeightedRankBeforeRecency(t *testing.T) {
@@ -607,6 +600,7 @@ func taskSearchPageDescriptorArgs(params ListTaskSearchPageDescriptorsParams) []
 
 func createTaskSearchPageDescriptorFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,
@@ -692,6 +686,7 @@ VALUES (100, 'TAS-1');`); err != nil {
 
 func createTaskSearchPageDescriptorFilteringFixture(t *testing.T, db *sql.DB) {
 	t.Helper()
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,
@@ -884,6 +879,7 @@ INSERT INTO task_search_short_id_fts (rowid, short_id) VALUES
 
 func createTaskSearchHighCardinalityFixture(t *testing.T, db *sql.DB, taskCount int) {
 	t.Helper()
+	createCurrentNodeStatusFixture(t, db)
 	if _, err := db.Exec(`
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,

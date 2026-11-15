@@ -86,7 +86,7 @@ func (s Service) Resolve(command, arguments string) (ResolvedCommand, error) {
 			return ResolvedCommand{Text: textutil.ExpandPromptTemplate(builtinPromptContent(*kind), arguments), Placement: PlacementFresh}, nil
 		}
 	}
-	candidate, found, err := s.findCandidate(command)
+	content, found, err := s.findCandidate(command)
 	if err != nil {
 		return ResolvedCommand{}, err
 	}
@@ -98,7 +98,7 @@ func (s Service) Resolve(command, arguments string) (ResolvedCommand, error) {
 		}
 		return ResolvedCommand{}, &Error{Kind: ErrorKindCommandNotFound, Command: &name}
 	}
-	return ResolvedCommand{Text: textutil.ExpandPromptTemplate(candidate.content, arguments), Placement: PlacementCurrent}, nil
+	return ResolvedCommand{Text: textutil.ExpandPromptTemplate(content, arguments), Placement: PlacementCurrent}, nil
 }
 
 type builtinPromptCommand struct {

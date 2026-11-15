@@ -4,7 +4,7 @@ import (
 	"core/cli/tui/ongoing"
 	"core/shared/apicontract"
 	"core/shared/clientui"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 )
 
 type runtimeWiring struct {
@@ -13,7 +13,7 @@ type runtimeWiring struct {
 	controls               apicontract.RuntimeControlService
 	liveControls           apicontract.RuntimeLiveControlService
 	pendingWork            apicontract.RuntimePendingWorkService
-	preparation            *sessionlaunchpb.SessionRuntimePreparationOptions
+	invocation             *invocationpb.RunPromptOverrides
 	attentionNotifications apicontract.AttentionNotificationService
 	turnQueueHook          turnQueueHook
 	terminalFocus          *terminalFocusState

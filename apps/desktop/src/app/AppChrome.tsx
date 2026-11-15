@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 
 import { TaskSearchGlobalTrigger, TaskSearchHost, TaskSearchProvider } from "@/features/board";
 import { AttentionController } from "./AttentionController";
-import { WindowChromeThemeToggle } from "./WindowChromeThemeToggle";
 import { AppUpdateChip } from "./AppUpdateChip";
 import { AppSubscriptionUsage } from "./AppSubscriptionUsage";
 import { useDesktopUpdate, type DesktopUpdateState } from "./useDesktopUpdate";
@@ -88,7 +87,6 @@ function AppChromeContent({
           <AppChromeGlobalSearch macOS={macOS} position="trailing" />
           {action}
           <AppSubscriptionUsage />
-          <WindowChromeThemeToggle />
         </>
       }
     >

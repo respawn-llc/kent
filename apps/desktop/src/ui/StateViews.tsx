@@ -10,8 +10,6 @@ import { Spinner } from "./Spinner";
 export type LoadingStateProps = Readonly<{
   inset?: boolean;
   surface?: "island" | "plain";
-  title?: ReactNode;
-  body?: ReactNode;
   actions?: ReactNode;
   fullPage?: boolean;
   chromePadding?: boolean;
@@ -28,8 +26,6 @@ const delayedLoadingAppearanceKeys = new Set<string>();
 export function LoadingState({
   inset,
   surface,
-  title = null,
-  body = null,
   actions,
   fullPage = true,
   chromePadding = false,
@@ -54,10 +50,9 @@ export function LoadingState({
       iconClassName="text-[var(--color-primary)]"
       reveal={reveal}
       testID="loading-state"
-      title={title}
+      title={null}
       titleClassName="text-[var(--color-on-island)]"
     >
-      {body !== null ? <p className="m-0 max-w-[52ch] text-[var(--color-muted)]">{body}</p> : null}
       {actions !== undefined ? <StateActions testID="loading-state-actions">{actions}</StateActions> : null}
     </StateIsland>
   );

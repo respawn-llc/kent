@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"sync"
 	"testing"
@@ -15,8 +16,9 @@ import (
 func TestManagerConcurrentShellLimitReleasesCapacity(t *testing.T) {
 	manager := newShellTestManager(t, time.Millisecond, WithMaxConcurrent(1))
 	req := ExecRequest{
-		Command: []string{"/bin/sh", "-c", "read value"},
-		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Command:             []string{"/bin/sh", "-c", "read value"},
+		Workdir:             t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
 		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	}
 	first, err := manager.Start(context.Background(), req)
@@ -42,8 +44,9 @@ func TestManagerConcurrentShellLimitReleasesCapacity(t *testing.T) {
 func TestManagerConcurrentStartsRespectLimit(t *testing.T) {
 	manager := newShellTestManager(t, time.Millisecond, WithMaxConcurrent(2))
 	req := ExecRequest{
-		Command: []string{"/bin/sh", "-c", "read value"},
-		Workdir: t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Command:             []string{"/bin/sh", "-c", "read value"},
+		Workdir:             t.TempDir(), KeepStdinOpen: true, YieldTime: time.Millisecond,
 		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	}
 	const attempts = 12
@@ -76,7 +79,8 @@ func TestManagerConcurrentStartsRespectLimit(t *testing.T) {
 func TestManagerFailedStartReleasesCapacity(t *testing.T) {
 	manager := newShellTestManager(t, time.Millisecond, WithMaxConcurrent(1))
 	req := ExecRequest{
-		Command: []string{"/does-not-exist"}, Workdir: t.TempDir(),
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Command:             []string{"/does-not-exist"}, Workdir: t.TempDir(),
 		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 	}
 	if _, err := manager.Start(context.Background(), req); err == nil {

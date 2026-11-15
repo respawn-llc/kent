@@ -4,7 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-facade";
+import { queryKeys, SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-facade";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { WorktreeBrowser } from "./WorktreeBrowser";
 
@@ -13,12 +13,15 @@ import {
   pendingWorkItemIDFromProto,
   type ChatInputMutationResult,
   type ChatSettingsRead,
+  type ChatSettingsMutationResponse,
+  type ChatMainView,
 } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import {
   changedIdentity,
   deferred,
   hydration,
+  mainViewRead,
   target as sessionTarget,
   transcriptPage,
 } from "@/test-support/chat-runtime";
@@ -28,6 +31,7 @@ import { row } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { installAnimationFrameTestSupport } from "@/test-support/scheduling";
 import { appI18n } from "@/i18n";
+import * as ui from "@/ui";
 
 import {
   opening,
@@ -35,6 +39,7 @@ import {
   navigation,
   renderDestination,
   sessionWithPrompts,
+  sessionSettingsRead,
 } from "@/test-support/chat-destination";
 let restoreStorage: (() => void) | undefined;
 beforeEach(() => {
@@ -44,6 +49,69 @@ afterEach(() => {
   restoreStorage?.();
   restoreStorage = undefined;
 });
+
+it.each([
+  { kind: "rejected", reason: "thinking_unavailable" },
+  { kind: "applied", changed: true },
+  { kind: "applied", changed: false },
+] satisfies ChatSettingsMutationResponse["result"][])(
+  "applies a $kind Settings response to the displayed Session Context without a broadcast",
+  async (result) => {
+    const read = sessionSettingsRead();
+    const response: ChatSettingsMutationResponse = {
+      ...read,
+      result,
+      settings: {
+        ...read.settings,
+        questions: { ...read.settings.questions, enabled: result.kind === "rejected" },
+      },
+      context: {
+        usedTokens: 750,
+        contextWindowTokens: 1000,
+        remainingTokens: 250,
+        automaticThresholdTokens: 800,
+        autoCompactionEnabled: false,
+        compactionMode: "disabled",
+        completedCompactionCount: 3,
+        compactionRunning: false,
+        manualCompactAvailable: false,
+      },
+    };
+    const view = sessionWithPrompts((services) => {
+      vi.spyOn(services.api.chat, "mutateSettings").mockResolvedValue(response);
+    });
+    expect(await screen.findByRole("button", { name: "10%" })).toBeInTheDocument();
+    const user = userEvent.setup({ delay: null });
+    await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+    await user.click(await screen.findByRole("switch", { name: appI18n.t("chatSettings.questions") }));
+    await waitFor(() => {
+      expect(view.services.api.chat.mutateSettings).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByRole("button", { name: "75%" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.questions") })).toHaveAttribute(
+      "aria-checked",
+      String(response.settings.questions.enabled),
+    );
+    const original = mainViewRead().mainView;
+    expect(view.client.getQueryData<ChatMainView>(queryKeys.chatMainView(sessionTarget.sessionID))).toEqual({
+      ...original,
+      status: {
+        ...original.status,
+        autoCompactionEnabled: false,
+        compactionMode: "disabled",
+        compactionCount: 3,
+        contextUsage: { ...original.status.contextUsage, usedTokens: 750, windowTokens: 1000 },
+      },
+    });
+    await user.keyboard("{Escape}");
+    await user.hover(screen.getByRole("button", { name: "75%" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: appI18n.t("chatComposer.context.compact") })).toBeDisabled();
+    });
+    expect(view.services.api.chat.getMainView).toHaveBeenCalledTimes(1);
+    view.unmount();
+  },
+);
 
 it.each([question(), approval()])(
   "hides navigation and position for a single $kind prompt",
@@ -129,6 +197,13 @@ it("keeps navigation for a five-question batch when four questions are answered"
     const first = screen.getAllByRole("radio")[0];
     if (first === undefined) throw new Error("Question must offer an answer.");
     await user.click(first);
+    if (index === 0) {
+      await user.keyboard("{ArrowLeft}");
+      expect(
+        screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 5 })),
+      ).toBeInTheDocument();
+      await user.keyboard("{ArrowRight}");
+    }
   }
   expect(screen.getByText(appI18n.t("chat.picker.position", { current: 5, count: 5 }))).toBeInTheDocument();
   expect(screen.getByRole("button", { name: appI18n.t("chat.picker.previous") })).toBeInTheDocument();
@@ -361,6 +436,10 @@ function ContextualWorktrees() {
 }
 
 it("keeps transcript and composer usable through a sidebar-owned Worktree refresh failure", async () => {
+  const notice = vi.spyOn(ui, "showStatusToast").mockImplementation(() => undefined);
+  onTestFinished(() => {
+    notice.mockRestore();
+  });
   const view = sessionWithPrompts(undefined, { kind: "session", ...sessionTarget }, <ContextualWorktrees />);
   const list = vi.spyOn(view.services.api, "listWorktrees");
   const user = userEvent.setup({ delay: null });
@@ -382,20 +461,26 @@ it("keeps transcript and composer usable through a sidebar-owned Worktree refres
   await waitFor(() => {
     expect(view.client.isFetching()).toBe(0);
   });
+  const noticesBeforeRefresh = notice.mock.calls.length;
   list.mockRejectedValueOnce(new Error("sidebar read unavailable"));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
-  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(notice).toHaveBeenCalledTimes(noticesBeforeRefresh + 1);
+  });
+  expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
   expect(screen.getByRole("textbox")).toHaveValue("retained input");
   expect(screen.getByText("Message 1")).toBeInTheDocument();
   const calls = list.mock.calls.length;
-  await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
+  await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
   await waitFor(() => {
-    expect(screen.queryByTestId("error-state") === null).toBe(true);
+    expect(view.client.isFetching()).toBe(0);
   });
   expect(list).toHaveBeenCalledTimes(calls + 1);
   list.mockRejectedValueOnce(new Error("sidebar failed again"));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.worktree.refresh") }));
-  expect(await screen.findByTestId("error-state")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(notice).toHaveBeenCalledTimes(noticesBeforeRefresh + 2);
+  });
   await user.click(screen.getByRole("button", { name: "Toggle contextual Worktrees" }));
   expect(screen.getByRole("textbox")).toHaveValue("retained input");
   expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
@@ -829,33 +914,6 @@ it("shows every accepted Pending Work item and restores only a discarded item", 
   view.unmount();
 });
 
-it.each(["radio", "label"] as const)(
-  "confirms an option with one %s click when commentary is empty",
-  async (surface) => {
-    const view = sessionWithPrompts();
-    const prompt = question("quick-answer", { recommendedOptionIndex: 1 });
-    await waitFor(() => {
-      expect(view.handlers).toHaveLength(1);
-    });
-    await act(async () => {
-      view.handlers[0]?.onEvent({
-        sequence: 1,
-        kind: "hydration",
-        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
-      });
-    });
-    const option = await screen.findByRole("radio", { name: "one" });
-    await userEvent.setup({ delay: null }).click(surface === "radio" ? option : screen.getByText("one"));
-    await waitFor(() => {
-      expect(view.answer).toHaveBeenCalledTimes(1);
-    });
-    expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
-      { selectedOptionNumber: 1, freeform: null },
-    ]);
-    view.unmount();
-  },
-);
-
 it.each(["enter", "send"] as const)(
   "Neither focuses commentary and waits for explicit %s",
   async (method) => {
@@ -902,38 +960,6 @@ it.each(["enter", "send"] as const)(
   },
 );
 
-it("protects typed commentary even for the preselected recommendation and resets protection after more typing", async () => {
-  const view = sessionWithPrompts();
-  const prompt = question("recommended-test", { recommendedOptionIndex: 1 });
-  await waitFor(() => {
-    expect(view.handlers).toHaveLength(1);
-  });
-  await act(async () => {
-    view.handlers[0]?.onEvent({
-      sequence: 1,
-      kind: "hydration",
-      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
-    });
-  });
-  const user = userEvent.setup({ delay: null });
-  const field = await screen.findByRole("textbox", { name: appI18n.t("task.commentary") });
-  const option = screen.getByRole("radio", { name: "one" });
-  await user.type(field, "still writing");
-  await user.click(option);
-  expect(view.answer).not.toHaveBeenCalled();
-  await user.type(field, " commentary");
-  await user.click(option);
-  expect(view.answer).not.toHaveBeenCalled();
-  await user.click(option);
-  await waitFor(() => {
-    expect(view.answer).toHaveBeenCalledTimes(1);
-  });
-  expect(view.answer.mock.calls[0]?.[0].entries).toMatchObject([
-    { selectedOptionNumber: 1, freeform: "still writing commentary" },
-  ]);
-  view.unmount();
-});
-
 it("preserves failed answer diagnostics separately while retaining answers for explicit resubmission", async () => {
   const failure = new RpcError({
     code: "internal_failure",
@@ -957,9 +983,12 @@ it("preserves failed answer diagnostics separately while retaining answers for e
     await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }),
     "retained answer",
   );
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  const option = screen.getByRole("radio", { name: "one" });
+  await user.click(option);
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.click(option);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.dblClick(option);
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(1);
   });
@@ -1001,8 +1030,7 @@ it("retains pending prompt answers and commentary through a Settings read failur
   );
   const user = userEvent.setup({ delay: null });
   await user.type(await screen.findByRole("textbox", { name: appI18n.t("task.commentary") }), "first answer");
-  await user.click(screen.getByRole("radio", { name: "one" }));
-  await user.click(screen.getByRole("radio", { name: "one" }));
+  await user.dblClick(screen.getByRole("radio", { name: "one" }));
   await user.click(screen.getByRole("button", { name: appI18n.t("chat.picker.decline") }));
   await user.type(screen.getByRole("textbox", { name: appI18n.t("task.commentary") }), "last draft");
   view.settings.mockRejectedValueOnce(new Error("offline"));
@@ -1013,8 +1041,10 @@ it("retains pending prompt answers and commentary through a Settings read failur
   await user.click(screen.getByRole("button", { name: appI18n.t("app.retry") }));
   expect(await screen.findByDisplayValue("last draft")).toBeInTheDocument();
   expect(view.answer).not.toHaveBeenCalled();
-  await user.click(screen.getByRole("radio", { name: "two" }));
-  await user.click(screen.getByRole("radio", { name: "two" }));
+  const lastOption = screen.getByRole("radio", { name: "two" });
+  await user.click(lastOption);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.dblClick(lastOption);
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(1);
   });
@@ -1049,8 +1079,11 @@ it("keeps an admitted prompt submission pending through Pending Work read recove
     "approval commentary",
   );
   const option = approvalDecisionLabel("allow_once", appI18n.t);
-  await user.click(screen.getByRole("radio", { name: option }));
-  await user.click(screen.getByRole("radio", { name: option }));
+  const decision = screen.getByRole("radio", { name: option });
+  expect(decision.getAttribute("aria-checked")).toBe("false");
+  await user.click(decision);
+  expect(view.answer).not.toHaveBeenCalled();
+  await user.dblClick(decision);
   await waitFor(() => {
     expect(view.answer).toHaveBeenCalledTimes(1);
   });

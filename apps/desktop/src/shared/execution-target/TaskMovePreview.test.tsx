@@ -3,7 +3,43 @@ import { expect, it, vi } from "bun:test";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import { executeTaskInitiatingAction, useTaskInitiatingActionController } from "@/shared/execution-target";
-import type { TaskMovePreviewResponse } from "@/api";
+import { MovePreviewBlocker, type TaskMovePreviewResponse } from "@/api";
+
+it("reports a refused move without executing it or opening confirmation", async () => {
+  const services = createTestServices([]);
+  const execute = vi.fn(async () => {
+    throw new Error("A refused move must not execute.");
+  });
+  const onBlocked = vi.fn();
+  const onError = vi.fn();
+  const { result } = renderHook(
+    () =>
+      useTaskInitiatingActionController({
+        execute,
+        onApplied: vi.fn(),
+        onAppliedError: vi.fn(),
+        onError: vi.fn(),
+      }),
+    { wrapper: ({ children }) => <TestAppProviders services={services}>{children}</TestAppProviders> },
+  );
+  await act(async () => {
+    result.current.preview({
+      taskID: "task-1",
+      targetNodeID: "node-2",
+      execute: async () => ({
+        outcome: "blocked",
+        blocked: { reason: MovePreviewBlocker.LIFECYCLE_CONFLICT },
+      }),
+      onBlocked,
+      onError,
+    });
+  });
+  expect(onBlocked).toHaveBeenCalledWith(MovePreviewBlocker.LIFECYCLE_CONFLICT);
+  expect(onError).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
+  expect(result.current.pending).toBeNull();
+  expect(result.current.pendingStartMoveTaskIDs.size).toBe(0);
+});
 
 it("admits independent Task previews and replaces the dialog with the newest received preview", async () => {
   const services = createTestServices([]);

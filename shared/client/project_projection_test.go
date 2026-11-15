@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestSessionSummariesFromProtoCategoryValidation(t *testing.T) {
+func TestSessionPageCategoryValidation(t *testing.T) {
 	for _, tt := range []struct {
 		wire     projectpb.SessionCategory
 		category sessioncontract.SessionCategory
@@ -22,9 +22,14 @@ func TestSessionSummariesFromProtoCategoryValidation(t *testing.T) {
 		{projectpb.SessionCategory_SESSION_CATEGORY_UNSPECIFIED, "", false},
 		{projectpb.SessionCategory(3), "", false},
 	} {
-		wire := &projectpb.SessionSummary{
-			SessionId: runtimeids.NewSessionID().String(), Category: tt.wire,
-			UpdatedAt: timestamppb.Now(),
+		id := runtimeids.NewSessionID()
+		wire := &projectpb.SessionPageSuccess{
+			ProjectId: "project-1",
+			Category:  tt.wire,
+			Sessions: []*projectpb.SessionSummary{{
+				SessionId: id.String(),
+				UpdatedAt: timestamppb.Now(),
+			}},
 		}
 		if !tt.valid {
 			if err := protoapi.Validate(wire); err == nil {
@@ -35,9 +40,9 @@ func TestSessionSummariesFromProtoCategoryValidation(t *testing.T) {
 		if err := protoapi.Validate(wire); err != nil {
 			t.Fatal(err)
 		}
-		summaries := client.SessionSummariesFromProto([]*projectpb.SessionSummary{wire})
-		if len(summaries) != 1 || summaries[0].Category != tt.category {
-			t.Fatalf("category %v: got %v", tt.wire, summaries)
+		summaries := client.SessionSummariesFromProto(wire.Sessions)
+		if len(summaries) != 1 || summaries[0].SessionID != id || protoapi.SessionCategoryFromProto(wire.Category) != tt.category {
+			t.Fatalf("page %v: got %v", tt.wire, summaries)
 		}
 	}
 }

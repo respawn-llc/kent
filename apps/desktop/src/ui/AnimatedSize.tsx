@@ -2,14 +2,13 @@ import {
   animate,
   motion,
   useMotionValue,
-  useReducedMotion,
   type AnimationPlaybackControls,
   type Transition,
 } from "motion/react";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 
 import { cn } from "./classes";
-import { motionDurationFromCSSVar } from "./motion";
+import { motionDurationFromCSSVar, useReducedMotion } from "./motion";
 
 export function AnimatedSize({
   children,
@@ -28,6 +27,11 @@ export function AnimatedSize({
   const height = useMotionValue<number | string>("auto");
   const animation = useRef<AnimationPlaybackControls | null>(null);
   const reducedMotion = useReducedMotion();
+  useEffect(() => {
+    if (!reducedMotion) return;
+    animation.current?.stop();
+    if (content.current !== null) height.set(content.current.offsetHeight);
+  }, [reducedMotion, height]);
   const resize = useEffectEvent((next: number, widthChanged: boolean) => {
     animation.current?.stop();
     if (widthChanged) {

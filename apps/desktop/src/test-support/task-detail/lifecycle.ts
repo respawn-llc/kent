@@ -1,10 +1,37 @@
 import { create } from "@app/server-api-contract";
 import * as read from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
+import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import type { FakeRoute } from "../api";
 
 type TaskFixture = Readonly<{ task: read.TaskDetail }>;
 type ActionChanges = Partial<Pick<read.TaskActions, "canStart" | "canInterrupt" | "canResume" | "canDelete">>;
+
+export function pausedTaskFixture(
+  base: TaskFixture,
+  sessionIDs: readonly (string | null)[],
+  agentRole?: string,
+): TaskFixture {
+  const task = taskActionFixture(base, { canResume: true, canInterrupt: false }, []);
+  return {
+    task: create(read.TaskDetailSchema, {
+      ...task.task,
+      status: create(read.TaskStatusSchema, {
+        kind: read.TaskStatusKind.INTERRUPTED,
+        nativeState: read.TaskNativeState.INTERRUPTED,
+      }),
+      currentNodes: sessionIDs.map((sessionID, index) =>
+        create(AttentionCurrentNodeSchema, {
+          nodeId: `node-${String(index + 1)}`,
+          nodeDisplayName: "Review",
+          effectiveAssignee: agentRole,
+          ...(sessionID === null ? {} : { sessionId: sessionID }),
+        }),
+      ),
+      liveSessions: base.task.liveSessions.filter((session) => sessionIDs.includes(session.sessionId)),
+    }),
+  };
+}
 
 export function taskActionFixture(
   base: TaskFixture,
@@ -19,9 +46,10 @@ export function taskActionFixture(
       liveSessions:
         liveSessions === undefined
           ? base.task.liveSessions
-          : liveSessions.map((session) =>
+          : liveSessions.map((session, index) =>
               create(read.LiveSessionSchema, {
                 sessionId: session.sessionID,
+                shortId: BigInt(index + 1),
                 sessionName: session.sessionName,
                 nodeDisplayName: session.nodeDisplayName,
               }),
@@ -108,8 +136,8 @@ export function taskResumeRoute(
   return { descriptor: lifecycle.TaskLifecycleService.method.resume, resultFactory: result };
 }
 
-export function taskDeleted() {
-  return create(lifecycle.DeleteResultSchema, { outcome: { case: "success", value: {} } });
+export function taskDeleted(branchCleanup?: lifecycle.DeleteSuccess["branchCleanup"]) {
+  return create(lifecycle.DeleteResultSchema, { outcome: { case: "success", value: { branchCleanup } } });
 }
 
 export function taskAlreadyDeleted(taskID: string) {
@@ -125,7 +153,7 @@ export function taskAlreadyDeleted(taskID: string) {
 }
 
 export function taskDeleteRoute(
-  result: () => lifecycle.DeleteResult | Promise<lifecycle.DeleteResult> = taskDeleted,
+  result: () => lifecycle.DeleteResult | Promise<lifecycle.DeleteResult> = () => taskDeleted(),
 ): FakeRoute {
   return { descriptor: lifecycle.TaskLifecycleService.method.delete, resultFactory: result };
 }

@@ -8,10 +8,11 @@ import { requireUnarySuccess } from "./protobufRpc";
 import { ContractError } from "./errors";
 import { requireWorktreeSuccess } from "./clientWorktree";
 import { taskCurrentNode, taskTargetSelectionRequired } from "./clientTaskProjection";
-import { workflowExecutionTargetMode, taskMovePreviewBlocker } from "./workflowProtoValues";
+import { workflowExecutionTargetMode } from "./workflowProtoValues";
 import { throwTaskExecutionFailure } from "./taskExecutionFailure";
 import type {
   TaskApproveResponse,
+  TaskDeleteResponse,
   TaskMoveResponse,
   TaskResumeResponse,
   TaskMovePreviewResponse,
@@ -36,10 +37,10 @@ export async function updateTask(transport: RpcTransport, input: TaskEditInput):
   return task.id;
 }
 
-export async function deleteTask(transport: RpcTransport, taskID: string): Promise<void> {
+export async function deleteTask(transport: RpcTransport, taskID: string): Promise<TaskDeleteResponse> {
   const method = TaskLifecycleService.method.delete;
   const result = await transport.callDescriptor(method, create(method.input, { taskId: taskID }));
-  requireWorktreeSuccess(method, result);
+  return requireWorktreeSuccess(method, result);
 }
 
 export async function interruptTask(
@@ -168,7 +169,7 @@ export async function previewMoveTask(
     case "blocked":
       return {
         outcome: "blocked",
-        blocked: { reason: taskMovePreviewBlocker.decode(response.outcome.value.reason) },
+        blocked: { reason: response.outcome.value.reason },
       };
     case "transition":
       return {

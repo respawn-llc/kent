@@ -1,5 +1,7 @@
 ## Authority, connection, and shared behavior
 
+- Tooltips must not intercept pointer or scroll input. Tooltips must dismiss when their containing scroll surface scrolls.
+
 - Across all destinations, the global sidebar owner selects shifting only when the measured main pane has at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
 
 - Read-only filesystem paths projected from structured data are home-relative when inside the user's home directory. This applies to labels, tooltips, execution-target facts, approvals, and image-tool labels. Editable path fields, clipboard values, and action/link targets must use their canonical values.
@@ -13,7 +15,8 @@
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops and support internal board dragging.
 
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
-- Desktop never starts or bundles the Kent server. It connects using Kent's configured host and port without storing a separate endpoint. It maps configured listener host `0.0.0.0` to `127.0.0.1` and `::` to `::1`, uses the configured port, and leaves concrete hosts unchanged. It must not edit Kent configuration.
+- Desktop must never start or bundle the Kent server or edit server configuration. Desktop must connect using its locally saved WebSocket address, defaulting to `ws://127.0.0.1:53082/rpc`. Address acceptance must match CLI and server WebSocket behavior. Desktop must not read connection or theme preferences from config.toml or environment or import those values into Desktop settings.
+- The saved address must select the server without requiring its data root to match a local Desktop path.
 - A compatible, ready server is required before feature content opens. If protocols are incompatible, show `Update Kent`, the client and server protocol values, instructions to update the service and desktop from the same build, and Retry. Use the same blocker whichever side is newer.
 - If the server is unavailable or authentication is not ready, show a concise failure and next action, including instructions to run the server when unreachable.
 - When startup fails, the application shell must be available. Home omits endpoint, version, authentication mode, and other runtime identity.
@@ -53,6 +56,23 @@
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
 - Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
+- Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Loading buttons must crossfade between their action label and a replacing spinner without changing width. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
+
+## Worktree deletion
+
+- The origin Session action must display the Session name when present, otherwise its numeric Session ID, otherwise its UUID. Opening the origin Session must use its canonical Session ID.
+
+- The Worktree list destination must own deletion preparation, confirmation choices, and request state. The confirmation popup must only present those values and forward operator actions.
+- The operator must click Delete to start deletion preparation and open the confirmation popup. Hovering Delete must not start preparation or open the popup. The operator must click Confirm separately to submit deletion.
+- The popup must use click-away and Escape dismissal. Its controls must be Confirm and Include branch, without a Close action or a Clean status label.
+- Include branch must default to selected when the list destination opens. Its choice must remain in memory across popup openings and deletions within that destination, and must reset when a new list destination opens. The choice must not be saved to settings or disk.
+- When Include branch is unavailable, confirmation must retain the branch. When the operator clears Include branch, confirmation must retain the branch, including a branch created by Kent.
+- Confirm must close the popup immediately and submit the captured deletion choice. Closing the popup or navigating away must not cancel an accepted deletion.
+- Preparation and deletion must replace only the affected row's actions with a spinner. The popup must have no loading state. Other Delete actions must be unavailable while a deletion is pending.
+- Refresh must keep loaded rows mounted without a full-list loading state. Successful deletion must remove its row with a smooth exit that settles immediately when reduced motion is enabled.
+- Removing a Worktree must not reset the list's scroll position. Restoring focus after removal must not scroll the list to the focused control.
+- Deletion preparation, deletion, and refresh failures with a loaded list must use temporary error notifications without replacing the list. Failed deletion must restore the affected row's actions. Reopening the popup must permit a new attempt.
+
 ## Transcript configuration notices
 
 - Desktop must show the committed Thinking-update entries defined in Model Requests And Cache Continuity in its ordinary transcript.
@@ -75,11 +95,11 @@
 
 - Home opens on Inbox unless a valid last-opened Project or Workflow destination can be restored. Back and forward use available navigation history. Otherwise Back returns Home.
 - Home has compact navigation and content side by side when both are usable, otherwise navigation stacks above content. It has no resizable splitter or temporary navigation drawer.
-- Home navigation provides Projects and Workflows catalog controls above the active catalog's infinite-scrolling list.
+- Home navigation must provide Projects and Workflows catalog controls and a Settings destination above the active catalog's infinite-scrolling list. Settings must follow Projects and Workflows.
 - Home shows no destination title in the global window chrome.
 - Selecting a Project opens its workspace. Selecting the open Project again or selecting a catalog control returns Home content to aggregate Inbox.
 - A Project workspace has no repeated Project identity header or header action.
-- A Project workspace has `Tasks`, `Sessions`, and `Subagents` tabs. `Tasks` is the default. The mounted Project workspace owns the selected tab, which resets when that workspace remounts.
+- A Project workspace has `Tasks`, `Sessions`, and `Subagents` tabs. The Project opening preference must offer Last used, Tasks, and Sessions and default to Last used. Last used must remember each Project's tab, including Subagents, across restarts and isolate this memory by server. A Project without a remembered tab must open Tasks. Explicit deep links must open their requested destination.
 - Switching among a Project workspace's `Tasks`, `Sessions`, and `Subagents` tabs crossfades overlapping outgoing and incoming content and respects reduced-motion preference.
 - Selecting an Inbox item opens Task Detail using the global adaptive sidebar presentation without replacing Home content or navigating away from Home.
 - An Inbox item shows at most five lines of its detail message before truncation. Selecting the item opens its complete Task Detail.
@@ -89,8 +109,34 @@
 - An empty Inbox says `All caught up` without showing recent Projects or choosing a Project automatically.
 - Project navigation rows show Project identity and editing. Project name and default-workspace path use at most two lines. Selection is communicated accessibly as well as visually.
 
-## Projects and workspaces
+## Desktop settings
 
+- Desktop settings must contain only Desktop-local preferences. The server owns context, Agent, model, and Workflow configuration.
+- Selecting Settings must replace Home's detail pane and replace the sidebar catalog with a table of contents. The Projects, Workflows, and Settings destination rows must be above it. The table of contents must contain only category heading titles. Selecting a title must smoothly scroll the single Settings page to that section, respecting reduced-motion preference. When the page fits without overflow, selecting a title must not scroll. The highlighted title must follow the visible section as the page scrolls.
+- Settings must use one scrollable page. General must group Server connection, Notifications, and Project opening. The server-config action must accompany Server connection. General must contain options without a separate category. Appearance must group Theme, Low-power mode, Transparency, and Reduced motion. Categories with fewer than three options must not have headings.
+- Table-of-contents highlighting must use the scroll-spy library defaults. Limited overflow may leave General highlighted at the bottom while Appearance is visible.
+- Settings must not show dividers between options. Only genuinely non-obvious settings must have concise, actionable hover help. Settings must use existing UI-kit components unless a component change has explicit User approval.
+- The connection field must have an explicit save action. In Settings, Save must be an icon button matching the Task Details header Save button, aligned with the address when space permits and wrapping otherwise. Other preferences must save on change. A failed save must not change the effective setting and must show failure feedback.
+- Every startup blocker, including protocol mismatch and authentication or setup failure, must provide the connection form, its failure explanation, and Retry. An unreachable server must show server-start guidance. During the main window's initial startup, Connect must validate and save the address even when unreachable, then make one connection attempt without restarting or automatically retrying.
+- A connection change from a secondary window's startup blocker must require whole-app restart. Secondary windows must use the main window's active server even when another address is saved for the next restart.
+- A connection change from Settings must save for the next restart and keep the current server active until then. Switching servers must not mix server-specific local client state or stop server work. The unsent New Chat draft must be shared across servers.
+- Settings must not display the connected server's config path or a Server configuration tooltip. Settings must provide an open-file link action alongside Server connection. When the exact server-reported path exists locally, Desktop must enable opening it in the default platform application, including for remote connections, without machine verification.
+- The server-configuration action must occupy a full-width clickable row, with its label on the left and Open plus an outward-arrow icon on the right.
+- The server-configuration action must precede the WebSocket address. Open must use bright primary color, including when the unavailable action is disabled.
+- Settings option rows must have equal heights and evenly spaced labels and control centers. Adjacent three-option selectors must have approximately 8px between them. The gap between sections must be larger than the heading-to-content gap.
+- Theme must offer System, Light, and Dark and default to System. System must follow OS theme changes. The theme setting must replace the debug theme toggle.
+- Reduced motion must offer Off and On and default to Off. On must disable animations. OS reduced motion must disable animations even when Off is selected.
+- Transparency must default to On. Off must make the window opaque without disabling in-window blur.
+- When Transparency is Off or Low-power mode is enabled, Desktop must create opaque native windows rather than painting opaque content over transparent windows.
+- Low-power mode must be a boolean defaulting to Off. When enabled, it must disable all blur, behind-window transparency, and animations. Enabling it must not change the saved Transparency and Reduced motion values. Their controls must be disabled with tooltips showing `Low-power mode overrides this`.
+- Connection changes from Settings, Transparency, and Low-power mode must require restart and show a dismissible Sonner with Restart. Theme, Reduced motion, Notifications, and Project opening changes must apply immediately. Global settings must govern every Desktop window after taking effect.
+- Selecting Restart must dismiss the notice and start relaunch without a loading toast. Relaunch failure must show error feedback.
+- Permission, I/O, memory, and disk-storage failures must not trigger settings recreation and must show failure with Retry.
+- Adding settings must not change valid saved preferences, including self-update. Missing preferences and unknown enum values must use that preference's default. Unknown fields must be ignored. Only a missing or structurally invalid whole document must trigger recreation with defaults.
+- A crash during a Desktop preference write may cause the next launch to reset those preferences to defaults.
+- When a settings read failure prevents normal startup, Desktop must show an opaque error shell with Retry without overwriting the file or connecting with guessed settings. After Retry reads the settings successfully, Desktop must offer Restart to create the window with those settings.
+
+## Projects and workspaces
 
 - Shared Project-workspace relationships and detach safety follow the [Projects And Workspaces](project-workspaces.md) specification.
 - Choosing a directory already attached to a Project opens that Project. Choosing an unattached directory opens Project creation with an editable name and Project Key. The default name is the directory basename.
@@ -278,6 +324,8 @@
 
 ## Labels and board sorting
 
+- An ordinary Board Task card click must open Task Detail. Shift-click must open an existing Task Session in ordinary Chat navigation. The card context menu must offer `Open in Chat` for active and paused Tasks. These Chat entry points must use the same applicable Sessions, direct-open behavior, and multiple-Session picker as Task Detail. Opening Chat must not create a Session or resume the Task. Pending Question actions must be separate.
+
 - Boards have one transparent filter-and-sort row. Its controls appear in this order: `Labels`, `Sort`, `Unblocked`, `Search`. It has no status, attention, or column filter.
 - `Sort` uses an icon followed by text and opens a popover styled like the Label chooser.
 - The Sort popover lists `Updated`, `Created`, `Labels`, and `Short ID`, in that order. An `Asc`/`Desc` segmented selector controls the direction.
@@ -458,7 +506,7 @@
 - Inbox-opened Task Detail can move through the live Inbox order with Previous and Next. After resolution removes the open Task, Next advances to the replacement item. These controls are unavailable outside Inbox.
 - The top Task Detail action opens or focuses the highest-priority unresolved attention. Every unresolved item not awaiting an answer result must offer its applicable inline controls. Preparation failures use the ordinary Task action failure presentation defined by [Workflow Orchestration](workflow-orchestration.md#execution-targets-and-worktrees).
 - Home Inbox shows only task-scoped attention. It has no Workflow-validity badge or section.
-- Task Detail must label its Session action `Open in Chat`, or `Open in CLI` where Chat is unavailable. With one live Session, it must execute the action directly. With multiple live Sessions, it must show a scrollable popup using the Task search popup's row treatment. Each one-line row must show the Session name, or its ID when unnamed, in the small body font. Activating a row must act only on that Session. Open in CLI must keep its command-copy behavior. The `Interrupt` action must keep its Task-wide behavior without a Session picker.
+- Task Detail must label its Session action `Open in Chat`, or `Open in CLI` where Chat is unavailable. The action must include Sessions referenced by Current Nodes, even when the Task is paused, alongside live Sessions. Opening Chat must not resume the Task or start an Agent. With no applicable Session, the action must be absent. With one applicable Session, it must execute the action directly. With multiple applicable Sessions, it must show a scrollable popup using the Task search popup's row treatment. Each one-line row must show one label in the small body font: the Session name, otherwise its Current Node's Agent role name, otherwise its numeric Session ID. A historical Session without any of those labels must use its UUID. Rows must not show a Node label alongside the Session label. Activating a row must act only on that Session. Open in CLI must keep its command-copy behavior. The `Interrupt` action must keep its Task-wide behavior without a Session picker.
 - Home Inbox items must highlight their complete area on hover, including the Open in Chat action. That action must occupy the header row and reduce only the title's available width. The body must use the full item width. Session list titles and bodies must use the full item width without reserving space for an absent action.
 - Questions support suggestions, freeform commentary, recommendations, pointer or keyboard selection, and ordinary focus navigation. An option Question selects its valid recommended option by default and otherwise selects option 1. Malformed recommendation metadata follows the same option-1 fallback. Live refresh must not change the user's selection or draft. Selection and recommendation are distinct states. A Question with no suggestions has only freeform response and must not offer `Neither`.
 - Runtime Approvals use the actual prompt and approval-specific choices. They select the one-time allow choice when offered and otherwise the first offered choice. They must not offer `Neither`. Deny requires commentary. A consolidated outside-workspace Approval begins with `Agent wants to access a batch of files, but <count> are outside workspace dir:`, shows every unique model-provided path and any different real resolved path as an ordered bullet, and ends with `Allow this access?` before its choices. Workflow transition approval offers only Approve and shows source Node, Transition Key and label, target Nodes, required values, commentary, Workflow Version, and stale warning.
@@ -478,8 +526,10 @@
 - Interrupt acts immediately without confirmation.
 - Task Detail opened from Inbox must not close after resolution while Inbox updates in the background.
 - Desktop attention includes workflow Questions, workflow Approvals, ordinary Session Questions and Approvals with a Desktop response surface, and executable Nodes interrupted by errors. It excludes user interruptions.
-- A focused window shows a persistent in-app attention notification. Selecting it opens Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. An ordinary Session prompt must not show a duplicate notification while its owning Session Chat and picker are already the focused destination.
-- An unfocused window attempts a system notification when available. Activation focuses the main window and opens the matching Task Detail or Session Chat target. Question notifications select the first unresolved Question in their batch. Approval and error-interruption notifications select their matching item.
+- Notifications must offer Automatic, Native, and In-app and default to Automatic. This setting must not change ordinary action and error feedback.
+- In Automatic mode, a focused window must show a persistent in-app attention notification. An ordinary Session prompt must not show a duplicate notification while its owning Session Chat and picker are already the focused destination. An unfocused window must attempt a system notification when available.
+- Native mode must send native-capable attention alerts to the OS even when focused, without duplicate Sonners. In-app mode must deliver attention alerts as Sonners even when unfocused.
+- Selecting an in-app attention notification must open Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. System notification activation must focus the main window and open the matching Task Detail or Session Chat target. Question notifications must select the first unresolved Question in their batch. Approval and error-interruption notifications must select their matching item.
 - Notification batches are server-authoritative. Resolved notifications dismiss matching persistent in-app notifications. Notification delivery never changes Workflow state. Development failures fail immediately with diagnostics, while production proceeds without delivery.
 - Notification messages are optional structured context. Desktop owns and localizes fallback copy when a message is absent. The server never supplies fallback UI copy.
 - Desktop must receive global Session turn-end attention through the [Runtime Steering And Model Loop](runtime-steering-loop.md#turn-end-attention) contract, including for Sessions without an open Chat.
@@ -490,5 +540,5 @@
 
 ## Logs
 
-- The desktop log is stored under the Kent persistence root and is limited to 10 MB.
+- The Desktop log must use the fixed path `~/.kent/gui/desktop.log`, independent of KENT_PERSISTENCE_ROOT, and be limited to 10 MB.
 - By default, logs redact authentication headers, tokens, environment values, and request bodies.

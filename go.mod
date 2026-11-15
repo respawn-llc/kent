@@ -21,7 +21,6 @@ require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/joho/godotenv v1.6.0-pre.4
 	github.com/klauspost/compress v1.19.1
-	github.com/lxzan/gws v1.10.1
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/muesli/termenv v0.16.0
 	github.com/openai/openai-go/v3 v3.84.1

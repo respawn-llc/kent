@@ -5,20 +5,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	modelstub "core/internal/testharness/pty/blackbox"
-	"core/internal/testharness/requestfixture"
+
 	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	"core/server/sessionstore"
 	"core/shared/config"
-	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	"core/shared/runtimeids"
-	"core/shared/runtimeinput"
-	"core/shared/serverapi"
+
 	"core/shared/textutil"
 )
 
@@ -74,6 +74,13 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			settings.Model, settings.ModelVerbosity = "operator-alias", config.ModelVerbosityHigh
 			settings.Reviewer.Frequency = "off"
 			cfg := testsetup.ProgrammaticConfig(t, settings)
+			workspaceConfig := filepath.Join(cfg.WorkspaceRoot, config.ConfigDirName)
+			if err := os.MkdirAll(workspaceConfig, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(workspaceConfig, "config.toml"), []byte("model = \"operator-alias\"\nmodel_verbosity = \"high\"\n[reviewer]\nfrequency = \"off\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 			meta := testsetup.OpenStore(t, cfg.PersistenceRoot)
 			binding, err := meta.RegisterWorkspaceBinding(t.Context(), cfg.WorkspaceRoot)
 			if err != nil {
@@ -95,21 +102,14 @@ func TestConnectionDispatchPreservesEstablishedGenerationContract(t *testing.T) 
 			}); err != nil {
 				t.Fatal(err)
 			}
-			err = app.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-				SessionID: requestfixture.SessionID(t, store.Meta().SessionID), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
-					QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			input, err := protoapi.UserTurnInputToProto(runtimeinput.Text("continue"))
-			if err != nil {
-				t.Fatal(err)
-			}
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			if _, err := app.RuntimeControlClient().SubmitUserTurn(ctx, &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: store.Meta().SessionID, Input: input}); err != nil {
-				t.Fatal(err)
+			result, err := app.ChatMutationClient().Steer(ctx, &chatpb.SteerRequest{
+				QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(store.Meta().SessionID),
+				Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: "continue"}},
+			})
+			if err != nil || result.GetAccepted() == nil {
+				t.Fatalf("Chat action: %v, %v", result, err)
 			}
 			select {
 			case request := <-observed:

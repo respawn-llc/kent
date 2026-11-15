@@ -114,7 +114,7 @@ func TestCurrentNodeCarriesNullableSessionBindingAndTypedSchedulingInterruption(
 	}
 }
 
-func TestApprovalIdentityAndMutationResultsUseCurrentNodeFacts(t *testing.T) {
+func TestApprovalIdentity(t *testing.T) {
 	approvalID := workflow.NewApprovalID()
 	if err := approvalID.Validate(); err != nil {
 		t.Fatalf("new approval id invalid: %v", err)
@@ -123,31 +123,4 @@ func TestApprovalIdentityAndMutationResultsUseCurrentNodeFacts(t *testing.T) {
 		t.Fatalf("ParseApprovalID: %v", err)
 	}
 
-	source, err := workflow.NewCurrentNodeReference("task-1", "node-source", nil)
-	if err != nil {
-		t.Fatalf("NewCurrentNodeReference source: %v", err)
-	}
-	target, err := workflow.NewCurrentNodeReference("task-1", "node-target", nil)
-	if err != nil {
-		t.Fatalf("NewCurrentNodeReference target: %v", err)
-	}
-	targetNode, err := workflow.NewCurrentNode(target, nil, nil)
-	if err != nil {
-		t.Fatalf("NewCurrentNode target: %v", err)
-	}
-	result := workflow.CurrentNodeMutationResult{
-		Removed: []workflow.CurrentNodeReference{source},
-		Created: []workflow.CurrentNode{targetNode},
-		Updated: []workflow.CurrentNode{targetNode},
-	}
-
-	if len(result.Removed) != 1 || !result.Removed[0].Equal(source) {
-		t.Fatalf("removed = %+v, want source", result.Removed)
-	}
-	if len(result.Created) != 1 || !result.Created[0].Reference.Equal(target) {
-		t.Fatalf("created = %+v, want target", result.Created)
-	}
-	if len(result.Updated) != 1 || !result.Updated[0].Reference.Equal(target) {
-		t.Fatalf("updated = %+v, want target", result.Updated)
-	}
 }

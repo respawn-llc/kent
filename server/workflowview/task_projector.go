@@ -32,7 +32,6 @@ type TaskStatusInput struct {
 }
 
 type TaskFactsInput struct {
-	Task              sqlitegen.TaskRecord
 	Status            workflowTaskStatusFact
 	CurrentNodes      []workflow.CurrentNode
 	LiveExecutions    []sessionruntime.TaskExecution
@@ -42,7 +41,6 @@ type TaskFactsInput struct {
 }
 
 type TaskFacts struct {
-	Summary *taskpb.TaskSummary
 	Status  *taskpb.TaskStatus
 	Actions *taskpb.TaskActions
 	Done    bool
@@ -83,8 +81,7 @@ func (*TaskProjector) DecodeStatus(input TaskStatusInput) (workflowTaskStatusFac
 func (*TaskProjector) ProjectTaskFacts(input TaskFactsInput) TaskFacts {
 	done := input.Status.Done || currentNodesContainTerminal(input.CurrentNodes, input.Definition.nodeKinds)
 	return TaskFacts{
-		Summary: taskSummary(input.Task, input.Status.Status, done),
-		Status:  input.Status.Status,
+		Status: input.Status.Status,
 		Actions: taskActions(
 			done,
 			input.Status.Status,
@@ -107,7 +104,7 @@ func Comment(comment workflowstore.CommentRecord) (*taskpb.Comment, error) {
 		authorID = &comment.AuthorID
 	}
 	return &taskpb.Comment{
-		Id: comment.ID, TaskId: string(comment.TaskID), Body: comment.Body, Author: author, AuthorId: authorID,
+		Id: comment.ID, Body: comment.Body, Author: author, AuthorId: authorID,
 		CreatedAt: timestamppb.New(time.UnixMilli(comment.CreatedAt)),
 		UpdatedAt: timestamppb.New(time.UnixMilli(comment.UpdatedAt)),
 	}, nil

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowexecution"
@@ -22,11 +22,11 @@ import (
 	"core/shared/serverapi"
 
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Service struct {
 	metadata          *metadata.Store
+	operations        *operation.OperationOwner
 	runtimeAuthority  *sessionruntime.Authority
 	taskMutations     *workflowexecution.TaskMutationCoordinator
 	workflowExecution interface {
@@ -45,11 +45,14 @@ const (
 	maxProjectHomePageSize     = 100
 )
 
-func NewMetadataService(metadataStore *metadata.Store) (*Service, error) {
+func NewMetadataService(metadataStore *metadata.Store, operations *operation.OperationOwner) (*Service, error) {
 	if metadataStore == nil {
 		return nil, errors.New("metadata store is required")
 	}
-	return &Service{metadata: metadataStore}, nil
+	if operations == nil {
+		return nil, errors.New("operation owner is required")
+	}
+	return &Service{metadata: metadataStore, operations: operations}, nil
 }
 
 func (s *Service) WithRuntimeAuthority(authority *sessionruntime.Authority) *Service {
@@ -82,11 +85,7 @@ func (s *Service) ListProjects(ctx context.Context, req *emptypb.Empty) (*projec
 	}
 	success := &projectpb.ProjectListSuccess{Projects: make([]*projectpb.ProjectSummary, 0, len(projects))}
 	for _, project := range projects {
-		generated, err := projectSummaryToGenerated(project)
-		if err != nil {
-			return nil, err
-		}
-		success.Projects = append(success.Projects, generated)
+		success.Projects = append(success.Projects, projectSummaryToGenerated(project))
 	}
 	return success, nil
 }
@@ -123,7 +122,6 @@ func (s *Service) ListProjectHome(ctx context.Context, req *projectpb.ProjectHom
 	success := &projectpb.ProjectHomeListSuccess{
 		Projects:      make([]*projectpb.ProjectHomeSummary, 0, len(summaries)),
 		NextPageToken: nextPageToken,
-		GeneratedAt:   timestamppb.New(time.Now().UTC()),
 	}
 	for _, summary := range summaries {
 		project, err := projectHomeSummaryToGenerated(summary)
@@ -171,12 +169,50 @@ func (s *Service) PlanWorkspaceBinding(ctx context.Context, req *projectpb.PlanW
 			}
 			switch req.Mode {
 			case projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_INTERACTIVE:
+				selector := serverapi.NewProjectWorkspaceSelectorForRoot(ambiguous.CanonicalRoot)
+				var defaultProjectID string
+				defaultProjectCount := 0
+				for _, projectID := range ambiguous.ProjectIDs {
+					workspace, err := s.metadata.GetProjectWorkspaceCatalogRow(ctx, projectID, selector)
+					if err != nil {
+						return nil, err
+					}
+					if workspace.IsDefault {
+						defaultProjectID = projectID
+						defaultProjectCount++
+					}
+				}
+				if defaultProjectCount == 1 {
+					binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, defaultProjectID, selector)
+					if err != nil {
+						return nil, err
+					}
+					generated, err := BindingToProto(binding)
+					if err != nil {
+						return nil, err
+					}
+					resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_BOUND
+					resp.Binding = generated
+					return resp, nil
+				}
 				projects, err := s.ListProjects(ctx, &emptypb.Empty{})
 				if err != nil {
 					return nil, err
 				}
-				resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_SERVER_WORKSPACE_SELECTION
-				resp.Projects = projects.Projects
+				matchingProjectIDs := make(map[string]struct{}, len(ambiguous.ProjectIDs))
+				for _, projectID := range ambiguous.ProjectIDs {
+					matchingProjectIDs[projectID] = struct{}{}
+				}
+				resp.Projects = make([]*projectpb.ProjectSummary, 0, len(matchingProjectIDs))
+				for _, project := range projects.Projects {
+					if _, matches := matchingProjectIDs[project.ProjectId]; matches {
+						resp.Projects = append(resp.Projects, project)
+					}
+				}
+				if len(resp.Projects) == 0 {
+					return nil, serverapi.ErrWorkspaceNotRegistered
+				}
+				resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION
 				return resp, nil
 			case projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_HEADLESS:
 				resp.Kind = projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_HEADLESS_REMOTE_AMBIGUOUS
@@ -235,6 +271,12 @@ func (s *Service) CreateProject(ctx context.Context, req *projectpb.CreateProjec
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.CreateProjectSuccess, error) {
+		return s.createProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) createProject(ctx context.Context, req *projectpb.CreateProjectRequest) (*projectpb.CreateProjectSuccess, error) {
 	binding, err := s.metadata.CreateProjectForWorkspaceWithKey(ctx, req.WorkspaceRoot, req.DisplayName, req.GetProjectKey())
 	if err != nil {
 		return nil, projectMutationStorageError(err, req.GetProjectKey())
@@ -250,18 +292,16 @@ func (s *Service) UpdateProject(ctx context.Context, req *projectpb.UpdateProjec
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.UpdateProjectSuccess, error) {
+		return s.updateProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) updateProject(ctx context.Context, req *projectpb.UpdateProjectRequest) (*projectpb.UpdateProjectSuccess, error) {
 	if err := s.metadata.UpdateProjectMetadata(ctx, req.ProjectId, req.DisplayName, req.GetProjectKey()); err != nil {
 		return nil, projectMutationStorageError(err, req.GetProjectKey())
 	}
-	project, err := s.metadata.GetProjectHomeSummary(ctx, req.ProjectId)
-	if err != nil {
-		return nil, err
-	}
-	generated, err := projectHomeSummaryToGenerated(project)
-	if err != nil {
-		return nil, err
-	}
-	return &projectpb.UpdateProjectSuccess{Project: generated}, nil
+	return &projectpb.UpdateProjectSuccess{}, nil
 }
 
 func (s *Service) GetProjectEdit(ctx context.Context, req *projectpb.ProjectEditGetRequest) (*projectpb.GetProjectEditSuccess, error) {
@@ -283,6 +323,12 @@ func (s *Service) DeleteProject(ctx context.Context, req *projectpb.DeleteProjec
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.DeleteProjectSuccess, error) {
+		return s.deleteProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) deleteProject(ctx context.Context, req *projectpb.DeleteProjectRequest) (*projectpb.DeleteProjectSuccess, error) {
 	projectID := strings.TrimSpace(req.ProjectId)
 	if s.taskMutations == nil || s.workflowExecution == nil {
 		return nil, errors.New("workflow execution is required for project deletion")
@@ -596,6 +642,12 @@ func (s *Service) AttachWorkspaceToProject(ctx context.Context, req *projectpb.A
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.AttachWorkspaceSuccess, error) {
+		return s.attachWorkspaceToProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) attachWorkspaceToProject(ctx context.Context, req *projectpb.AttachWorkspaceRequest) (*projectpb.AttachWorkspaceSuccess, error) {
 	result, err := s.metadata.AttachWorkspaceToProjectWithResult(ctx, req.ProjectId, req.WorkspaceRoot)
 	if err != nil {
 		return nil, projectMutationStorageError(err, "")
@@ -615,6 +667,12 @@ func (s *Service) RebindWorkspace(ctx context.Context, req *projectpb.RebindWork
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.RebindWorkspaceSuccess, error) {
+		return s.rebindWorkspace(scope.Context(), req)
+	})
+}
+
+func (s *Service) rebindWorkspace(ctx context.Context, req *projectpb.RebindWorkspaceRequest) (*projectpb.RebindWorkspaceSuccess, error) {
 	prepared, err := s.metadata.PrepareWorkspaceRebind(ctx, req.OldWorkspaceRoot)
 	if err != nil {
 		return nil, projectMutationStorageError(err, "")

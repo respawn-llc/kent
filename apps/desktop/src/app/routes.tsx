@@ -28,9 +28,12 @@ const workflowEditorSearchSchema = z.object({
   projectId: optionalSearchString,
 });
 
-const homeSearchSchema = z.object({
-  projectId: z.string().min(1).optional(),
-});
+const homeSearchSchema = z
+  .object({
+    projectId: z.string().min(1).optional(),
+    view: z.literal("settings").optional(),
+  })
+  .refine((search) => search.view === undefined || search.projectId === undefined);
 
 const rootRoute = createRootRoute({ component: RootRoute });
 

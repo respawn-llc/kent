@@ -41,7 +41,6 @@ it("admits only one comment submission when invoked twice in the same turn", asy
   await act(async () => {
     response.resolve({
       id: "comment-1",
-      taskID: "task-1",
       body: "New comment",
       authorKind: "user",
       authorID: null,
@@ -131,7 +130,6 @@ it("completes an accepted comment for its originating Task without clearing the 
   await act(async () => {
     response.resolve({
       id: "comment-1",
-      taskID: "task-1",
       body: "Task A comment",
       authorKind: "user",
       authorID: null,

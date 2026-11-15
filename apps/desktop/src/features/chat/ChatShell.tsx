@@ -55,7 +55,7 @@ export function ChatShell<Target>({
     };
   }, [state.kind]);
 
-  if (state.kind === "loading") return <LoadingState title={t("states.loading")} />;
+  if (state.kind === "loading") return <LoadingState />;
   if (state.kind === "error") {
     return (
       <div className="flex h-full min-h-0 flex-col" data-testid="chat-shell">

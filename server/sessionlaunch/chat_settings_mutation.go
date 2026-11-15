@@ -197,23 +197,18 @@ func transcriptSessionSettingFeedback(
 		return nil, false, nil
 	case *chatsettingspb.MutationOperation_Supervisor:
 		value := protoapi.ChatSettingsSupervisorFromProto(settings.Supervisor.Value)
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR
 		feedback.Value = &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: value}
 	case *chatsettingspb.MutationOperation_Thinking:
 		value := strings.TrimSpace(settings.SelectedAgent.Thinking)
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING
 		feedback.Value = &transcriptpb.SessionSettingFeedback_Thinking{Thinking: value}
 	case *chatsettingspb.MutationOperation_FastEnabled:
 		if settings.Fast == nil {
 			return nil, false, errors.New("applied Fast setting has no authoritative value")
 		}
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE
 		feedback.Value = &transcriptpb.SessionSettingFeedback_FastMode{FastMode: settings.Fast.Value}
 	case *chatsettingspb.MutationOperation_QuestionsEnabled:
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS
 		feedback.Value = &transcriptpb.SessionSettingFeedback_Questions{Questions: settings.Questions.Enabled}
 	case *chatsettingspb.MutationOperation_AutoCompactionEnabled:
-		feedback.Kind = transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION
 		feedback.Value = &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: settings.AutoCompaction.Stored}
 	default:
 		return nil, false, errors.New("applied Chat settings operation kind is invalid")

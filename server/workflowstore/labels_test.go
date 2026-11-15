@@ -4,14 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 
 	"core/server/workflow"
 	"core/server/workflow/label"
 	"core/shared/serverapi"
-	sqlitedriver "modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestProjectLabelsCreateAndList(t *testing.T) {
@@ -395,68 +392,6 @@ func TestProjectLabelCatalogEnforcesUnicodeNameUniquenessAndTheHundredLabelLimit
 	if _, err := store.CreateProjectLabel(ctx, binding.ProjectID, "replacement"); err != nil {
 		t.Fatalf("CreateProjectLabel after delete: %v", err)
 	}
-}
-
-type projectLabelCreateResult struct {
-	record ProjectLabelRecord
-	err    error
-}
-
-func raceProjectLabelCreates(
-	first func() (ProjectLabelRecord, error),
-	second func() (ProjectLabelRecord, error),
-) [2]projectLabelCreateResult {
-	var ready sync.WaitGroup
-	ready.Add(2)
-	start := make(chan struct{})
-	results := make(chan projectLabelCreateResult, 2)
-	run := func(create func() (ProjectLabelRecord, error)) {
-		ready.Done()
-		<-start
-		record, err := create()
-		results <- projectLabelCreateResult{record: record, err: err}
-	}
-	go run(first)
-	go run(second)
-	ready.Wait()
-	close(start)
-	return [2]projectLabelCreateResult{<-results, <-results}
-}
-
-func assertOneProjectLabelCreateErrorAllowed(t *testing.T, results [2]projectLabelCreateResult, target error) {
-	t.Helper()
-	successes := 0
-	failures := 0
-	for _, result := range results {
-		switch {
-		case result.err == nil:
-			successes++
-			if result.record.ID.String() == "" {
-				t.Fatal("successful label create returned no ID")
-			}
-		case errors.Is(result.err, target) || isSQLiteBusy(result.err):
-			failures++
-		default:
-			t.Fatalf("concurrent label create error = %T %v, want %v or SQLite busy", result.err, result.err, target)
-		}
-	}
-	if successes != 1 || failures != 1 {
-		t.Fatalf("concurrent label create outcomes = %+v, want one success and one allowed failure", results)
-	}
-}
-
-func isSQLiteBusy(err error) bool {
-	var sqliteErr *sqlitedriver.Error
-	if !errors.As(err, &sqliteErr) {
-		return false
-	}
-	code := sqliteErr.Code() & 0xff
-	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
-}
-
-func isProjectLabelReorderValidation(err error) bool {
-	var reorderErr ProjectLabelOrderError
-	return errors.As(err, &reorderErr)
 }
 
 func TestProjectLabelCatalogMutationsDoNotTouchTaskOrderingTimestamp(t *testing.T) {
@@ -845,35 +780,5 @@ func TestTaskCreateInvalidLabelsRollBackCurrentNodeAndAssignments(t *testing.T) 
 				t.Fatalf("assignment count after rollback = %d, want 0", assignmentCount)
 			}
 		})
-	}
-}
-
-func assertProjectLabelOrdinalsContiguous(t *testing.T, ctx context.Context, store *Store, projectID string) {
-	t.Helper()
-	rows, err := store.db.QueryContext(ctx, `
-SELECT ordinal
-FROM project_labels
-WHERE project_id = ?
-ORDER BY ordinal ASC`, projectID)
-	if err != nil {
-		t.Fatalf("query project label ordinals: %v", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var ordinal int64
-	count := 0
-	for rows.Next() {
-		if err := rows.Scan(&ordinal); err != nil {
-			t.Fatalf("scan project label ordinal: %v", err)
-		}
-		count++
-		if ordinal != int64(count) {
-			t.Fatalf("project label ordinal at position %d = %d", count, ordinal)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate project label ordinals: %v", err)
-	}
-	if count > label.MaxProjectLabels {
-		t.Fatalf("project label count = %d, want at most %d", count, label.MaxProjectLabels)
 	}
 }

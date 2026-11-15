@@ -217,6 +217,13 @@ type preparedSurfaceContent struct {
 	immutableRows []string
 }
 
+func (s *Surface) ApplyHistoryRows(rows []*transcriptpb.CommittedRow, frame FrameInput) (Result, error) {
+	s.validateRenderFrame(frame, "apply_history_rows")
+	lines := s.source.historyImmutableLines(rows, frame.Size.Width, frame.Theme)
+	s.observeResize(frame.Size)
+	return s.writeFrameTransaction(frame, s.AllocateFrame(frame), lines)
+}
+
 func (s *sourceFormatter) prepareTerminalMessage(message *transcriptpb.Message, frame FrameInput) *preparedSurfaceContent {
 	switch payload := message.GetEvent().GetPayload().(type) {
 	case *transcriptpb.Event_Hydration:
@@ -257,7 +264,7 @@ func (s *sourceFormatter) prepareTerminalMessage(message *transcriptpb.Message, 
 }
 
 func (s *sourceFormatter) prepareHydration(hydration *transcriptpb.Hydration, frame FrameInput) *preparedSurfaceContent {
-	lines := s.hydrationImmutableLines(hydration, frame.Size.Width, frame.Theme)
+	lines := s.historyImmutableLines(hydration.TailSegment.Entries, frame.Size.Width, frame.Theme)
 	s.pendingTools = nil
 	s.pendingAssistants = nil
 	var first *transcriptpb.AssistantStream
@@ -568,7 +575,7 @@ func (s *Surface) ResetForScratchHydration(reason RehydrateReason, frame FrameIn
 func (s *sourceFormatter) immutableLines(message *transcriptpb.Message, width int, themeName string) []string {
 	switch payload := message.GetEvent().GetPayload().(type) {
 	case *transcriptpb.Event_Hydration:
-		return s.hydrationImmutableLines(payload.Hydration, width, themeName)
+		return s.historyImmutableLines(payload.Hydration.TailSegment.Entries, width, themeName)
 	case *transcriptpb.Event_CommittedRow:
 		row := payload.CommittedRow
 		if !committedRowVisibleInOngoing(row) {
@@ -580,9 +587,9 @@ func (s *sourceFormatter) immutableLines(message *transcriptpb.Message, width in
 	}
 }
 
-func (s *sourceFormatter) hydrationImmutableLines(hydration *transcriptpb.Hydration, width int, themeName string) []string {
-	lines := make([]string, 0, len(hydration.TailSegment.Entries))
-	for _, row := range hydration.TailSegment.Entries {
+func (s *sourceFormatter) historyImmutableLines(rows []*transcriptpb.CommittedRow, width int, themeName string) []string {
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
 		if !committedRowVisibleInOngoing(row) {
 			continue
 		}

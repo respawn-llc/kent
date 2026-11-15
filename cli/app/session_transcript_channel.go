@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/cli/tui/ongoing"
 	"errors"
+	"fmt"
 	"time"
 
 	"core/cli/app/internal/runtimeattach"
@@ -17,6 +18,7 @@ const transcriptSubscriptionRetryDelay = 250 * time.Millisecond
 type ongoingTranscriptEventKind string
 
 const (
+	ongoingTranscriptEventHistory ongoingTranscriptEventKind = "history"
 	ongoingTranscriptEventMessage ongoingTranscriptEventKind = "message"
 	ongoingTranscriptEventLoss    ongoingTranscriptEventKind = "loss"
 	ongoingTranscriptEventFailure ongoingTranscriptEventKind = "failure"
@@ -27,6 +29,7 @@ const (
 type ongoingTranscriptEvent struct {
 	Kind    ongoingTranscriptEventKind
 	Message *transcriptpb.Message
+	Page    *transcriptpb.Page
 	Err     error
 	Reason  *ongoing.RehydrateReason
 }
@@ -39,9 +42,12 @@ type ongoingTranscriptEventStream struct {
 
 type sessionTranscriptSubscriber func(context.Context, *transcriptpb.SubscribeRequest) (serverapi.TranscriptSubscription, error)
 
+type sessionTranscriptHistoryReader func(context.Context, *transcriptpb.PageRequest) (*transcriptpb.PageSuccess, error)
+
 func startSessionTranscriptEvents(
 	ctx context.Context,
 	sessionID string,
+	readHistory sessionTranscriptHistoryReader,
 	subscribe sessionTranscriptSubscriber,
 	observers ...func(*transcriptpb.Message),
 ) ongoingTranscriptEventStream {
@@ -54,6 +60,27 @@ func startSessionTranscriptEvents(
 	pollCtx, cancel := context.WithCancel(ctx)
 	go func() {
 		defer close(out)
+		historyCtx, cancelHistory := context.WithTimeout(pollCtx, uiRuntimeHydrationReadTimeout)
+		history, historyErr := readHistory(historyCtx, &transcriptpb.PageRequest{
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{SessionId: sessionID}},
+		})
+		cancelHistory()
+		if pollCtx.Err() != nil {
+			return
+		}
+		var page *transcriptpb.Page
+		if historyErr == nil {
+			page = history.GetTranscript()
+			if page == nil || page.GetSessionId() != sessionID {
+				historyErr = fmt.Errorf("transcript page session %q does not match requested session %q", page.GetSessionId(), sessionID)
+				page = nil
+			}
+		}
+		select {
+		case <-pollCtx.Done():
+			return
+		case out <- ongoingTranscriptEvent{Kind: ongoingTranscriptEventHistory, Page: page, Err: historyErr}:
+		}
 		connectionFailureReported := false
 		for {
 			sub, err := subscribeSessionTranscript(pollCtx, sessionID, subscribe)

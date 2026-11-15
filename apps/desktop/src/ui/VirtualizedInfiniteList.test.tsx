@@ -75,11 +75,9 @@ function List({
   onLoadPrevious?: () => void;
   previousLoadItemKey?: string;
   previousBoundary?:
-    | { state: "loading"; label: string }
-    | { state: "error"; message: string; retryLabel: string; onRetry: () => void };
+    { state: "loading" } | { state: "error"; message: string; retryLabel: string; onRetry: () => void };
   nextBoundary?:
-    | { state: "loading"; label: string }
-    | { state: "error"; message: string; retryLabel: string; onRetry: () => void };
+    { state: "loading" } | { state: "error"; message: string; retryLabel: string; onRetry: () => void };
   items?: readonly string[];
   ready?: boolean;
   request?: VirtualizedPixelOffsetRequest | undefined;
@@ -103,7 +101,6 @@ function List({
       initialScrollRequestKey={initialScrollRequestKey}
       items={items}
       layoutChangeScrollBehavior={layoutChangeScrollBehavior}
-      loadingLabel="Loading"
       nextBoundary={nextBoundary}
       onLoadMore={onLoadMore}
       onLoadPrevious={onLoadPrevious}
@@ -425,7 +422,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={initialItems}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={(item) => item.slot}
       />,
@@ -445,7 +441,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={refreshedItems}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={(item) => item.slot}
       />,
@@ -474,7 +469,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={initialItems}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={(item) => item.slot}
       />,
@@ -495,7 +489,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={refreshedItems}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={(item) => item.slot}
       />,
@@ -591,7 +584,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         isFetchingNextPage={false}
         itemRole="row"
         items={["header", "task"]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={(item) => <div role={item === "header" ? "columnheader" : "gridcell"}>{item}</div>}
         role="grid"
@@ -617,7 +609,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={["active-boundary", "done-boundary"]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={testRenderItem}
         visibilityTriggers={[
@@ -648,7 +639,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={["active-boundary", "done-boundary"]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={testRenderItem}
         visibilityTriggers={[
@@ -679,7 +669,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={["active-boundary", "done-boundary"]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={testRenderItem}
         visibilityTriggers={[
@@ -723,7 +712,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={["active-boundary"]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={testRenderItem}
         visibilityTriggers={[trigger]}
@@ -738,7 +726,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={[]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={testRenderItem}
         visibilityTriggers={[]}
@@ -751,7 +738,6 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
         hasNextPage={false}
         isFetchingNextPage={false}
         items={["active-boundary"]}
-        loadingLabel="Loading"
         onLoadMore={() => undefined}
         renderItem={testRenderItem}
         visibilityTriggers={[trigger]}
@@ -800,7 +786,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
       <List
         hasPreviousPage
         onLoadPrevious={onLoadPrevious}
-        previousBoundary={{ state: "loading", label: "Loading" }}
+        previousBoundary={{ state: "loading" }}
         previousLoadItemKey="b"
       />,
     );
@@ -871,11 +857,7 @@ describe("VirtualizedInfiniteList pixel restoration", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
 
     view.rerender(
-      <List
-        items={["a", "b", "c", "d"]}
-        nextBoundary={{ state: "loading", label: "Loading" }}
-        onLoadMore={onLoadMore}
-      />,
+      <List items={["a", "b", "c", "d"]} nextBoundary={{ state: "loading" }} onLoadMore={onLoadMore} />,
     );
     expect(screen.getByText("d")).toBeInTheDocument();
     expect(onLoadMore).not.toHaveBeenCalled();

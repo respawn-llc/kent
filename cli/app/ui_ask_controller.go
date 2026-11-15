@@ -105,7 +105,7 @@ func (c uiAskController) resolvePrompt(toolCallID string) tea.Cmd {
 	m.ask.currentToken = nextNonZeroToken(m.ask.currentToken)
 	m.ask.activeProjection = nil
 	m.ask.latestDesiredProjection = nil
-	m.ask.cursor = 0
+	m.ask.selectedOption = nil
 	m.clearAskInput()
 	m.ask.freeform = false
 	m.ask.freeformMode = askFreeformModeGeneric
@@ -181,7 +181,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.ask.freeform {
 			presentation := m.ask.dedicated
 			dedicatedApprovalReturn := transcriptPromptIsApproval(req) && presentation != nil && presentation.freeformReturn != nil
-			if !askSupportsDraftRoundTrip(req) && !dedicatedApprovalReturn {
+			inlineApprovalReturn := transcriptPromptIsApproval(req) && presentation == nil &&
+				m.ask.freeformMode == askFreeformModeApprovalCommentary
+			if !askSupportsDraftRoundTrip(req) && !dedicatedApprovalReturn && !inlineApprovalReturn {
 				return m, nil
 			}
 			m.ask.freeform = false
@@ -190,8 +192,10 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if presentation.focus == askFocusReading {
 					presentation.row = 0
 					presentation.scroll = 0
-				} else if rows, ok := m.layout().askDocument(m.layout().effectiveWidth()).options[m.ask.cursor]; ok {
-					presentation.row = rows.start
+				} else if m.ask.selectedOption != nil {
+					if rows, ok := m.layout().askDocument(m.layout().effectiveWidth()).options[*m.ask.selectedOption]; ok {
+						presentation.row = rows.start
+					}
 				}
 				presentation.freeformReturn = nil
 			}
@@ -201,18 +205,17 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			focus := presentation.focus
 			presentation.freeformReturn = &focus
 		}
-		m.ask.freeform = true
 		if approvalSupportsCommentary(req) {
+			decision, ok := selectedApprovalDecision(req, m.ask.selectedOption)
 			m.ask.freeformMode = askFreeformModeApprovalCommentary
-			decision, ok := selectedApprovalDecision(req, m.ask.cursor)
-			if !ok {
-				return m, nil
+			if ok {
+				if m.ask.chosenApproval != nil && *m.ask.chosenApproval != decision {
+					m.clearAskInput()
+				}
+				m.ask.chosenApproval = &decision
 			}
-			if m.ask.chosenApproval == nil || *m.ask.chosenApproval != decision {
-				m.clearAskInput()
-			}
-			m.ask.chosenApproval = &decision
 		}
+		m.ask.freeform = true
 		m.focusDedicatedAskEditor()
 		return m, nil
 	case tea.KeyEnter:
@@ -222,17 +225,20 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.ask.activeDelivery != nil {
 			return m, m.sendTransientStatusWithNoticeID("Answer is already sending", uiStatusNoticeInfo, transientStatusDuration, uiStatusNoticeReplace, "")
 		}
+		if !m.ask.freeform && askOptionCount(req) > 0 && m.ask.selectedOption == nil {
+			return m, nil
+		}
 		m.inputController().normalizePendingCSIShiftEnterOnEnter()
 		if m.ask.freeform {
 			commentary := strings.TrimSpace(m.ask.editor.Text())
-			if askRequiresFreeformSelectionCommentary(req, m.ask.cursor) && commentary == "" {
+			if askRequiresFreeformSelectionCommentary(req, m.ask.selectedOption) && commentary == "" {
 				return m, sequenceCmds(
 					c.model.sendTransientStatusWithNoticeID("Write your response before submitting the freeform option", uiStatusNoticeError, transientStatusDuration, uiStatusNoticeReplace, ""),
 					ringBellCmd(),
 				)
 			}
 			resp := clientui.PromptAnswer{FreeformAnswer: commentary}
-			if optionNumber, ok := selectedAskOptionNumber(req, m.ask.cursor); ok {
+			if optionNumber, ok := selectedAskOptionNumber(req, m.ask.selectedOption); ok {
 				presentation := m.ask.dedicated
 				if presentation == nil || presentation.freeformReturn == nil || *presentation.freeformReturn == askFocusAnswer {
 					resp.SelectedOptionNumber = textutil.Value(optionNumber)
@@ -244,10 +250,7 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if decision == nil {
 						return m, nil
 					}
-					resp = clientui.PromptAnswer{
-						ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(req)),
-						Approval:   &clientui.ApprovalPromptAnswer{Decision: *decision, Commentary: commentary},
-					}
+					resp = approvalPromptAnswer(*decision, commentary)
 					_, hasNext, answerCmd := c.answer(resp, nil)
 					if hasNext {
 						m.activity = uiActivityQuestion
@@ -270,7 +273,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.ask.freeform = true
 			return m, nil
 		}
-		if askHasFreeformSelectionOption(req) && m.ask.cursor == len(askVisibleOptions(req)) {
+		if askHasFreeformSelectionOption(req) &&
+			m.ask.selectedOption != nil &&
+			*m.ask.selectedOption == len(askVisibleOptions(req)) {
 			commentary := strings.TrimSpace(m.ask.editor.Text())
 			if commentary == "" {
 				m.ask.freeform = true
@@ -284,18 +289,20 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, answerCmd
 		}
-		visibleOptions := askVisibleOptions(req)
-		if m.ask.cursor < 0 || m.ask.cursor >= len(visibleOptions) {
-			m.ask.freeform = true
-			m.clearAskInput()
+		resp := clientui.PromptAnswer{}
+		if decision, ok := selectedApprovalDecision(req, m.ask.selectedOption); ok {
+			commentary := ""
+			if m.ask.dedicated == nil {
+				commentary = strings.TrimSpace(m.ask.editor.Text())
+			}
+			resp = approvalPromptAnswer(decision, commentary)
+		} else if optionNumber, ok := selectedAskOptionNumber(req, m.ask.selectedOption); ok {
+			resp.SelectedOptionNumber = textutil.Value(optionNumber)
+			if commentary := strings.TrimSpace(m.ask.editor.Text()); askSupportsDraftRoundTrip(req) && commentary != "" {
+				resp.FreeformAnswer = commentary
+			}
+		} else {
 			return m, nil
-		}
-		resp := clientui.PromptAnswer{SelectedOptionNumber: textutil.Value(m.ask.cursor + 1)}
-		if commentary := strings.TrimSpace(m.ask.editor.Text()); askSupportsDraftRoundTrip(req) && commentary != "" {
-			resp.FreeformAnswer = commentary
-		}
-		if transcriptPromptIsApproval(req) && m.ask.cursor < len(transcriptPromptApprovalOptions(req)) {
-			resp = clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: transcriptPromptApprovalOptions(req)[m.ask.cursor]}}
 		}
 		_, hasNext, answerCmd := c.answer(resp, nil)
 		if hasNext {
@@ -309,19 +316,14 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveAskCursorVertical(-1)
 			return m, nil
 		}
-		if m.ask.cursor > 0 {
-			m.ask.cursor--
-		}
+		c.selectAdjacentOption(-1)
 		return m, nil
 	case tea.KeyDown:
 		if m.ask.freeform {
 			m.moveAskCursorVertical(1)
 			return m, nil
 		}
-		maxIdx := askOptionCount(req) - 1
-		if maxIdx >= 0 && m.ask.cursor < maxIdx {
-			m.ask.cursor++
-		}
+		c.selectAdjacentOption(1)
 		return m, nil
 	case tea.KeyCtrlJ, keyTypeShiftEnterCSI:
 		if !m.askEditorAcceptsInput() {
@@ -373,6 +375,24 @@ func (c uiAskController) handleCtrlC() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(runtimeCtrlCCmd, m.interruptedStatusNoticeCmd())
 }
 
+func (c uiAskController) selectAdjacentOption(direction int) {
+	m := c.model
+	optionCount := askOptionCount(m.ask.current.prompt)
+	if optionCount == 0 {
+		return
+	}
+	selected := 0
+	if m.ask.selectedOption == nil {
+		if direction < 0 {
+			selected = optionCount - 1
+		}
+	} else {
+		selected = min(max(*m.ask.selectedOption+direction, 0), optionCount-1)
+	}
+	m.ask.selectedOption = &selected
+	c.chooseFocusedApproval()
+}
+
 func (c uiAskController) renderPriorityPromptLines() []askPromptLine {
 	m := c.model
 	if !m.ask.hasCurrent() {
@@ -382,7 +402,10 @@ func (c uiAskController) renderPriorityPromptLines() []askPromptLine {
 	if isApprovalCommentaryPrompt(req, m.ask.freeform, m.ask.freeformMode) {
 		decision := c.commentaryDecision()
 		if decision == nil {
-			return nil
+			return []askPromptLine{
+				{Text: "Select an Approval decision before submitting", Kind: askPromptLineKindHint},
+				{Kind: askPromptLineKindInput, InputPrefix: "› ", InputEditor: m.ask.editor, ShowsCursor: true},
+			}
 		}
 		return []askPromptLine{
 			{Text: fmt.Sprintf("Commentary for %s:", tui.ApprovalDecisionLabel(*decision)), Kind: askPromptLineKindHint},
@@ -393,7 +416,7 @@ func (c uiAskController) renderPriorityPromptLines() []askPromptLine {
 	if askOptionCount(req) > 0 && !m.ask.freeform {
 		visibleOptions := askVisibleOptions(req)
 		for i, s := range visibleOptions {
-			selected := m.askHasAnswerFocus() && i == m.ask.cursor
+			selected := m.askHasAnswerFocus() && m.ask.selectedOption != nil && i == *m.ask.selectedOption
 			recommended := askOptionIsRecommended(req, i)
 			marker := "  "
 			if selected {
@@ -411,14 +434,18 @@ func (c uiAskController) renderPriorityPromptLines() []askPromptLine {
 		}
 		if askHasFreeformSelectionOption(req) {
 			idx := len(visibleOptions) + 1
-			selected := m.askHasAnswerFocus() && m.ask.cursor == len(visibleOptions)
+			selected := m.askHasAnswerFocus() &&
+				m.ask.selectedOption != nil &&
+				*m.ask.selectedOption == len(visibleOptions)
 			prefix := "  "
 			if selected {
 				prefix = "✔︎ "
 			}
 			lines = append(lines, askPromptLine{Text: fmt.Sprintf("%s%d. %s", prefix, idx, askFreeformSelectionOptionText), Kind: askPromptLineKindOption, Selected: selected, Option: textutil.Value(idx - 1)})
 		}
-		if askSupportsDraftRoundTrip(req) && askHasPendingFreeformDraft(m.ask.editor.Text()) {
+		if (askSupportsDraftRoundTrip(req) ||
+			(approvalSupportsCommentary(req) && m.ask.freeformMode == askFreeformModeApprovalCommentary)) &&
+			askHasPendingFreeformDraft(m.ask.editor.Text()) {
 			lines = append(lines, askPromptLine{Kind: askPromptLineKindInput, Disabled: true, InputPrefix: "› ", InputEditor: m.ask.editor, ShowsCursor: false})
 			return lines
 		}
@@ -470,7 +497,7 @@ func (c uiAskController) setActiveAsk(evt askEvent) {
 	m.ask.current = &current
 	m.ask.activeProjection = nil
 	m.ask.latestDesiredProjection = nil
-	m.ask.cursor = initialAskCursor(current.prompt)
+	m.ask.selectedOption = nil
 	m.clearAskInput()
 	m.ask.freeform = askOptionCount(current.prompt) == 0
 	m.ask.freeformMode = askFreeformModeGeneric
@@ -485,7 +512,7 @@ func (c uiAskController) commentaryDecision() *clientui.ApprovalDecision {
 		return c.model.ask.chosenApproval
 	}
 	if c.model.ask.dedicated == nil {
-		if decision, ok := selectedApprovalDecision(c.model.ask.current.prompt, c.model.ask.cursor); ok {
+		if decision, ok := selectedApprovalDecision(c.model.ask.current.prompt, c.model.ask.selectedOption); ok {
 			return &decision
 		}
 	}
@@ -556,22 +583,27 @@ func isApprovalCommentaryPrompt(req *transcriptpb.Prompt, freeform bool, mode as
 	return transcriptPromptIsApproval(req)
 }
 
-func selectedApprovalDecision(req *transcriptpb.Prompt, cursor int) (clientui.ApprovalDecision, bool) {
-	if !transcriptPromptIsApproval(req) || cursor < 0 || cursor >= len(transcriptPromptApprovalOptions(req)) {
+func selectedApprovalDecision(req *transcriptpb.Prompt, selectedOption *int) (clientui.ApprovalDecision, bool) {
+	if !transcriptPromptIsApproval(req) || selectedOption == nil ||
+		*selectedOption < 0 || *selectedOption >= len(transcriptPromptApprovalOptions(req)) {
 		return "", false
 	}
-	return transcriptPromptApprovalOptions(req)[cursor], true
+	return transcriptPromptApprovalOptions(req)[*selectedOption], true
 }
 
-func selectedAskOptionNumber(req *transcriptpb.Prompt, cursor int) (int, bool) {
-	if transcriptPromptIsApproval(req) {
+func approvalPromptAnswer(decision clientui.ApprovalDecision, commentary string) clientui.PromptAnswer {
+	return clientui.PromptAnswer{Approval: &clientui.ApprovalPromptAnswer{Decision: decision, Commentary: commentary}}
+}
+
+func selectedAskOptionNumber(req *transcriptpb.Prompt, selectedOption *int) (int, bool) {
+	if transcriptPromptIsApproval(req) || selectedOption == nil {
 		return 0, false
 	}
 	visibleOptions := askVisibleOptions(req)
-	if cursor < 0 || cursor >= len(visibleOptions) {
+	if *selectedOption < 0 || *selectedOption >= len(visibleOptions) {
 		return 0, false
 	}
-	return cursor + 1, true
+	return *selectedOption + 1, true
 }
 
 func askOptionIsRecommended(req *transcriptpb.Prompt, index int) bool {
@@ -581,28 +613,11 @@ func askOptionIsRecommended(req *transcriptpb.Prompt, index int) bool {
 	return req.GetQuestion().GetRecommendedOptionIndex() == int32(index+1)
 }
 
-func initialAskCursor(req *transcriptpb.Prompt) int {
-	if transcriptPromptIsApproval(req) {
-		for index, decision := range transcriptPromptApprovalOptions(req) {
-			if decision == clientui.ApprovalDecisionAllowOnce {
-				return index
-			}
-		}
-		return 0
-	}
-	for index := range askVisibleOptions(req) {
-		if askOptionIsRecommended(req, index) {
-			return index
-		}
-	}
-	return 0
-}
-
-func askRequiresFreeformSelectionCommentary(req *transcriptpb.Prompt, cursor int) bool {
+func askRequiresFreeformSelectionCommentary(req *transcriptpb.Prompt, selectedOption *int) bool {
 	if !askHasFreeformSelectionOption(req) {
 		return false
 	}
-	return cursor == len(askVisibleOptions(req))
+	return selectedOption != nil && *selectedOption == len(askVisibleOptions(req))
 }
 
 func askHasPendingFreeformDraft(input string) bool {

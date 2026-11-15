@@ -69,7 +69,7 @@ export function useVirtualizedListBoundaries({
 }
 
 export type VirtualizedInfiniteListBoundaryState =
-  | Readonly<{ state: "loading"; label: string }>
+  | Readonly<{ state: "loading" }>
   | Readonly<{ state: "error"; message: string; retryLabel: string; onRetry: () => void }>;
 
 export function directionalBoundary(
@@ -77,13 +77,12 @@ export function directionalBoundary(
     message: string;
     failed: boolean;
     loading: boolean;
-    loadingLabel: string;
     onRetry: () => void;
     retryLabel: string;
   }>,
 ): VirtualizedInfiniteListBoundaryState | undefined {
   if (input.loading) {
-    return { state: "loading", label: input.loadingLabel };
+    return { state: "loading" };
   }
   if (input.failed) {
     return {
@@ -117,9 +116,8 @@ export function InfiniteListBoundary({
       data-virtual-boundary={direction}
     >
       {state.state === "loading" ? (
-        <div aria-label={state.label} aria-live="polite" className="grid place-items-center" role="status">
+        <div aria-live="polite" className="grid place-items-center" role="status">
           <Spinner size="sm" />
-          <span className="sr-only">{state.label}</span>
         </div>
       ) : null}
       {state.state === "error" ? (

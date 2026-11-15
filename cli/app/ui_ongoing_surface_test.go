@@ -9,6 +9,7 @@ import (
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
+	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 	xansi "github.com/charmbracelet/x/ansi"
 	"reflect"
@@ -21,6 +22,35 @@ func withUIOngoingTranscriptController(controller *ongoingTranscriptController) 
 	return func(m *uiModel) {
 		m.ongoingTranscript = controller
 		m.terminalGeometry = terminalGeometryKnown(80, 24)
+	}
+}
+
+func TestInitialHistoryReadUsesComposerSpinner(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		event ongoingTranscriptEvent
+	}{
+		{name: "loaded", event: ongoingTranscriptEvent{Kind: ongoingTranscriptEventHistory, Page: &transcriptpb.Page{}}},
+		{name: "failed", event: ongoingTranscriptEvent{Kind: ongoingTranscriptEventHistory, Err: errors.New("read failed")}},
+		{name: "closed", event: ongoingTranscriptEvent{Kind: ongoingTranscriptEventClosed}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := sizedTestUIModel(newProjectedStaticUIModel(
+				WithUIOngoingSurface(ongoing.NewSurface(&bytes.Buffer{}))), 80, 24)
+			model.ongoingTranscript = newNoopOngoingTranscriptController(model.ongoingSurface, model.ongoingFrameInput)
+			model.eventDispatcher = newUIEventDispatcher(make(chan ongoingTranscriptEvent))
+			model.startSessionObservationLoads()
+			if !model.statusLineSpinning() || !model.shouldAnimateSpinner() || model.spinnerTickToken == 0 {
+				t.Fatal("initial history read did not activate composer spinner")
+			}
+			model.Update(test.event)
+			if model.statusLineSpinning() {
+				t.Fatal("finished history read left composer spinner active")
+			}
+			if test.event.Err != nil && model.transientStatusKind != uiStatusNoticeError {
+				t.Fatal("failed history read did not surface an error notice")
+			}
+		})
 	}
 }
 

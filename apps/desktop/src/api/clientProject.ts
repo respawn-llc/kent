@@ -158,7 +158,6 @@ export async function listProjectHome(
   return {
     projects: success.projects.map(projectHomeSummary),
     nextPageToken: success.nextPageToken ?? null,
-    generatedAt: timestampMillis(success.generatedAt),
   };
 }
 
@@ -204,9 +203,9 @@ export async function updateProject(
   projectID: string,
   displayName: string,
   projectKey = "",
-): Promise<ProjectMutationResponse> {
+): Promise<void> {
   const method = ProjectCatalogService.method.update;
-  const success = requireUnarySuccess(
+  requireUnarySuccess(
     method,
     await transport.callDescriptor(
       method,
@@ -217,7 +216,6 @@ export async function updateProject(
       }),
     ),
   );
-  return { project: projectHomeSummary(success.project) };
 }
 
 export async function setDefaultWorkspace(
@@ -263,7 +261,6 @@ export async function unlinkWorkspace(
       message: workspaceUnlinkBlockerMessage(blocker.code),
       ...(blocker.count === undefined ? {} : { count: blocker.count }),
     })),
-    project: success.project === undefined ? null : projectHomeSummary(success.project),
   };
 }
 
@@ -408,6 +405,8 @@ function workspaceBindingPlanKind(kind: WorkspaceBindingPlanKind): string {
       return "local_unbound";
     case WorkspaceBindingPlanKind.SERVER_WORKSPACE_SELECTION:
       return "server_workspace_selection";
+    case WorkspaceBindingPlanKind.ATTACHED_WORKSPACE_PROJECT_SELECTION:
+      return "attached_workspace_project_selection";
     case WorkspaceBindingPlanKind.HEADLESS_REMOTE_SELECTED:
       return "headless_remote_selected";
     case WorkspaceBindingPlanKind.HEADLESS_REMOTE_AMBIGUOUS:

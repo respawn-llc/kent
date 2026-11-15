@@ -299,8 +299,6 @@ func serveRemoteBindingBinary(
 			Outcome: &serverpb.GetReadinessResult_Success{Success: &serverpb.GetReadinessSuccess{
 				Readiness: &serverpb.Readiness{
 					Ready:           true,
-					ServerId:        "binding-test",
-					ServerVersion:   "test",
 					ProtocolVersion: protocol.Version,
 				},
 			}},

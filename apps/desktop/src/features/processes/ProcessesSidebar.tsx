@@ -61,7 +61,7 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
     );
   }
   if (data.kind === "loading") {
-    return <LoadingState surface="plain" inset title={t("processes.loading")} />;
+    return <LoadingState surface="plain" inset />;
   }
 
   if (data.processes.length === 0) {
@@ -79,7 +79,6 @@ export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarge
       isFetchingNextPage={false}
       items={data.processes}
       layoutChangeScrollBehavior="natural"
-      loadingLabel={t("app.loadingMore")}
       onLoadMore={noLoad}
       rowSpacing="tight"
       renderItem={(process) => <ProcessRow process={process} observationTime={observationTime} />}

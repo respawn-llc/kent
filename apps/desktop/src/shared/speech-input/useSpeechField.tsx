@@ -94,6 +94,7 @@ type FieldBinding = Readonly<{
   readOnly?: boolean;
   editorRef?: RefObject<HTMLTextAreaElement | null>;
   captureDraft?: () => SpeechDraft;
+  shortcutScope?: "field" | "destination";
 }>;
 
 export function useSpeechDestinationBusy() {
@@ -105,7 +106,6 @@ export function useSpeechDestinationBusy() {
 export function useSpeechField(binding: FieldBinding) {
   const destination = useContext(DestinationContext);
   if (destination === null) throw new Error("SpeechDestinationProvider is required.");
-  const { t } = useTranslation();
   const [localIdentity] = useState(() => Symbol("speech-field"));
   const field = binding.identity ?? localIdentity;
   const localEditor = useRef<HTMLTextAreaElement>(null);
@@ -139,6 +139,26 @@ export function useSpeechField(binding: FieldBinding) {
       editor: () => (captured === undefined ? editorRef.current : captured.editor()),
     });
   });
+  useLayoutEffect(() => {
+    const editor = binding.captureDraft?.().editor() ?? editorRef.current;
+    if (editor === null || binding.readOnly === true || state.available === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        !ownsShortcutFocus(editor, binding.shortcutScope) ||
+        editor.readOnly ||
+        editor.disabled ||
+        !isDictationShortcut(event)
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !state.busy) actions.start();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  });
   const control = fieldControlHidden(binding.readOnly, state) ? undefined : (
     <SpeechFieldControl state={state} own={own} phase={phase} actions={actions} />
   );
@@ -147,12 +167,33 @@ export function useSpeechField(binding: FieldBinding) {
     phase,
     finish: actions.finish,
     busy: own && state.busy,
-    busyReason: t("speech.busy"),
     editorRef,
   };
 }
 
 type DestinationState = ReturnType<ReturnType<typeof createSpeechDestination>["state"]["read"]>;
+
+function ownsShortcutFocus(editor: HTMLTextAreaElement, scope: FieldBinding["shortcutScope"]) {
+  const focused = document.activeElement;
+  if (focused === editor) return true;
+  if (scope !== "destination") return false;
+  return (
+    !(focused instanceof HTMLInputElement) &&
+    !(focused instanceof HTMLTextAreaElement) &&
+    !(focused instanceof HTMLElement && focused.isContentEditable) &&
+    focused?.closest('[aria-modal="true"]') === editor.closest('[aria-modal="true"]')
+  );
+}
+
+function isDictationShortcut(event: KeyboardEvent) {
+  return (
+    event.code === "Space" &&
+    event.altKey !== event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !event.isComposing
+  );
+}
 
 function fieldControlHidden(readOnly: boolean | undefined, state: DestinationState) {
   return readOnly === true || (state.available === null && !state.busy);
@@ -173,8 +214,8 @@ function SpeechFieldControl({
   const labels = {
     idle: "speech.record",
     recording: "speech.stop",
-    preparing: "speech.preparing",
-    transcribing: "speech.transcribing",
+    preparing: "speech.record",
+    transcribing: "speech.record",
   } as const;
   const label = t(labels[phase]);
   const siblingBusy = state.busy && !own;

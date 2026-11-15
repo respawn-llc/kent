@@ -204,7 +204,7 @@ it("keeps native capture preparing until a real silent audio buffer arrives with
   f.client.clear();
 });
 
-it("shows ordinary native speech above silence on the recording meter", async () => {
+it("preserves the native normalized level across the recording meter range", async () => {
   const f = nativeRecordingFixture();
   act(() => {
     f.view.result.current.actions.start();
@@ -221,16 +221,19 @@ it("shows ordinary native speech above silence on the recording meter", async ()
   const analyser = f.view.result.current.state.recording?.analyser;
   if (analyser === undefined) throw new Error("Recording meter unavailable");
   const values = new Uint8Array(analyser.frequencyBinCount);
-  act(() => {
-    f.emit({ kind: "meter", power: 0 });
-  });
-  analyser.getByteFrequencyData(values);
-  expect(values[0]).toBe(0);
-  act(() => {
-    f.emit({ kind: "meter", power: 10 ** (-32.3 / 20) });
-  });
-  analyser.getByteFrequencyData(values);
-  expect(values[0]).toBeGreaterThan(128);
+  for (const [power, expected] of [
+    [0, 0],
+    [0.01, 3],
+    [0.1, 26],
+    [0.5, 128],
+    [1, 255],
+  ] as const) {
+    act(() => {
+      f.emit({ kind: "meter", power });
+    });
+    analyser.getByteFrequencyData(values);
+    expect(values[0]).toBe(expected);
+  }
   f.view.unmount();
   f.client.clear();
 });

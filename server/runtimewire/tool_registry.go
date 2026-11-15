@@ -76,7 +76,7 @@ func BuildLocalRuntimeHandler(def tools.Definition, ctx LocalToolRuntimeContext)
 		if ctx.BackgroundShellManager == nil {
 			return nil, fmt.Errorf("write_stdin background manager is unavailable")
 		}
-		return shelltool.NewWriteStdinTool(ctx.ShellOutputMaxChars, ctx.ModelContextWindow, ctx.BackgroundShellManager, ctx.EstimateText), nil
+		return shelltool.NewWriteStdinTool(ctx.BackgroundShellManager), nil
 	case tools.LocalRuntimeBuilderPatch:
 		if ctx.OutsideWorkspaceEditApprover == nil {
 			return nil, fmt.Errorf("patch outside-workspace approver is unavailable")

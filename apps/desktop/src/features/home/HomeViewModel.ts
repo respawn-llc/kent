@@ -1,6 +1,6 @@
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
-import type { HomeSidebarCategory } from "./HomeSidebar";
+import type { HomeCatalogCategory } from "./HomeSidebar";
 import type { QueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import {
@@ -32,19 +32,17 @@ export function createHomeViewModel(
   const attentionItems = Atom.make(
     (get) => get(attention.request).data?.pages.flatMap((page) => page.items) ?? [],
   );
-  const category = Atom.make<HomeSidebarCategory>("projects");
+  const category = Atom.make<HomeCatalogCategory>("projects");
   const selectCategory = Atom.fn<
     Readonly<{
-      category: HomeSidebarCategory;
-      selectedProjectID: string | null;
+      category: HomeCatalogCategory;
       selectProject: (projectID: string | null) => Promise<void>;
     }>
   >()(
     (input, get) =>
       Effect.gen(function* () {
-        if (get(category) === input.category && input.selectedProjectID === null) return;
         get.set(category, input.category);
-        if (input.selectedProjectID !== null) yield* Effect.promise(async () => input.selectProject(null));
+        yield* Effect.promise(async () => input.selectProject(null));
       }),
     { concurrent: true },
   );

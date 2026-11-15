@@ -13,7 +13,6 @@ const killedProcess: DesktopProcess = {
   exitCode: 0,
   recentOutput: "",
   running: false,
-  backgrounded: true,
   killRequested: true,
 };
 

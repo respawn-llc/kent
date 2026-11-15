@@ -13,6 +13,9 @@ import (
 func (c uiInputController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m := c.model
 	inputState := m.inputModeState()
+	if inputState.Mode == uiInputModeAgent {
+		return c.handleAgentPickerKey(msg)
+	}
 	if msg.Type != tea.KeyEnter && msg.Type != keyTypeShiftEnterCSI {
 		c.clearPendingCSIShiftEnter()
 	}

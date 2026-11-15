@@ -10,22 +10,22 @@ export function createRefreshOpenWorktreeList(
   api: ApiService,
   currentSurface: SidebarShellController["currentSurface"],
 ) {
-  return (sessionID: string) => {
+  return async (sessionID: string) => {
     const surface = currentSurface();
     if (surface?.kind === "worktree" && surface.page === "list" && surface.sessionID === sessionID) {
-      void replaceWorktreeListRead(client, api, sessionID);
+      await replaceWorktreeListRead(client, api, sessionID);
     }
   };
 }
 
 export function worktreeTransitionOutcomeHandler(
-  refreshOpenWorktreeList: (sessionID: string) => void,
+  refreshOpenWorktreeList: (sessionID: string) => void | Promise<void>,
   sessionID: string,
   push: StatusController["push"],
   t: TFunction,
 ) {
   return (outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]) => {
-    refreshOpenWorktreeList(sessionID);
+    void refreshOpenWorktreeList(sessionID);
     if (outcome.State === "failed" && outcome.Failure != null) {
       push({
         id: outcome.OperationID,

@@ -57,12 +57,14 @@ func TestAskEventDefersWhileDetailModeActive(t *testing.T) {
 		t.Fatalf("expected ask prompt visible after returning to ongoing mode, got %q", view)
 	}
 
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*uiModel)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireQuestionAnswerEntry(t, request)
 	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
-		t.Fatalf("expected first option selected by default, got %+v", request)
+		t.Fatalf("expected explicitly selected first option, got %+v", request)
 	}
 }
 
@@ -145,12 +147,14 @@ func TestAskEventDefersWhileProcessListOverlayIsOpen(t *testing.T) {
 		t.Fatalf("expected deferred ask prompt visible after closing process list, got %q", view)
 	}
 
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*uiModel)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = runPromptDeliveryCommand(t, next.(*uiModel), cmd)
 	request := requirePromptAnswerBatchRequest(t, control)
 	entry := requireQuestionAnswerEntry(t, request)
 	if entry.GetQuestionAnswer().SelectedOptionNumber == nil || *entry.GetQuestionAnswer().SelectedOptionNumber != 1 {
-		t.Fatalf("expected first option selected by default, got %+v", request)
+		t.Fatalf("expected explicitly selected first option, got %+v", request)
 	}
 }
 

@@ -63,11 +63,11 @@ func testAskFreeform(m *uiModel) bool {
 	return m.ask.freeform
 }
 
-func testAskCursor(m *uiModel) int {
+func testAskSelection(m *uiModel) *int {
 	if m == nil {
-		return 0
+		return nil
 	}
-	return m.ask.cursor
+	return m.ask.selectedOption
 }
 
 func testAskInput(m *uiModel) string {

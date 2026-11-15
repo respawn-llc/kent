@@ -156,7 +156,6 @@ type steeringResultGroupReport struct {
 
 type steeringResultGroupFlush struct {
 	collector *resultGroupCollector
-	reason    ResultGroupFlushReason
 	committed bool
 }
 
@@ -341,13 +340,11 @@ func steerResultGroupOperationalFailureIntent(
 
 func steerResultGroupFlushIntent(
 	collector *resultGroupCollector,
-	reason ResultGroupFlushReason,
 ) steeringIntent {
 	return steeringIntent{
 		priority: steeringPriorityNormal,
 		items: []steeringItem{{resultGroupFlush: &steeringResultGroupFlush{
 			collector: collector,
-			reason:    reason,
 		}}},
 	}
 }
@@ -833,10 +830,10 @@ func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringI
 		}
 		flush := item.resultGroupFlush
 		if flush.collector == nil {
-			return e.flushResultGroup(stepID, nil, flush.reason)
+			return e.flushResultGroup(stepID, nil)
 		}
 		cursor := flush.collector.cursor
-		err = e.flushResultGroup(stepID, flush.collector, flush.reason)
+		err = e.flushResultGroup(stepID, flush.collector)
 		flush.committed = err == nil && flush.collector.cursor > cursor
 		return err
 	}

@@ -75,9 +75,9 @@ func (m *uiModel) captureChatAction(action chatAction, submittedText *string) fu
 		draft = &text
 	case uiKnownSessionTarget:
 		target = &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
-			SessionId: protoapi.SessionSelectorToProto(selected.id), Preparation: selected.preparation,
+			SessionId: protoapi.SessionSelectorToProto(selected.id), Invocation: selected.invocation,
 		}}}
-		selected.preparation = nil
+		selected.invocation = nil
 		m.presentationTarget = selected
 	default:
 		panic("Chat action requires a selected target")

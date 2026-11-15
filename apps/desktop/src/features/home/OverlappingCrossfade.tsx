@@ -1,6 +1,6 @@
 import { Component, type AnimationEvent, type ReactNode } from "react";
 
-import { cx } from "@/ui";
+import { cx, useReducedMotion } from "@/ui";
 
 type CrossfadeLayer = Readonly<{
   children: ReactNode;
@@ -12,6 +12,8 @@ type OverlappingCrossfadeProps = Readonly<{
   contentKey: string;
 }>;
 
+type CrossfadeLayersProps = OverlappingCrossfadeProps & Readonly<{ reducedMotion: boolean }>;
+
 type OverlappingCrossfadeState = Readonly<{
   current: CrossfadeLayer;
   outgoing: CrossfadeLayer | null;
@@ -19,7 +21,12 @@ type OverlappingCrossfadeState = Readonly<{
 
 const crossfadeCleanupFallbackMs = 1_000;
 
-export class OverlappingCrossfade extends Component<OverlappingCrossfadeProps, OverlappingCrossfadeState> {
+export function OverlappingCrossfade(props: OverlappingCrossfadeProps) {
+  const reducedMotion = useReducedMotion();
+  return <CrossfadeLayers {...props} reducedMotion={reducedMotion} />;
+}
+
+class CrossfadeLayers extends Component<CrossfadeLayersProps, OverlappingCrossfadeState> {
   override state: OverlappingCrossfadeState = {
     current: {
       children: this.props.children,
@@ -32,10 +39,13 @@ export class OverlappingCrossfade extends Component<OverlappingCrossfadeProps, O
   private outgoingElement: HTMLDivElement | null = null;
 
   static getDerivedStateFromProps(
-    props: OverlappingCrossfadeProps,
+    props: CrossfadeLayersProps,
     state: OverlappingCrossfadeState,
   ): OverlappingCrossfadeState {
     const current = { children: props.children, contentKey: props.contentKey };
+    if (props.reducedMotion) {
+      return { current, outgoing: null };
+    }
     if (state.current.contentKey === props.contentKey) {
       return { ...state, current };
     }
@@ -50,7 +60,7 @@ export class OverlappingCrossfade extends Component<OverlappingCrossfadeProps, O
   }
 
   override componentDidUpdate(
-    _previousProps: OverlappingCrossfadeProps,
+    _previousProps: CrossfadeLayersProps,
     previousState: OverlappingCrossfadeState,
   ): void {
     if (previousState.outgoing?.contentKey !== this.state.outgoing?.contentKey) {

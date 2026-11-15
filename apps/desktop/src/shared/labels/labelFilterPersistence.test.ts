@@ -8,7 +8,7 @@ const projectID = "project-1";
 const priorityID = "f74ce532-9e6e-4cf6-b3c1-d67d5a3eedcf";
 const urgentID = "942495c2-5958-4959-8445-94046ad74fbd";
 const namespace: AppStorageNamespace = {
-  kind: "browser-endpoint",
+  kind: "server-address",
   identity: "http://127.0.0.1:8080",
 };
 const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");

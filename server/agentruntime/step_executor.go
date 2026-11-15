@@ -262,9 +262,7 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 	}()
 	executedToolCall := false
 	patchEditsApplied, mismatchWarningCommitted := false, false
-	stepNo := 0
 	for {
-		stepNo++
 		if err := ctx.Err(); err != nil {
 			return stepLoopResult{}, err
 		}
@@ -282,8 +280,6 @@ func (s *defaultStepExecutor) runStepLoopWithOptions(ctx context.Context, stepID
 			e.cascadeCompleteActiveGoalOnWorkflowCompletion(stepID)
 			return stepLoopResult{ExecutedToolCall: executedToolCall}, nil
 		}
-		e.assertWorkflowInstructionsPresent(stepNo)
-
 		var streamSteerErr error
 		candidate, err := e.generateWithMissingToolOutputRepair(
 			ctx,
@@ -604,6 +600,9 @@ func (s *defaultStepExecutor) prepareActiveTurnRequest(ctx context.Context, step
 			Content: textutil.Value(prompts.RenderIdleResumeReminder(
 				formatIdleResumeDuration(now.Sub(*lastActivity)), now.Local().Format("2006-01-02T15:04:05"))),
 		}})
+	}
+	if err := s.engine.validateWorkflowInstructions(); err != nil {
+		return llm.Request{}, false, err
 	}
 	assembly, err := s.engine.assembleRequest(ctx, stepID, prepared.items, true, true)
 	if err != nil {

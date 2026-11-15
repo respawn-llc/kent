@@ -21,6 +21,7 @@ const (
 	uiInputModeAsk               uiInputMode = "ask"
 	uiInputModeConnectionRemoval uiInputMode = "connection_removal"
 	uiInputModeStatus            uiInputMode = "status"
+	uiInputModeAgent             uiInputMode = "agent"
 	uiInputModeGoal              uiInputMode = "goal"
 	uiInputModeWorktree          uiInputMode = "worktree"
 	uiInputModeRollbackSelection uiInputMode = "rollback_selection"
@@ -36,7 +37,7 @@ type uiAskState struct {
 	current                 *askEvent
 	currentToken            uint64
 	queue                   []askEvent
-	cursor                  int
+	selectedOption          *int
 	freeform                bool
 	freeformMode            askFreeformMode
 	chosenApproval          *clientui.ApprovalDecision
@@ -53,10 +54,8 @@ type uiProcessListState struct {
 	entries           []*processpb.BackgroundProcess
 	loading           bool
 	errorText         string
-	refreshToken      uint64
 	refreshInFlight   bool
 	refreshDirty      bool
-	actionToken       uint64
 	actionInFlight    bool
 	surfaceGeneration uint64
 }
@@ -95,12 +94,17 @@ type uiRollbackState struct {
 }
 
 type uiStatusOverlayState struct {
-	open            bool
-	loading         bool
-	scroll          int
+	*uiStatusCollection
+	open   bool
+	scroll int
+}
+
+// A collection lives for one destination, including while the overlay is hidden.
+// Commands carry this owner, but only the UI loop mutates its results and counts.
+type uiStatusCollection struct {
+	destination     *uiStatusDestination
 	snapshot        uiStatusSnapshot
-	refreshToken    uint64
-	pendingSections map[uiStatusSection]bool
+	pendingSections map[uiStatusSection]int
 	sectionWarnings map[uiStatusSection]string
 }
 

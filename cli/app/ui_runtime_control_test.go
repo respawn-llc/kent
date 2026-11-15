@@ -25,6 +25,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -300,6 +301,7 @@ func (f *runtimeControlFakeClient) RecordPromptHistory(_ context.Context, reques
 func TestGoalShowSupersededByMutationDoesNotOverwriteMutationResult(t *testing.T) {
 	m := newProjectedClosedUIModel(&runtimeControlFakeClient{})
 	m.setKnownSessionTarget(detailTestSessionID)
+	m.openGoalOverlay(nil, nil)
 
 	if cmd := m.goalRuntimeCommand(goalRuntimePause, ""); cmd == nil {
 		t.Fatal("initial Goal mutation did not start")
@@ -544,30 +546,65 @@ func TestPendingWorkTechnicalRestorationMergesBeforeComposer(t *testing.T) {
 }
 
 func TestTranscriptSessionSettingFeedbackUsesTransientStatusWithoutTranscriptRows(t *testing.T) {
-	disableTransientStatusClearForTest(t)
-	client := &runtimeControlFakeClient{}
-	model := newProjectedClosedUIModel(client)
-	enabled := true
-	cmd := model.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE, Changed: true, Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: enabled}}),
-		runtimeTupleMergeResult{})
-	for _, msg := range collectCmdMessages(t, cmd) {
-		next, _ := model.Update(msg)
-		model = next.(*uiModel)
+	noticeIDs := map[string]string{
+		"fast":            fastModeNoticeID,
+		"rename":          sessionNameNoticeID,
+		"thinking":        thinkingNoticeID,
+		"supervisor":      supervisorNoticeID,
+		"questions":       questionsNoticeID,
+		"auto_compaction": autoCompactionNoticeID,
 	}
-	if model.transientStatus == "" || model.transientStatusKind != uiStatusNoticeSuccess {
-		t.Fatalf("setting feedback status = %q kind=%v, want success notice", model.transientStatus, model.transientStatusKind)
-	}
-	if client.appendCalls != 0 {
-		t.Fatalf("setting feedback appended %d transcript rows", client.appendCalls)
-	}
+	for name, feedback := range map[string]*transcriptpb.SessionSettingFeedback{
+		"fast": {
+			Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: true},
+		},
+		"rename": {
+			Value: &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
+		},
+		"thinking": {
+			Value: &transcriptpb.SessionSettingFeedback_Thinking{Thinking: "medium"},
+		},
+		"supervisor": {
+			Value: &transcriptpb.SessionSettingFeedback_Supervisor{Supervisor: "edits"},
+		},
+		"questions": {
+			Value: &transcriptpb.SessionSettingFeedback_Questions{Questions: false},
+		},
+		"auto_compaction": {
+			Value: &transcriptpb.SessionSettingFeedback_AutoCompaction{AutoCompaction: false},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			disableTransientStatusClearForTest(t)
+			client := &runtimeControlFakeClient{}
+			model := newProjectedClosedUIModel(client)
+			feedback.Changed = true
+			cmd := model.applyAdmittedTranscriptMessageState(transcriptTestMessage(2, feedback),
+				runtimeTupleMergeResult{})
+			for _, msg := range collectCmdMessages(t, cmd) {
+				next, _ := model.Update(msg)
+				model = next.(*uiModel)
+			}
+			if model.transientStatus == "" || model.transientStatusKind != uiStatusNoticeSuccess {
+				t.Fatalf("setting feedback status = %q kind=%v, want success notice", model.transientStatus, model.transientStatusKind)
+			}
+			if model.transientStatusNoticeID != noticeIDs[name] {
+				t.Fatalf("setting feedback notice ID = %q, want %q", model.transientStatusNoticeID, noticeIDs[name])
+			}
+			if client.appendCalls != 0 {
+				t.Fatalf("setting feedback appended %d transcript rows", client.appendCalls)
+			}
 
-	model.transientStatus = ""
-	model.applyAdmittedTranscriptMessageState(transcriptTestMessage(3, &transcriptpb.SessionSettingFeedback{
-		Kind: transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE, Changed: false, Value: &transcriptpb.SessionSettingFeedback_FastMode{FastMode: enabled}}),
-		runtimeTupleMergeResult{})
-	if model.transientStatus != "" {
-		t.Fatalf("unchanged setting emitted success notice %q", model.transientStatus)
+			model.transientStatus = ""
+			feedback.Changed = false
+			if cmd := model.applyAdmittedTranscriptMessageState(transcriptTestMessage(3, feedback),
+				runtimeTupleMergeResult{}); cmd != nil {
+				t.Fatal("unchanged setting scheduled a notice")
+			}
+			if model.transientStatus != "" {
+				t.Fatalf("unchanged setting emitted success notice %q", model.transientStatus)
+			}
+		})
 	}
 }
 

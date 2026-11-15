@@ -16,6 +16,7 @@ import (
 	"core/shared/apicontract"
 	"core/shared/clientui"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
 
@@ -40,20 +41,24 @@ type uiModel struct {
 }
 
 type uiRuntimeFeatureState struct {
-	workspaceContext    uiWorkspaceContext
-	chatMutations       apicontract.ChatMutationService
-	chatSettings        apicontract.ChatSettingsService
-	sessionControls     apicontract.RuntimeControlService
-	sessionLiveControls apicontract.RuntimeLiveControlService
-	pendingWorkClient   apicontract.RuntimePendingWorkService
-	createSession       func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
-	observeSession      func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
-	sessionObservation  *runtimeLaunchPlan
-	observationContext  context.Context
-	observationScope    context.Context
-	cancelObservation   context.CancelFunc
-	engine              clientui.RuntimeClient
-	view                tui.Model
+	workspaceContext      uiWorkspaceContext
+	chatMutations         apicontract.ChatMutationService
+	chatSettings          apicontract.ChatSettingsService
+	sessionSettings       *chatsettingspb.Settings
+	sessionSettingsErr    error
+	agentPicker           *uiAgentPicker
+	sessionControls       apicontract.RuntimeControlService
+	sessionLiveControls   apicontract.RuntimeLiveControlService
+	pendingWorkClient     apicontract.RuntimePendingWorkService
+	createSession         func(context.Context, *chatpb.NewChatTarget, string) (*chatpb.ExistingSessionTarget, error)
+	observeSession        func(context.Context, runtimeids.SessionID) (sessionLaunchPlan, *runtimeLaunchPlan, error)
+	sessionObservation    *runtimeLaunchPlan
+	sessionObservationErr error
+	observationContext    context.Context
+	observationScope      context.Context
+	cancelObservation     context.CancelFunc
+	engine                clientui.RuntimeClient
+	view                  tui.Model
 
 	processClient         clientui.ProcessClient
 	processClientExplicit bool
@@ -87,16 +92,14 @@ type uiInputFeatureState struct {
 	reviewerMode           string
 	autoCompactionEnabled  bool
 	questionsEnabled       bool
-	conversationFreshness  runtimepb.ConversationFreshness
 	localConversationTurn  bool
 	runtimeControlToken    uint64
 	runtimeControlTokens   map[runtimeControlOperation]uint64
 	runtimeControlPending  map[runtimeControlOperation]runtimeControlPendingState
 
-	injectedQueue      []*injectedRuntimeQueueItem
-	interruptLifecycle uiInterruptLifecycle
-	currentStepID      string
-	interruptStepID    string
+	injectedQueue    []*injectedRuntimeQueueItem
+	pendingInterrupt *uiPendingInterrupt
+	currentStepID    string
 
 	modelName                 string
 	configuredModelName       *string
@@ -172,20 +175,19 @@ type uiSessionTransitionFeatureState struct {
 }
 
 type uiStatusFeatureState struct {
-	processList                 uiProcessListState
-	reasoningStatusHeader       string
-	turnQueueHook               turnQueueHook
-	statusConfig                uiStatusConfig
-	statusCollector             uiStatusCollector
-	statusRepository            uiStatusRepository
-	status                      uiStatusOverlayState
-	goal                        uiGoalOverlayState
-	goalRuntimeToken            uint64
-	goalRuntimeMutationSerial   uint64
-	goalRuntimePending          goalRuntimePendingState
-	statusGitBackgroundInFlight bool
-	clipboardPaster             uiClipboardPaster
-	clipboardTextCopier         uiClipboardTextCopier
+	processList               uiProcessListState
+	reasoningStatusHeader     string
+	turnQueueHook             turnQueueHook
+	statusConfig              uiStatusConfig
+	statusCollector           uiStatusCollector
+	statusRepository          uiStatusRepository
+	status                    uiStatusOverlayState
+	goal                      uiGoalOverlayState
+	goalRuntimeToken          uint64
+	goalRuntimeMutationSerial uint64
+	goalRuntimePending        goalRuntimePendingState
+	clipboardPaster           uiClipboardPaster
+	clipboardTextCopier       uiClipboardTextCopier
 
 	transientStatus              string
 	transientStatusKind          uiStatusNoticeKind

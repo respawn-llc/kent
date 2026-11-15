@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo } from "react";
-import { Check, Folder, Plus, Workflow } from "lucide-react";
+import { Check, Folder, Plus, Settings, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { ProjectSummary } from "@/api";
@@ -18,7 +18,8 @@ import { OverlappingCrossfade } from "./OverlappingCrossfade";
 import { ProjectRow } from "./ProjectRow";
 import type { useProjectPages } from "./useHomeData";
 
-export type HomeSidebarCategory = "projects" | "workflows";
+export type HomeCatalogCategory = "projects" | "workflows";
+export type HomeSidebarCategory = HomeCatalogCategory | "settings";
 
 export function HomeSidebar({
   onCategorySelect,
@@ -30,8 +31,9 @@ export function HomeSidebar({
   projectsQuery,
   selectedCategory,
   selectedProjectID,
+  settingsSidebar,
 }: Readonly<{
-  onCategorySelect: (category: HomeSidebarCategory) => void;
+  onCategorySelect: (category: HomeCatalogCategory) => void;
   onChooseWorkspace: () => void;
   onCreateWorkflow: () => void;
   onProjectSelect: (projectID: string) => void;
@@ -40,6 +42,7 @@ export function HomeSidebar({
   projectsQuery: ReturnType<typeof useProjectPages>;
   selectedCategory: HomeSidebarCategory;
   selectedProjectID: string | null;
+  settingsSidebar?: ReactNode;
 }>) {
   const { t } = useTranslation();
   const navigation = useAppNavigation();
@@ -49,17 +52,20 @@ export function HomeSidebar({
     () => workflowsQuery.data?.pages.flatMap((page) => page.workflows) ?? [],
     [workflowsQuery.data],
   );
-  const activeQuery = selectedCategory === "projects" ? projectsQuery : workflowsQuery;
-  const initialBoundary = directionalBoundary({
-    failed: activeQuery.isError,
-    loading: activeQuery.isPending,
-    loadingLabel: t("states.loading"),
-    message: activeQuery.isError ? errorMessage(activeQuery.error) : "",
-    onRetry: () => {
-      activeQuery.refetch();
-    },
-    retryLabel: t("app.retry"),
-  });
+  const activeQuery =
+    selectedCategory === "settings" ? null : selectedCategory === "projects" ? projectsQuery : workflowsQuery;
+  const initialBoundary =
+    activeQuery === null
+      ? undefined
+      : directionalBoundary({
+          failed: activeQuery.isError,
+          loading: activeQuery.isPending,
+          message: activeQuery.isError ? errorMessage(activeQuery.error) : "",
+          onRetry: () => {
+            activeQuery.refetch();
+          },
+          retryLabel: t("app.retry"),
+        });
   const empty =
     initialBoundary === undefined ? (
       <EmptyState
@@ -94,10 +100,20 @@ export function HomeSidebar({
           }}
           selected={selectedCategory === "workflows"}
         />
+        <CategoryRow
+          icon={<Settings size={18} strokeWidth={1.5} />}
+          label={t("settings.title")}
+          selected={selectedCategory === "settings"}
+          onSelect={() => {
+            void navigation.openSettings();
+          }}
+        />
       </div>
       <div className="relative -mt-[var(--space-3)] min-h-0 flex-1">
         <OverlappingCrossfade contentKey={selectedCategory}>
-          {selectedCategory === "projects" ? (
+          {selectedCategory === "settings" ? (
+            settingsSidebar
+          ) : selectedCategory === "projects" ? (
             <VirtualizedInfiniteList
               className="home-sidebar-scroll h-full min-h-0 overflow-auto hide-scrollbar contain-strict [-webkit-overflow-scrolling:touch]"
               empty={empty}
@@ -106,7 +122,6 @@ export function HomeSidebar({
               hasNextPage={projectsQuery.hasNextPage}
               isFetchingNextPage={projectsQuery.isFetchingNextPage}
               items={projectItems}
-              loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
                 projectsQuery.fetchNextPage();
               }}
@@ -132,7 +147,6 @@ export function HomeSidebar({
               hasNextPage={workflowsQuery.hasNextPage}
               isFetchingNextPage={workflowsQuery.isFetchingNextPage}
               items={workflows}
-              loadingLabel={t("app.loadingMore")}
               onLoadMore={() => {
                 workflowsQuery.fetchNextPage();
               }}
@@ -169,15 +183,14 @@ function CategoryRow({
   onSelect,
   selected,
 }: Readonly<{
-  actionLabel: string;
+  actionLabel?: string;
   actionPending?: boolean;
   icon: ReactNode;
   label: string;
-  onAction: () => void;
+  onAction?: () => void;
   onSelect: () => void;
   selected: boolean;
 }>) {
-  const { t } = useTranslation();
   return (
     <div
       className={cx(
@@ -195,16 +208,17 @@ function CategoryRow({
         <CategoryIcon icon={icon} selected={selected} />
         <strong className="min-w-0 truncate">{label}</strong>
       </button>
-      <button
-        aria-label={actionLabel}
-        className="absolute right-[calc(var(--space-3)/2)] top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center justify-items-end rounded-full text-[var(--color-on-island)] disabled:opacity-55"
-        onClick={onAction}
-        disabled={actionPending}
-        title={actionPending ? t("states.loading") : undefined}
-        type="button"
-      >
-        {actionPending ? <Spinner size="sm" /> : <Plus aria-hidden="true" size={14} strokeWidth={1.5} />}
-      </button>
+      {onAction !== undefined && (
+        <button
+          aria-label={actionLabel}
+          className="absolute right-[calc(var(--space-3)/2)] top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center justify-items-end rounded-full text-[var(--color-on-island)] disabled:opacity-55"
+          onClick={onAction}
+          disabled={actionPending}
+          type="button"
+        >
+          {actionPending ? <Spinner size="sm" /> : <Plus aria-hidden="true" size={14} strokeWidth={1.5} />}
+        </button>
+      )}
     </div>
   );
 }

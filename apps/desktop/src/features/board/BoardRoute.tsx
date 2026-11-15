@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { hasSelectedWorkflow, type BoardColumn, type SelectedWorkflowBoard } from "@/api";
-import { errorMessage } from "@/api";
+import { errorMessage, MovePreviewBlocker } from "@/api";
 import { SidebarRootOwner } from "@/app-facade";
 import { useAppServices } from "@/app-facade";
 import { reportNonCancelledError, useStatusController } from "@/app-facade";
@@ -35,6 +35,7 @@ import "./board.css";
 import { BoardFilterRow } from "./BoardFilterRow";
 import { BoardQueryProvider } from "./BoardQueryContext";
 import { useBoardNavigation, useCloseBoardTask } from "./BoardNavigation";
+import { BoardTaskChatContext } from "./BoardTaskChat";
 import { useBoard, useBoardTaskActions, useProjectBoardSubscription } from "./useBoardData";
 import { useBoardLoadErrorReporter } from "./useBoardLoadErrorReporter";
 
@@ -44,21 +45,18 @@ export type BoardRouteProps = Readonly<{
   selectedTaskId: string;
 }>;
 
-const manualMoveBlockerTranslationKeys = {
-  invalid_workflow: "board.moveBlockedInvalidWorkflow",
-  no_source_position: "board.moveBlockedNoSource",
-  unsupported_destination: "board.moveBlockedUnsupportedDestination",
-  lifecycle_conflict: "board.moveBlockedLifecycle",
-  context_session_unavailable: "board.moveBlockedContextSession",
-  no_usable_transition: "board.moveBlockedNoUsableTransition",
-  parallel_branch_requires_fan_out: "board.moveBlockedFanOut",
-} as const;
+const manualMoveBlockerTranslationKeys: Partial<Record<MovePreviewBlocker, string>> = {
+  [MovePreviewBlocker.INVALID_WORKFLOW]: "board.moveBlockedInvalidWorkflow",
+  [MovePreviewBlocker.NO_SOURCE_POSITION]: "board.moveBlockedNoSource",
+  [MovePreviewBlocker.UNSUPPORTED_DESTINATION]: "board.moveBlockedUnsupportedDestination",
+  [MovePreviewBlocker.LIFECYCLE_CONFLICT]: "board.moveBlockedLifecycle",
+  [MovePreviewBlocker.CONTEXT_SESSION_UNAVAILABLE]: "board.moveBlockedContextSession",
+  [MovePreviewBlocker.NO_USABLE_TRANSITION]: "board.moveBlockedNoUsableTransition",
+  [MovePreviewBlocker.PARALLEL_BRANCH_REQUIRES_FAN_OUT]: "board.moveBlockedFanOut",
+};
 
-function manualMoveBlockerCopy(reason: string, translate: (key: string) => string): string {
-  const key =
-    Object.entries(manualMoveBlockerTranslationKeys).find(([candidate]) => candidate === reason)?.[1] ??
-    "board.moveBlockedGeneric";
-  return translate(key);
+function manualMoveBlockerCopy(reason: MovePreviewBlocker, translate: (key: string) => string): string {
+  return translate(manualMoveBlockerTranslationKeys[reason] ?? "board.moveBlockedGeneric");
 }
 
 export function BoardRoute({ projectId, workflowId, selectedTaskId }: BoardRouteProps) {
@@ -146,7 +144,7 @@ function BoardRouteData({
   });
 
   if (boardQuery.isPending && board === undefined) {
-    return <LoadingState chromePadding reveal={false} title={t("states.loading")} />;
+    return <LoadingState chromePadding reveal={false} />;
   }
   if (boardQuery.isError && board === undefined) {
     return (
@@ -228,7 +226,7 @@ function BoardContent({
     [reportActionError, t],
   );
   const reportMovePreviewBlocked = useCallback(
-    (reason: string) => {
+    (reason: MovePreviewBlocker) => {
       push({
         id: "board-move-preview-blocked",
         tone: "warning",
@@ -285,6 +283,7 @@ function BoardContent({
   useWindowChromeTitle(board.selectedWorkflow.name || board.projectName);
   const {
     openTask,
+    openSession,
     openDependencies: openTaskDependencies,
     selectWorkflow,
     openTasks: openProjectTasks,
@@ -420,26 +419,28 @@ function BoardContent({
             ref={scrollportRef}
             role="list"
           >
-            <BoardRailMotionController
-              activeDrag={activeDrag}
-              board={board}
-              columnDropState={columnDropState}
-              columnIsCollapsed={columnIsCollapsed}
-              dragDisabled={dragDisabled}
-              firstActiveID={firstActive?.id}
-              onCardClick={openTask}
-              onCardDragStart={startActiveDrag}
-              onDeleteTask={deleteTask}
-              onColumnDisclosure={setColumnDisclosure}
-              onInterruptTask={interruptTask}
-              onRegisterColumnScrollport={dragAutoScroll.registerColumnScrollport}
-              pendingCardMove={pendingCardMove}
-              onResumeTask={resumeTask}
-              pendingInterruptTaskIDs={actions.interrupt.pendingTaskIDs}
-              pendingResumeTaskIDs={initiatingAction.pendingResumeTaskIDs}
-              pendingStartMoveTaskIDs={initiatingAction.pendingStartMoveTaskIDs}
-              scrollportRef={scrollportRef}
-            />
+            <BoardTaskChatContext.Provider value={{ openSession, report: reportNavigationError }}>
+              <BoardRailMotionController
+                activeDrag={activeDrag}
+                board={board}
+                columnDropState={columnDropState}
+                columnIsCollapsed={columnIsCollapsed}
+                dragDisabled={dragDisabled}
+                firstActiveID={firstActive?.id}
+                onCardClick={openTask}
+                onCardDragStart={startActiveDrag}
+                onDeleteTask={deleteTask}
+                onColumnDisclosure={setColumnDisclosure}
+                onInterruptTask={interruptTask}
+                onRegisterColumnScrollport={dragAutoScroll.registerColumnScrollport}
+                pendingCardMove={pendingCardMove}
+                onResumeTask={resumeTask}
+                pendingInterruptTaskIDs={actions.interrupt.pendingTaskIDs}
+                pendingResumeTaskIDs={initiatingAction.pendingResumeTaskIDs}
+                pendingStartMoveTaskIDs={initiatingAction.pendingStartMoveTaskIDs}
+                scrollportRef={scrollportRef}
+              />
+            </BoardTaskChatContext.Provider>
           </div>
         </DragDropSurface>
         <BoardHorizontalScrollbar scrollportRef={scrollportRef} />

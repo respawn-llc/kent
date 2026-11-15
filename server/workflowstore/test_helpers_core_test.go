@@ -57,74 +57,6 @@ func setCommentCreatedAt(t *testing.T, ctx context.Context, store *Store, commen
 	}
 }
 
-func hasProjectWorkflowUnlinkBlocker(blockers []ProjectWorkflowUnlinkBlocker, code string, count int) bool {
-	for _, blocker := range blockers {
-		if blocker.Code == code && blocker.Count == count {
-			return true
-		}
-	}
-	return false
-}
-
-type workflowDeletionFixture struct {
-	ctx       context.Context
-	store     *Store
-	projectID string
-}
-
-func newWorkflowDeletionFixture(t *testing.T) workflowDeletionFixture {
-	t.Helper()
-	ctx, store, binding := newTestStoreContext(t)
-	return workflowDeletionFixture{ctx: ctx, store: store, projectID: binding.ProjectID}
-}
-
-func (f workflowDeletionFixture) linkedWorkflow(t *testing.T, isDefault bool) (runtimeids.WorkflowID, ProjectWorkflowLinkRecord) {
-	t.Helper()
-	workflowID := createValidWorkflow(t, f.ctx, f.store)
-	return workflowID, linkWorkflow(t, f.ctx, f.store, f.projectID, workflowID, isDefault)
-}
-
-func (f workflowDeletionFixture) unlink(t *testing.T, linkID, replacementDefaultLinkID string) ProjectWorkflowUnlinkResult {
-	t.Helper()
-	result, err := f.store.UnlinkProjectWorkflow(f.ctx, linkID, replacementDefaultLinkID)
-	if err != nil {
-		t.Fatalf("UnlinkProjectWorkflow: %v", err)
-	}
-	return result
-}
-
-func (f workflowDeletionFixture) preview(t *testing.T, workflowID runtimeids.WorkflowID) WorkflowDeleteImpact {
-	t.Helper()
-	impact, err := f.store.PreviewWorkflowDelete(f.ctx, workflowID)
-	if err != nil {
-		t.Fatalf("PreviewWorkflowDelete: %v", err)
-	}
-	return impact
-}
-
-func (f workflowDeletionFixture) delete(t *testing.T, req WorkflowDeleteRequest) WorkflowDeleteResult {
-	t.Helper()
-	result, err := f.store.DeleteWorkflow(f.ctx, req)
-	if err != nil {
-		t.Fatalf("DeleteWorkflow: %v", err)
-	}
-	return result
-}
-
-func (f workflowDeletionFixture) confirmDelete(t *testing.T, impact WorkflowDeleteImpact, cleanupArtifacts bool) WorkflowDeleteResult {
-	t.Helper()
-	return f.delete(t, confirmedWorkflowDeleteRequest(impact, cleanupArtifacts))
-}
-
-func (f workflowDeletionFixture) links(t *testing.T) []ProjectWorkflowLinkRecord {
-	t.Helper()
-	links, err := f.store.ListProjectWorkflowLinks(f.ctx, f.projectID)
-	if err != nil {
-		t.Fatalf("ListProjectWorkflowLinks: %v", err)
-	}
-	return links
-}
-
 func confirmedWorkflowDeleteRequest(impact WorkflowDeleteImpact, cleanupArtifacts bool) WorkflowDeleteRequest {
 	return WorkflowDeleteRequest{
 		WorkflowID:           impact.WorkflowID,
@@ -135,15 +67,6 @@ func confirmedWorkflowDeleteRequest(impact WorkflowDeleteImpact, cleanupArtifact
 		ExpectedTaskCount:    impact.TaskCount,
 		CleanupArtifacts:     cleanupArtifacts,
 	}
-}
-
-func hasWorkflowDeleteBlocker(blockers []WorkflowDeleteBlocker, code string, count int64) bool {
-	for _, blocker := range blockers {
-		if blocker.Code == code && blocker.Count == count {
-			return true
-		}
-	}
-	return false
 }
 
 func saveWorkflowGraphFixture(t *testing.T, ctx context.Context, store *Store, workflowID runtimeids.WorkflowID, edit func(workflow.Definition, *WorkflowGraphSaveRequest)) WorkflowGraphSaveResult {
@@ -203,7 +126,6 @@ func setWorkflowGraphSaveNodeGroup(nodes []NodeRecord, nodeID workflow.NodeID, g
 		if node.ID == nodeID {
 			if groupID == "" {
 				node.GroupID = nil
-				node.GroupKey = ""
 			} else {
 				node.GroupID = &groupID
 			}
@@ -224,43 +146,11 @@ func confirmWorkflowGraphSaveRequest(req WorkflowGraphSaveRequest, impact Workfl
 	return req
 }
 
-func changeWorkflowGraphSaveNodeKind(nodes []NodeRecord, nodeID workflow.NodeID, kind workflow.NodeKind) []NodeRecord {
-	changed := make([]NodeRecord, 0, len(nodes))
-	for _, node := range nodes {
-		if node.ID == nodeID {
-			node.Kind = kind
-		}
-		changed = append(changed, node)
-	}
-	return changed
-}
-
 func removeWorkflowGraphSaveNode(nodes []NodeRecord, nodeID workflow.NodeID) []NodeRecord {
 	filtered := make([]NodeRecord, 0, len(nodes))
 	for _, node := range nodes {
 		if node.ID != nodeID {
 			filtered = append(filtered, node)
-		}
-	}
-	return filtered
-}
-
-func removeWorkflowGraphSaveTransitionGroupsTouchingNode(def workflow.Definition, groups []TransitionGroupRecord, nodeID workflow.NodeID) []TransitionGroupRecord {
-	touching := map[workflow.TransitionGroupID]bool{}
-	for _, group := range def.TransitionGroups {
-		if group.SourceNodeID == nodeID {
-			touching[group.ID] = true
-		}
-	}
-	for _, edge := range def.Edges {
-		if edge.TargetNodeID == nodeID {
-			touching[edge.TransitionGroupID] = true
-		}
-	}
-	filtered := make([]TransitionGroupRecord, 0, len(groups))
-	for _, group := range groups {
-		if !touching[group.ID] {
-			filtered = append(filtered, group)
 		}
 	}
 	return filtered
@@ -284,17 +174,6 @@ func removeWorkflowGraphSaveEdge(edges []EdgeRecord, edgeID workflow.EdgeID) []E
 		}
 	}
 	return filtered
-}
-
-func mutateWorkflowGraphSaveEdge(edges []EdgeRecord, edgeID workflow.EdgeID, mutate func(*EdgeRecord)) []EdgeRecord {
-	changed := make([]EdgeRecord, 0, len(edges))
-	for _, edge := range edges {
-		if edge.ID == edgeID {
-			mutate(&edge)
-		}
-		changed = append(changed, edge)
-	}
-	return changed
 }
 
 func mutateWorkflowGraphSaveTransitionGroup(groups []TransitionGroupRecord, groupID workflow.TransitionGroupID, mutate func(*TransitionGroupRecord)) []TransitionGroupRecord {

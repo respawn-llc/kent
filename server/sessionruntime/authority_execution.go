@@ -20,12 +20,8 @@ type ExecutionHandle interface {
 	Done() <-chan struct{}
 	RequestStop() bool
 	Stop(context.Context) error
-	Wait(context.Context) (ExecutionResult, error)
+	Wait(context.Context) error
 	Close(context.Context) error
-}
-
-type ExecutionResult struct {
-	Script *ScriptResult
 }
 
 type executionPhase uint8
@@ -74,7 +70,6 @@ type execution struct {
 	done      chan struct{}
 
 	resultMu sync.RWMutex
-	result   ExecutionResult
 	runErr   error
 	stopErr  error
 	prompts  executionPromptStore
@@ -146,12 +141,12 @@ func (h executionHandle) RequestStop() bool {
 	}
 }
 
-func (h executionHandle) Wait(ctx context.Context) (ExecutionResult, error) {
+func (h executionHandle) Wait(ctx context.Context) error {
 	if h.execution == nil {
 		panic("execution handle is uninitialized")
 	}
 	if err := h.execution.awaitDone(ctx); err != nil {
-		return ExecutionResult{}, err
+		return err
 	}
 	return h.execution.outcome()
 }
@@ -175,15 +170,10 @@ func (e *execution) awaitDone(ctx context.Context) error {
 	}
 }
 
-func (e *execution) outcome() (ExecutionResult, error) {
+func (e *execution) outcome() error {
 	e.resultMu.RLock()
 	defer e.resultMu.RUnlock()
-	result := e.result
-	if result.Script != nil {
-		script := result.Script.clone()
-		result.Script = &script
-	}
-	return result, e.runErr
+	return e.runErr
 }
 
 func (e *execution) stopError() error {
@@ -192,7 +182,7 @@ func (e *execution) stopError() error {
 	return e.stopErr
 }
 
-func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) {
+func (e *execution) finish(runErr error, stopErr error) {
 	releaseAdmission, workErr := e.awaitModelWorkAndLockAdmission()
 	if workErr != nil {
 		if runErr == nil {
@@ -237,7 +227,6 @@ func (e *execution) finish(result ExecutionResult, runErr error, stopErr error) 
 		finalErr = errors.Join(finalErr, closeErr)
 	}
 	e.resultMu.Lock()
-	e.result = result
 	e.runErr = finalErr
 	e.stopErr = errors.Join(stopErr, cleanupErr, closeErr, abortErr)
 	e.resultMu.Unlock()
@@ -343,9 +332,9 @@ func (e *execution) awaitModelWorkAndLockAdmission() (release func(), workErr er
 	for engine.HasScheduledQueuedUserWork() || engine.GoalLoopRunning() {
 		waitCtx := e.ctx
 		if context.Cause(e.ctx) != nil {
-			// Queued work runs on the runtime lifecycle, so stopping this
-			// execution must stop and join it before releasing ownership.
-			engine.CancelScheduledQueuedUserWork()
+			// Scheduled model work uses the runtime lifecycle, so stop its
+			// continuations before joining the canceled execution.
+			engine.CancelScheduledModelWork()
 			_, interruptErr := engine.TryInterruptActiveRun()
 			workErr = errors.Join(workErr, interruptErr)
 			waitCtx = context.WithoutCancel(e.ctx)

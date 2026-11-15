@@ -24,6 +24,7 @@ const (
 	ActionSetAutoCompaction Action = "set_auto_compaction"
 	ActionSetQuestions      Action = "set_questions"
 	ActionStatus            Action = "status"
+	ActionAgent             Action = "agent"
 	ActionGoal              Action = "goal"
 	ActionProcesses         Action = "processes"
 	ActionWorktree          Action = "worktree"
@@ -50,7 +51,6 @@ type Result struct {
 	SubmitUser         bool
 	User               string
 	PromptCommand      *runtimeinput.PromptCommand
-	FreshConversation  bool
 	ThinkingLevel      string
 	FastMode           string
 	SupervisorMode     string
@@ -92,6 +92,10 @@ func NewRegistry() *Registry {
 
 func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
+	r.RegisterWithOptions("agent", "Choose an Agent Role", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
+		return Result{Handled: true, Action: ActionAgent}
+	})
+	r.RegisterAlias("model", "agent")
 	r.RegisterWithOptions("exit", "Exit Kent", RegisterOptions{ActiveRunPolicy: ActiveRunPolicyAllowed, PreservePromptHistoryDraft: true}, func(string) Result {
 		return Result{Handled: true, Action: ActionExit}
 	})

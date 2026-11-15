@@ -134,11 +134,6 @@ type authorityRuntimeOptions struct {
 	stepLifecycle                 AgentResourceStepLifecycle
 }
 
-type runtimeStoreAdmission struct {
-	store              *session.Store
-	durabilityObserver *runlog.DurabilityObserver
-}
-
 func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOptions {
 	return authorityRuntimeOptions{
 		submitSessionNaming:           options.SubmitSessionNaming,
@@ -158,27 +153,18 @@ func newAuthorityRuntimeOptions(options AuthorityOptions) authorityRuntimeOption
 	}
 }
 
-func (a *Authority) materializeRuntimeStore(descriptor session.SessionDescriptor) (*runtimeStoreAdmission, error) {
+func (a *Authority) materializeRuntimeStore(descriptor session.SessionDescriptor) (*session.Store, error) {
 	if a.options.persistenceRoot == "" {
 		return nil, errors.New("authority persistence root is required")
 	}
-	durabilityObserver := runlog.NewDurabilityObserver()
-	storeOptions := append(
-		append([]session.StoreOption(nil), a.options.storeOptions...),
-		session.WithDurabilityObserver(durabilityObserver),
-	)
-	store, err := session.MaterializeSessionDescriptor(a.options.persistenceRoot, descriptor, storeOptions...)
-	if err != nil {
-		return nil, err
-	}
-	return &runtimeStoreAdmission{store: store, durabilityObserver: durabilityObserver}, nil
+	return session.MaterializeSessionDescriptor(a.options.persistenceRoot, descriptor, a.options.storeOptions...)
 }
 
 func (a *Authority) buildAgentResource(
 	ctx context.Context,
 	descriptor session.SessionDescriptor,
 	plan *AgentRuntimePlan,
-	admittedStore *runtimeStoreAdmission,
+	admittedStore *session.Store,
 ) (*agentResource, error) {
 	sessionID := descriptor.SessionID()
 	if admittedStore == nil {
@@ -188,8 +174,7 @@ func (a *Authority) buildAgentResource(
 			return nil, err
 		}
 	}
-	store := admittedStore.store
-	durabilityObserver := admittedStore.durabilityObserver
+	store := admittedStore
 	if err := store.EnsureDurable(); err != nil {
 		return nil, err
 	}
@@ -255,11 +240,10 @@ func (a *Authority) buildAgentResource(
 		cancel()
 		return nil, err
 	}
-	durabilityObserver.Attach(logger)
 	for _, line := range plan.options.StartLogLines {
 		logger.Logf("%s", line)
 	}
-	wiring, err := a.newRuntimeWiringFromPlan(ctx, resource, store, logger, durabilityObserver, *plan)
+	wiring, err := a.newRuntimeWiringFromPlan(ctx, resource, store, logger, *plan)
 	if err != nil {
 		cancel()
 		err = errors.Join(err, logger.Close())
@@ -286,7 +270,7 @@ func (a *Authority) buildAgentResource(
 	return resource, nil
 }
 
-func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agentResource, store *session.Store, logger *runlog.RunLogger, durabilityObserver *runlog.DurabilityObserver, plan AgentRuntimePlan) (*runtimewire.RuntimeWiring, error) {
+func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agentResource, store *session.Store, logger *runlog.RunLogger, plan AgentRuntimePlan) (*runtimewire.RuntimeWiring, error) {
 	eventLog, err := store.MaterializeEventLog()
 	if err != nil {
 		return nil, err
@@ -333,7 +317,6 @@ func (a *Authority) newRuntimeWiringFromPlan(ctx context.Context, resource *agen
 		FilesystemContext:                   options.FilesystemContext,
 		StepLifecycle:                       resource,
 		RuntimeWriteAccepted:                resource.acceptRuntimeWrite,
-		DurabilityObserver:                  durabilityObserver,
 		LifecycleTaskFinished: func() {
 			resource.mu.Lock()
 			resource.signalLocked()

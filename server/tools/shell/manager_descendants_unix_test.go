@@ -4,6 +4,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"encoding/binary"
 	"io"
 	"os"
@@ -39,12 +40,13 @@ func TestManagerKillTerminatesDescendantsInIndependentProcessGroups(t *testing.T
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
-		DisplayCommand: "managed descendant test helper",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
+		DisplayCommand:      "managed descendant test helper",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)
@@ -86,12 +88,13 @@ func TestManagerCloseForceKillsIndependentDescendantsAfterGracePeriod(t *testing
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
-		DisplayCommand: "managed descendant test helper",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
+		DisplayCommand:      "managed descendant test helper",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)
@@ -130,12 +133,13 @@ func TestManagerKillRejectsCompletedRetainedProcess(t *testing.T) {
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
-		DisplayCommand: "completed managed helper",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
+		DisplayCommand:      "completed managed helper",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start completed helper: %v", err)
@@ -168,12 +172,13 @@ func TestManagerCloseTerminatesInheritedProcessGroupAfterRootExit(t *testing.T) 
 		t.Fatalf("resolve test executable: %v", err)
 	}
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
-		DisplayCommand: "completed managed process group helper",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		KeepStdinOpen:  true,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{executable, "-test.run=^TestManagedProcessDescendantHelper$"},
+		DisplayCommand:      "completed managed process group helper",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		KeepStdinOpen:       true,
 	})
 	if err != nil {
 		t.Fatalf("start managed helper: %v", err)

@@ -134,7 +134,15 @@ func (t *ExecCommandTool) Call(ctx context.Context, c tools.Call) (tools.Result,
 	if in.MaxOutputTokens != nil && *in.MaxOutputTokens > 0 {
 		maxChars = *in.MaxOutputTokens * 4
 	}
+	identity, err := tools.ExecutionIdentityFromContext(ctx)
+	if err != nil {
+		return ErrorResult(c, err.Error()), nil
+	}
+	if identity.SessionShortID == nil {
+		return ErrorResult(c, "shell execution requires a persisted Session short ID"), nil
+	}
 	result, err := t.background.Start(ctx, ExecRequest{
+		OwnerSessionShortID:  *identity.SessionShortID,
 		Command:              argv,
 		DisplayCommand:       cmdText,
 		OwnerSessionID:       t.ownerSessionID,

@@ -103,7 +103,7 @@ func TestBoardProjectsQuiescentCurrentNodeAsDeletable(t *testing.T) {
 	if card.TaskId != string(started.task.ID) ||
 		len(card.ActiveNodeIds) != 1 ||
 		card.ActiveNodeIds[0] != string(fixture.agentNodeID) ||
-		card.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_ACTIVE ||
+		card.Status.Kind != taskpb.TaskStatusKind_TASK_STATUS_KIND_INTERRUPTED ||
 		card.Actions.CanStart ||
 		!card.Actions.CanDelete {
 		t.Fatalf("board card = %+v, want deletable quiescent Current Node projection", card)
@@ -237,6 +237,54 @@ func TestBoardListNodeCardsPaginatesDeterministically(t *testing.T) {
 	}
 	if page.Cards[0].TaskId != string(started[0].task.ID) {
 		t.Fatalf("created ascending first card = %q, want %q", page.Cards[0].TaskId, started[0].task.ID)
+	}
+}
+
+type taskStatusLiveObservationSourceFunc func([]workflow.TaskID) (workflowexecution.WorkflowTaskExecutionObservation, error)
+
+func (f taskStatusLiveObservationSourceFunc) ObserveWorkflowTaskExecutions(taskIDs []workflow.TaskID) (workflowexecution.WorkflowTaskExecutionObservation, error) {
+	return f(taskIDs)
+}
+
+func TestBoardListNodeCardsFailsWhenTaskIsDeletedBeforeProjection(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	started := fixture.startTask(t, "Deleted during board read")
+	projection, err := NewTaskStatusProjection(
+		fixture.store,
+		NewTaskProjector(),
+		taskStatusLiveObservationSourceFunc(func(taskIDs []workflow.TaskID) (workflowexecution.WorkflowTaskExecutionObservation, error) {
+			observation, err := fixture.quiescence.ObserveWorkflowTaskExecutions(taskIDs)
+			if err != nil {
+				return workflowexecution.WorkflowTaskExecutionObservation{}, err
+			}
+			if _, err := fixture.store.DeleteTask(fixture.ctx, started.task.ID); err != nil {
+				return workflowexecution.WorkflowTaskExecutionObservation{}, err
+			}
+			return observation, nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewTaskStatusProjection: %v", err)
+	}
+	board, err := NewBoard(
+		fixture.metadata,
+		mustDefinitionProjection(t, fixture.store),
+		testsetup.QuestionsEnabled("coder"),
+		projection,
+	)
+	if err != nil {
+		t.Fatalf("NewBoard: %v", err)
+	}
+
+	page, err := board.ListNodeCards(fixture.ctx, &taskpb.BoardNodeCardsListRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  fixture.workflowID.String(),
+		NodeId:      string(fixture.agentNodeID),
+		PageSize:    20,
+		LabelFilter: noLabelFilter(),
+	})
+	if err == nil || page != nil {
+		t.Fatalf("ListNodeCards after Task deletion = page %+v, error %v; want failure without a partial page", page, err)
 	}
 }
 

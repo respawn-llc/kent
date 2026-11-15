@@ -213,7 +213,8 @@ func TestAskProjectionUpdateSameIDActiveReplacementPreservesPromptLocalState(t *
 	model := sizedTestUIModel(newProjectedStaticUIModel(), 64, 20)
 	initial := testQuestionAskEvent("ask-1", "Same question", "one", "two")
 	testSetActiveAsk(model, &initial)
-	model.ask.cursor = 1
+	selectedOption := 1
+	model.ask.selectedOption = &selectedOption
 	model.ask.freeform = true
 	testSetAskInputAtRuneCursor(model, "draft text", 5)
 	currentToken := model.ask.currentToken
@@ -235,11 +236,11 @@ func TestAskProjectionUpdateSameIDActiveReplacementPreservesPromptLocalState(t *
 		*model.ask.current.prompt.GetQuestion().RecommendedOptionIndex != recommended {
 		t.Fatalf("same-ID replacement did not install the latest payload immediately: %+v", model.ask.current.prompt)
 	}
-	if model.ask.cursor != 1 || !model.ask.freeform ||
+	if model.ask.selectedOption == nil || *model.ask.selectedOption != 1 || !model.ask.freeform ||
 		model.ask.editor.Text() != "draft text" || model.ask.editor.Cursor() != 5 {
 		t.Fatalf(
-			"same-ID replacement changed prompt-local state: cursor=%d freeform=%t editor=%q/%d",
-			model.ask.cursor,
+			"same-ID replacement changed prompt-local state: selection=%v freeform=%t editor=%q/%d",
+			model.ask.selectedOption,
 			model.ask.freeform,
 			model.ask.editor.Text(),
 			model.ask.editor.Cursor(),

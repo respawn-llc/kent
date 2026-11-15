@@ -24,27 +24,6 @@ const (
 	ReasonScriptCompletionFailed = "workflow_script_completion_failed"
 )
 
-type currentNodeScriptPublication struct {
-	detached *sessionruntime.DetachedScriptExecution
-}
-
-func (p *currentNodeScriptPublication) Publish(
-	ctx context.Context,
-	admit func() error,
-	published func(sessionruntime.ExecutionHandle),
-) (sessionruntime.ExecutionHandle, func(), error) {
-	if p == nil || p.detached == nil {
-		return nil, nil, errors.New("detached Script publication is required")
-	}
-	return p.detached.Publish(ctx, admit, published)
-}
-
-func (p *currentNodeScriptPublication) Cancel() {
-	if p != nil && p.detached != nil {
-		p.detached.Cancel()
-	}
-}
-
 func (s *Starter) PrepareScriptPublication(
 	ctx context.Context,
 	reference workflow.CurrentNodeReference,
@@ -78,7 +57,7 @@ func (s *Starter) PrepareScriptPublication(
 	if err != nil {
 		return nil, err
 	}
-	return &currentNodeScriptPublication{detached: detached}, nil
+	return detached, nil
 }
 
 func currentNodeScriptCommand(input workflowstore.CurrentNodeStartContext, persistenceRoot string) (sessionruntime.ScriptCommand, error) {

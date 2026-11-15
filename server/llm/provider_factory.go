@@ -22,6 +22,7 @@ const (
 	ProviderOpenAI    Provider = "openai"
 	ProviderAnthropic Provider = "anthropic"
 	ProviderGrok      Provider = "grok"
+	ProviderDeepSeek  Provider = "deepseek"
 )
 
 type ProviderClientOptions struct {
@@ -118,6 +119,40 @@ func providerContracts() []ProviderContract {
 			ModelContracts: []ModelCapabilityContract{
 				grokModelContract("grok-4.6", time.February, nil),
 				grokModelContract("grok-4.7", time.May, &ModelMetadata{ContextWindowTokens: 256_000, LargeContextWindowTokens: textutil.Value(500_000)}),
+			},
+		},
+		{
+			Provider:  ProviderDeepSeek,
+			NewClient: newResponsesProviderClient,
+			ProviderVariants: []ProviderVariantContract{
+				{
+					ProviderID:         string(config.ConnectionDeepSeekAPIKey),
+					generationProtocol: responsesSSE,
+					BaseURL:            textutil.Value(config.DefaultDeepSeekResponsesEndpoint),
+					DefaultModel:       textutil.Value("deepseek-flash"),
+					ReasoningType:      textutil.Value(modelcontract.ReasoningTypeUnencrypted),
+					ResponsesPolicy:    deepseekResponsesPolicy{},
+					RequestCompression: httpcompression.ContentCodingIdentity,
+					Capabilities: ProviderCapabilities{
+						ProviderID:                    string(config.ConnectionDeepSeekAPIKey),
+						SupportsResponsesAPI:          true,
+						SupportsResponsesCompact:      false,
+						SupportsPromptCacheKey:        false,
+						SupportsNativeWebSearch:       false,
+						SupportsReasoningEncrypted:    false,
+						SupportsServerSideContextEdit: false,
+						SupportsProviderVerbosity:     false,
+						IsOpenAIFirstParty:            false,
+					},
+					NewErrorReducer: newDeepSeekErrorReducer,
+				},
+			},
+			// Peak short-context rates, verified 2026-11-05:
+			// https://api-docs.deepseek.com/quick_start/pricing
+			// Nanodollars per token. Off-peak discounts are excluded.
+			ModelContracts: []ModelCapabilityContract{
+				deepseekModelContract("deepseek-flash", TokenPricing{300, 6, 1_200}, true),
+				deepseekModelContract("deepseek-v4-pro", TokenPricing{1_320, 44, 3_960}, false),
 			},
 		},
 		{
@@ -268,6 +303,15 @@ func grokVariant(protocol config.ConnectionProtocol, endpoint string, policy res
 			SupportsResponsesCompact: nativeCompaction, SupportsNativeWebSearch: true,
 		},
 		NewErrorReducer: newGrokErrorReducer,
+	}
+}
+
+func deepseekModelContract(model string, pricing TokenPricing, vision bool) ModelCapabilityContract {
+	return ModelCapabilityContract{
+		Model: model, ContextWindowTokens: 1_000_000, TokenPricing: &pricing,
+		DefaultReasoningEffort: textutil.Value("high"), SupportsReasoningEffort: true,
+		SupportedReasoningEfforts: []string{"none", "low", "high", "max"},
+		SupportsVisionInputs:      vision,
 	}
 }
 

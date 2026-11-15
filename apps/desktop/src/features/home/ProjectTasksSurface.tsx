@@ -160,7 +160,6 @@ export function ProjectTasksSurface({
   const workflowsBoundary = directionalBoundary({
     failed: workflowsInitialState.failed,
     loading: workflowsInitialState.loading,
-    loadingLabel: t("states.loading"),
     message: workflowsQuery.isError ? errorMessage(workflowsQuery.error) : "",
     onRetry: () => {
       workflowsQuery.refetch();
@@ -170,7 +169,6 @@ export function ProjectTasksSurface({
   const previousWorkflowsBoundary = directionalBoundary({
     failed: workflowsQuery.isFetchPreviousPageError,
     loading: workflowsQuery.isFetchingPreviousPage,
-    loadingLabel: t("states.loading"),
     message: workflowsQuery.isError ? errorMessage(workflowsQuery.error) : "",
     onRetry: () => {
       workflowsQuery.fetchPreviousPage();
@@ -180,7 +178,6 @@ export function ProjectTasksSurface({
   const nextWorkflowsBoundary = directionalBoundary({
     failed: workflowsQuery.isFetchNextPageError,
     loading: workflowsQuery.isFetchingNextPage,
-    loadingLabel: t("app.loadingMore"),
     message: workflowsQuery.isError ? errorMessage(workflowsQuery.error) : "",
     onRetry: () => {
       workflowsQuery.fetchNextPage();
@@ -199,7 +196,6 @@ export function ProjectTasksSurface({
   const countsBoundary = directionalBoundary({
     failed: data.counts.isError,
     loading: data.counts.isPending,
-    loadingLabel: t("states.loading"),
     message: data.counts.isError ? errorMessage(data.counts.error) : "",
     onRetry: () => {
       data.counts.refetch();
@@ -445,7 +441,6 @@ function ProjectTasksContent({
             itemRole="row"
             items={listEntries}
             layoutChangeScrollBehavior={layoutChangeScrollBehavior}
-            loadingLabel={t("app.loadingMore")}
             onLoadMore={() => undefined}
             onScrollElementChange={onScrollElementChange}
             pixelOffsetRequest={
@@ -540,7 +535,6 @@ function renderProjectTaskEntry(entry: ProjectTaskListEntry): ReactNode {
         <div className="col-span-full" aria-colspan={projectTaskColumnCount} role="gridcell">
           {entry.state === undefined ? (
             <div
-              aria-label={entry.isFetching === true ? entry.loadingLabel : undefined}
               aria-live="polite"
               className="grid min-h-12 place-items-center"
               role={entry.isFetching === true ? "status" : undefined}

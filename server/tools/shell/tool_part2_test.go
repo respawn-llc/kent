@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"core/internal/testharness/postprocessfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"encoding/json"
@@ -31,7 +32,7 @@ func runCompletionNoticeTest(t *testing.T, execID string, command string, pollID
 		t.Fatalf("unexpected exec_command error: %s", string(result.Output))
 	}
 
-	pollResult := callWriteStdin(t, NewWriteStdinTool(16_000, 200_000, manager, nil), pollID, map[string]any{
+	pollResult := callWriteStdin(t, NewWriteStdinTool(manager), pollID, map[string]any{
 		"session_id":    1000,
 		"yield_time_ms": pollYieldMS,
 	})
@@ -89,13 +90,14 @@ func TestSharedManagerWriteStdinHarvestLeavesProcessOwnerNoticeUnsuppressed(t *t
 	})
 
 	started, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:        []string{"/bin/sh", "-c", "sleep 0.15; printf owner"},
-		DisplayCommand: "sleep briefly",
-		OwnerSessionID: "process-owner",
-		Workdir:        t.TempDir(),
-		YieldTime:      50 * time.Millisecond,
-		MaxOutputChars: 16_000,
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		Command:             []string{"/bin/sh", "-c", "sleep 0.15; printf owner"},
+		DisplayCommand:      "sleep briefly",
+		OwnerSessionID:      "process-owner",
+		Workdir:             t.TempDir(),
+		YieldTime:           50 * time.Millisecond,
+		MaxOutputChars:      16_000,
 	})
 	if err != nil {
 		t.Fatalf("start owner process: %v", err)
@@ -104,9 +106,8 @@ func TestSharedManagerWriteStdinHarvestLeavesProcessOwnerNoticeUnsuppressed(t *t
 		t.Fatalf("owner process must transition to background, got %+v", started)
 	}
 	if _, err := manager.WriteStdin(context.Background(), WriteRequest{
-		SessionID:      started.SessionID,
-		YieldTime:      15 * time.Second,
-		MaxOutputChars: 16_000,
+		SessionID: started.SessionID,
+		YieldTime: 15 * time.Second,
 	}); err != nil {
 		t.Fatalf("harvest owner completion: %v", err)
 	}
@@ -160,9 +161,8 @@ func TestTerminalEventEmissionHoldsPollingInteractionLock(t *testing.T) {
 	pollDone := make(chan struct{})
 	go func() {
 		_, _ = manager.WriteStdin(context.Background(), WriteRequest{
-			SessionID:      "1000",
-			YieldTime:      250 * time.Millisecond,
-			MaxOutputChars: 16_000,
+			SessionID: "1000",
+			YieldTime: 250 * time.Millisecond,
 		})
 		close(pollDone)
 	}()
@@ -243,7 +243,8 @@ func TestManagerCloseKillsRunningProcesses(t *testing.T) {
 	})
 
 	result, err := manager.Start(context.Background(), ExecRequest{
-		Postprocessor: postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
 		// Keep the signal-resistant process as the root: a waiting shell can exit
 		// normally when its child is killed, yielding a completed event instead.
 		Command:        []string{"/bin/sh", "-c", "trap '' TERM INT; exec sleep 30"},

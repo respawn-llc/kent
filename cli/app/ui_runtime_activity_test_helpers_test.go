@@ -31,8 +31,8 @@ func submitRuntimeClientForTest(t *testing.T, wiring *runtimeWiring, text string
 	model := newProjectedStaticUIModel()
 	model.setKnownSessionTarget(wiring.runtimeClient.SessionView().SessionId)
 	selected := model.presentationTarget.(uiKnownSessionTarget)
-	selected.preparation = wiring.preparation
-	wiring.preparation = nil
+	selected.invocation = wiring.invocation
+	wiring.invocation = nil
 	model.presentationTarget = selected
 	model.chatMutations = wiring.chatMutations
 	activation, err := chatActivationFromInput(runtimeinput.Text(text))

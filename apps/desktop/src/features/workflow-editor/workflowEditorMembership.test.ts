@@ -36,7 +36,6 @@ describe("workflow editor Node Group membership", () => {
           name: "Existing",
           sortOrder: 0,
           workflowID: groupableWorkflowDefinition.workflow.id,
-          nodeIDs: [],
         },
       ],
     };

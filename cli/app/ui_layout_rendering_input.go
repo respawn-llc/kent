@@ -287,7 +287,7 @@ func (l uiViewLayout) mainInputPrefix() string {
 }
 
 func framedInputContentCursorRow(contentRow int) int {
-	return contentRow + 2
+	return contentRow + 1
 }
 
 func normalizeInputFieldCursorCell(row int, col int, width int, lineCount int) (int, int) {

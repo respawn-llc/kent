@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"core/internal/testharness/testsetup"
 	"errors"
 	"os"
 	"path/filepath"
@@ -19,9 +20,10 @@ func TestManagerRejectsMissingPostprocessorBeforeLaunch(t *testing.T) {
 	workdir := t.TempDir()
 	for _, raw := range []bool{false, true} {
 		_, err := manager.Start(context.Background(), ExecRequest{
-			Command: []string{"/bin/sh", "-c", "touch launched"},
-			Workdir: workdir,
-			Raw:     raw,
+			OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+			Command:             []string{"/bin/sh", "-c", "touch launched"},
+			Workdir:             workdir,
+			Raw:                 raw,
 		})
 		if err == nil {
 			t.Fatal("expected missing shell postprocessor to fail command launch")
@@ -97,7 +99,7 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 	workspace := t.TempDir()
 	manager := newBackgroundTestManager(t)
 	execTool := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
-	stdinTool := NewWriteStdinTool(16_000, 200_000, manager, nil)
+	stdinTool := NewWriteStdinTool(manager)
 
 	result := callExecCommand(t, execTool, "raw-bg", map[string]any{
 		"cmd":           "printf '\\033[31mhello\\033[0m\\n'; sleep 0.3; printf '\\033[32mdone\\033[0m'",
@@ -119,19 +121,6 @@ func TestRawBackgroundOutputPathsPreserveAnsi(t *testing.T) {
 	}
 	if !strings.Contains(snapshot.RecentOutput, "\x1b[31mhello\x1b[0m") {
 		t.Fatalf("recent output lost ANSI: %q", snapshot.RecentOutput)
-	}
-
-	sub, err := manager.SubscribeOutput(context.Background(), "1000", 0)
-	if err != nil {
-		t.Fatalf("SubscribeOutput: %v", err)
-	}
-	defer func() { _ = sub.Close() }()
-	chunk, err := sub.Next(context.Background())
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if !strings.Contains(chunk.Text, "\x1b[31mhello\x1b[0m") {
-		t.Fatalf("stream chunk lost ANSI: %q", chunk.Text)
 	}
 
 	pollResult := callWriteStdin(t, stdinTool, "raw-bg-poll", map[string]any{
@@ -159,12 +148,12 @@ func TestShellCompletionPathsLimitCommandOutputLines(t *testing.T) {
 	})
 	start := func(command string, yield time.Duration, stdin bool) (ExecResult, error) {
 		return manager.Start(context.Background(), ExecRequest{
-			Postprocessor:  postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-			Command:        []string{"/bin/sh", "-c", command},
-			Workdir:        t.TempDir(),
-			YieldTime:      yield,
-			MaxOutputChars: 16_000,
-			KeepStdinOpen:  stdin,
+			OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
+			Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
+			Command:             []string{"/bin/sh", "-c", command},
+			Workdir:             t.TempDir(),
+			YieldTime:           yield,
+			KeepStdinOpen:       stdin,
 		})
 	}
 	foreground, _ := start("sleep .1; "+command, 5*time.Second, false)
@@ -184,7 +173,7 @@ func TestShellCompletionPathsLimitCommandOutputLines(t *testing.T) {
 	if !interactive.Backgrounded {
 		t.Fatalf("interactive = %+v", interactive)
 	}
-	finished, _ := manager.WriteStdin(context.Background(), WriteRequest{SessionID: interactive.SessionID, Input: "\n", YieldTime: 2 * time.Second, MaxOutputChars: 16_000})
+	finished, _ := manager.WriteStdin(context.Background(), WriteRequest{SessionID: interactive.SessionID, Input: "\n", YieldTime: 2 * time.Second})
 	if finished.Output != want {
 		t.Fatalf("write_stdin = %q; want %q", finished.Output, want)
 	}

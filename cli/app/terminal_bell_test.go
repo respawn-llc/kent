@@ -326,12 +326,8 @@ func testAttentionPendingEvent(id string, kind clientui.AttentionNotificationKin
 		notification.InterruptedCurrentNode = &clientui.AttentionNotificationInterruptedCurrentNodeState{Message: body}
 	} else {
 		notification.Question = &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs:          []string{id},
-			MaterializedAskIDs:      []string{id},
-			CurrentUnresolvedAskIDs: []string{id},
-			Preview:                 body,
-			DisplayCount:            1,
-			MaterializedCount:       1,
+			Preview:      body,
+			DisplayCount: 1,
 		}
 	}
 	return clientui.AttentionNotificationEvent{Type: clientui.AttentionNotificationEventPending, Pending: &notification}

@@ -22,6 +22,8 @@ func TestAskProjectionInvalidationPreservesVisibleDeliveryStateAndKeys(t *testin
 	next, _ = model.Update(initialProjection())
 	model = next.(*uiModel)
 
+	next, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = next.(*uiModel)
 	next, deliveryCommand := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	delivering := next.(*uiModel)
 	if deliveryCommand == nil || delivering.ask.activeDelivery == nil {

@@ -97,11 +97,11 @@ func TestAskInitialProjectionReadinessBlocksPromptAndComposerKeys(t *testing.T) 
 			if updated.ask.current == nil || updated.ask.currentToken != currentToken {
 				t.Fatal("pending readiness key changed current prompt ownership")
 			}
-			if updated.ask.cursor != 0 || updated.ask.freeform ||
+			if updated.ask.selectedOption != nil || updated.ask.freeform ||
 				updated.ask.editor.Text() != "" || updated.ask.activeDelivery != nil {
 				t.Fatalf(
-					"pending readiness key mutated ask state: cursor=%d freeform=%t editor=%q delivery=%+v",
-					updated.ask.cursor,
+					"pending readiness key mutated ask state: selection=%v freeform=%t editor=%q delivery=%+v",
+					updated.ask.selectedOption,
 					updated.ask.freeform,
 					updated.ask.editor.Text(),
 					updated.ask.activeDelivery,

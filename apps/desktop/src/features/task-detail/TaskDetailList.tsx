@@ -1,7 +1,15 @@
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { InfiniteData } from "@tanstack/react-query";
 
-import type { ActivityItem, AttentionItem, TaskComment, TaskDetail, TaskDependencyDirection } from "@/api";
+import type {
+  ActivityItem,
+  AttentionItem,
+  OffsetPage,
+  TaskComment,
+  TaskDetail,
+  TaskDependencyDirection,
+} from "@/api";
 import { errorMessage } from "@/api";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import { taskDetailInitialFocusRequestKey } from "@/app-facade";
@@ -35,7 +43,6 @@ import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from ".
 import type { PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
 import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import { selectedFeed, taskDetailPaging } from "./taskDetailPaging";
-import type { TaskDetailFeedPage } from "./taskDetailQueries";
 import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
 import type { TaskDetailReads } from "./TaskDetailViewModel";
 
@@ -131,15 +138,9 @@ export function TaskDetailList({
 }>) {
   const { t } = useTranslation();
   const headerOffset = useSidebarHeaderOffset();
-  const activityItems = useMemo(
-    () => withPresentationKeys(activity.data?.pages ?? [], "activity"),
-    [activity.data],
-  );
-  const commentItems = useMemo(
-    () => withPresentationKeys(comments.data?.pages ?? [], "comment"),
-    [comments.data],
-  );
-  const commentCount = commentCountFromData(comments.data);
+  const activityItems = useMemo(() => withPresentationKeys(activity.data, "activity"), [activity.data]);
+  const commentItems = useMemo(() => withPresentationKeys(comments.data, "comment"), [comments.data]);
+  const commentCount = comments.data?.pages[0]?.totalCount ?? 0;
   const attentionItems = useMemo(
     () =>
       (attention.data?.items ?? []).filter(
@@ -194,7 +195,6 @@ export function TaskDetailList({
   const previousBoundary = directionalBoundary({
     failed: paging.isFetchPreviousPageError,
     loading: paging.isFetchingPreviousPage,
-    loadingLabel: t("app.loadingMore"),
     message: errorMessage(paging.error),
     onRetry: paging.loadPrevious,
     retryLabel: t("app.retry"),
@@ -202,7 +202,6 @@ export function TaskDetailList({
   const nextBoundary = directionalBoundary({
     failed: paging.isFetchNextPageError,
     loading: paging.isFetchingNextPage,
-    loadingLabel: t("app.loadingMore"),
     message: errorMessage(paging.error),
     onRetry: paging.loadNext,
     retryLabel: t("app.retry"),
@@ -226,7 +225,6 @@ export function TaskDetailList({
       isFetchingPreviousPage={paging.isFetchingPreviousPage}
       items={listItems}
       layoutChangeScrollBehavior="natural"
-      loadingLabel={t("app.loadingMore")}
       loadMoreKey={paging.nextLoadKey}
       nonAdjustingResizeItemKey="body"
       onLoadMore={paging.loadNext}
@@ -253,7 +251,6 @@ export function TaskDetailList({
           errorTitle={t("states.error")}
           initialFocus={initialFocus}
           item={item}
-          loadingTitle={t("states.loading")}
           mutations={mutations}
           commentActions={commentActions}
           newCommentBody={newCommentBody}
@@ -305,7 +302,6 @@ type TaskDetailListRowProps = Readonly<{
   errorTitle: string;
   initialFocus?: TaskDetailInitialFocus | undefined;
   item: TaskDetailListItem;
-  loadingTitle: string;
   mutations: TaskDetailLifecycle;
   newCommentBody: string;
   noActivityTitle: string;
@@ -474,8 +470,8 @@ function CommentComposerRow({
   );
 }
 
-function LoadingRow({ loadingTitle }: TaskDetailListRowProps): ReactNode {
-  return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} title={loadingTitle} />;
+function LoadingRow(): ReactNode {
+  return <LoadingState appearanceDelayMs={0} fullPage={false} reveal={false} />;
 }
 
 function ErrorRow({ errorTitle, item }: TaskDetailListRowProps): ReactNode {
@@ -520,21 +516,21 @@ function ActivityItemRow({ item }: TaskDetailListRowProps): ReactNode {
 }
 
 function withPresentationKeys<T>(
-  pages: readonly TaskDetailFeedPage<T>[],
+  data: InfiniteData<OffsetPage<T>, number> | undefined,
   prefix: string,
 ): readonly TaskDetailFeedRow<T>[] {
-  return pages.flatMap((page) =>
-    page.items.map((item, index) => ({
-      item,
-      presentationKey: `${prefix}:offset:${page.offset.toString()}:item:${index.toString()}`,
-    })),
+  return (
+    data?.pages.flatMap((page, pageIndex) => {
+      const offset = data.pageParams[pageIndex];
+      if (offset === undefined) {
+        throw new Error("Task Detail feed page is missing its query page parameter");
+      }
+      return page.items.map((item, index) => ({
+        item,
+        presentationKey: `${prefix}:offset:${offset.toString()}:item:${index.toString()}`,
+      }));
+    }) ?? []
   );
-}
-
-function commentCountFromData<T>(
-  data: Readonly<{ pages: readonly TaskDetailFeedPage<T>[] }> | undefined,
-): number {
-  return data?.pages[0]?.totalCount ?? 0;
 }
 
 function taskDetailListItems({

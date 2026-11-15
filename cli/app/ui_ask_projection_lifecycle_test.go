@@ -58,11 +58,11 @@ func TestAskProjectionSubsequentPromptStartsWithCleanViewportAndEditorState(t *t
 	if secondPending.ask.activeProjection != nil {
 		t.Fatal("subsequent pending prompt inherited the previous active projection")
 	}
-	if secondPending.ask.freeform || secondPending.ask.cursor != 0 ||
+	if secondPending.ask.freeform || secondPending.ask.selectedOption != nil ||
 		secondPending.ask.editor.Text() != "" || secondPending.ask.editor.Cursor() != 0 {
 		t.Fatalf(
-			"subsequent pending prompt inherited local state: cursor=%d freeform=%t editor=%q/%d",
-			secondPending.ask.cursor,
+			"subsequent pending prompt inherited local state: selection=%v freeform=%t editor=%q/%d",
+			secondPending.ask.selectedOption,
 			secondPending.ask.freeform,
 			secondPending.ask.editor.Text(),
 			secondPending.ask.editor.Cursor(),

@@ -41,13 +41,19 @@ afterEach(() => {
 });
 
 function Editor() {
-  const { composer, speech, promptPicker, onEditorKeyDown } = useComposerSurface();
+  const {
+    composer,
+    speech: { editorRef, control },
+    promptPicker,
+    onEditorKeyDown,
+  } = useComposerSurface();
   return (
     <>
       {promptPicker?.state.current != null ? (
         <ChatPromptPicker picker={promptPicker} />
       ) : (
         <textarea
+          ref={editorRef}
           value={composer.text}
           onChange={(event) => {
             composer.edit(event.target.value);
@@ -55,7 +61,7 @@ function Editor() {
           onKeyDown={onEditorKeyDown}
         />
       )}
-      {speech.control}
+      {control}
       <ComposerSendButton />
     </>
   );
@@ -161,6 +167,20 @@ async function setupSpeech(
   }
   return { editor, services, transcript, readTranscript, steer, queue, answer, handlers };
 }
+
+it.each([
+  { modifier: "altKey", prompt: undefined },
+  { modifier: "ctrlKey", prompt: undefined },
+  { modifier: "altKey", prompt: question() },
+  { modifier: "ctrlKey", prompt: question() },
+] as const)("starts dictation in the visible Chat field without focus: %j", async ({ modifier, prompt }) => {
+  await setupSpeech("draft", prompt);
+  await screen.findByRole("button", { name: appI18n.t("speech.record") });
+  screen.getByRole<HTMLTextAreaElement>("textbox").blur();
+  fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
+  await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+  expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
+});
 
 it.each([question(), approval()])(
   "inserts into the visible prompt when it arrives while the ordinary composer is recording: %s",
@@ -394,3 +414,35 @@ it.each(["enter", "command", "button"] as const)(
     expect(queue).not.toHaveBeenCalled();
   },
 );
+
+it("requires transcription to finish before a Question double-click confirms its answer", async () => {
+  const { transcript, answer, readTranscript } = await setupSpeech("ordinary draft", question());
+  const user = userEvent.setup({ delay: null });
+  const option = screen.getByRole("radio", { name: "one" });
+  await user.click(option);
+  fireEvent.click(await screen.findByRole("button", { name: appI18n.t("speech.record") }));
+  await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+  await user.dblClick(option);
+  expect(answer).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: appI18n.t("speech.stop") }));
+  await waitFor(() => {
+    expect(readTranscript).toHaveBeenCalled();
+  });
+  await user.dblClick(screen.getByRole("radio", { name: "one" }));
+  expect(answer).not.toHaveBeenCalled();
+
+  await act(async () => {
+    transcript.resolve({ kind: "transcript", text: "dictated commentary" });
+  });
+  await waitFor(() => {
+    expect(screen.getByRole("textbox")).toHaveValue("dictated commentary");
+  });
+  await user.dblClick(screen.getByRole("radio", { name: "one" }));
+  await waitFor(() => {
+    expect(answer).toHaveBeenCalledTimes(1);
+  });
+  expect(answer.mock.calls[0]?.[0].entries).toMatchObject([
+    { selectedOptionNumber: 1, freeform: "dictated commentary" },
+  ]);
+});

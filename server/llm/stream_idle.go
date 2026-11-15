@@ -13,7 +13,6 @@ type streamingModelClient interface {
 	Client
 	CompactionClient
 	ProviderCapabilitiesClient
-	ModelContextWindowClient
 }
 
 type idleWatchdogClient struct {

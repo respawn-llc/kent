@@ -76,10 +76,10 @@ func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *test
 
 func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *testing.T) {
 	registry := NewRuntimeRegistry(nil)
-	engine := &runtime.Engine{}
-	registerReady(t, registry, "11111111-1111-4111-8111-111111111111", engine)
-	t.Cleanup(func() { closeRuntime(registry, "11111111-1111-4111-8111-111111111111", engine) })
-	resource := registryTestResourceRef("11111111-1111-4111-8111-111111111111")
+	engine := newRegistryTestRuntime(t, nil)
+	registerReady(t, registry, engine.SessionID(), engine)
+	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
+	resource := registryTestResourceRef(engine.SessionID())
 	entry := registry.authorityEntryByRef(resource)
 	sub, err := entry.sessionFeed.broker.Subscribe(transcriptBrokerHydration(t))
 	if err != nil {
@@ -98,13 +98,13 @@ func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *test
 		t.Fatal(err)
 	}
 	scope := runtimeids.NewExecutionScopeID()
-	snapshot, admitted := registry.pendingPrompts.Begin("11111111-1111-4111-8111-111111111111", resource, scope, askquestion.AskQuestionRequest{
+	snapshot, admitted := registry.pendingPrompts.Begin(engine.SessionID(), resource, scope, askquestion.AskQuestionRequest{
 		ToolCallID: "first", StepID: stepID, Question: "Proceed?", QuestionBatch: batch,
 	}, time.Now())
 	if !admitted {
 		t.Fatal("prepared Question was not admitted")
 	}
-	publishPendingPrompt(entry.sessionFeed, "11111111-1111-4111-8111-111111111111", snapshot, pendingPromptEventPending)
+	publishPendingPrompt(entry.sessionFeed, engine.SessionID(), snapshot, pendingPromptEventPending)
 	initial, err := sub.Next(ctx)
 	if err != nil {
 		t.Fatal(err)

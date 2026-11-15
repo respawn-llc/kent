@@ -56,6 +56,7 @@ func testQuestionBatchAnswers(t *testing.T, hydrated, resolutionFirst, freeform 
 		apply(askEventMsg{event: model.transcriptPromptEvent(second)})
 	}
 
+	apply(tea.KeyMsg{Type: tea.KeyDown})
 	delivery := apply(tea.KeyMsg{Type: tea.KeyEnter})
 	if delivery == nil {
 		t.Fatal("first Question did not submit an answer")
@@ -96,6 +97,8 @@ func testQuestionBatchAnswers(t *testing.T, hydrated, resolutionFirst, freeform 
 		apply(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("answer")})
 	} else if options != len(second.GetQuestion().Suggestions)+1 {
 		t.Fatalf("second Question has %d actionable options", options)
+	} else {
+		apply(tea.KeyMsg{Type: tea.KeyDown})
 	}
 
 	// A late resolution for the first Question must not dismiss its successor.

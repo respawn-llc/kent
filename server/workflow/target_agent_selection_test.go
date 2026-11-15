@@ -2,7 +2,6 @@ package workflow_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"core/server/workflow"
@@ -22,132 +21,100 @@ func (c targetAgentCatalogStub) ExplicitCallableRoles() []workflow.TargetAgentRo
 	return append([]workflow.TargetAgentRole(nil), c.selectable...)
 }
 
-func TestPlanTargetAgentSelectionUsesFallbackAndConfiguredQuestions(t *testing.T) {
-	catalog := targetAgentCatalogStub{
-		fallback: map[string]workflow.TargetAgentRole{
-			"coder": {Identity: "coder", QuestionsEnabled: true},
-		},
-	}
-	selection, err := workflow.PlanTargetAgentSelection(catalog, workflow.TargetAgentSelectionRequest{
-		FallbackRole: "coder",
-	})
-	if err != nil {
-		t.Fatalf("PlanTargetAgentSelection: %v", err)
-	}
-	if selection.Role.Identity != "coder" || selection.QuestionsRequired {
-		t.Fatalf("fallback selection = %+v", selection)
-	}
-}
-
-func TestPlanTargetAgentSelectionForceEnablesQuestionsForExplicitRole(t *testing.T) {
-	catalog := targetAgentCatalogStub{
-		selectable: []workflow.TargetAgentRole{
-			{Identity: "high", QuestionsEnabled: false, ExplicitAgentCallable: true},
-			{Identity: "low", QuestionsEnabled: true, ExplicitAgentCallable: true},
-		},
-	}
-	selection, err := workflow.PlanTargetAgentSelection(catalog, workflow.TargetAgentSelectionRequest{
-		OverrideEnabled: true,
-		SubmittedRole:   "high",
-	})
-	if err != nil {
-		t.Fatalf("PlanTargetAgentSelection: %v", err)
-	}
-	if selection.Role.Identity != "high" || !selection.QuestionsRequired {
-		t.Fatalf("selected role = %+v", selection)
-	}
-}
-
-func TestPlanTargetAgentSelectionResolvesZeroOneManyRoles(t *testing.T) {
-	tests := []struct {
-		name             string
-		roles            []workflow.TargetAgentRole
-		submitted        string
-		wantRole         string
-		wantError        workflow.TargetAgentSelectionErrorCode
-		wantIgnoredInput bool
+func TestTransitionSelectionMaterializesConfiguredRole(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		role      *workflow.TargetAgentRole
+		wantError workflow.TargetAgentSelectionErrorCode
 	}{
-		{name: "zero roles unavailable", wantError: workflow.TargetAgentSelectionErrorNoSelectableRoles},
-		{
-			name:             "one role automatic",
-			roles:            []workflow.TargetAgentRole{{Identity: "only", ExplicitAgentCallable: true}},
-			submitted:        "ignored",
-			wantRole:         "only",
-			wantIgnoredInput: true,
-		},
-		{
-			name:      "many roles require submitted role",
-			roles:     []workflow.TargetAgentRole{{Identity: "high", ExplicitAgentCallable: true}, {Identity: "low", ExplicitAgentCallable: true}},
-			submitted: "LOW",
-			wantRole:  "low",
-		},
-		{
-			name:      "many roles reject unavailable role",
-			roles:     []workflow.TargetAgentRole{{Identity: "high", ExplicitAgentCallable: true}, {Identity: "low", ExplicitAgentCallable: true}},
-			submitted: "missing",
-			wantError: workflow.TargetAgentSelectionErrorUnavailableRole,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			selection, err := workflow.PlanTargetAgentSelection(targetAgentCatalogStub{selectable: tt.roles}, workflow.TargetAgentSelectionRequest{
-				OverrideEnabled: true,
-				SubmittedRole:   tt.submitted,
+		{name: "available", role: &workflow.TargetAgentRole{Identity: "coder", QuestionsEnabled: true}},
+		{name: "Questions disabled", role: &workflow.TargetAgentRole{Identity: "coder"}, wantError: workflow.TargetAgentSelectionErrorQuestionsDisabled},
+		{name: "unavailable", wantError: workflow.TargetAgentSelectionErrorUnavailableRole},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := targetAgentCatalogStub{fallback: map[string]workflow.TargetAgentRole{}}
+			if test.role != nil {
+				catalog.fallback["coder"] = *test.role
+			}
+			plan, err := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
+				SourceKind: workflow.NodeKindAgent, TargetKind: workflow.NodeKindAgent,
+				TargetRole: "coder", Catalog: catalog,
+				Materialization: &workflow.TransitionSelectionMaterializationRequest{},
 			})
-			if tt.wantError != "" {
-				if err == nil {
-					t.Fatalf("PlanTargetAgentSelection succeeded, want %q", tt.wantError)
-				}
+			if test.wantError != "" {
 				var selectionErr workflow.TargetAgentSelectionError
-				if !errors.As(err, &selectionErr) || selectionErr.Code != tt.wantError {
-					t.Fatalf("error = %v, want code %q", err, tt.wantError)
+				if !errors.As(err, &selectionErr) || selectionErr.Code != test.wantError {
+					t.Fatalf("error = %v, want %s", err, test.wantError)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("PlanTargetAgentSelection: %v", err)
+				t.Fatal(err)
 			}
-			if selection.Role.Identity != tt.wantRole {
-				t.Fatalf("role = %q, want %q", selection.Role.Identity, tt.wantRole)
-			}
-			if selection.SubmittedRoleIgnored != tt.wantIgnoredInput {
-				t.Fatalf("submitted-role ignored = %v, want %v", selection.SubmittedRoleIgnored, tt.wantIgnoredInput)
+			if plan.ExecutionSelection == nil || plan.ExecutionSelection.Assignee != "coder" ||
+				plan.ExecutionSelection.Origin != workflow.AssigneeOriginConfiguredFallback {
+				t.Fatalf("configured selection = %+v", plan.ExecutionSelection)
 			}
 		})
 	}
 }
 
-func TestPlanTargetAgentSelectionSortsAndCanonicalizesCatalogRoles(t *testing.T) {
-	catalog := targetAgentCatalogStub{
-		selectable: []workflow.TargetAgentRole{
-			{Identity: "zeta", ExplicitAgentCallable: true},
-			{Identity: "alpha", ExplicitAgentCallable: true},
+func TestTransitionSelectionMaterializesZeroOneManyRoles(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		roles     []workflow.TargetAgentRole
+		submitted string
+		wantRole  string
+		wantError workflow.TargetAgentSelectionErrorCode
+	}{
+		{name: "zero roles", wantError: workflow.TargetAgentSelectionErrorNoSelectableRoles},
+		{
+			name:      "sole role ignores supplied value",
+			roles:     []workflow.TargetAgentRole{{Identity: "only", ExplicitAgentCallable: true}},
+			submitted: "ignored", wantRole: "only",
 		},
-	}
-	got := catalog.ExplicitCallableRoles()
-	want := []workflow.TargetAgentRole{{Identity: "zeta", ExplicitAgentCallable: true}, {Identity: "alpha", ExplicitAgentCallable: true}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("stub roles changed unexpectedly: %#v", got)
-	}
-	selection, err := workflow.PlanTargetAgentSelection(catalog, workflow.TargetAgentSelectionRequest{
-		OverrideEnabled: true,
-		SubmittedRole:   " ALPHA ",
-	})
-	if err != nil {
-		t.Fatalf("PlanTargetAgentSelection: %v", err)
-	}
-	if selection.Role.Identity != "alpha" {
-		t.Fatalf("canonical role = %q, want alpha", selection.Role.Identity)
-	}
-}
-
-func TestDefaultTargetAgentRoleDescriptionUsesAlphabeticalExplicitRoles(t *testing.T) {
-	description := workflow.DefaultTargetAgentRoleDescription([]workflow.TargetAgentRole{
-		{Identity: "zeta", ExplicitAgentCallable: true},
-		{Identity: "alpha", ExplicitAgentCallable: true},
-	})
-	want := "Override the subagent role for the next node, available roles: alpha, zeta"
-	if description != want {
-		t.Fatalf("description = %q, want %q", description, want)
+		{
+			name:     "sole role without supplied value",
+			roles:    []workflow.TargetAgentRole{{Identity: "only", ExplicitAgentCallable: true}},
+			wantRole: "only",
+		},
+		{
+			name:      "many roles canonicalize supplied value",
+			roles:     []workflow.TargetAgentRole{{Identity: "zeta", ExplicitAgentCallable: true}, {Identity: "alpha", ExplicitAgentCallable: true}},
+			submitted: " ALPHA ", wantRole: "alpha",
+		},
+		{
+			name:      "many roles reject unavailable value",
+			roles:     []workflow.TargetAgentRole{{Identity: "high", ExplicitAgentCallable: true}, {Identity: "low", ExplicitAgentCallable: true}},
+			submitted: "missing", wantError: workflow.TargetAgentSelectionErrorUnavailableRole,
+		},
+		{
+			name:      "many roles require value",
+			roles:     []workflow.TargetAgentRole{{Identity: "high", ExplicitAgentCallable: true}, {Identity: "low", ExplicitAgentCallable: true}},
+			wantError: workflow.TargetAgentSelectionErrorUnavailableRole,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, err := workflow.PlanTransitionSelection(workflow.TransitionParameterContractRequest{
+				Edge:       workflow.Edge{AssigneeSelection: workflow.AssigneeSelectionPreviousNode},
+				SourceKind: workflow.NodeKindAgent, TargetKind: workflow.NodeKindAgent,
+				Catalog:         targetAgentCatalogStub{selectable: test.roles},
+				Materialization: &workflow.TransitionSelectionMaterializationRequest{SubmittedRole: test.submitted},
+			})
+			if test.wantError != "" {
+				var selectionErr workflow.TargetAgentSelectionError
+				if !errors.As(err, &selectionErr) || selectionErr.Code != test.wantError {
+					t.Fatalf("error = %v, want %s", err, test.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.ExecutionSelection == nil || plan.ExecutionSelection.Assignee != test.wantRole ||
+				plan.ExecutionSelection.Origin != workflow.AssigneeOriginTransitionSelected {
+				t.Fatalf("selection = %+v, want selected %s even with configured Questions disabled", plan.ExecutionSelection, test.wantRole)
+			}
+		})
 	}
 }

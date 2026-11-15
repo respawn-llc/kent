@@ -28,7 +28,6 @@ function catalogFixture() {
   const list = vi.spyOn(services.api, "listProjects").mockImplementation(async (token) => ({
     projects: [],
     nextPageToken: token === null ? "next" : null,
-    generatedAt: 1,
   }));
   const model = createHomeViewModel({
     services,
@@ -107,7 +106,6 @@ it("refreshes the still-mounted Projects catalog after creation", async () => {
         },
       ],
       nextPageToken: null,
-      generatedAt: 2,
     });
     return {
       projectID: "created-project",
@@ -169,7 +167,7 @@ it.each(["next", "retry"] as const)(
     });
     expect(view.list).toHaveBeenCalledTimes(2);
     await act(async () => {
-      response.resolve({ projects: [], nextPageToken: null, generatedAt: 2 });
+      response.resolve({ projects: [], nextPageToken: null });
     });
   },
 );
@@ -181,7 +179,6 @@ it.each(["next", "retry"] as const)(
     const list = vi.spyOn(services.api, "listAttention").mockResolvedValue({
       items: [],
       nextPageToken: "next",
-      generatedAt: 1,
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const model = createHomeAttentionPages(services.api, client, false);
@@ -208,7 +205,7 @@ it.each(["next", "retry"] as const)(
     });
     expect(list).toHaveBeenCalledTimes(2);
     await act(async () => {
-      response.resolve({ items: [], nextPageToken: null, generatedAt: 2 });
+      response.resolve({ items: [], nextPageToken: null });
     });
     await act(async () => {
       view.result.current.fetchNextPage();

@@ -414,6 +414,7 @@ func (s *Store) resolveMaterializedCurrentNodeStartContext(
 		Node:            nodeRecord,
 		CurrentNode:     currentNode,
 		EnteringEdge:    enteringEdge,
+		SourceNodeKind:  sourceNode.Kind(),
 		ContextMode:     effectiveContextMode,
 		SourceSessionID: sourceSessionID,
 		PromptSessionID: promptSessionID,

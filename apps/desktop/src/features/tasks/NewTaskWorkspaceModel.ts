@@ -163,7 +163,7 @@ export function useNewTaskWorkspaceCatalog(
   const workspacePaging: SelectFieldPaging = {
     hasNextPage: workspaces.hasNextPage,
     initialBoundary: workspaces.isPending
-      ? { state: "loading", label: t("states.loading") }
+      ? { state: "loading" }
       : workspaces.isError && workspaces.data === undefined
         ? {
             state: "error",
@@ -174,7 +174,7 @@ export function useNewTaskWorkspaceCatalog(
         : undefined,
     loadKey: workspaces.data?.pages.at(-1)?.nextOffset?.toString(),
     nextBoundary: workspaces.isFetchingNextPage
-      ? { state: "loading", label: t("app.loadingMore") }
+      ? { state: "loading" }
       : workspaces.isFetchNextPageError
         ? {
             state: "error",

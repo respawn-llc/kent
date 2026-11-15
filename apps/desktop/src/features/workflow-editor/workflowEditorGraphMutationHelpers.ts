@@ -52,7 +52,6 @@ export function deleteNodeIDsInternal(
   return {
     ...afterEdges,
     edges: cleanupSelectedContextSources(afterEdges.edges, remainingNodes, removedNodeKeys),
-    nodeGroups: refreshNodeGroupMembership(afterEdges.nodeGroups, remainingNodes),
     nodes: remainingNodes,
   };
 }
@@ -72,16 +71,6 @@ export function removeEdgesInternal(
     })),
     transitionGroups: draft.transitionGroups.filter((group) => nonEmptyTransitionGroupIDs.has(group.id)),
   };
-}
-
-export function refreshNodeGroupMembership(
-  groups: DraftWorkflowDefinition["nodeGroups"],
-  nodes: readonly DraftWorkflowNode[],
-): DraftWorkflowDefinition["nodeGroups"] {
-  return groups.map((group) => ({
-    ...group,
-    nodeIDs: nodes.filter((node) => node.groupID === group.id).map((node) => node.id),
-  }));
 }
 
 export function transitionGroupDifference(

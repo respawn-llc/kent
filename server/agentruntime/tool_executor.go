@@ -198,9 +198,10 @@ func (t *defaultToolExecutor) resultGroupEffectBarrier(
 	cancel context.CancelFunc,
 ) tools.EffectBarrier {
 	return func(reason tools.EffectBarrierReason) error {
-		flushReason, err := resultGroupFlushReasonForEffect(reason)
-		if err != nil {
-			return err
+		switch reason {
+		case tools.EffectBarrierQuestion, tools.EffectBarrierApproval, tools.EffectBarrierCompleteNode:
+		default:
+			return fmt.Errorf("unknown tool effect barrier reason %d", reason)
 		}
 		return runResultGroupEffectBarrier(
 			ctx,
@@ -209,7 +210,7 @@ func (t *defaultToolExecutor) resultGroupEffectBarrier(
 			func() error {
 				return t.engine.steer(
 					stepID,
-					steerResultGroupFlushIntent(collector, flushReason),
+					steerResultGroupFlushIntent(collector),
 				)
 			},
 		)
@@ -239,21 +240,6 @@ func runResultGroupEffectBarrier(
 	return nil
 }
 
-func resultGroupFlushReasonForEffect(
-	reason tools.EffectBarrierReason,
-) (ResultGroupFlushReason, error) {
-	switch reason {
-	case tools.EffectBarrierQuestion:
-		return ResultGroupFlushQuestion, nil
-	case tools.EffectBarrierApproval:
-		return ResultGroupFlushApproval, nil
-	case tools.EffectBarrierCompleteNode:
-		return ResultGroupFlushCompleteNode, nil
-	default:
-		return 0, fmt.Errorf("unknown tool effect barrier reason %d", reason)
-	}
-}
-
 func toolErrorResult(call tools.Call, message string) tools.Result {
 	if call.Name == toolspec.ToolExecCommand || call.Name == toolspec.ToolWriteStdin {
 		return shelltool.ErrorResult(call, message)
@@ -272,6 +258,7 @@ func (e *Engine) executePreparedToolCall(
 ) (tools.Result, bool, error) {
 	ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
 		StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
+		SessionShortID: e.store.Identity().ShortID,
 	})
 	approvalLifecycle := tools.NewApprovalLifecycle()
 	ctx = tools.WithApprovalLifecycle(ctx, approvalLifecycle)

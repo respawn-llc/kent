@@ -10,27 +10,52 @@ export const attentionBase = {
   occurredAt: { seconds: 0n, nanos: 1_000_000 },
 };
 
-export function taskQuestionPage(prompts: readonly (readonly [string, number])[], generatedAt = 3) {
+export const questionAttention = create(taskAttention.AttentionItemSchema, {
+  ...attentionBase,
+  id: "attention-question",
+  detail: {
+    case: "question",
+    value: {
+      currentNode: { nodeId: "node-1" },
+      sessionName: "Session one",
+      question: {
+        question: {
+          case: "ask",
+          value: {
+            sessionId: "33333333-3333-4333-8333-333333333333",
+            stepId: "22222222-2222-4222-8222-222222222222",
+            toolCallId: "ask-1",
+            question: "Choose snack",
+            createdAt: { seconds: 0n, nanos: 1_000_000 },
+            recommendedOptionIndex: 1,
+            suggestions: ["Trail mix", "Dark chocolate"],
+          },
+        },
+      },
+    },
+  },
+});
+
+export function taskQuestionPage(prompts: readonly (readonly [string, number])[]) {
   return create(taskAttention.TaskAttentionListSuccessSchema, {
     items: prompts.map(([askID, optionCount]) =>
       create(taskAttention.AttentionItemSchema, {
         ...attentionBase,
         id: `attention-${askID}`,
-        kind: taskAttention.AttentionItemKind.QUESTION,
         detail: {
           case: "question",
           value: {
-            message: askID,
             currentNode: { nodeId: "node-1" },
             sessionName: "Session one",
             question: {
-              sessionId: "33333333-3333-4333-8333-333333333333",
-              stepId: "22222222-2222-4222-8222-222222222222",
-              toolCallId: askID,
-              kind: taskAttention.AttentionQuestionKind.ORDINARY,
-              prompt: {
-                case: "ordinary",
+              question: {
+                case: "ask",
                 value: {
+                  sessionId: "33333333-3333-4333-8333-333333333333",
+                  stepId: "22222222-2222-4222-8222-222222222222",
+                  toolCallId: askID,
+                  question: askID,
+                  createdAt: { seconds: 0n, nanos: 1_000_000 },
                   recommendedOptionIndex: 1,
                   suggestions: Array.from(
                     { length: optionCount },
@@ -43,6 +68,5 @@ export function taskQuestionPage(prompts: readonly (readonly [string, number])[]
         },
       }),
     ),
-    generatedAt: { seconds: 0n, nanos: generatedAt * 1_000_000 },
   });
 }

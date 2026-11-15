@@ -10,6 +10,7 @@ import (
 	"core/server/sessionstore"
 	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
+	"core/shared/modelcontract"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -28,7 +29,7 @@ func TestAcceptedResponsePersistsProviderModelMismatchAndAdjustedUsage(t *testin
 		t.Run(test.name, func(t *testing.T) {
 			store := mustCreateTestSession(t)
 			response := finalTextResponse("done")
-			response.ServedModel = stringPointer("served-model")
+			response.ProviderEvidence.ServedModel = stringPointer("served-model")
 			response.Usage = llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}}
 			engine := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{response}}, newTestToolRegistry(t), Config{
 				Model: "requested-model",
@@ -54,12 +55,38 @@ func TestAcceptedResponsePersistsProviderModelMismatchAndAdjustedUsage(t *testin
 	}
 }
 
+func TestAcceptedResponseWithoutModelMismatch(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		servedModel *string
+	}{
+		{name: "absent served model"},
+		{name: "same model", servedModel: stringPointer("requested-model")},
+		{name: "normalized same model", servedModel: stringPointer(" requested-model ")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := mustCreateTestSession(t)
+			response := finalTextResponse("done")
+			response.ProviderEvidence.ServedModel = test.servedModel
+			engine := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{response}}, newTestToolRegistry(t), Config{
+				Model: "requested-model",
+			})
+			if _, err := runStepLoopInActiveTestRun(t, context.Background(), engine); err != nil {
+				t.Fatal(err)
+			}
+			if warnings := providerModelMismatchWarnings(t, store); len(warnings) != 0 {
+				t.Fatalf("provider-model mismatch warning count = %d, want none", len(warnings))
+			}
+		})
+	}
+}
+
 func TestConsecutiveAcceptedToolLoopResponsesPersistOneMismatchEach(t *testing.T) {
 	store := mustCreateTestSession(t)
 	first := commentaryResponse("working", llm.ToolCall{ID: "call-1", Name: "exec_command", Input: json.RawMessage(`{"cmd":"true"}`)})
-	first.ServedModel = stringPointer("served-model")
+	first.ProviderEvidence.ServedModel = stringPointer("served-model")
 	second := finalTextResponse("done")
-	second.ServedModel = stringPointer("served-model")
+	second.ProviderEvidence.ServedModel = stringPointer("served-model")
 	engine := mustNewTestEngine(t, store, &fakeClient{responses: []llm.Response{first, second}}, newTestToolRegistry(t,
 		tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}), Config{Model: "requested-model"})
 	if _, err := runStepLoopInActiveTestRun(t, context.Background(), engine); err != nil {
@@ -71,9 +98,9 @@ func TestConsecutiveAcceptedToolLoopResponsesPersistOneMismatchEach(t *testing.T
 }
 func TestQueuedAgentSteerStartsNewMismatchWarningStep(t *testing.T) {
 	first := commentaryResponse("working", llm.ToolCall{ID: "call-1", Name: "exec_command", Input: json.RawMessage(`{"cmd":"true"}`)})
-	first.ServedModel = stringPointer("served-model")
+	first.ProviderEvidence.ServedModel = stringPointer("served-model")
 	second := finalTextResponse("done")
-	second.ServedModel = stringPointer("served-model")
+	second.ProviderEvidence.ServedModel = stringPointer("served-model")
 	client, started, release := newGatedHookClient(first, second)
 	engine := mustNewTestEngine(t, mustCreateTestSession(t), client,
 		newTestToolRegistry(t, tools.HandlerRegistration{ID: toolspec.ToolExecCommand, Handler: fakeTool{name: toolspec.ToolExecCommand}}),
@@ -164,8 +191,8 @@ func requireErrorIs(t *testing.T, got, want error) {
 func acceptedMismatchCandidate() successfulRequestCandidate {
 	return successfulRequestCandidate{
 		response: llm.Response{
-			ServedModel: stringPointer("served-model"),
-			Usage:       llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}},
+			ProviderEvidence: modelcontract.ProviderUsageEvidence{ServedModel: stringPointer("served-model")},
+			Usage:            llm.Usage{InputTokens: textutil.Value(42), OutputTokens: textutil.Value(3), WindowTokens: 200000, ContextUsage: &llm.ContextUsage{Tokens: 42, MeasurementPoint: llm.ContextMeasurementInput}},
 		},
 		requestedModel:          "requested-model",
 		estimatedProviderTokens: 17,

@@ -574,7 +574,7 @@ func runLiveSteerSubcommand(args []string) int {
 		fmt.Fprintln(os.Stderr, runErrorMessage(err))
 		if errors.Is(err, serverapi.ErrRuntimeNoActiveRun) {
 			fmt.Fprintln(os.Stderr)
-			fmt.Fprintf(os.Stderr, "To continue this session instead, execute `%s`.\n", buildRunSteerContinueCommand(liveErrorSelector(sessionID, err), continueCommandPersistenceRoot(*persistenceRoot), message))
+			fmt.Fprintf(os.Stderr, "To continue this session instead, execute `%s`.\n", prompts.ContinueRunCommandWithRoot(liveErrorSelector(sessionID, err), continueCommandPersistenceRoot(*persistenceRoot)))
 		}
 		return 1
 	}
@@ -973,20 +973,6 @@ func buildRunContinueHint(sessionID, persistenceRoot string) string {
 		return ""
 	}
 	return fmt.Sprintf("To continue this run, execute `%s`.", command)
-}
-
-func buildRunSteerContinueCommand(sessionID, persistenceRoot, message string) string {
-	sessionID = strings.TrimSpace(sessionID)
-	message = strings.TrimSpace(message)
-	if sessionID == "" || message == "" {
-		return ""
-	}
-	tokens := []string{"kent", "run"}
-	if root := strings.TrimSpace(persistenceRoot); root != "" {
-		tokens = append(tokens, "--persistence-root", root)
-	}
-	tokens = append(tokens, "--continue", sessionID, message)
-	return shellCommand(tokens...)
 }
 
 // continueCommandPersistenceRoot returns the absolute root to embed in a

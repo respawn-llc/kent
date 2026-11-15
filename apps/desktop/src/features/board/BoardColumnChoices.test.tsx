@@ -55,7 +55,6 @@ function selectedBoard(
     selectedWorkflow,
     workflows: [selectedWorkflow],
     groups: [],
-    generatedAt: 1,
     columns,
   };
 }

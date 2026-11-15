@@ -43,10 +43,10 @@ type TargetResolutionRequest struct {
 }
 
 type ResolvedTarget struct {
-	SessionID   runtimeids.SessionID
-	ShortID     *runtimeids.SessionShortID
-	Created     bool
-	Preparation *serverapi.SessionRuntimePreparationOptions
+	SessionID  runtimeids.SessionID
+	ShortID    *runtimeids.SessionShortID
+	Created    bool
+	Invocation *serverapi.RunPromptOverrides
 }
 
 type TargetResolver struct {
@@ -113,7 +113,7 @@ func (r *TargetResolver) SelectPlacement(ctx context.Context, target ResolvedTar
 	}
 	return ResolvedTarget{
 		SessionID: planned.Plan.Descriptor.SessionID(), ShortID: planned.Identity.ShortID, Created: true,
-		Preparation: target.Preparation,
+		Invocation: target.Invocation,
 	}, nil
 }
 
@@ -146,12 +146,12 @@ func (r *TargetResolver) Resolve(
 			return ResolvedTarget{}, err
 		}
 		target := ResolvedTarget{SessionID: sessionID, ShortID: record.ShortID}
-		if sessionTarget.Preparation != nil {
-			options, err := protoapi.SessionRuntimePreparationFromProto(sessionTarget.Preparation)
+		if sessionTarget.Invocation != nil {
+			options, err := protoapi.RunPromptOverridesFromProto(sessionTarget.Invocation)
 			if err != nil {
 				return target, err
 			}
-			target.Preparation = &options
+			target.Invocation = &options
 		}
 		return target, nil
 	}
@@ -199,20 +199,12 @@ func (r *TargetResolver) Resolve(
 			return resolved, err
 		}
 	}
-	resolved.Preparation, err = preparationFromPlan(response.Plan)
-	return resolved, err
-}
-
-func preparationFromPlan(plan *sessionlaunchpb.SessionPlan) (*serverapi.SessionRuntimePreparationOptions, error) {
-	options, err := protoapi.SessionRuntimePreparationFromProto(&sessionlaunchpb.SessionRuntimePreparationOptions{
-		ConnectionScope: plan.ConnectionScope,
-		ActiveSettings:  plan.ActiveSettings, EnabledToolIds: plan.EnabledToolIds,
-		QuestionsEnabled: &plan.QuestionsEnabled, AutoCompactionEnabled: &plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: plan.ThinkingOverrideExplicit, Source: plan.Source,
-		AgentSelection: plan.ActivationAgentSelection, ExplicitToolSelection: plan.ExplicitToolSelection,
-	})
-	if err != nil {
-		return nil, err
+	if newChat.Invocation != nil {
+		invocation, err := protoapi.RunPromptOverridesFromProto(newChat.Invocation)
+		if err != nil {
+			return resolved, err
+		}
+		resolved.Invocation = &invocation
 	}
-	return &options, nil
+	return resolved, nil
 }

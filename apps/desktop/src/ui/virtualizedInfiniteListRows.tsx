@@ -131,7 +131,6 @@ export function renderVirtualizedRow<TItem>({
   isFetchingNextPage,
   item,
   layout,
-  loadingLabel,
   nextBoundary,
   previousBoundary,
   renderItem,
@@ -142,7 +141,6 @@ export function renderVirtualizedRow<TItem>({
   isFetchingNextPage: boolean;
   item: TItem | undefined;
   layout: VirtualizedInfiniteListLayout;
-  loadingLabel: string | undefined;
   nextBoundary: VirtualizedInfiniteListBoundaryState | undefined;
   previousBoundary: VirtualizedInfiniteListBoundaryState | undefined;
   renderItem: (item: TItem, itemIndex: number) => ReactNode;
@@ -161,7 +159,7 @@ export function renderVirtualizedRow<TItem>({
     return <InfiniteListBoundary direction="next" state={nextBoundary} />;
   }
   if (layout.legacyPlaceholderIndex === virtualIndex) {
-    return renderVirtualizedPlaceholder({ loading: isFetchingNextPage, loadingLabel });
+    return renderVirtualizedPlaceholder({ loading: isFetchingNextPage });
   }
   return item === undefined ? null : renderItem(item, virtualIndex - layout.itemStartIndex);
 }
@@ -318,17 +316,14 @@ export function renderVirtualizedRowsContent({
   renderedRows,
   hasItems,
   empty,
-  loadingLabel,
   flowBlock,
 }: Readonly<{
   renderedRows: readonly ReactNode[];
   hasItems: boolean;
   empty: ReactNode;
-  loadingLabel: string | undefined;
   flowBlock: VirtualizedFlowBlock | undefined;
 }>): ReactNode {
-  if (renderedRows.length === 0)
-    return hasItems ? renderVirtualizedPlaceholder({ loading: true, loadingLabel }) : empty;
+  if (renderedRows.length === 0) return hasItems ? renderVirtualizedPlaceholder({ loading: true }) : empty;
   if (flowBlock !== undefined) {
     // Smooth scrolling skips distant measurements. Keep rendered rows in
     // normal flow so estimates cannot make adjacent messages overlap.
@@ -419,23 +414,14 @@ function resolveVirtualizedRowStyle({
   };
 }
 
-export function renderVirtualizedPlaceholder({
-  loading,
-  loadingLabel,
-}: Readonly<{ loading: boolean; loadingLabel: string | undefined }>) {
+export function renderVirtualizedPlaceholder({ loading }: Readonly<{ loading: boolean }>) {
   return (
     <div
-      aria-label={loading ? loadingLabel : undefined}
       aria-live="polite"
       className="grid min-h-12 place-items-center"
       role={loading ? "status" : undefined}
     >
-      {loading ? (
-        <>
-          <Spinner size="sm" />
-          <span className="sr-only">{loadingLabel}</span>
-        </>
-      ) : null}
+      {loading ? <Spinner size="sm" /> : null}
     </div>
   );
 }

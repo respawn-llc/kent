@@ -2,54 +2,20 @@ package workflow
 
 import "strings"
 
-// TargetAgentExecutionSelectionRequest contains the complete immutable input
-// needed to materialize an Agent target assignment at a transition boundary.
-// Protected values are supplied separately from ordinary parameter flow so
-// arbitrary output keys cannot select an assignment.
-type TargetAgentExecutionSelectionRequest struct {
-	Edge                Edge
-	FallbackRole        string
-	Catalog             TargetAgentCatalog
-	SubmittedRole       string
-	SubmittedThinking   string
-	ThinkingDescription string
-	RetainedSession     *AgentExecutionSelection
-}
-
-// PlanTargetAgentExecutionSelection composes the role and thinking planners
-// into the one transition-target assignment decision.
-func PlanTargetAgentExecutionSelection(request TargetAgentExecutionSelectionRequest) (AgentExecutionSelection, error) {
-	return planTargetAgentExecutionSelection(request)
-}
-
-func planTargetAgentExecutionSelection(request TargetAgentExecutionSelectionRequest) (AgentExecutionSelection, error) {
-	if request.RetainedSession != nil {
-		selection := request.RetainedSession.Clone()
+func (p transitionSelectionPolicy) materialize(fallbackRole string, retainedSession *AgentExecutionSelection, request TransitionSelectionMaterializationRequest) (AgentExecutionSelection, error) {
+	if retainedSession != nil {
+		selection := retainedSession.Clone()
 		selection.Origin = AssigneeOriginRetainedSession
 		role := TargetAgentRole{Identity: selection.Assignee}
-		var resolvedRole *TargetAgentRole
-		if request.Catalog != nil {
-			if resolved, ok := request.Catalog.ResolveConfiguredRole(selection.Assignee); ok {
-				role = resolved
-				resolvedRole = &resolved
-			}
+		if p.retainedRole != nil {
+			role = *p.retainedRole
 		}
-		thinkingSelection := CanonicalThinkingSelection(request.Edge.ThinkingSelection)
-		if thinkingSelection == ThinkingSelectionPreviousNode || resolvedRole != nil {
-			thinking, err := PlanTargetAgentThinkingSelection(TargetAgentThinkingSelectionRequest{
-				OverrideEnabled:     thinkingSelection == ThinkingSelectionPreviousNode,
-				TargetRole:          role,
-				EligibleRoles:       []TargetAgentRole{role},
-				SubmittedValue:      request.SubmittedThinking,
-				AuthoredDescription: request.ThinkingDescription,
-			})
+		if p.thinkingOverride || p.retainedRole != nil {
+			thinking, err := p.thinking.selectThinking(role, p.thinkingOverride, request.SubmittedThinking, request.ThinkingDescription)
 			if err != nil {
 				return AgentExecutionSelection{}, err
 			}
-			selection.Thinking, err = materializeThinkingValue(thinking.Value)
-			if err != nil {
-				return AgentExecutionSelection{}, err
-			}
+			selection.Thinking = thinking
 		}
 		if err := selection.Validate(); err != nil {
 			return AgentExecutionSelection{}, err
@@ -57,40 +23,27 @@ func planTargetAgentExecutionSelection(request TargetAgentExecutionSelectionRequ
 		return selection, nil
 	}
 
-	assigneeSelection := CanonicalAssigneeSelection(request.Edge.AssigneeSelection)
-	roleSelection, err := PlanTargetAgentSelection(request.Catalog, TargetAgentSelectionRequest{
-		FallbackRole:    request.FallbackRole,
-		OverrideEnabled: assigneeSelection == AssigneeSelectionPreviousNode,
-		SubmittedRole:   request.SubmittedRole,
-	})
+	var role TargetAgentRole
+	var err error
+	if p.assigneeOverride {
+		role, err = p.assignee.selectRole(request.SubmittedRole)
+	} else {
+		role, err = configuredTargetAgentSelection(p.configuredRole, fallbackRole)
+	}
 	if err != nil {
 		return AgentExecutionSelection{}, err
 	}
 
-	eligibleRoles := []TargetAgentRole{roleSelection.Role}
-	if assigneeSelection == AssigneeSelectionPreviousNode {
-		eligibleRoles = request.Catalog.ExplicitCallableRoles()
-	}
-	thinkingSelection, err := PlanTargetAgentThinkingSelection(TargetAgentThinkingSelectionRequest{
-		OverrideEnabled:     CanonicalThinkingSelection(request.Edge.ThinkingSelection) == ThinkingSelectionPreviousNode,
-		TargetRole:          roleSelection.Role,
-		EligibleRoles:       eligibleRoles,
-		SubmittedValue:      request.SubmittedThinking,
-		AuthoredDescription: request.ThinkingDescription,
-	})
+	thinking, err := p.thinking.selectThinking(role, p.thinkingOverride, request.SubmittedThinking, request.ThinkingDescription)
 	if err != nil {
 		return AgentExecutionSelection{}, err
 	}
 
-	thinking, err := materializeThinkingValue(thinkingSelection.Value)
-	if err != nil {
-		return AgentExecutionSelection{}, err
-	}
 	origin := AssigneeOriginConfiguredFallback
-	if assigneeSelection == AssigneeSelectionPreviousNode {
+	if p.assigneeOverride {
 		origin = AssigneeOriginTransitionSelected
 	}
-	return NewAgentExecutionSelection(roleSelection.Role.Identity, thinking, origin)
+	return NewAgentExecutionSelection(role.Identity, thinking, origin)
 }
 
 func materializeThinkingValue(raw string) (*ThinkingValue, error) {

@@ -133,6 +133,97 @@ func TestDeleteWorktreeRemovesMetadataForPrunableRegistration(t *testing.T) {
 	}
 }
 
+func TestDeleteExternalWorktreeWithMissingGitMarker(t *testing.T) {
+	env := newServiceTestEnv(t)
+	root := filepath.Join(t.TempDir(), "external")
+	runGit(t, env.workspaceRoot, "worktree", "add", "-b", "feature/delete-external-missing-marker", root)
+	if err := os.Remove(filepath.Join(root, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	request := worktreeDeleteRequest(env, canonicalTestPath(t, root))
+	request.ForceFolderRemoval = true
+	if _, err := env.service.DeleteWorktree(env.ctx, request); err != nil {
+		t.Fatalf("DeleteWorktree: %v", err)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted root: %v", err)
+	}
+	entries, err := env.service.git.List(env.ctx, env.workspaceRoot)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("Git topology after deletion = %+v, %v", entries, err)
+	}
+	if exists, err := env.service.git.BranchExists(env.ctx, env.workspaceRoot, "feature/delete-external-missing-marker"); err != nil || !exists {
+		t.Fatalf("retained branch exists=%v err=%v", exists, err)
+	}
+}
+
+func TestDeleteWorktreeWithAbsentDirectory(t *testing.T) {
+	env := newServiceTestEnv(t)
+	created := mustCreateWorktree(t, env, "feature/delete-absent-directory")
+	if err := os.RemoveAll(created.CanonicalRoot); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
+		Scope: worktreeDeleteRequest(env, created.WorktreeID).Scope, Selector: created.WorktreeID,
+	})
+	if err != nil || preview.GetCleanliness().GetKind() != worktreepb.DirtyStateKind_DIRTY_STATE_CLEAN {
+		t.Fatalf("preview = %+v, %v, want no folder-removal precondition", preview, err)
+	}
+	if _, err := env.service.DeleteWorktree(env.ctx, worktreeDeleteRequest(env, created.WorktreeID)); err != nil {
+		t.Fatalf("DeleteWorktree: %v", err)
+	}
+	if _, err := env.store.GetWorktreeRecordByID(env.ctx, created.WorktreeID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("worktree record = %v, want sql.ErrNoRows", err)
+	}
+	entries, err := env.service.git.List(env.ctx, env.workspaceRoot)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("Git topology after deletion = %+v, %v", entries, err)
+	}
+	if exists, err := env.service.git.BranchExists(env.ctx, env.workspaceRoot, created.BranchName); err != nil || !exists {
+		t.Fatalf("retained branch exists=%v err=%v", exists, err)
+	}
+}
+
+func TestDeleteWorktreeMissingGitMarkerRequiresForceWithoutGitDiagnostic(t *testing.T) {
+	env := newServiceTestEnv(t)
+	created := mustCreateWorktree(t, env, "feature/delete-missing-marker-confirmation")
+	contentPath := filepath.Join(created.CanonicalRoot, "user-content.txt")
+	if err := os.WriteFile(contentPath, []byte("preserve"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(created.CanonicalRoot, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	request := worktreeDeleteRequest(env, created.WorktreeID)
+	preview, err := env.service.PreviewWorktreeDelete(env.ctx, &worktreepb.DeletePreviewRequest{
+		Scope: request.Scope, Selector: request.Selector,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state := preview.Cleanliness; state.Kind != worktreepb.DirtyStateKind_DIRTY_STATE_UNKNOWN || state.UnknownCause != nil {
+		t.Fatalf("cleanliness = %+v, want unknown without a failed Git command diagnostic", state)
+	}
+	_, err = env.service.DeleteWorktree(env.ctx, request)
+	var precondition *worktreecontract.DeletePreconditionError
+	if !errors.As(err, &precondition) || precondition.Details.DirtyState.Kind != worktreepb.DirtyStateKind_DIRTY_STATE_UNKNOWN {
+		t.Fatalf("delete error = %v, want unknown precondition", err)
+	}
+	if content, err := os.ReadFile(contentPath); err != nil || string(content) != "preserve" {
+		t.Fatalf("preserved content = %q, %v", content, err)
+	}
+	if _, err := env.store.GetWorktreeRecordByID(env.ctx, created.WorktreeID); err != nil {
+		t.Fatalf("record after refused deletion: %v", err)
+	}
+	request.ForceFolderRemoval = true
+	if _, err := env.service.DeleteWorktree(env.ctx, request); err != nil {
+		t.Fatalf("forced DeleteWorktree: %v", err)
+	}
+	if _, err := os.Stat(created.CanonicalRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("forced folder deletion = %v", err)
+	}
+}
+
 func TestMissingWorktreeDeletePreviewIsCleanAndPreservesLeftoverRoot(t *testing.T) {
 	env := newServiceTestEnv(t)
 	missingRoot := filepath.Join(t.TempDir(), "missing-root")

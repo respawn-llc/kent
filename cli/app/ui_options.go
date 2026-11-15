@@ -1,7 +1,5 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"fmt"
 	"strings"
@@ -33,13 +31,14 @@ type UITransition struct {
 }
 
 const (
-	UIActionNone         UIAction = "none"
-	UIActionExit         UIAction = "exit"
-	UIActionNewSession   UIAction = "new_session"
-	UIActionResume       UIAction = "resume"
-	UIActionLogout       UIAction = "logout"
-	UIActionForkRollback UIAction = "fork_rollback"
-	UIActionOpenSession  UIAction = "open_session"
+	UIActionNone                  UIAction = "none"
+	UIActionExit                  UIAction = "exit"
+	UIActionNewSession            UIAction = "new_session"
+	UIActionResume                UIAction = "resume"
+	UIActionLogout                UIAction = "logout"
+	UIActionForkRollback          UIAction = "fork_rollback"
+	UIActionOpenSession           UIAction = "open_session"
+	UIActionFollowSelectedSession UIAction = "follow_selected_session"
 )
 
 func (a UIAction) transitionAction() (sessionlaunchpb.SessionTransitionAction, error) {
@@ -106,12 +105,6 @@ func WithUIConfiguredModelName(model *string) UIOption {
 func WithUIThinkingLevel(thinkingLevel string) UIOption {
 	return func(m *uiModel) {
 		m.thinkingLevel = strings.TrimSpace(thinkingLevel)
-	}
-}
-
-func WithUIConversationFreshness(freshness runtimepb.ConversationFreshness) UIOption {
-	return func(m *uiModel) {
-		m.conversationFreshness = freshness
 	}
 }
 

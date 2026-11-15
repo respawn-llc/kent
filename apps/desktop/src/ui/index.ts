@@ -22,6 +22,7 @@ export type {
 export { AnimatedChipSummary } from "./AnimatedChipSummary";
 export { AnimatedReveal } from "./AnimatedReveal";
 export { AnimatedSize } from "./AnimatedSize";
+export { AnimatedText } from "./AnimatedText";
 export { ProgressChip, ProgressInteractiveChip } from "./ProgressChip";
 export type { ProgressChipProps, ProgressInteractiveChipProps } from "./ProgressChip";
 export { ActionableListRow } from "./ActionableListRow";
@@ -74,7 +75,14 @@ export { readEffectiveTheme, type AppTheme } from "./theme";
 export { cx } from "./classes";
 export { SteppedSelector } from "./SteppedSelector";
 export { useTextOverflow } from "./useTextOverflow";
-export { motionDurationFromCSSVar, prefersReducedMotion, useOpacityExit } from "./motion";
+export {
+  motionDurationFromCSSVar,
+  prefersReducedMotion,
+  useOpacityExit,
+  ReducedMotionContext,
+  useReducedMotion,
+  useSystemReducedMotion,
+} from "./motion";
 export {
   consumeTextFieldSubmitShortcut,
   isTextFieldSubmitShortcut,
@@ -84,6 +92,7 @@ export { Spinner } from "./Spinner";
 export { LinearBar } from "./LinearBar";
 export type { SpinnerProps } from "./Spinner";
 export { Switch } from "./radix/switch";
+export { PreferenceRow } from "./PreferenceRow";
 export { Checkbox } from "./radix/checkbox";
 export { RadioGroup, RadioGroupItem } from "./radix/radio-group";
 export {
@@ -110,7 +119,7 @@ export {
   DropdownMenuTrigger,
 } from "./radix/dropdown-menu";
 export { Toaster } from "./Sonner";
-export { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "./radix/popover";
+export { Popover, PopoverAnchor, PopoverClose, PopoverContent, PopoverTrigger } from "./radix/popover";
 export { HoverPopover } from "./HoverPopover";
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./radix/tooltip";
 export { dismissStatusToast, showStatusToast } from "./statusToast";

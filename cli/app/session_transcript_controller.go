@@ -9,6 +9,8 @@ import (
 	"core/cli/tui/ongoing"
 	"core/cli/tui/transcriptrender"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	transcript "core/shared/transcriptmodel"
+	"google.golang.org/protobuf/proto"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -17,6 +19,7 @@ const ongoingTranscriptQueueLimit = 1000
 
 type ongoingTranscriptSurface interface {
 	ApplyTerminalMessage(*transcriptpb.Message, ongoing.FrameInput) (ongoing.Result, error)
+	ApplyHistoryRows([]*transcriptpb.CommittedRow, ongoing.FrameInput) (ongoing.Result, error)
 	Render(ongoing.FrameInput) (ongoing.Result, error)
 	Resize(ongoing.Size, ongoing.FrameInput) (ongoing.Result, error)
 	ResetForScratchHydration(ongoing.RehydrateReason, ongoing.FrameInput) (ongoing.Result, error)
@@ -29,17 +32,19 @@ type ongoingTranscriptRuntimeAdmission func(*transcriptpb.Message) (runtimeTuple
 type ongoingTranscriptAdmittedStateObserver func(*transcriptpb.Message, runtimeTupleMergeResult) tea.Cmd
 
 type ongoingTranscriptController struct {
-	surface          ongoingTranscriptSurface
-	frameProvider    ongoingFrameProvider
-	runtimeAdmission ongoingTranscriptRuntimeAdmission
-	stateObserver    ongoingTranscriptAdmittedStateObserver
-	normalOwned      bool
-	hydrated         bool
-	lastSequence     uint64
-	queue            []ongoing.TerminalWork
-	queueOverflowed  bool
-	renderPending    bool
-	liveReadModel    ongoingTranscriptReadModel
+	surface             ongoingTranscriptSurface
+	frameProvider       ongoingFrameProvider
+	runtimeAdmission    ongoingTranscriptRuntimeAdmission
+	stateObserver       ongoingTranscriptAdmittedStateObserver
+	normalOwned         bool
+	hydrated            bool
+	lastSequence        uint64
+	initialHistoryEnd   *transcriptpb.CommittedRowLocator
+	initialHistoryTools map[transcript.CommittedRowLocator]struct{}
+	queue               []ongoing.TerminalWork
+	queueOverflowed     bool
+	renderPending       bool
+	liveReadModel       ongoingTranscriptReadModel
 }
 
 func newOngoingTranscriptController(
@@ -79,6 +84,7 @@ func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ong
 	c.commitDelivery(message)
 	stateChanged := c.applyState(message)
 	stateCmd := c.stateObserver(message, admission)
+	message = c.initialHydrationAfterHistory(message)
 	if !c.normalOwned {
 		if !isAppOwnedOngoingMessage(message.Event) {
 			c.enqueue(ongoing.TerminalMessage{Message: message})
@@ -88,6 +94,59 @@ func (c *ongoingTranscriptController) Accept(message *transcriptpb.Message) (ong
 	}
 	result, err := c.applyNow(message, stateChanged)
 	return result, stateCmd, err
+}
+
+func (c *ongoingTranscriptController) AcceptHistory(page *transcriptpb.Page) (ongoing.Result, error) {
+	if c.hydrated {
+		return ongoing.Result{}, fmt.Errorf("initial history arrived after transcript hydration")
+	}
+	if len(page.Entries) > 0 {
+		c.initialHistoryEnd = proto.CloneOf(page.Entries[len(page.Entries)-1].Locator)
+	}
+	for _, row := range page.Entries {
+		if row.GetToolCall() != nil {
+			if c.initialHistoryTools == nil {
+				c.initialHistoryTools = make(map[transcript.CommittedRowLocator]struct{})
+			}
+			c.initialHistoryTools[historyRowLocator(row.Locator)] = struct{}{}
+		}
+	}
+	work := ongoing.TerminalHistory{Rows: page.Entries}
+	if !c.normalOwned {
+		c.enqueue(work)
+		return ongoing.Result{}, nil
+	}
+	return c.applyTerminalWork(work)
+}
+
+// The bounded page precedes subscription creation. Its source cursor belongs
+// only to that first snapshot handoff, never to emitted scrollback or recovery.
+func (c *ongoingTranscriptController) initialHydrationAfterHistory(message *transcriptpb.Message) *transcriptpb.Message {
+	hydration := message.Event.GetHydration()
+	if hydration == nil || c.initialHistoryEnd == nil {
+		return message
+	}
+	end := c.initialHistoryEnd
+	c.initialHistoryEnd = nil
+	next := proto.CloneOf(message)
+	rows := next.Event.GetHydration().TailSegment.Entries
+	retained := rows[:0]
+	for _, row := range rows {
+		locator := row.Locator
+		_, unfinishedTool := c.initialHistoryTools[historyRowLocator(locator)]
+		if locator.EventSequence > end.EventSequence ||
+			(locator.EventSequence == end.EventSequence && locator.RowOrdinal > end.RowOrdinal) ||
+			(unfinishedTool && row.GetTool() != nil) {
+			retained = append(retained, row)
+		}
+	}
+	c.initialHistoryTools = nil
+	next.Event.GetHydration().TailSegment.Entries = retained
+	return next
+}
+
+func historyRowLocator(locator *transcriptpb.CommittedRowLocator) transcript.CommittedRowLocator {
+	return transcript.CommittedRowLocator{EventSequence: locator.EventSequence, RowOrdinal: int64(locator.RowOrdinal)}
 }
 
 func (c *ongoingTranscriptController) diagnoseRuntimeAdmissionError(
@@ -136,6 +195,8 @@ func (c *ongoingTranscriptController) ResetForScratchHydration() {
 
 func (c *ongoingTranscriptController) resetAdmission() {
 	c.hydrated = false
+	c.initialHistoryEnd = nil
+	c.initialHistoryTools = nil
 	c.lastSequence = 0
 	c.renderPending = false
 	c.liveReadModel.reset()
@@ -159,6 +220,8 @@ func (c *ongoingTranscriptController) applyTerminalWork(work ongoing.TerminalWor
 	switch work := work.(type) {
 	case ongoing.TerminalMessage:
 		return c.surface.ApplyTerminalMessage(work.Message, c.frameInput())
+	case ongoing.TerminalHistory:
+		return c.surface.ApplyHistoryRows(work.Rows, c.frameInput())
 	case ongoing.TerminalReset:
 		return c.surface.ResetForScratchHydration(work.Reason, c.frameInput())
 	default:

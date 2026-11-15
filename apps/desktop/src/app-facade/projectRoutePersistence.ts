@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 import { workflowIDSchema } from "@/api";
-import { readBrowserStorage, removeBrowserStorage, writeBrowserStorage } from "./browserStorage";
+import {
+  appStorageKey,
+  readBrowserStorage,
+  removeBrowserStorage,
+  writeBrowserStorage,
+} from "./browserStorage";
+import type { AppStorageNamespace } from "./services";
+import type { DesktopSettings } from "./desktopSettings";
 
 const lastProjectRouteStorageKey = "desktop.lastProjectRoute";
 export const projectContentTabs = ["tasks", "sessions", "subagents"] as const;
@@ -11,7 +18,6 @@ const storedProjectRouteSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("home_project"),
     projectId: z.string(),
-    contentTab: projectContentTabSchema,
   }),
   z.object({
     kind: z.literal("workflow_board"),
@@ -21,8 +27,9 @@ const storedProjectRouteSchema = z.discriminatedUnion("kind", [
 ]);
 type StoredProjectRoute = z.output<typeof storedProjectRouteSchema>;
 
-export function readLastProjectRoute(): StoredProjectRoute | null {
-  const stored = readBrowserStorage("local", lastProjectRouteStorageKey);
+export function readLastProjectRoute(namespace: AppStorageNamespace | null): StoredProjectRoute | null {
+  if (namespace === null) return null;
+  const stored = readBrowserStorage("local", appStorageKey(namespace, lastProjectRouteStorageKey));
   if (!stored.ok) {
     return null;
   }
@@ -35,20 +42,45 @@ export function readLastProjectRoute(): StoredProjectRoute | null {
     return null;
   }
 }
-export function writeLastProjectRoute(route: StoredProjectRoute): void {
-  writeBrowserStorage("local", lastProjectRouteStorageKey, JSON.stringify(route));
+export function writeLastProjectRoute(
+  namespace: AppStorageNamespace | null,
+  route: StoredProjectRoute,
+): void {
+  if (namespace === null) return;
+  writeBrowserStorage("local", appStorageKey(namespace, lastProjectRouteStorageKey), JSON.stringify(route));
 }
 
-export function writeLastProjectContentTab(projectID: string, contentTab: ProjectContentTab): void {
-  writeLastProjectRoute({
-    contentTab,
-    kind: "home_project",
-    projectId: projectID,
-  });
+export function writeLastProjectContentTab(
+  namespace: AppStorageNamespace | null,
+  projectID: string,
+  contentTab: ProjectContentTab,
+): void {
+  if (namespace === null) return;
+  writeBrowserStorage("local", projectTabKey(namespace, projectID), contentTab);
 }
 
-export function clearLastProjectRoute(projectID: string): void {
-  if (readLastProjectRoute()?.projectId === projectID) {
-    removeBrowserStorage("local", lastProjectRouteStorageKey);
+export function projectOpeningTab(
+  namespace: AppStorageNamespace | null,
+  projectID: string,
+  preference: DesktopSettings["projectOpening"],
+  explicit: ProjectContentTab | null,
+): ProjectContentTab {
+  if (explicit !== null) return explicit;
+  if (preference !== "lastUsed") return preference;
+  if (namespace === null) return "tasks";
+  const stored = readBrowserStorage("local", projectTabKey(namespace, projectID));
+  const tab = projectContentTabSchema.safeParse(stored.ok ? stored.value : null);
+  return tab.success ? tab.data : "tasks";
+}
+
+function projectTabKey(namespace: AppStorageNamespace, projectID: string): string {
+  return appStorageKey(namespace, `desktop.projectTab:${encodeURIComponent(projectID)}`);
+}
+
+export function clearLastProjectRoute(namespace: AppStorageNamespace | null, projectID: string): void {
+  if (namespace === null) return;
+  removeBrowserStorage("local", projectTabKey(namespace, projectID));
+  if (readLastProjectRoute(namespace)?.projectId === projectID) {
+    removeBrowserStorage("local", appStorageKey(namespace, lastProjectRouteStorageKey));
   }
 }

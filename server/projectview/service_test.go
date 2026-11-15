@@ -13,6 +13,7 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/operation"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
@@ -27,6 +28,34 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
+
+func TestServiceUpdateProjectPersistsMetadataForSubsequentReads(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc := newProjectViewMetadataService(t, store)
+	ctx := t.Context()
+	for _, update := range []struct {
+		name string
+		key  *string
+	}{
+		{name: "Renamed project", key: new("RENAMED")},
+		{name: "Name-only edit"},
+	} {
+		if _, err := svc.UpdateProject(ctx, &projectpb.UpdateProjectRequest{
+			ProjectId:   binding.ProjectID,
+			DisplayName: update.name,
+			ProjectKey:  update.key,
+		}); err != nil {
+			t.Fatalf("UpdateProject: %v", err)
+		}
+		edit, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID})
+		if err != nil {
+			t.Fatalf("GetProjectEdit after update: %v", err)
+		}
+		if edit.DisplayName != update.name || edit.ProjectKey != "RENAMED" {
+			t.Fatalf("persisted metadata = %v, want name %q and key RENAMED", edit, update.name)
+		}
+	}
+}
 
 func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
@@ -722,10 +751,6 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	if first.AttentionCount != 0 {
 		t.Fatalf("attention count = %d, want 0", first.AttentionCount)
 	}
-	if firstPage.GeneratedAt == nil || firstPage.GeneratedAt.AsTime().UnixMilli() <= 0 {
-		t.Fatalf("generated_at = %v, want positive", firstPage.GeneratedAt)
-	}
-
 	secondPage, err := svc.ListProjectHome(context.Background(), &projectpb.ProjectHomeListRequest{
 		PageSize:  int32Pointer(1),
 		PageToken: firstPage.NextPageToken,
@@ -799,11 +824,98 @@ func TestMetadataServicePlansInteractiveLocalUnboundWorkspace(t *testing.T) {
 	}
 }
 
+func TestMetadataServicePlansSharedWorkspaceForUniqueDefaultProject(t *testing.T) {
+	store, cfg, first := newProjectViewMetadataStore(t)
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), cfg.WorkspaceRoot, "second", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace second: %v", err)
+	}
+	secondWorkspace, err := store.AttachWorkspaceToProject(context.Background(), second.ProjectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject second: %v", err)
+	}
+	if _, err := store.SetProjectDefaultWorkspaceAndGetSummary(context.Background(), second.ProjectID, secondWorkspace.WorkspaceID); err != nil {
+		t.Fatalf("SetProjectDefaultWorkspace second: %v", err)
+	}
+	svc := newProjectViewMetadataService(t, store)
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), &projectpb.PlanWorkspaceBindingRequest{
+		Path: cfg.WorkspaceRoot,
+		Mode: projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_INTERACTIVE,
+	})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_BOUND ||
+		plan.Binding == nil || plan.Binding.ProjectId != first.ProjectID ||
+		plan.Binding.WorkspaceId != first.WorkspaceID {
+		t.Fatalf("shared Workspace plan = %+v, want the unique default Project %s/%s", plan, first.ProjectID, first.WorkspaceID)
+	}
+}
+
+func TestMetadataServicePlansAttachedWorkspaceSelectionWithoutDefaultProject(t *testing.T) {
+	store, cfg, first := newProjectViewMetadataStore(t)
+	firstOther, err := store.AttachWorkspaceToProject(context.Background(), first.ProjectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject first: %v", err)
+	}
+	if _, err := store.SetProjectDefaultWorkspaceAndGetSummary(context.Background(), first.ProjectID, firstOther.WorkspaceID); err != nil {
+		t.Fatalf("SetProjectDefaultWorkspace first: %v", err)
+	}
+	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), cfg.WorkspaceRoot, "second", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace second: %v", err)
+	}
+	secondOther, err := store.AttachWorkspaceToProject(context.Background(), second.ProjectID, t.TempDir())
+	if err != nil {
+		t.Fatalf("AttachWorkspaceToProject second: %v", err)
+	}
+	if _, err := store.SetProjectDefaultWorkspaceAndGetSummary(context.Background(), second.ProjectID, secondOther.WorkspaceID); err != nil {
+		t.Fatalf("SetProjectDefaultWorkspace second: %v", err)
+	}
+	unrelated, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "unrelated", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace unrelated: %v", err)
+	}
+	svc := newProjectViewMetadataService(t, store)
+
+	plan, err := svc.PlanWorkspaceBinding(context.Background(), &projectpb.PlanWorkspaceBindingRequest{
+		Path: cfg.WorkspaceRoot,
+		Mode: projectpb.WorkspaceBindingPlanMode_WORKSPACE_BINDING_PLAN_MODE_INTERACTIVE,
+	})
+	if err != nil {
+		t.Fatalf("PlanWorkspaceBinding: %v", err)
+	}
+	if plan.Kind != projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION ||
+		plan.Binding != nil || plan.Workspace != nil || plan.CanonicalRoot != first.CanonicalRoot {
+		t.Fatalf("attached Workspace plan = %+v, want unresolved attached-Workspace Project selection", plan)
+	}
+	projectIDs := make(map[string]struct{}, len(plan.Projects))
+	for _, project := range plan.Projects {
+		projectIDs[project.ProjectId] = struct{}{}
+	}
+	if len(projectIDs) != 2 {
+		t.Fatalf("selection Project IDs = %v, want only shared-Workspace Projects %s and %s", projectIDs, first.ProjectID, second.ProjectID)
+	}
+	for _, projectID := range []string{first.ProjectID, second.ProjectID} {
+		if _, ok := projectIDs[projectID]; !ok {
+			t.Fatalf("selection omitted attached Project %s: %v", projectID, projectIDs)
+		}
+	}
+	if _, ok := projectIDs[unrelated.ProjectID]; ok {
+		t.Fatalf("selection included unrelated Project %s", unrelated.ProjectID)
+	}
+}
+
 func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
 	store, cfg, first := newProjectViewMetadataStore(t)
 	second, err := store.CreateProjectForWorkspaceWithKey(context.Background(), cfg.WorkspaceRoot, "second", "")
 	if err != nil {
 		t.Fatalf("CreateProjectForWorkspace second: %v", err)
+	}
+	unrelated, err := store.CreateProjectForWorkspaceWithKey(context.Background(), t.TempDir(), "unrelated", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForWorkspace unrelated: %v", err)
 	}
 	svc := newProjectViewMetadataService(t, store)
 
@@ -817,11 +929,16 @@ func TestMetadataServicePlansAmbiguousDuplicateWorkspaceBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanWorkspaceBinding interactive duplicate: %v", err)
 	}
-	if plan.Kind != projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_SERVER_WORKSPACE_SELECTION {
-		t.Fatalf("interactive plan kind = %v, want server workspace selection", plan.Kind)
+	if plan.Kind != projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION {
+		t.Fatalf("interactive plan kind = %v, want attached Workspace Project selection", plan.Kind)
 	}
 	if len(plan.Projects) != 2 {
 		t.Fatalf("interactive plan projects = %+v, want two projects", plan.Projects)
+	}
+	for _, project := range plan.Projects {
+		if project.ProjectId == unrelated.ProjectID {
+			t.Fatalf("interactive plan included unrelated Project %s", unrelated.ProjectID)
+		}
 	}
 	if plan.CanonicalRoot != first.CanonicalRoot || second.CanonicalRoot != first.CanonicalRoot {
 		t.Fatalf("duplicate canonical roots = %q/%q, want %q", first.CanonicalRoot, second.CanonicalRoot, cfg.WorkspaceRoot)
@@ -877,7 +994,9 @@ func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
 
 func newProjectViewMetadataService(t testing.TB, store *metadata.Store) *Service {
 	t.Helper()
-	svc, err := NewMetadataService(store)
+	owner := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	svc, err := NewMetadataService(store, owner)
 	if err != nil {
 		t.Fatalf("NewMetadataService: %v", err)
 	}

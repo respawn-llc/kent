@@ -48,7 +48,7 @@ func TestFreshBuiltinPromptTransitionBlocksWhenDisconnected(t *testing.T) {
 	invocation := runtimeinput.NewBuiltinPromptCommand(runtimeinput.BuiltinPromptCommandReview, "")
 
 	next, cmd := model.inputController().applyCommandResult(
-		commands.Result{PromptCommand: &invocation, FreshConversation: true},
+		commands.Result{PromptCommand: &invocation},
 		"/review",
 	)
 	if cmd == nil {

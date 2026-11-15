@@ -94,7 +94,6 @@ export function ChatTranscriptTail({
           scrollRequest={scrollRequest}
           slots={slots}
           estimateSize={estimateSize}
-          loadingLabel={t("chat.tail.loading")}
           retryLabel={t("app.retry")}
           boundaryErrorMessage={errorMessage}
           onInput={(input) => {
@@ -150,9 +149,7 @@ function useTranscriptFeedback(
     );
   return {
     failure,
-    error:
-      error ??
-      (openingVisible ? <LoadingState title={t("chat.tail.loading")} appearanceDelayMs={0} /> : null),
+    error: error ?? (openingVisible ? <LoadingState appearanceDelayMs={0} /> : null),
     showOpening: openingNeedsFeedback(transcript, localMessages),
   };
 }
@@ -187,7 +184,7 @@ function JumpToLatest({
       <IconTooltipButton
         className="chat-tail-button island-glass"
         label={t("chat.tail.jump")}
-        tooltip={pending ? t("chat.tail.loadingLatest") : t("chat.tail.jump")}
+        tooltip={t("chat.tail.jump")}
         disabled={pending || !visible}
         onClick={onClick}
       >

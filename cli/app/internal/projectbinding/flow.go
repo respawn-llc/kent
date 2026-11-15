@@ -26,6 +26,13 @@ type ProjectPickerSnapshot struct {
 	Offset int
 }
 
+type ServerProjectPickerPurpose uint8
+
+const (
+	ServerProjectPickerPurposeBrowsing ServerProjectPickerPurpose = iota
+	ServerProjectPickerPurposeAttachedWorkspace
+)
+
 type ProjectPickerResult interface {
 	isProjectPickerResult()
 }
@@ -77,7 +84,7 @@ type Server[T any] interface {
 type Request[T any] struct {
 	Server            Server[T]
 	PickLocalProject  func(context.Context, []clientui.ProjectSummary, string, ProjectPickerSnapshot) (ProjectPickerResult, error)
-	PickServerProject func(context.Context, []clientui.ProjectSummary, string, ProjectPickerSnapshot) (ProjectPickerResult, error)
+	PickServerProject func(context.Context, []clientui.ProjectSummary, string, ProjectPickerSnapshot, ServerProjectPickerPurpose) (ProjectPickerResult, error)
 	PickWorkspace     func(context.Context, WorkspacePageLoader, string, string) (WorkspacePickerResult, error)
 	PromptProjectName func(defaultName string, theme string) (string, error)
 }
@@ -112,11 +119,70 @@ func EnsureInteractive[T any](ctx context.Context, req Request[T]) (T, error) {
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_SERVER_WORKSPACE_SELECTION:
 		projects := client.ProjectSummariesFromProto(plan.Projects)
 		return ensureServerBrowsingBinding(ctx, req, projects)
+	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION:
+		projects := client.ProjectSummariesFromProto(plan.Projects)
+		return ensureAttachedWorkspaceProjectBinding(ctx, req, workspaceRoot, projects)
 	case projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_LOCAL_UNBOUND:
 		projects := client.ProjectSummariesFromProto(plan.Projects)
 		return ensureLocalPathBinding(ctx, req, workspaceRoot, projects)
 	default:
 		return zero, fmt.Errorf("unsupported interactive project binding plan %q", plan.Kind)
+	}
+}
+
+func ensureAttachedWorkspaceProjectBinding[T any](
+	ctx context.Context,
+	req Request[T],
+	workspaceRoot string,
+	projects []clientui.ProjectSummary,
+) (T, error) {
+	var zero T
+	if req.PickServerProject == nil {
+		return zero, errors.New("server project picker is required")
+	}
+	picked, err := req.PickServerProject(
+		ctx,
+		projects,
+		req.Server.PresentationTheme(),
+		ProjectPickerSnapshot{},
+		ServerProjectPickerPurposeAttachedWorkspace,
+	)
+	if err != nil {
+		return zero, err
+	}
+	switch selected := picked.(type) {
+	case ProjectPickerExit, ProjectPickerBack:
+		return zero, ErrStartupCanceledByUser
+	case ProjectPickerCreateNew:
+		return zero, errors.New("attached Workspace selection cannot create a Project")
+	case ProjectPickerSelected:
+		workspace, err := req.Server.ProjectViewClient().GetProjectWorkspace(ctx, &projectpb.GetProjectWorkspaceRequest{
+			ProjectId: selected.Project.ProjectID,
+			Selector:  &projectpb.GetProjectWorkspaceRequest_WorkspaceRoot{WorkspaceRoot: workspaceRoot},
+		})
+		if err != nil {
+			return zero, err
+		}
+		if workspace.Result != projectpb.ProjectWorkspaceGetResult_PROJECT_WORKSPACE_GET_RESULT_ATTACHED ||
+			workspace.Workspace == nil {
+			return zero, fmt.Errorf(
+				"workspace %q is not attached to project %q: %w",
+				workspaceRoot,
+				selected.Project.ProjectID,
+				serverapi.ErrWorkspaceNotRegistered,
+			)
+		}
+		bound, bindErr := req.Server.BindProjectWorkspace(
+			ctx,
+			selected.Project.ProjectID,
+			workspace.Workspace.WorkspaceId,
+		)
+		if bindErr != nil {
+			return zero, FormatStartupError(workspaceRoot, selected.Project.ProjectID, bindErr)
+		}
+		return bound, nil
+	default:
+		return zero, errors.New("no project selected")
 	}
 }
 
@@ -177,7 +243,13 @@ func ensureServerBrowsingBinding[T any](ctx context.Context, req Request[T], pro
 	}
 	snapshot := ProjectPickerSnapshot{}
 	for {
-		picked, err := req.PickServerProject(ctx, projects, req.Server.PresentationTheme(), snapshot)
+		picked, err := req.PickServerProject(
+			ctx,
+			projects,
+			req.Server.PresentationTheme(),
+			snapshot,
+			ServerProjectPickerPurposeBrowsing,
+		)
 		if err != nil {
 			return zero, err
 		}

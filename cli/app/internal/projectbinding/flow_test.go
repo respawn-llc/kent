@@ -32,12 +32,14 @@ func (s *testServer) BindProjectWorkspace(_ context.Context, projectID string, w
 }
 
 type testProjectViewClient struct {
-	plan       projectpb.PlanWorkspaceBindingSuccess
-	create     projectpb.CreateProjectSuccess
-	attach     projectpb.AttachWorkspaceSuccess
-	createReq  *projectpb.CreateProjectRequest
-	attachReq  *projectpb.AttachWorkspaceRequest
-	planCalled bool
+	plan            projectpb.PlanWorkspaceBindingSuccess
+	create          projectpb.CreateProjectSuccess
+	attach          projectpb.AttachWorkspaceSuccess
+	getWorkspace    *projectpb.GetProjectWorkspaceSuccess
+	createReq       *projectpb.CreateProjectRequest
+	attachReq       *projectpb.AttachWorkspaceRequest
+	getWorkspaceReq *projectpb.GetProjectWorkspaceRequest
+	planCalled      bool
 }
 
 func (c *testProjectViewClient) ListProjects(context.Context, *emptypb.Empty) (*projectpb.ProjectListSuccess, error) {
@@ -95,6 +97,61 @@ func TestEnsureInteractiveBindsExistingPlan(t *testing.T) {
 	}
 	if len(server.bindCalls) != 1 || server.bindCalls[0].ProjectID != "project-1" || server.bindCalls[0].WorkspaceID != "workspace-1" {
 		t.Fatalf("unexpected bind calls: %+v", server.bindCalls)
+	}
+}
+
+func TestEnsureInteractiveSelectsProjectForAttachedCurrentWorkspace(t *testing.T) {
+	projectClient := &testProjectViewClient{
+		plan: projectpb.PlanWorkspaceBindingSuccess{
+			Kind:          projectpb.WorkspaceBindingPlanKind_WORKSPACE_BINDING_PLAN_KIND_ATTACHED_WORKSPACE_PROJECT_SELECTION,
+			CanonicalRoot: "/canonical-cwd",
+			Projects: []*projectpb.ProjectSummary{
+				{ProjectId: "project-a"},
+				{ProjectId: "project-b"},
+			},
+		},
+		getWorkspace: &projectpb.GetProjectWorkspaceSuccess{
+			ProjectId: "project-b",
+			Result:    projectpb.ProjectWorkspaceGetResult_PROJECT_WORKSPACE_GET_RESULT_ATTACHED,
+			Workspace: &projectpb.ProjectWorkspaceCatalogSummary{
+				WorkspaceId: "workspace-cwd", DisplayName: "CWD", RootPath: "/canonical-cwd",
+			},
+		},
+	}
+	server := &testServer{cfg: config.Connection{WorkspaceRoot: "/cwd"}, client: projectClient}
+
+	bound, err := EnsureInteractive[*testServer](context.Background(), Request[*testServer]{
+		Server: server,
+		PickServerProject: func(_ context.Context, projects []clientui.ProjectSummary, _ string, _ ProjectPickerSnapshot, purpose ServerProjectPickerPurpose) (ProjectPickerResult, error) {
+			if purpose != ServerProjectPickerPurposeAttachedWorkspace {
+				t.Fatalf("picker purpose = %v, want attached Workspace selection", purpose)
+			}
+			if len(projects) != 2 || projects[0].ProjectID != "project-a" || projects[1].ProjectID != "project-b" {
+				t.Fatalf("Project choices = %+v, want only attached Projects A and B", projects)
+			}
+			return ProjectPickerSelected{Project: clientui.ProjectSummary{ProjectID: "project-b"}}, nil
+		},
+		PickWorkspace: func(context.Context, WorkspacePageLoader, string, string) (WorkspacePickerResult, error) {
+			t.Fatal("already attached CWD Workspace must not open the Workspace picker")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ensure interactive: %v", err)
+	}
+	if bound != server {
+		t.Fatal("expected bound server")
+	}
+	if projectClient.getWorkspaceReq == nil ||
+		projectClient.getWorkspaceReq.ProjectId != "project-b" ||
+		projectClient.getWorkspaceReq.GetWorkspaceRoot() != "/canonical-cwd" {
+		t.Fatalf("exact Project Workspace request = %+v", projectClient.getWorkspaceReq)
+	}
+	if projectClient.attachReq != nil {
+		t.Fatalf("attached Workspace selection unexpectedly changed membership: %+v", projectClient.attachReq)
+	}
+	if len(server.bindCalls) != 1 || server.bindCalls[0] != (serverapi.ProjectBinding{ProjectID: "project-b", WorkspaceID: "workspace-cwd"}) {
+		t.Fatalf("bound Project/Workspace = %+v, want project-b/workspace-cwd", server.bindCalls)
 	}
 }
 
@@ -182,7 +239,10 @@ func TestEnsureServerBrowsingBindingRestoresProjectPickerSnapshotAfterWorkspaceB
 	workspaceCalls := 0
 	bound, err := ensureServerBrowsingBinding[*testServer](context.Background(), Request[*testServer]{
 		Server: server,
-		PickServerProject: func(_ context.Context, _ []clientui.ProjectSummary, _ string, snapshot ProjectPickerSnapshot) (ProjectPickerResult, error) {
+		PickServerProject: func(_ context.Context, _ []clientui.ProjectSummary, _ string, snapshot ProjectPickerSnapshot, purpose ServerProjectPickerPurpose) (ProjectPickerResult, error) {
+			if purpose != ServerProjectPickerPurposeBrowsing {
+				t.Fatalf("picker purpose = %v, want server browsing", purpose)
+			}
 			pickerCalls++
 			if pickerCalls == 1 {
 				return ProjectPickerSelected{

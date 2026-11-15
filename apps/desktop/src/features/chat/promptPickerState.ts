@@ -10,7 +10,7 @@ export type PickerSelection =
 export type PickerDraft = Readonly<{
   selection: PickerSelection;
   commentary: string;
-  status: "tentative" | "pointer-selected" | "answered" | "declined";
+  status: "tentative" | "answered" | "declined";
 }>;
 
 export type PickerState = Readonly<{
@@ -19,15 +19,47 @@ export type PickerState = Readonly<{
   batchToolCallIDs: readonly string[];
 }>;
 
+type MutablePickerState = Readonly<{
+  current: string;
+  drafts: Map<string, PickerDraft>;
+  batchToolCallIDs: readonly string[];
+}>;
+
+type SynchronizedPickerState = Readonly<{
+  current: string | null;
+  drafts: Map<string, PickerDraft>;
+  batchToolCallIDs: readonly string[];
+}>;
+
+type DraftEditContext = Readonly<{
+  state: MutablePickerState;
+  batch: readonly PendingPrompt[];
+  index: number;
+}>;
+
 export type PickerAction =
-  | Readonly<{ kind: "sync" | "confirm" | "decline" }>
-  | Readonly<{ kind: "select" | "activate"; selection: PickerSelection }>
+  | Readonly<{ kind: "sync" }>
+  | Readonly<{ kind: "confirm" }>
+  | Readonly<{ kind: "decline" }>
+  | Readonly<{
+      kind: "select";
+      selection: PickerSelection;
+      originToolCallID?: string;
+    }>
+  | Readonly<{
+      kind: "activate";
+      selection: PickerSelection;
+      originToolCallID?: string;
+    }>
+  | Readonly<{ kind: "pointer-confirm"; selection: PickerSelection; originToolCallID: string }>
   | Readonly<{ kind: "commentary"; text: string; toolCallID?: string }>
   | Readonly<{ kind: "navigate"; direction: -1 | 1 }>;
 export type PickerTransition = Readonly<{
   state: PickerState;
   effect: "none" | "focus-field" | "submit";
 }>;
+
+type PickerEditAction = Exclude<PickerAction, { kind: "sync" | "navigate" }>;
 
 export function emptyPickerState(): PickerState {
   return { current: null, drafts: new Map(), batchToolCallIDs: [] };
@@ -43,27 +75,17 @@ export function transitionPicker(
   prompts: readonly PendingPrompt[],
   action: PickerAction,
 ): PickerTransition {
-  const batch = pickerBatch(prompts);
-  const first = batch[0];
-  if (first === undefined) return { state: emptyPickerState(), effect: "none" };
-  const pendingIDs = new Set(batch.map((prompt) => prompt.toolCallID));
-  const sameBatch = previous.batchToolCallIDs.some((id) => pendingIDs.has(id));
-  const batchToolCallIDs = [
-    ...new Set([
-      ...(first.batch?.toolCallIDs ?? []),
-      ...(sameBatch ? previous.batchToolCallIDs : []),
-      ...pendingIDs,
-    ]),
-  ];
-  const drafts = new Map(
-    batch.map((prompt) => [
-      prompt.toolCallID,
-      previous.drafts.get(prompt.toolCallID) ?? initialDraft(prompt),
-    ]),
-  );
-  const current = currentAfterSync(previous, drafts);
-  const state = { current, drafts, batchToolCallIDs };
+  const synchronized = synchronizePicker(previous, prompts);
+  if (synchronized === null) return { state: emptyPickerState(), effect: "none" };
+  const { batch, state } = synchronized;
+  const { current } = state;
   if (current === null || action.kind === "sync") return { state, effect: "none" };
+  if (!actionOriginIsCurrent(action, current)) return { state, effect: "none" };
+  const currentState: MutablePickerState = {
+    current,
+    drafts: state.drafts,
+    batchToolCallIDs: state.batchToolCallIDs,
+  };
   const index = batch.findIndex((prompt) => prompt.toolCallID === current);
   if (action.kind === "navigate") {
     return {
@@ -74,21 +96,61 @@ export function transitionPicker(
       effect: "none",
     };
   }
-  const draft = drafts.get(current);
+  const draft = state.drafts.get(current);
   if (draft === undefined) throw new Error("Visible prompt has no draft.");
-  return editDraft({ current, drafts, batchToolCallIDs }, batch, action, draft);
+  return editDraft({ state: currentState, batch, index }, action, draft);
+}
+
+function synchronizePicker(
+  previous: PickerState,
+  prompts: readonly PendingPrompt[],
+): Readonly<{ batch: readonly PendingPrompt[]; state: SynchronizedPickerState }> | null {
+  const batch = pickerBatch(prompts);
+  const first = batch[0];
+  if (first === undefined) return null;
+  const pendingIDs = new Set(batch.map((prompt) => prompt.toolCallID));
+  const sameBatch = previous.batchToolCallIDs.some((id) => pendingIDs.has(id));
+  const batchToolCallIDs = [
+    ...new Set([
+      ...(first.batch?.toolCallIDs ?? []),
+      ...(sameBatch ? previous.batchToolCallIDs : []),
+      ...pendingIDs,
+    ]),
+  ];
+  const multiplePrompts = batchToolCallIDs.length > 1;
+  const drafts = new Map(
+    batch.map((prompt) => [
+      prompt.toolCallID,
+      previous.drafts.get(prompt.toolCallID) ?? initialDraft(prompt, multiplePrompts),
+    ]),
+  );
+  const current = currentAfterSync(previous, drafts);
+  return { batch, state: { current, drafts, batchToolCallIDs } };
+}
+
+function actionOriginIsCurrent(action: PickerAction, current: string): boolean {
+  return (
+    (action.kind !== "select" && action.kind !== "activate" && action.kind !== "pointer-confirm") ||
+    action.originToolCallID === undefined ||
+    action.originToolCallID === current
+  );
 }
 
 function editDraft(
-  state: Readonly<{ current: string; drafts: Map<string, PickerDraft>; batchToolCallIDs: readonly string[] }>,
-  batch: readonly PendingPrompt[],
-  action: Exclude<PickerAction, { kind: "navigate" }>,
+  context: DraftEditContext,
+  action: PickerEditAction,
   draft: PickerDraft,
 ): PickerTransition {
+  const { state, batch, index } = context;
   const { current, drafts } = state;
-  const index = batch.findIndex((prompt) => prompt.toolCallID === current);
-  if (action.kind === "confirm" && [...drafts.values()].every(isPickerDraftComplete) && batchReady(batch)) {
-    return { state, effect: "submit" };
+  if (action.kind === "confirm") {
+    if ([...drafts.values()].every(isPickerDraftComplete) && batchReady(batch))
+      return { state, effect: "submit" };
+    if (draft.status === "declined") return { state, effect: "none" };
+    const invalid = invalidAnswer(draft);
+    if (invalid !== null) return { state, effect: invalid };
+    drafts.set(current, { ...draft, status: "answered" });
+    return advance(state, batch, index);
   }
   if (action.kind === "commentary") {
     setCommentary(drafts, current, action);
@@ -99,16 +161,38 @@ function editDraft(
     drafts.set(current, { ...draft, status: "declined" });
     return advance(state, batch, index);
   }
-  if (action.kind === "select" || action.kind === "activate") {
-    const chosen = selectDraft(draft, action);
-    drafts.set(current, chosen.draft);
-    if (chosen.effect !== null) return { state, effect: chosen.effect };
+  if (action.kind === "select") {
+    drafts.set(current, selectDraft(draft, action.selection));
+    return { state, effect: "none" };
   }
-  const selected = drafts.get(current);
-  if (selected === undefined) throw new Error("Visible prompt has no draft.");
+  return activateSelection(context, action, draft);
+}
+
+function activateSelection(
+  context: DraftEditContext,
+  action: Extract<PickerAction, { kind: "activate" | "pointer-confirm" }>,
+  draft: PickerDraft,
+): PickerTransition {
+  const { state, batch, index } = context;
+  const selection = action.selection;
+  if (action.kind === "pointer-confirm") {
+    if (
+      selection.kind === "neither" ||
+      selection.kind === "freeform" ||
+      (state.batchToolCallIDs.length > 1 && draft.commentary.length === 0)
+    )
+      return { state, effect: "none" };
+  }
+  const selected = selectDraft(draft, selection);
+  state.drafts.set(state.current, selected);
+  if (action.kind === "activate") {
+    if (selection.kind === "neither" || selection.kind === "freeform")
+      return { state, effect: "focus-field" };
+    if (state.batchToolCallIDs.length === 1 || draft.commentary.length > 0) return { state, effect: "none" };
+  }
   const invalid = invalidAnswer(selected);
   if (invalid !== null) return { state, effect: invalid };
-  drafts.set(current, { ...selected, status: "answered" });
+  state.drafts.set(state.current, { ...selected, status: "answered" });
   return advance(state, batch, index);
 }
 
@@ -161,22 +245,8 @@ function batchReady(batch: readonly PendingPrompt[]): boolean {
   return batch.every((prompt) => prompt.batch === undefined || prompt.batch.unmaterializedCount === 0);
 }
 
-function selectDraft(
-  draft: PickerDraft,
-  action: Extract<PickerAction, { kind: "select" | "activate" }>,
-): Readonly<{ draft: PickerDraft; effect: "none" | "focus-field" | null }> {
-  const selected: PickerDraft = { ...draft, selection: action.selection, status: "tentative" };
-  if (action.kind === "select") return { draft: selected, effect: "none" };
-  if (action.selection.kind === "neither" || action.selection.kind === "freeform") {
-    return { draft: selected, effect: "focus-field" };
-  }
-  if (
-    draft.commentary.length > 0 &&
-    (draft.status !== "pointer-selected" || !sameSelection(draft.selection, action.selection))
-  ) {
-    return { draft: { ...selected, status: "pointer-selected" }, effect: "none" };
-  }
-  return { draft: selected, effect: null };
+function selectDraft(draft: PickerDraft, selection: PickerSelection): PickerDraft {
+  return { ...draft, selection, status: "tentative" };
 }
 
 export function isPickerDraftComplete(draft: PickerDraft): boolean {
@@ -197,12 +267,12 @@ export function sameSelection(left: PickerSelection, right: PickerSelection): bo
   return true;
 }
 
-function initialDraft(prompt: PendingPrompt): PickerDraft {
+function initialDraft(prompt: PendingPrompt, multiplePrompts: boolean): PickerDraft {
   const selection: PickerSelection =
     prompt.kind === "ordinary"
       ? prompt.suggestions.length === 0
         ? { kind: "freeform" }
-        : prompt.recommendedOptionIndex === null
+        : prompt.recommendedOptionIndex === null || !multiplePrompts
           ? { kind: "none" }
           : { kind: "suggested", number: prompt.recommendedOptionIndex }
       : { kind: "none" };

@@ -23,7 +23,7 @@ export function createWorktreeActions({
   onAccepted(): void;
   push: StatusController["push"];
   t: TFunction;
-  refreshOpenWorktreeList(sessionID: string): void;
+  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
 }>) {
   const mutationKey = ["worktree-switch", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
@@ -41,7 +41,7 @@ export function createWorktreeActions({
       onAccepted();
     },
     onError: (error) => {
-      refreshOpenWorktreeList(sessionID);
+      void refreshOpenWorktreeList(sessionID);
       push({
         id: crypto.randomUUID(),
         tone: "danger",

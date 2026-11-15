@@ -68,6 +68,8 @@ Some workflow transitions wait for approval before target runs start. If the use
 - If the user did not ask you to move, approve, or start tasks, never do it proactively.
 - Interrupting and resuming tasks is generally safe and can be done without consequence, but a task that was interrupted for more than 30-60 minutes can incur additional costs when resumed.
 
+To move Tasks between Workflows, use `kent task move <task> <target-node-id>` with a Start or Terminal Node in another Workflow linked to the same Project. The Task must be in Backlog or a terminal state. After moving every Task out, you can unlink or delete the old Workflow.
+
 Task start and executable Task move check task dependencies before starting. Rerun with `--ignore-dependencies` to run the task despite them only if the user explicitly said to ignore deps:
 
 ```bash

@@ -14,22 +14,17 @@ type RegistrySnapshot struct {
 	Starting       bool
 }
 
-type PendingContinuationSnapshot struct {
-	Promoted bool
-}
-
 type ActiveStepSnapshot struct {
 	StepID     string
 	ActiveKind runtimepb.ActivityActiveKind
 }
 
 type ResolverSnapshot struct {
-	Registry            RegistrySnapshot
-	Active              *ActiveStepSnapshot
-	Reviewer            runtimepb.ReviewerActivity
-	LiveRunActive       bool
-	PromptWait          bool
-	PendingContinuation PendingContinuationSnapshot
+	Registry      RegistrySnapshot
+	Active        *ActiveStepSnapshot
+	Reviewer      runtimepb.ReviewerActivity
+	LiveRunActive bool
+	PromptWait    bool
 }
 
 func ResolveRuntimeActivity(snapshot ResolverSnapshot) (*runtimepb.Activity, error) {
@@ -63,7 +58,7 @@ func resolveRuntimeFeedActivity(snapshot ResolverSnapshot) (*runtimepb.Activity,
 		activity.QueueAccepting = snapshot.Registry.QueueAccepting
 	} else if snapshot.LiveRunActive {
 		activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_DRAINING
-	} else if snapshot.Registry.Starting || snapshot.PendingContinuation.Promoted {
+	} else if snapshot.Registry.Starting {
 		activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_STARTING
 	} else {
 		activity.State = runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE

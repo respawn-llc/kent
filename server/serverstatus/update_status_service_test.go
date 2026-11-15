@@ -43,7 +43,7 @@ func TestGetUpdateStatusIsolatesConcurrentAndCachedResponses(t *testing.T) {
 		close(source.release)
 		first, second := <-responses, <-responses
 		want := &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Available{
-			Available: &serverpb.UpdateVersions{CurrentVersion: "1.1.0", LatestVersion: "1.2.0"},
+			Available: &serverpb.UpdateVersions{LatestVersion: "1.2.0"},
 		}}
 		assertStatus := func(response *serverpb.GetUpdateStatusSuccess) {
 			t.Helper()
@@ -53,7 +53,6 @@ func TestGetUpdateStatusIsolatesConcurrentAndCachedResponses(t *testing.T) {
 		}
 		assertStatus(first)
 		assertStatus(second)
-		first.Status.GetAvailable().CurrentVersion = "9.0.0"
 		first.Status.GetAvailable().LatestVersion = "10.0.0"
 		assertStatus(second)
 		first.Status.Status = &serverpb.UpdateStatus_CheckUnavailable{CheckUnavailable: &emptypb.Empty{}}
@@ -268,7 +267,7 @@ func TestUpdateStatusServiceReportsDevelopmentAndInvalidVersions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Status: %v", err)
 		}
-		if versions := result.GetAvailable(); versions == nil || versions.CurrentVersion != "0.0.0" || versions.LatestVersion != "1.2.0" {
+		if versions := result.GetAvailable(); versions == nil || versions.LatestVersion != "1.2.0" {
 			t.Fatalf("development result = %#v", result)
 		}
 	})

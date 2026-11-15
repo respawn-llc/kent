@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"core/shared/protoapi"
@@ -191,12 +192,12 @@ func (c *remoteControlConn) callBinary(
 	}
 	if err := c.conn.Send(ctx, frame); err != nil {
 		c.removePending(id)
-		return err
+		return errors.Join(err, ctx.Err())
 	}
 	select {
 	case response := <-responseCh:
 		if response.err != nil {
-			return response.err
+			return errors.Join(response.err, ctx.Err())
 		}
 		if response.binary == nil {
 			return fmt.Errorf("operation %s received no result", operation.Name)
@@ -205,9 +206,6 @@ func (c *remoteControlConn) callBinary(
 	case <-ctx.Done():
 		c.removePending(id)
 		return ctx.Err()
-	case <-c.done:
-		c.removePending(id)
-		return c.currentErr()
 	}
 }
 
@@ -233,7 +231,7 @@ func callPreparedBinaryRPC(
 	operation protoapi.Operation, result proto.Message, establishing bool,
 ) error {
 	if err := conn.Send(ctx, frame); err != nil {
-		return err
+		return errors.Join(err, ctx.Err())
 	}
 	for {
 		received, err := receiveFrame(ctx, conn)

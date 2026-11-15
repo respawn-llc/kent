@@ -67,7 +67,11 @@ func (s *Store) PrepareManualMove(ctx context.Context, req ManualMoveRequest) (p
 	case ManualMovePreviewOutcomeNoOp:
 		return ManualMovePreparation{request: req, noOp: true, currentNodes: preview.CurrentNodes}, nil
 	case ManualMovePreviewOutcomeDirect:
-		target, err := currentNodeDefinitionNodeFromTask(ctx, s.queries, req.TaskID, req.TargetNodeID)
+		definition, _, err := manualMoveDefinition(ctx, s.queries, task, req.TargetNodeID)
+		if err != nil {
+			return ManualMovePreparation{}, err
+		}
+		target, err := currentNodeDefinitionNode(definition, req.TargetNodeID)
 		if err != nil {
 			return ManualMovePreparation{}, err
 		}

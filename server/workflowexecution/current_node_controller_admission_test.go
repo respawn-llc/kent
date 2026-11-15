@@ -383,7 +383,7 @@ func TestCurrentNodeControllerSteersUnclassifiedAutomaticAgentBeforeStartingIt(t
 	if completion.err != nil {
 		t.Fatalf("publish automatic Agent fixture: %v", completion.err)
 	}
-	if _, err := completion.handle.Wait(context.Background()); err != nil {
+	if err := completion.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait for automatic Agent fixture: %v", err)
 	}
 	if starts := runner.starts(); starts != 1 {
@@ -418,7 +418,7 @@ func (r *admissionCompletionRunner) PublishCurrentNode(
 	start workflowExecutionStart,
 	_ workflowruntime.Controller,
 ) error {
-	handle, err := startTestWorkflowScript(r.authority, start, sessionruntime.ScriptExecutionRequest{Command: r.command})
+	handle, err := startTestWorkflowScript(r.authority, start, sessionruntime.DetachedScriptExecutionRequest{Command: r.command})
 	r.completed <- admissionCompletion{handle: handle, err: err}
 	return err
 }

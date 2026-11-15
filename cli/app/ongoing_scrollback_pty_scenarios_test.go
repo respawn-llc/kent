@@ -134,7 +134,7 @@ func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 				Phase: pty.PhaseToolStarted,
 				Inputs: []pty.FrameInput{{
 					Readiness: pty.ReadinessRendererFrame,
-					Bytes:     []byte("\r"),
+					Bytes:     []byte("\x1b[B\r"),
 				}},
 			}},
 			expectedAppends:     []string{"? PTY_LIVE_QUESTION", "❮ question lifecycle complete"},
@@ -172,7 +172,6 @@ func TestOngoingNativeScrollbackPTYScenarios(t *testing.T) {
 			},
 			expectedAppends: []string{"❯ live_background_shell_completion_style"},
 			expectedAnyAppends: []string{
-				"ℹ Background shell 1000 completed (exit 0)",
 				backgroundResult,
 			},
 			expectedScreenRows: []string{backgroundResult},

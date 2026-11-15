@@ -6,18 +6,6 @@ import (
 	"strings"
 )
 
-type TargetAgentSelectionRequest struct {
-	FallbackRole    string
-	OverrideEnabled bool
-	SubmittedRole   string
-}
-
-type TargetAgentSelection struct {
-	Role                 TargetAgentRole
-	QuestionsRequired    bool
-	SubmittedRoleIgnored bool
-}
-
 type TargetAgentSelectionErrorCode string
 
 const (
@@ -41,46 +29,35 @@ func (e TargetAgentSelectionError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Role)
 }
 
-func PlanTargetAgentSelection(catalog TargetAgentCatalog, request TargetAgentSelectionRequest) (TargetAgentSelection, error) {
-	if catalog == nil {
-		return TargetAgentSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: strings.TrimSpace(request.SubmittedRole)}
+func configuredTargetAgentSelection(role *TargetAgentRole, name string) (TargetAgentRole, error) {
+	if role == nil {
+		return TargetAgentRole{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: strings.TrimSpace(name)}
 	}
-	if !request.OverrideEnabled {
-		roleName := strings.TrimSpace(request.FallbackRole)
-		role, ok := catalog.ResolveConfiguredRole(roleName)
-		if !ok {
-			return TargetAgentSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: roleName}
-		}
-		role = canonicalTargetAgentRole(role)
-		if !role.QuestionsEnabled {
-			return TargetAgentSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorQuestionsDisabled, Role: role.Identity}
-		}
-		return TargetAgentSelection{Role: role}, nil
+	if !role.QuestionsEnabled {
+		return TargetAgentRole{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorQuestionsDisabled, Role: role.Identity}
+	}
+	return *role, nil
+}
+
+func (p assigneeSelectionPolicy) selectRole(submittedRole string) (TargetAgentRole, error) {
+	if !p.applicability.Available {
+		return TargetAgentRole{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorNoSelectableRoles}
+	}
+	if !p.applicability.ParameterVisible {
+		return p.roles[0], nil
 	}
 
-	roles := canonicalExplicitCallableRoles(catalog.ExplicitCallableRoles())
-	switch len(roles) {
-	case 0:
-		return TargetAgentSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorNoSelectableRoles}
-	case 1:
-		return TargetAgentSelection{
-			Role:                 roles[0],
-			QuestionsRequired:    true,
-			SubmittedRoleIgnored: true,
-		}, nil
-	}
-
-	submitted := strings.TrimSpace(request.SubmittedRole)
+	submitted := strings.TrimSpace(submittedRole)
 	identity, ok := canonicalAgentRoleIdentity(submitted)
 	if !ok {
-		return TargetAgentSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: submitted}
+		return TargetAgentRole{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: submitted}
 	}
-	for _, role := range roles {
+	for _, role := range p.roles {
 		if role.Identity == identity.value {
-			return TargetAgentSelection{Role: role, QuestionsRequired: true}, nil
+			return role, nil
 		}
 	}
-	return TargetAgentSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: submitted}
+	return TargetAgentRole{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnavailableRole, Role: submitted}
 }
 
 func canonicalExplicitCallableRoles(roles []TargetAgentRole) []TargetAgentRole {

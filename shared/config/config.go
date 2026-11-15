@@ -258,9 +258,8 @@ type ReviewerSettings struct {
 }
 
 type SourceReport struct {
-	Files                []ConfigFileReport
-	CreatedDefaultConfig bool
-	Sources              map[string]Origin
+	Files   []ConfigFileReport
+	Sources map[string]Origin
 }
 
 type ConfigFileReport struct {

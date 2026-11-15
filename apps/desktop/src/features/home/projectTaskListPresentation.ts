@@ -94,7 +94,7 @@ function groupEntries(
   if (!input.disclosure[group]) return entries;
   const initial = groupBoundary(data, "initial", input.t);
   if (initial !== undefined) {
-    entries.push(boundaryEntry({ data, direction: "initial", group, state: initial, t: input.t }));
+    entries.push(boundaryEntry({ data, direction: "initial", group, state: initial }));
     if (!data.isSortReplacement) return entries;
   }
   if (!data.isSortReplacement && hasPreviousBoundary(data)) {
@@ -104,7 +104,6 @@ function groupEntries(
         direction: "previous",
         group,
         state: groupBoundary(data, "previous", input.t),
-        t: input.t,
       }),
     );
   }
@@ -131,7 +130,6 @@ function groupEntries(
         direction: "next",
         group,
         state: groupBoundary(data, "next", input.t),
-        t: input.t,
       }),
     );
   }
@@ -153,13 +151,11 @@ function boundaryEntry({
   direction,
   group,
   state,
-  t,
 }: Readonly<{
   data: ProjectTaskGroupData;
   direction: BoundaryDirection;
   group: ProjectTaskGroup;
   state: VirtualizedInfiniteListBoundaryState | undefined;
-  t: TFunction;
 }>): ProjectTaskListEntry {
   return {
     kind: "boundary",
@@ -175,7 +171,6 @@ function boundaryEntry({
         : direction === "next"
           ? data.isFetchingNextPage
           : data.isFetching,
-    loadingLabel: t("app.loadingMore"),
     requestGeneration:
       direction === "previous"
         ? `${direction}:${data.previousRequestGeneration}`
@@ -214,7 +209,6 @@ function groupBoundary(
   return directionalBoundary({
     failed,
     loading,
-    loadingLabel: t("states.loading"),
     message: failed ? errorMessage(data.error) : "",
     onRetry: () => {
       if (initial) data.refetch();

@@ -8,7 +8,6 @@ export type DesktopProcess = Readonly<{
   exitCode: number | null;
   recentOutput: string;
   running: boolean;
-  backgrounded: boolean;
   killRequested: boolean;
 }>;
 

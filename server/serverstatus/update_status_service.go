@@ -50,15 +50,15 @@ type updateStatusOperation struct {
 	err    error
 }
 
-func currentUpdateStatusResult(current, latest string) *serverpb.UpdateStatus {
+func currentUpdateStatusResult() *serverpb.UpdateStatus {
 	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Current{
-		Current: &serverpb.UpdateVersions{CurrentVersion: current, LatestVersion: latest},
+		Current: &emptypb.Empty{},
 	}}
 }
 
-func availableUpdateStatusResult(current, latest string) *serverpb.UpdateStatus {
+func availableUpdateStatusResult(latest string) *serverpb.UpdateStatus {
 	return &serverpb.UpdateStatus{Status: &serverpb.UpdateStatus_Available{
-		Available: &serverpb.UpdateVersions{CurrentVersion: current, LatestVersion: latest},
+		Available: &serverpb.UpdateVersions{LatestVersion: latest},
 	}}
 }
 
@@ -169,12 +169,10 @@ func (s *UpdateStatusService) checkUpdateStatus(ctx context.Context) *serverpb.U
 	if err != nil {
 		return classifyReleaseSourceFailure(err)
 	}
-	current := currentVersion.String()
-	latest := metadata.Version.String()
 	if metadata.Version.Compare(currentVersion) > 0 {
-		return availableUpdateStatusResult(current, latest)
+		return availableUpdateStatusResult(metadata.Version.String())
 	}
-	return currentUpdateStatusResult(current, latest)
+	return currentUpdateStatusResult()
 }
 
 func classifyReleaseSourceFailure(err error) *serverpb.UpdateStatus {

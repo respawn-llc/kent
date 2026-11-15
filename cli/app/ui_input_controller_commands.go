@@ -2,8 +2,6 @@ package app
 
 import chatsettingspb "core/shared/protoapi/gen/kent/api/chat_settings"
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"strconv"
 	"strings"
@@ -34,17 +32,6 @@ func (c uiInputController) applyCommandResult(
 		if blocked, disconnectCmd := c.blockDisconnectedSubmission(true, commandResult.User); blocked {
 			return m, disconnectCmd
 		}
-	}
-	if commandResult.SubmitUser && commandResult.FreshConversation && (m.isBusy() || m.currentConversationFreshness() != runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH) {
-		previousSessionID, err := runtimeids.ParseSessionID(m.currentRuntimeSessionID())
-		if err != nil {
-			return m, c.model.appendLocalEntryWithNoticeID("error", "Current session identity is invalid: "+err.Error(), "")
-		}
-		m.nextSessionInitialPrompt = commandResult.User
-		m.nextSessionInitialPromptHistoryRecorded = true
-		m.nextPreviousSessionID = &previousSessionID
-		m.exitAction = UIActionNewSession
-		return m, tea.Quit
 	}
 	if commandResult.SubmitUser {
 		return m, c.startSubmission(commandResult.User)
@@ -106,6 +93,8 @@ func (c uiInputController) applyCommandResult(
 		return m, sequenceCmds(prefixCmd, c.startCompaction(submittedText, commandResult.Args))
 	case commands.ActionStatus:
 		return m, sequenceCmds(prefixCmd, c.startStatusFlowCmd())
+	case commands.ActionAgent:
+		return m, sequenceCmds(prefixCmd, m.openAgentPicker())
 	case commands.ActionGoal:
 		next, cmd := c.handleGoalCommand(commandResult.GoalMode, commandResult.GoalObjective)
 		return next, sequenceCmds(prefixCmd, cmd)

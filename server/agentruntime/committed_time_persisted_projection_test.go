@@ -87,16 +87,11 @@ func assertOrdinaryMessageCommittedTime(
 	if want == nil {
 		t.Fatal("ordinary message fixture has no persisted committed time")
 	}
-	switch {
-	case fact.User != nil:
-		if fact.User.CommittedAtUnixMs == nil || fact.User.CommittedAtUnixMs.UnixMs() != want.UnixMs() {
-			t.Fatalf("user committed time = %v, want %d", fact.User.CommittedAtUnixMs, want.UnixMs())
-		}
-	case fact.Assistant != nil:
-		if fact.Assistant.CommittedAtUnixMs == nil || fact.Assistant.CommittedAtUnixMs.UnixMs() != want.UnixMs() {
-			t.Fatalf("assistant committed time = %v, want %d", fact.Assistant.CommittedAtUnixMs, want.UnixMs())
-		}
-	default:
+	if fact.Provenance == nil || fact.Provenance.CommittedAtUnixMs == nil ||
+		fact.Provenance.CommittedAtUnixMs.UnixMs() != want.UnixMs() {
+		t.Fatalf("committed provenance time = %+v, want %d", fact.Provenance, want.UnixMs())
+	}
+	if fact.User == nil && fact.Assistant == nil {
 		t.Fatalf("ordinary message fact has no message payload: %+v", fact)
 	}
 }

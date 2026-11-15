@@ -131,6 +131,9 @@ export function useBoardNavigation(
   const openLinkWorkflow = useAtomSet(model.openLinkWorkflow, { mode: "value" });
   const context = { navigation, open, report };
   return {
+    openSession: async (sessionID: string) => {
+      await navigation.openSessionChat({ projectID, sessionID });
+    },
     openTask: (taskID: string) => {
       openTask({ ...context, taskID });
     },

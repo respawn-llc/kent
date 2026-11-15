@@ -10,6 +10,7 @@ import (
 	"core/server/metadata"
 	"core/server/sessionstore"
 	"core/server/workflow"
+	"core/server/workflowconfig"
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
@@ -83,8 +84,10 @@ func (s *Starter) PrepareCurrentNode(
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
-	if err := validateRole(cfg.Settings, selection.Assignee); err != nil {
-		return workflowexecution.CurrentNodePreparation{}, err
+	if delivery != workflowruntime.TaskPromptDeliveryResume || fresh {
+		if err := validateRole(cfg.Settings, selection.Assignee); err != nil {
+			return workflowexecution.CurrentNodePreparation{}, err
+		}
 	}
 	var freshOverrides *launch.PreparedRunPromptOverrides
 	if fresh {
@@ -208,6 +211,40 @@ func (s *Starter) PrepareCurrentNode(
 		(delivery != workflowruntime.TaskPromptDeliveryResume || preparation.outgoing != nil) {
 		overrides = workflowPromptOverrides(selection.Assignee)
 	}
+	var overridesPlan launch.PreparedRunPromptOverrides
+	if freshOverrides != nil {
+		overridesPlan = *freshOverrides
+	} else {
+		overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(ctx, cfg, overrides, launch.RunPromptPreparationContext{
+			Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
+			Rotation: s.connectionRotation, ConnectionID: meta.ConnectionID,
+			OmittedTarget: &launch.PreparedBaseTarget{ConnectionScope: plan.ConnectionScope, Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
+		})
+		if err != nil {
+			return workflowexecution.CurrentNodePreparation{}, err
+		}
+	}
+	targetPlan, _, err := planner.ApplyPreparedRunPromptOverridesFromMeta(plan, meta, overrides, overridesPlan, launch.RunPromptOverrideOptions{
+		RequiredTools: plan.RequiredTools, WorkflowThinking: workflowThinkingMutationFor(input, selection, delivery),
+	})
+	if err != nil {
+		return workflowexecution.CurrentNodePreparation{}, err
+	}
+	if delivery == workflowruntime.TaskPromptDeliveryResume {
+		request := workflow.TransitionParameterContractRequest{
+			Edge: input.EnteringEdge, SourceKind: input.SourceNodeKind, TargetKind: input.Node.Kind,
+			TargetRole: selection.Assignee, FanOut: input.IsFanoutBranch, Catalog: workflowconfig.Catalog{App: cfg},
+		}
+		request.Edge.PromptTemplate = input.TransitionPrompt
+		if policy.assignee == currentNodeSessionAssigneePreserve {
+			request.RetainedSession = &selection
+		}
+		input.ParameterValues, err = workflow.ResumePromptParameters(request,
+			workflowconfig.RoleFromSettings(selection.Assignee, targetPlan.ActiveSettings, false), input.ParameterValues)
+		if err != nil {
+			return workflowexecution.CurrentNodePreparation{}, err
+		}
+	}
 	name, err := workflowSessionNameFromCurrentNode(input)
 	if err != nil {
 		return workflowexecution.CurrentNodePreparation{}, err
@@ -221,28 +258,8 @@ func (s *Starter) PrepareCurrentNode(
 		return workflowexecution.CurrentNodePreparation{}, err
 	}
 	input.CurrentNode.SessionID = id
+	targetPlan.SessionName, targetPlan.FirstPromptPreview, targetPlan.WorktreeReminder = &name, preview, reminder
 	finalizeTarget := func(ctx context.Context) (preparedCurrentNodeAgentSession, runtime.WorkflowAssignment, error) {
-		var overridesPlan launch.PreparedRunPromptOverrides
-		if freshOverrides != nil {
-			overridesPlan = *freshOverrides
-		} else {
-			var err error
-			overridesPlan, err = launch.PrepareRunPromptOverridesWithContext(ctx, cfg, overrides, launch.RunPromptPreparationContext{
-				Mode: launch.ModeHeadless, ModelLock: meta.Locked, ToolLock: meta.Locked,
-				Rotation: s.connectionRotation, ConnectionID: meta.ConnectionID,
-				OmittedTarget: &launch.PreparedBaseTarget{ConnectionScope: plan.ConnectionScope, Settings: plan.ActiveSettings, Source: plan.Source, EnabledTools: plan.EnabledTools},
-			})
-			if err != nil {
-				return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
-			}
-		}
-		targetPlan, _, err := planner.ApplyPreparedRunPromptOverridesFromMeta(plan, meta, overrides, overridesPlan, launch.RunPromptOverrideOptions{
-			RequiredTools: plan.RequiredTools, WorkflowThinking: workflowThinkingMutationFor(input, selection),
-		})
-		if err != nil {
-			return preparedCurrentNodeAgentSession{}, runtime.WorkflowAssignment{}, err
-		}
-		targetPlan.SessionName, targetPlan.FirstPromptPreview, targetPlan.WorktreeReminder = &name, preview, reminder
 		return s.finalizeCurrentNodeAgent(ctx, input, preparedCurrentNodeAgentSession{root: root, plan: targetPlan})
 	}
 	prepared := preparedCurrentNodeAgentSession{root: root, plan: plan}

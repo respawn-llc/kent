@@ -22,7 +22,7 @@ describe("Task Detail live refresh", () => {
     ]);
     const first = deferred<undefined>();
     const second = deferred<undefined>();
-    const staleAttention = taskAttentionMany([["ask-2", 1]], 5);
+    const staleAttention = taskAttentionMany([["ask-2", 1]]);
     const staleRead = deferred<ReturnType<typeof taskAttention>>();
     let answerCount = 0;
     let attentionReadCount = 0;
@@ -40,7 +40,7 @@ describe("Task Detail live refresh", () => {
             return answered("ask-1");
           }
           await second.promise;
-          attention = taskAttentionMany([], 5);
+          attention = taskAttentionMany([]);
           return answered("ask-2");
         }),
       ],
@@ -131,7 +131,7 @@ describe("Task Detail live refresh", () => {
     });
 
     await waitForProjectSubscription(services.transport);
-    attention = taskAttentionMany([], 5);
+    attention = taskAttentionMany([]);
     act(() => {
       projectEventsFixture(services.transport).emit({ action: "question_cleared" });
     });
@@ -142,7 +142,7 @@ describe("Task Detail live refresh", () => {
       backgroundRead.resolve(attention);
     });
     await act(async () => {
-      staleRead.resolve(taskAttentionMany([["ask-1", 1]], 5));
+      staleRead.resolve(taskAttentionMany([["ask-1", 1]]));
     });
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
   });
@@ -182,10 +182,10 @@ describe("Task Detail live refresh", () => {
       expect(attentionReadCount).toBe(3);
     });
     await act(async () => {
-      directRead.resolve(taskAttentionMany([], 5));
+      directRead.resolve(taskAttentionMany([]));
     });
     await act(async () => {
-      backgroundRead.resolve(taskAttentionMany([["ask-1", 1]], 4));
+      backgroundRead.resolve(taskAttentionMany([["ask-1", 1]]));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(screen.queryAllByRole("radio")).toHaveLength(0);

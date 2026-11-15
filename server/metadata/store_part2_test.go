@@ -501,16 +501,6 @@ func TestSessionLaunchVisibilityTransitions(t *testing.T) {
 
 func assertProjectSessionListingCount(t *testing.T, ctx context.Context, store *Store, projectID string, want int) []clientui.SessionSummary {
 	t.Helper()
-	projects, err := store.ListProjects(ctx)
-	if err != nil {
-		t.Fatalf("ListProjects: %v", err)
-	}
-	if len(projects) != 1 {
-		t.Fatalf("expected one project, got %+v", projects)
-	}
-	if projects[0].SessionCount != want {
-		t.Fatalf("project session count = %d, want %d", projects[0].SessionCount, want)
-	}
 	page, err := store.ListSessionPage(ctx, projectID, sessioncontract.SessionCategoryMain, 0, 20)
 	if err != nil {
 		t.Fatalf("ListSessionPage: %v", err)

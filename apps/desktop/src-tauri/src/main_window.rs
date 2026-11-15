@@ -21,6 +21,59 @@ pub enum Destination {
 pub struct State {
     opening: Mutex<()>,
     delivery: Mutex<MainWindow>,
+    startup_finished: Mutex<bool>,
+}
+
+impl State {
+    pub fn closed(&self) {
+        self.finish_startup();
+        *self.delivery.lock().expect("Main window state poisoned") = MainWindow::default();
+    }
+
+    pub fn initial_startup(&self) -> bool {
+        !*self
+            .startup_finished
+            .lock()
+            .expect("Startup state poisoned")
+    }
+
+    pub fn finish_startup(&self) {
+        *self
+            .startup_finished
+            .lock()
+            .expect("Startup state poisoned") = true;
+    }
+
+    pub fn connect<R: tauri::Runtime>(
+        &self,
+        app: &tauri::AppHandle<R>,
+        owner: &crate::settings::SettingsOwner,
+        launch: &crate::settings::DesktopLaunch,
+        address: &str,
+    ) -> Result<crate::settings::DesktopSettings, crate::settings::SettingsError> {
+        let finished = self
+            .startup_finished
+            .lock()
+            .expect("Startup state poisoned");
+        if *finished {
+            return Err(crate::settings::SettingsError::Storage(
+                "Initial main-window startup has ended; restart to change servers.".into(),
+            ));
+        }
+        owner.connect(
+            app,
+            launch,
+            address,
+            crate::settings::ConnectionMode::MainStartup,
+        )
+    }
+}
+
+#[tauri::command]
+pub fn complete_main_startup(window: tauri::WebviewWindow, state: tauri::State<'_, State>) {
+    if window.label() == "main" {
+        state.finish_startup();
+    }
 }
 
 #[derive(Default)]
@@ -69,35 +122,38 @@ impl<T: Clone + serde::Serialize> Delivery<T> {
 const NAVIGATION: &str = "app://main-navigation";
 const NOTIFICATION: &str = "app://attention-notification-activated";
 
+pub fn create(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .ok_or("Main window configuration is missing")?;
+    let mut config = config.clone();
+    config.transparent = app.state::<crate::settings::DesktopLaunch>().transparent();
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config)
+        .map_err(|error| error.to_string())?
+        .build()
+        .map_err(|error| error.to_string())?;
+    #[cfg(any(target_os = "macos", windows))]
+    if config.transparent {
+        let glass_window = window.clone();
+        window
+            .run_on_main_thread(move || {
+                if let Err(error) = crate::native_glass::apply_to_window_now(&glass_window) {
+                    eprintln!("Apply native window glass failed: {error}");
+                }
+            })
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(window)
+}
+
 fn show(app: &tauri::AppHandle) -> Result<(), String> {
     let window = match app.get_webview_window("main") {
         Some(window) => window,
-        None => {
-            let config = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|config| config.label == "main")
-                .ok_or("Main window configuration is missing")?;
-            let window = tauri::WebviewWindowBuilder::from_config(app, config)
-                .map_err(|error| error.to_string())?
-                .build()
-                .map_err(|error| error.to_string())?;
-            #[cfg(any(target_os = "macos", windows))]
-            {
-                let glass_window = window.clone();
-                window
-                    .run_on_main_thread(move || {
-                        if let Err(error) = crate::native_glass::apply_to_window_now(&glass_window)
-                        {
-                            eprintln!("Apply native window glass failed: {error}");
-                        }
-                    })
-                    .map_err(|error| error.to_string())?;
-            }
-            window
-        }
+        None => create(app)?,
     };
     window.unminimize().map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
@@ -157,11 +213,6 @@ pub async fn main_window_ready(
         Channel::Navigation => state.navigation.ready(&app, NAVIGATION),
         Channel::Notification => state.notification.ready(&app, NOTIFICATION),
     }
-}
-
-pub fn closed(app: &tauri::AppHandle) {
-    let state = app.state::<State>();
-    *state.delivery.lock().expect("Main window state poisoned") = MainWindow::default();
 }
 
 pub fn activate(app: &tauri::AppHandle, activation: AttentionNotificationActivation) {

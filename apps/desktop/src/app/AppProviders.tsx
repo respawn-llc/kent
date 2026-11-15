@@ -15,6 +15,7 @@ import { TaskSearchMemoryProvider } from "@/app-facade";
 import { WindowFocusProvider } from "@/app-facade";
 import { WindowChromeTitleProvider } from "@/app-facade";
 import { ChatPromptPresenceProvider } from "@/app-facade";
+import { DesktopPreferences } from "./DesktopPreferences";
 import { SpeechRecoveryProvider } from "@/shared/speech-input";
 
 void initializeI18n();
@@ -37,8 +38,10 @@ export function AppProviders({ services, children }: AppProvidersProps) {
                 <StatusProvider>
                   <TaskSearchMemoryProvider>
                     <ChatPromptPresenceProvider>
-                      <NativeWindowObservations services={services} />
-                      <SpeechRecoveryProvider>{children}</SpeechRecoveryProvider>
+                      <DesktopPreferences>
+                        <NativeWindowObservations services={services} />
+                        <SpeechRecoveryProvider>{children}</SpeechRecoveryProvider>
+                      </DesktopPreferences>
                     </ChatPromptPresenceProvider>
                   </TaskSearchMemoryProvider>
                 </StatusProvider>

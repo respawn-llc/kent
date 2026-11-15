@@ -125,8 +125,17 @@ func (m *uiModel) reduceInputAsyncMessage(msg tea.Msg) uiFeatureUpdateResult {
 		cmd := m.applyChatSettingsDone(msg)
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, cmd)
+	case agentPickerAppliedMsg:
+		cmd := m.applyAgentPickerResult(msg)
+		m.layout().syncViewport()
+		return handledUIFeatureUpdate(m, cmd)
+	case sessionSettingsLoadedMsg:
+		cmd := m.applySessionSettingsLoaded(msg)
+		m.layout().syncViewport()
+		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
 	case newSessionSettingsLoadedMsg:
 		cmd := m.applyNewSessionSettingsLoaded(msg)
+		cmd = tea.Batch(cmd, m.reconcileNewChatAgentPicker(msg))
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, m.batchWithNativeOngoingRepaint(cmd))
 	case newSessionLoginDoneMsg:
@@ -173,10 +182,6 @@ func (m *uiModel) reduceProcessMessage(msg tea.Msg) uiFeatureUpdateResult {
 		m.layout().syncViewport()
 		return handledUIFeatureUpdate(m, tea.Batch(refreshCmd, tea.Tick(processListRefreshInterval, func(time.Time) tea.Msg { return processListRefreshTickMsg{} }), m.reconcileSpinnerTicking(false)))
 	case processListRefreshDoneMsg:
-		if msg.token != m.processList.refreshToken {
-			m.layout().syncViewport()
-			return handledUIFeatureUpdate(m, nil)
-		}
 		m.processList.refreshInFlight = false
 		m.processList.loading = false
 		if msg.err != nil {

@@ -1,4 +1,4 @@
-import { createBrowserNativeBridge, type NativePlatform } from "@app/native-bridge";
+import { browserSettingsFixture, createBrowserNativeBridge, type NativePlatform } from "@app/native-bridge";
 import { create } from "@app/server-api-contract";
 import { SpeechService } from "@app/server-api-contract/gen/kent/api/speech/speech_pb";
 import {
@@ -61,7 +61,6 @@ export type TestAppServices = Omit<AppServices, "logger"> &
   }>;
 
 export type CreateTestServicesOptions = Readonly<{
-  debugThemeOverrideEnabled?: boolean | undefined;
   homePath?: string | undefined;
   platform?: NativePlatform | undefined;
 }>;
@@ -130,6 +129,7 @@ export function createTestServices(
     createBrowserNativeBridge(options.platform === undefined ? {} : { platform: options.platform });
   return {
     api: new ApiClient(transport, projectEventDiagnostics(logger)),
+    initialSettings: browserSettingsFixture,
     speech: {
       microphone: "browser",
       begin: speechUnavailable,
@@ -139,14 +139,13 @@ export function createTestServices(
       saveCopy: speechUnavailable,
       limitSound: speechUnavailable,
     },
-    debugThemeOverrideEnabled: options.debugThemeOverrideEnabled ?? false,
     endpoint: "ws://127.0.0.1:53082/rpc",
     homePath: options.homePath ?? "",
     logger,
     nativeBridge: resolvedNativeBridge,
     protocolVersion,
     storageNamespace: {
-      kind: "browser-endpoint",
+      kind: "server-address",
       identity: "ws://127.0.0.1:53082/rpc",
     },
     transport,
@@ -200,10 +199,7 @@ export const startupRoutes: readonly FakeRoute[] = [
         value: {
           readiness: {
             ready: true,
-            serverId: "server-1",
-            serverVersion: "1.3.0",
             protocolVersion,
-            endpoint: "ws://127.0.0.1:53082/rpc",
             subagentRoles: [{ name: "default" }, { name: "fast" }, { name: "coder" }, { name: "reviewer" }],
             causes: [],
           },
@@ -218,7 +214,6 @@ export const startupRoutes: readonly FakeRoute[] = [
         case: "success",
         value: {
           projects: [],
-          generatedAt: { seconds: 1n, nanos: 0 },
         },
       },
     }),
@@ -228,9 +223,7 @@ export const startupRoutes: readonly FakeRoute[] = [
     result: create(AttentionReadService.method.list.output, {
       outcome: {
         case: "success",
-        value: {
-          generatedAt: { seconds: 0n, nanos: 1_000_000 },
-        },
+        value: {},
       },
     }),
   },

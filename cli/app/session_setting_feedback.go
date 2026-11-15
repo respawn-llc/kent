@@ -7,30 +7,40 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	sessionNameNoticeID    = "session-setting:session_name"
+	thinkingNoticeID       = "session-setting:thinking"
+	fastModeNoticeID       = "session-setting:fast_mode"
+	supervisorNoticeID     = "session-setting:supervisor"
+	questionsNoticeID      = "session-setting:questions"
+	autoCompactionNoticeID = "session-setting:auto_compaction"
+)
+
 func (m *uiModel) applySessionSettingFeedback(feedback *transcriptpb.SessionSettingFeedback) tea.Cmd {
 	if !feedback.Changed {
 		return nil
 	}
+	notice, noticeID := sessionSettingFeedbackNotice(feedback)
 	return m.sendTransientStatusWithNoticeID(
-		sessionSettingFeedbackNotice(feedback),
+		notice,
 		uiStatusNoticeSuccess,
 		transientStatusDuration,
 		uiStatusNoticeReplace,
-		sessionSettingNoticeID(feedback.Kind),
+		noticeID,
 	)
 }
 
-func sessionSettingFeedbackNotice(feedback *transcriptpb.SessionSettingFeedback) string {
-	switch feedback.Kind {
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME:
-		return "Session renamed"
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING:
-		return "Thinking: " + feedback.GetThinking()
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE:
-		return "Fast: " + chatSettingsOnOffValues[feedback.GetFastMode()]
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR:
+func sessionSettingFeedbackNotice(feedback *transcriptpb.SessionSettingFeedback) (string, string) {
+	switch value := feedback.Value.(type) {
+	case *transcriptpb.SessionSettingFeedback_SessionName:
+		return "Session renamed", sessionNameNoticeID
+	case *transcriptpb.SessionSettingFeedback_Thinking:
+		return "Thinking: " + value.Thinking, thinkingNoticeID
+	case *transcriptpb.SessionSettingFeedback_FastMode:
+		return "Fast: " + chatSettingsOnOffValues[value.FastMode], fastModeNoticeID
+	case *transcriptpb.SessionSettingFeedback_Supervisor:
 		var supervisor chatsettingspb.SupervisorValue
-		switch feedback.GetSupervisor() {
+		switch value.Supervisor {
 		case "off":
 			supervisor = chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_OFF
 		case "edits":
@@ -40,31 +50,12 @@ func sessionSettingFeedbackNotice(feedback *transcriptpb.SessionSettingFeedback)
 		default:
 			panic("invalid Session supervisor setting")
 		}
-		return "Supervisor: " + chatSettingsSupervisorNotices[supervisor]
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS:
-		return "Questions: " + chatSettingsOnOffValues[feedback.GetQuestions()]
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION:
-		return "Auto-compaction: " + chatSettingsOnOffValues[feedback.GetAutoCompaction()]
+		return "Supervisor: " + chatSettingsSupervisorNotices[supervisor], supervisorNoticeID
+	case *transcriptpb.SessionSettingFeedback_Questions:
+		return "Questions: " + chatSettingsOnOffValues[value.Questions], questionsNoticeID
+	case *transcriptpb.SessionSettingFeedback_AutoCompaction:
+		return "Auto-compaction: " + chatSettingsOnOffValues[value.AutoCompaction], autoCompactionNoticeID
 	default:
-		panic("validated Session setting feedback kind is exhaustive")
-	}
-}
-
-func sessionSettingNoticeID(kind transcriptpb.SessionSettingKind) string {
-	switch kind {
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME:
-		return "session-setting:session_name"
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_THINKING:
-		return "session-setting:thinking"
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_FAST_MODE:
-		return "session-setting:fast_mode"
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SUPERVISOR:
-		return "session-setting:supervisor"
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_QUESTIONS:
-		return "session-setting:questions"
-	case transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_AUTO_COMPACTION:
-		return "session-setting:auto_compaction"
-	default:
-		panic("invalid Session setting kind")
+		panic("validated Session setting feedback value is exhaustive")
 	}
 }

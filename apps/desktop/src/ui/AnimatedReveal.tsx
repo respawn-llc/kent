@@ -1,7 +1,7 @@
-import { motion, useIsPresent, useReducedMotion } from "motion/react";
-import type { CSSProperties, ReactNode } from "react";
+import { motion, usePresence } from "motion/react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 
-import { motionDurationFromCSSVar } from "./motion";
+import { motionDurationFromCSSVar, useReducedMotion } from "./motion";
 
 const revealStyles = {
   expand: { overflow: "hidden" },
@@ -13,6 +13,14 @@ const revealStyles = {
     justifyContent: "center",
   },
 } satisfies Record<string, CSSProperties>;
+
+function useRevealPresence(reducedMotion: boolean) {
+  const [present, safeToRemove] = usePresence(reducedMotion);
+  useEffect(() => {
+    if (reducedMotion && !present) safeToRemove();
+  }, [present, reducedMotion, safeToRemove]);
+  return { present, shouldRender: present || !reducedMotion };
+}
 
 export function AnimatedReveal({
   children,
@@ -26,11 +34,12 @@ export function AnimatedReveal({
   variant?: "expand" | "fade" | "collapse-center";
 }>) {
   const reducedMotion = useReducedMotion();
-  const present = useIsPresent();
+  const { present, shouldRender } = useRevealPresence(reducedMotion);
+  if (!shouldRender) return null;
   return (
     <motion.div
       className={className}
-      inert={present ? undefined : true}
+      inert={!present}
       style={revealStyles[variant]}
       initial={
         enter && !reducedMotion

@@ -4,31 +4,14 @@ import (
 	"time"
 )
 
-type EventLogAppendObservation struct {
-	RecordCount int
-	Latency     time.Duration
-	Succeeded   bool
-}
-
-type EventLogSyncObservation struct {
-	Latency   time.Duration
-	Succeeded bool
-}
-
-type DurabilityObserver interface {
-	ObserveEventLogAppend(EventLogAppendObservation)
-	ObserveEventLogSync(EventLogSyncObservation)
-}
-
 type StoreOption func(*storeOptions)
 
 type storeOptions struct {
-	observer           PersistenceObserver
-	reconciler         EventLogReconciliationObserver
-	resolver           PersistedSessionResolver
-	contextFactWriter  SessionContextFactWriter
-	durabilityObserver DurabilityObserver
-	now                func() time.Time
+	observer          PersistenceObserver
+	reconciler        EventLogReconciliationObserver
+	resolver          PersistedSessionResolver
+	contextFactWriter SessionContextFactWriter
+	now               func() time.Time
 }
 
 func WithPersistenceObserver(observer PersistenceObserver) StoreOption {
@@ -49,12 +32,6 @@ func WithPersistedSessionResolver(resolver PersistedSessionResolver) StoreOption
 func WithSessionContextFactWriter(writer SessionContextFactWriter) StoreOption {
 	return func(options *storeOptions) {
 		options.contextFactWriter = writer
-	}
-}
-
-func WithDurabilityObserver(observer DurabilityObserver) StoreOption {
-	return func(options *storeOptions) {
-		options.durabilityObserver = observer
 	}
 }
 

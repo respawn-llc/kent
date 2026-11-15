@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import type { WorkflowDeleteImpact } from "@/api";
-import { Button, Spinner } from "@/ui";
+import { Button } from "@/ui";
 
 export function WorkflowDeleteConfirmationContent({
   actionError,
@@ -34,8 +34,14 @@ export function WorkflowDeleteConfirmationContent({
         <Button className="w-full" disabled={disabled} onClick={onCancel}>
           {t("app.cancel")}
         </Button>
-        <Button className="w-full" aria-busy={disabled} onClick={onConfirm} variant="danger">
-          {disabled ? <Spinner /> : t("workflowEditor.workflowDeleteConfirm")}
+        <Button
+          className="w-full"
+          aria-busy={disabled}
+          loading={disabled}
+          onClick={onConfirm}
+          variant="danger"
+        >
+          {t("workflowEditor.workflowDeleteConfirm")}
         </Button>
       </div>
     </div>

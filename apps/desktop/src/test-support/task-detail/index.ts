@@ -4,9 +4,7 @@ import * as taskRead from "@app/server-api-contract/gen/kent/api/workflow_task/r
 import * as taskLifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import * as taskAttention from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import * as workflow from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-import { AttentionCurrentNodeSchema } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
-import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import {
   AnswerService,
   AnswerBatchOutcome,
@@ -40,11 +38,12 @@ import { FakeRpcTransport, type FakeRoute } from "../api";
 import { createTestServices, startupRoutes, TestAppProviders, type TestAppServices } from "../app-services";
 import type { NativeBridge } from "../native-bridge";
 import { createTestSidebarController } from "../sidebar";
-import { attentionBase } from "./attention";
-export { taskQuestionPage } from "./attention";
+import { attentionBase, questionAttention } from "./attention";
+export { taskQuestionPage, questionAttention } from "./attention";
 
 export {
   taskActionFixture,
+  pausedTaskFixture,
   backlogTaskFixture,
   taskStartApplied,
   taskStartFailure,
@@ -69,12 +68,7 @@ export {
   taskActivityRoute,
 } from "./reads";
 
-const taskActions = {
-  canStart: false,
-  canInterrupt: true,
-  canResume: false,
-  canDelete: false,
-};
+const taskActions = create(taskRead.TaskActionsSchema, { canInterrupt: true });
 
 export const taskDetailResponse = {
   task: create(taskRead.TaskDetailSchema, {
@@ -105,7 +99,7 @@ export const taskDetailResponse = {
       updatedAt: { seconds: 0n, nanos: 1_000_000 },
     },
     executionTarget: {
-      mode: ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
+      mode: workflow.ExecutionTargetMode.WORKFLOW_EXECUTION_TARGET_MODE_HEAD,
       requestedRef: "HEAD",
       resolvedRef: "refs/heads/main",
       commitOid: "0123456789abcdef0123456789abcdef01234567",
@@ -123,10 +117,12 @@ export const taskDetailResponse = {
       {
         sessionId: "33333333-3333-4333-8333-333333333333",
         sessionName: "Review chat",
+        shortId: 301n,
         nodeDisplayName: "Code Review",
       },
       {
         sessionId: "44444444-4444-4444-8444-444444444444",
+        shortId: 302n,
         nodeDisplayName: "Implementation",
       },
     ],
@@ -160,27 +156,29 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
     {
       ...attentionBase,
       id: "attention-question",
-      kind: taskAttention.AttentionItemKind.QUESTION,
       detail: {
         case: "question",
         value: {
           currentNode: { nodeId: "node-1" },
           sessionName: "Session one",
           question: {
-            sessionId: "33333333-3333-4333-8333-333333333333",
-            stepId: "22222222-2222-4222-8222-222222222222",
-            toolCallId: "ask-1",
-            kind: taskAttention.AttentionQuestionKind.ORDINARY,
-            prompt: { case: "ordinary", value: { suggestions: [] } },
+            question: {
+              case: "ask",
+              value: {
+                sessionId: "33333333-3333-4333-8333-333333333333",
+                stepId: "22222222-2222-4222-8222-222222222222",
+                toolCallId: "ask-1",
+                question: "Approve protected path?",
+                createdAt: { seconds: 0n, nanos: 1_000_000 },
+              },
+            },
           },
-          message: "Approve protected path?",
         },
       },
     },
     {
       ...attentionBase,
       id: "attention-approval",
-      kind: taskAttention.AttentionItemKind.APPROVAL,
       detail: {
         case: "approval",
         value: {
@@ -196,12 +194,9 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
       },
     },
   ],
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
 });
 
-export const emptyTaskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
-});
+export const emptyTaskAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {});
 
 export async function createTaskDetailFixture(): Promise<TaskDetail> {
   const client = new ApiClient(
@@ -223,6 +218,7 @@ export const taskDetailResponseWithAdditionalLiveSession = {
       ...taskDetailResponse.task.liveSessions,
       create(taskRead.LiveSessionSchema, {
         sessionId: "55555555-5555-4555-8555-555555555555",
+        shortId: 303n,
         sessionName: "QA chat",
         nodeDisplayName: "QA",
       }),
@@ -241,7 +237,10 @@ export const taskDetailResponseWithCurrentScript = {
   task: create(taskRead.TaskDetailSchema, {
     ...taskDetailNoInboxResponse.task,
     currentNodes: [
-      create(AttentionCurrentNodeSchema, { nodeId: "node-script", nodeDisplayName: "Run checks" }),
+      create(taskAttention.AttentionCurrentNodeSchema, {
+        nodeId: "node-script",
+        nodeDisplayName: "Run checks",
+      }),
     ],
     liveSessions: [],
     currentScripts: [
@@ -267,7 +266,6 @@ export const interruptedTaskAttentionResponse = create(taskAttention.TaskAttenti
     {
       ...attentionBase,
       id: "attention-interrupted",
-      kind: taskAttention.AttentionItemKind.INTERRUPTED_CURRENT_NODE,
       detail: {
         case: "interruptedCurrentNode",
         value: {
@@ -281,35 +279,9 @@ export const interruptedTaskAttentionResponse = create(taskAttention.TaskAttenti
       },
     },
   ],
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
-});
-
-export const questionAttention = create(taskAttention.AttentionItemSchema, {
-  ...attentionBase,
-  id: "attention-question",
-  kind: taskAttention.AttentionItemKind.QUESTION,
-  detail: {
-    case: "question",
-    value: {
-      currentNode: { nodeId: "node-1" },
-      sessionName: "Session one",
-      message: "Choose snack",
-      question: {
-        sessionId: "33333333-3333-4333-8333-333333333333",
-        stepId: "22222222-2222-4222-8222-222222222222",
-        toolCallId: "ask-1",
-        kind: taskAttention.AttentionQuestionKind.ORDINARY,
-        prompt: {
-          case: "ordinary",
-          value: { recommendedOptionIndex: 1, suggestions: ["Trail mix", "Dark chocolate"] },
-        },
-      },
-    },
-  },
 });
 
 export const questionAttentionResponse = create(taskAttention.TaskAttentionListSuccessSchema, {
-  generatedAt: { seconds: 0n, nanos: 3_000_000 },
   items: [questionAttention],
 });
 
@@ -318,12 +290,10 @@ export function parsedQuestionAttention(): QuestionAttentionItem &
     question: Extract<QuestionAttentionItem["question"], Readonly<{ kind: "ordinary" }>>;
   }> {
   const detail = questionAttention.detail;
-  if (detail.case !== "question" || detail.value.question?.prompt.case !== "ordinary") {
+  if (detail.case !== "question" || detail.value.question?.question.case !== "ask") {
     throw new Error("Ordinary Question fixture is required.");
   }
-  const question = detail.value.question;
-  const prompt = question.prompt;
-  if (prompt.case !== "ordinary") throw new Error("Ordinary Question fixture is required.");
+  const question = detail.value.question.question.value;
   return {
     id: questionAttention.id,
     projectID: questionAttention.projectId,
@@ -341,14 +311,15 @@ export function parsedQuestionAttention(): QuestionAttentionItem &
       effectiveThinking: null,
     },
     sessionName: detail.value.sessionName ?? null,
-    message: detail.value.message ?? null,
     question: {
       sessionID: question.sessionId,
       stepID: question.stepId,
       toolCallID: question.toolCallId,
       kind: "ordinary",
-      recommendedOptionIndex: prompt.value.recommendedOptionIndex ?? null,
-      suggestions: prompt.value.suggestions,
+      question: question.question,
+      createdAt: "1970-01-01T00:00:00.001Z",
+      recommendedOptionIndex: question.recommendedOptionIndex ?? null,
+      suggestions: question.suggestions,
     },
   };
 }
@@ -380,7 +351,6 @@ export const activityResponse = create(taskLifecycle.ActivityListSuccessSchema, 
         case: "comment",
         value: {
           id: "comment-activity-1",
-          taskId: "task-1",
           body: "Comment added",
           author: taskLifecycle.CommentAuthorKind.USER,
           createdAt: { seconds: 0n, nanos: 2_000_000 },
@@ -437,7 +407,6 @@ export function promptAnswerBatchRoute(
 export const commentAddResponse = create(taskLifecycle.CommentAddSuccessSchema, {
   comment: {
     id: "comment-2",
-    taskId: "task-1",
     body: "Fresh comment",
     author: taskLifecycle.CommentAuthorKind.USER,
     createdAt: { seconds: 0n, nanos: 4_000_000 },
@@ -449,7 +418,6 @@ export const commentListResponse = create(taskLifecycle.CommentListSuccessSchema
   items: [
     {
       id: "comment-1",
-      taskId: "task-1",
       body: "Existing comment",
       author: taskLifecycle.CommentAuthorKind.USER,
       createdAt: { seconds: 0n, nanos: 1_000_000 },
@@ -463,7 +431,6 @@ export const firstCommentListResponse = create(taskLifecycle.CommentListSuccessS
   items: [
     {
       id: "comment-page-1",
-      taskId: "task-1",
       body: "First paged comment",
       author: taskLifecycle.CommentAuthorKind.USER,
       createdAt: { seconds: 0n, nanos: 5_000_000 },
@@ -478,7 +445,6 @@ export const secondCommentListResponse = create(taskLifecycle.CommentListSuccess
   items: [
     {
       id: "comment-page-2",
-      taskId: "task-1",
       body: "Second paged comment",
       author: taskLifecycle.CommentAuthorKind.USER,
       createdAt: { seconds: 0n, nanos: 6_000_000 },

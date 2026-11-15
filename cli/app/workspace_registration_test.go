@@ -16,7 +16,6 @@ import (
 	"core/shared/config"
 	"core/shared/sessioncontract"
 	"errors"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -159,14 +158,14 @@ func releaseConfiguredAppTestServerPort() {
 	}
 }
 
-func prepareAppRuntimePlan(t *testing.T, server launchPlannerServer, req sessionLaunchRequest, diagnosticWriter io.Writer, startLogLine string) (sessionLaunchPlan, *runtimeLaunchPlan) {
+func prepareAppRuntimePlan(t *testing.T, server launchPlannerServer, req sessionLaunchRequest) (sessionLaunchPlan, *runtimeLaunchPlan) {
 	t.Helper()
 	planner := newSessionLaunchPlanner(server)
 	plan, err := planner.PlanSession(context.Background(), req)
 	if err != nil {
 		t.Fatalf("PlanSession: %v", err)
 	}
-	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan, diagnosticWriter, startLogLine)
+	runtimePlan, err := planner.PrepareRuntime(context.Background(), plan)
 	if err != nil {
 		t.Fatalf("PrepareRuntime: %v", err)
 	}

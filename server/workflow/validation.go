@@ -315,18 +315,9 @@ func (s *validationState) validateNodeGroups() {
 }
 
 func (s *validationState) nodeGroupMembers(group NodeGroup) []Node {
-	memberIDs := map[NodeID]bool{}
-	for _, nodeID := range group.MemberNodeIDs {
-		memberIDs[nodeID] = true
-	}
+	var members []Node
 	for _, node := range s.def.Nodes {
 		if groupID, present := NodeGroupID(node); present && strings.TrimSpace(groupID) == group.ID {
-			memberIDs[NodeIDOf(node)] = true
-		}
-	}
-	members := make([]Node, 0, len(memberIDs))
-	for nodeID := range memberIDs {
-		if node, exists := s.nodesByID[nodeID]; exists {
 			members = append(members, node)
 		}
 	}
@@ -607,8 +598,10 @@ func (s *validationState) validateKindConstraints() {
 				s.addHard(CodeInvalidStartNode, "start node must be non-executable and have no inputs", ref)
 			}
 		case NodeKindAgent:
-			if issue, exists := validateAgentRoleRequirement(s.def.ID, node, toolspec.ToolAskQuestion, s.opts.RoleResolver); exists && (s.opts.ExecutionNodes == nil || s.opts.ExecutionNodes[nodeID]) {
-				s.addSemantic(issue.Code, issue.Message, issue)
+			if !s.resumesNode(nodeID) && (s.opts.ExecutionNodes == nil || s.opts.ExecutionNodes[nodeID]) {
+				if issue, exists := validateAgentRoleRequirement(s.def.ID, node, toolspec.ToolAskQuestion, s.opts.RoleResolver); exists {
+					s.addSemantic(issue.Code, issue.Message, issue)
+				}
 			}
 		case NodeKindJoin:
 			if strings.TrimSpace(NodeSubagentRole(node)) != "" {
@@ -652,7 +645,7 @@ func validateAgentRoleRequirement(workflowID runtimeids.WorkflowID, node Node, r
 		ref.Message = fmt.Sprintf("Agent node %s references missing subagent role %s", nodeDisplayName(node), role)
 		return ref, true
 	}
-	_, err := PlanTargetAgentSelection(catalog, TargetAgentSelectionRequest{FallbackRole: role})
+	_, err := configuredTargetAgentSelection(resolveConfiguredTargetRole(catalog, role), role)
 	if err == nil {
 		return ValidationError{}, false
 	}
@@ -709,7 +702,20 @@ func (s *validationState) validateRuntimeSupport() {
 	}
 }
 
+func (s *validationState) resumesNode(nodeID NodeID) bool {
+	return s.context == ValidationContextResume && (s.opts.ExecutionNodes == nil || s.opts.ExecutionNodes[nodeID])
+}
+
+func (s *validationState) resumesIncomingEdge(edge Edge) bool {
+	source, exists := s.edgeSource(edge)
+	return exists && s.resumesNode(edge.TargetNodeID) && !s.resumesNode(NodeIDOf(source))
+}
+
 func (s *validationState) validateSelectorApplicability(edge Edge, source Node, sourceExists bool, target Node, targetExists bool, contextSource ContextSource, ref ValidationError) {
+	// Resume executes the materialized selection, not the incoming selector.
+	if s.resumesIncomingEdge(edge) {
+		return
+	}
 	validateAvailability := s.opts.ExecutionNodes == nil || s.opts.ExecutionNodes[edge.TargetNodeID]
 	assigneeSelection := CanonicalAssigneeSelection(edge.AssigneeSelection)
 	thinkingSelection := CanonicalThinkingSelection(edge.ThinkingSelection)
@@ -729,9 +735,8 @@ func (s *validationState) validateSelectorApplicability(edge Edge, source Node, 
 		TargetKind:                   targetKind,
 		TargetRole:                   targetRole,
 		FanOut:                       len(s.edgesByGroup[edge.TransitionGroupID]) > 1,
-		TargetSessionPolicy:          AssigneeSessionPolicyEstablishTarget,
 		Catalog:                      s.opts.RoleResolver,
-		RequireExecutionDescriptions: s.context == ValidationContextExecution,
+		RequireExecutionDescriptions: s.context == ValidationContextExecution || s.context == ValidationContextResume,
 	})
 	applicability := plan.Applicability
 	if assigneeSelection == AssigneeSelectionPreviousNode {
@@ -752,7 +757,7 @@ func (s *validationState) validateSelectorApplicability(edge Edge, source Node, 
 	if validateAvailability && !applicability.Thinking.Available {
 		s.addSemantic(CodeThinkingSelectionUnavailable, "edge thinking selection is unavailable for the applicable target models", ref)
 	}
-	if validateAvailability && s.context == ValidationContextExecution &&
+	if validateAvailability && (s.context == ValidationContextExecution || s.context == ValidationContextResume) &&
 		thinkingSelection == ThinkingSelectionPreviousNode &&
 		sourceExists &&
 		targetExists {
@@ -951,9 +956,11 @@ func (s *validationState) validatePromptPlaceholders() {
 		}
 		if sourceExists && source.Kind() == NodeKindJoin {
 			currentParams = outputFieldNameSet(derived.JoinOutputFieldsForNode(NodeIDOf(source)))
-		} else if sourceExists && targetExists {
+		} else if sourceExists && targetExists && !s.resumesIncomingEdge(edge) {
 			currentParams = s.promptParameterNameSet(edge, source, target)
 		}
+		// Resume checks protected input availability after resolving the saved
+		// Session's effective model, rather than the definition's fallback.
 		for _, param := range refs.Params {
 			name := strings.TrimSpace(param.Name)
 			paramRef := ref
@@ -975,28 +982,21 @@ func (s *validationState) validatePromptPlaceholders() {
 func (s *validationState) promptParameterNameSet(edge Edge, source Node, target Node) map[string]bool {
 	names := edgeParameterNameSet(edge)
 	consumption := PlanTransitionProtectedParameterConsumption(TransitionParameterContractRequest{
-		Edge:                edge,
-		SourceKind:          source.Kind(),
-		TargetKind:          target.Kind(),
-		TargetRole:          NodeSubagentRole(target),
-		FanOut:              len(s.edgesByGroup[edge.TransitionGroupID]) > 1,
-		Catalog:             s.opts.RoleResolver,
-		TargetSessionPolicy: AssigneeSessionPolicyEstablishTarget,
+		Edge:       edge,
+		SourceKind: source.Kind(),
+		TargetKind: target.Kind(),
+		TargetRole: NodeSubagentRole(target),
+		FanOut:     len(s.edgesByGroup[edge.TransitionGroupID]) > 1,
+		Catalog:    s.opts.RoleResolver,
 	})
 	contextSourceKind := CanonicalContextSource(edge.ContextSource).Kind
 	retainedSessionPossible := edge.ContextMode == ContextModeContinueSession &&
 		(contextSourceKind == ContextSourcePreviousTarget || contextSourceKind == ContextSourcePreviousTargetOrNew)
 	for _, parameter := range edge.Parameters {
-		var policy ProtectedParameterConsumptionPolicy
-		switch CanonicalParameterPurpose(parameter.Purpose) {
-		case ParameterPurposeTargetAssignee:
-			policy = consumption.Assignee
-		case ParameterPurposeTargetThinking:
-			policy = consumption.Thinking
-		default:
+		if CanonicalParameterPurpose(parameter.Purpose) == ParameterPurposeOrdinary {
 			continue
 		}
-		if retainedSessionPossible || policy != ProtectedParameterConsumptionRequiredValidate {
+		if retainedSessionPossible || consumption.ForParameter(parameter) != ProtectedParameterConsumptionRequiredValidate {
 			delete(names, strings.TrimSpace(parameter.Key))
 		}
 	}

@@ -489,8 +489,12 @@ func (c *remoteControlConn) fail(err error) {
 		c.errMu.Unlock()
 		close(c.done)
 		c.pendingMu.Lock()
+		pending := c.pending
 		c.pending = map[string]chan remoteControlResponse{}
 		c.pendingMu.Unlock()
+		for _, response := range pending {
+			response <- remoteControlResponse{err: err}
+		}
 	})
 }
 
@@ -532,10 +536,10 @@ func receiveFrame(ctx context.Context, conn rpcwire.Conn) (rpcwire.Frame, error)
 		return rpcwire.Frame{}, ctx.Err()
 	case event, ok := <-conn.Events():
 		if !ok {
-			return rpcwire.Frame{}, io.EOF
+			return rpcwire.Frame{}, errors.Join(io.EOF, ctx.Err())
 		}
 		if event.Err != nil {
-			return rpcwire.Frame{}, event.Err
+			return rpcwire.Frame{}, errors.Join(event.Err, ctx.Err())
 		}
 		return event.Frame, nil
 	}

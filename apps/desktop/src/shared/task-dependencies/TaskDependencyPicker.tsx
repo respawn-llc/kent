@@ -164,13 +164,7 @@ function TaskDependencySearchResults({
           ? search.request.data?.pages.at(-1)?.response.nextOffset?.toString()
           : undefined
       }
-      loadingLabel={t("taskSearch.searching")}
-      nextBoundary={taskDependencySearchBoundary(
-        search,
-        t("taskSearch.searching"),
-        t("taskSearch.loadMoreFailed"),
-        t("app.retry"),
-      )}
+      nextBoundary={taskDependencySearchBoundary(search, t("taskSearch.loadMoreFailed"), t("app.retry"))}
       onLoadMore={() => {
         if (search.paginationUsesVisibleData) {
           search.request.fetchNextPage();
@@ -305,12 +299,7 @@ function TaskDependencySearchFallback({
     );
   }
   if (search.request.isFetching && search.results.length === 0) {
-    return (
-      <InfiniteListBoundary
-        direction="initial"
-        state={{ state: "loading", label: t("taskSearch.searching") }}
-      />
-    );
+    return <InfiniteListBoundary direction="initial" state={{ state: "loading" }} />;
   }
   if (results.length === 0) {
     return (
@@ -324,7 +313,6 @@ function TaskDependencySearchFallback({
 
 function taskDependencySearchBoundary(
   search: ReturnType<typeof useTaskSearch>,
-  loadingLabel: string,
   message: string,
   retryLabel: string,
 ): VirtualizedInfiniteListBoundaryState | undefined {
@@ -332,7 +320,7 @@ function taskDependencySearchBoundary(
     return undefined;
   }
   if (search.request.isFetchingNextPage) {
-    return { state: "loading", label: loadingLabel };
+    return { state: "loading" };
   }
   if (search.request.isFetchNextPageError) {
     return {

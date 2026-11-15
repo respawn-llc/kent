@@ -33,10 +33,23 @@ export function PromptPickerView({
   const { t } = useTranslation();
   const answerArea = useRef<HTMLDivElement | null>(null);
   const localField = useRef<HTMLTextAreaElement | null>(null);
+  const focusedAnswerElement = useRef<HTMLElement | null>(null);
+  const previousCurrent = useRef(state.current);
   const field = editorRef ?? localField;
   useLayoutEffect(() => {
     answerArea.current?.focus();
   }, []);
+  useLayoutEffect(() => {
+    if (previousCurrent.current !== state.current) {
+      const focusWasLost =
+        document.activeElement === document.body || document.activeElement === document.documentElement;
+      const removedAnswerFocus =
+        focusedAnswerElement.current !== null && !focusedAnswerElement.current.isConnected && focusWasLost;
+      previousCurrent.current = state.current;
+      focusedAnswerElement.current = null;
+      if (removedAnswerFocus) answerArea.current?.focus();
+    }
+  }, [state]);
   const batch = pickerBatch(prompts);
   const index = batch.findIndex((prompt) => prompt.toolCallID === state.current);
   const prompt = batch[index];
@@ -48,8 +61,13 @@ export function PromptPickerView({
   const options = pickerOptions(prompt, t);
   const selected = options.find((option) => sameSelection(option.selection, draft.selection));
   const act = (action: PickerAction) => {
-    dispatch(action, () => field.current?.focus());
+    const originatedAction =
+      action.kind === "select" || action.kind === "activate" || action.kind === "pointer-confirm"
+        ? { ...action, originToolCallID: prompt.toolCallID }
+        : action;
+    dispatch(originatedAction, () => field.current?.focus());
   };
+  const pointerConfirmationProtected = state.batchToolCallIDs.length === 1 || draft.commentary.length > 0;
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     promptPickerKeyboard(event, { answerArea, field, options, selected, disabled, act });
   };
@@ -94,8 +112,16 @@ export function PromptPickerView({
               </IconTooltipButton>
             </div>
           )}
-          <div ref={answerArea} tabIndex={0} className="min-w-0 outline-none">
+          <div
+            ref={answerArea}
+            tabIndex={0}
+            className="min-w-0 outline-none"
+            onFocusCapture={(event) => {
+              if (event.target instanceof HTMLElement) focusedAnswerElement.current = event.target;
+            }}
+          >
             <RadioGroup
+              key={prompt.toolCallID}
               className="gap-[var(--space-1)]"
               disabled={disabled}
               value={selected?.value ?? null}
@@ -119,6 +145,19 @@ export function PromptPickerView({
                   onActivate={() => {
                     act({ kind: "activate", selection: option.selection });
                   }}
+                  {...(pointerConfirmationProtected &&
+                  option.selection.kind !== "neither" &&
+                  option.selection.kind !== "freeform"
+                    ? {
+                        onDoubleActivate: () => {
+                          act({
+                            kind: "pointer-confirm",
+                            selection: option.selection,
+                            originToolCallID: prompt.toolCallID,
+                          });
+                        },
+                      }
+                    : {})}
                 />
               ))}
             </RadioGroup>

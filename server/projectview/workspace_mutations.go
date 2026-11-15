@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"core/server/operation"
 	projectpb "core/shared/protoapi/gen/kent/api/project"
 	"core/shared/serverapi"
 )
@@ -13,6 +14,12 @@ func (s *Service) SetDefaultWorkspace(ctx context.Context, req *projectpb.SetDef
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.SetDefaultWorkspaceSuccess, error) {
+		return s.setDefaultWorkspace(scope.Context(), req)
+	})
+}
+
+func (s *Service) setDefaultWorkspace(ctx context.Context, req *projectpb.SetDefaultWorkspaceRequest) (*projectpb.SetDefaultWorkspaceSuccess, error) {
 	selector := projectWorkspaceSelectorFromGenerated(req.Workspace)
 	binding, err := s.metadata.ResolveProjectWorkspaceSelector(ctx, req.ProjectId, selector)
 	if err != nil {
@@ -33,6 +40,12 @@ func (s *Service) UnlinkWorkspaceFromProject(ctx context.Context, req *projectpb
 	if s == nil {
 		return nil, errors.New("project service is required")
 	}
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*projectpb.UnlinkWorkspaceSuccess, error) {
+		return s.unlinkWorkspaceFromProject(scope.Context(), req)
+	})
+}
+
+func (s *Service) unlinkWorkspaceFromProject(ctx context.Context, req *projectpb.UnlinkWorkspaceRequest) (*projectpb.UnlinkWorkspaceSuccess, error) {
 	selector := projectWorkspaceSelectorFromGenerated(req.Workspace)
 	workspaceID := selector.WorkspaceIDValue()
 	if workspaceID == nil {

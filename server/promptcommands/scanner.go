@@ -14,11 +14,6 @@ import (
 	"core/shared/runtimeinput"
 )
 
-type candidate struct {
-	name    string
-	content string
-}
-
 type candidateEntry struct {
 	name string
 	path string
@@ -131,39 +126,38 @@ func (s Service) scan() ([]CatalogEntry, error) {
 	return result, nil
 }
 
-func (s Service) findCandidate(command string) (candidate, bool, error) {
+func (s Service) findCandidate(command string) (string, bool, error) {
 	name, err := runtimeinput.ParsePromptCommandName(command)
 	if err != nil {
-		return candidate{}, false, nil
+		return "", false, nil
 	}
-	var found *candidate
+	var content string
+	found := false
 	err = s.walkCandidates(func(command string) bool {
 		return command == name.String()
 	}, func(entry candidateEntry) (candidateDecision, error) {
-		content, readErr := os.ReadFile(entry.path)
+		bodyBytes, readErr := os.ReadFile(entry.path)
 		if readErr != nil {
 			commandName := name.String()
 			return candidateSkip, &Error{Kind: ErrorKindCommandRead, Command: &commandName, cause: fmt.Errorf("read prompt file %s: %w", entry.path, readErr)}
 		}
-		if strings.TrimSpace(string(content)) == "" {
+		body := string(bodyBytes)
+		if strings.TrimSpace(body) == "" {
 			return candidateSkip, nil
 		}
-		value := candidate{name: entry.name, content: string(content)}
-		found = &value
+		content = body
+		found = true
 		return candidateStop, nil
 	})
 	if err != nil {
 		var traversalErr *candidateTraversalError
 		if errors.As(err, &traversalErr) {
 			commandName := name.String()
-			return candidate{}, false, &Error{Kind: ErrorKindCommandRead, Command: &commandName, cause: traversalErr}
+			return "", false, &Error{Kind: ErrorKindCommandRead, Command: &commandName, cause: traversalErr}
 		}
-		return candidate{}, false, err
+		return "", false, err
 	}
-	if found == nil {
-		return candidate{}, false, nil
-	}
-	return *found, true, nil
+	return content, found, nil
 }
 
 func commandNameForEntry(entryName string, directory bool) (*runtimeinput.PromptCommandName, bool) {

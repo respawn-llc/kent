@@ -42,11 +42,14 @@ func (n *NativeResponse) PresentationItems() []ResponseItem {
 	return append([]ResponseItem(nil), n.displayItems...)
 }
 
-func newNativeResponse(body session.NativeResponseBody, items []ResponseItem) (*NativeResponse, error) {
+func newNativeResponse(body session.NativeResponseBody, items []ResponseItem, policy responsesPolicy) (*NativeResponse, error) {
 	n := &NativeResponse{body: body, items: items}
 	display := append([]ResponseItem(nil), items...)
 	byIndex := make(map[int64]*ResponseItem, len(display))
 	for i := range display {
+		if display[i].Type == ResponseItemTypeReasoning {
+			display[i].ReasoningSummary = policy.reasoningEntries(display[i].ReasoningSummary)
+		}
 		if display[i].Type == ResponseItemTypeMessage {
 			byIndex[int64(i)] = &display[i]
 		}
@@ -168,7 +171,7 @@ func MessageFromNativeResponse(body session.NativeResponseBody) (Message, error)
 	if err != nil {
 		return Message{}, err
 	}
-	native, err := newNativeResponse(body, items)
+	native, err := newNativeResponse(body, items, policy)
 	if err != nil {
 		return Message{}, err
 	}

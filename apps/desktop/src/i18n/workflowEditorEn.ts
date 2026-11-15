@@ -1,6 +1,5 @@
 export const workflowEditorEnglish = {
   title: "Workflow editor",
-  loadingTitle: "Workflow editor",
   linkLoadFailed: "Workflow links failed to load",
   loadFailed: "Workflow editor failed to load",
   unlinkedTitle: "Workflow is not linked to this project",
@@ -201,7 +200,6 @@ export const workflowEditorEnglish = {
   validationSessionTransitionAmbiguous: "This prompt references more than one matching transition.",
   unsavedChanges: "Unsaved changes",
   save: "Save",
-  saving: "Saving",
   confirmSave: "Confirm save",
   destructiveSaveWarning: "This save will permanently remove graph rows. Proceed?",
   saveImpactNodes: "Removed nodes: {{count}}",

@@ -103,7 +103,7 @@ it("admits only one Save when the public action binding is invoked twice in one 
   });
   expect(view.update).toHaveBeenCalledTimes(1);
   await act(async () => {
-    view.response.resolve({ project: savedProject });
+    view.response.resolve();
     await view.response.promise;
   });
 });
@@ -126,9 +126,30 @@ it("allows a name-only Save with an unchanged legacy key", async () => {
   });
   expect(view.update).toHaveBeenCalledWith(project.projectID, "New name", undefined);
   await act(async () => {
-    view.response.resolve({ project: savedProject });
+    view.response.resolve();
     await view.response.promise;
   });
+});
+
+it("refreshes saved metadata after Save succeeds without a response payload", async () => {
+  const view = setup();
+  const saved = { ...project, displayName: "New name" };
+  vi.spyOn(view.services.api, "getProjectEdit").mockResolvedValue(saved);
+  await act(async () => {
+    view.result.current.editName(saved.displayName);
+    view.result.current.save(undefined);
+  });
+  expect(view.update).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    view.response.resolve();
+    await view.response.promise;
+  });
+  await waitFor(() => {
+    const metadata = view.client.getQueryData<typeof saved>(queryKeys.projectEdit(project.projectID));
+    expect(metadata).toEqual(saved);
+    expect(view.result.current.state.canSave).toBe(false);
+  });
+  expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
 });
 
 it("reports a request failure through the ordinary status notification", async () => {
@@ -201,30 +222,55 @@ it("admits only one directory selection while the picker is pending", async () =
   expect(attach).not.toHaveBeenCalled();
 });
 
-it("sends an already attached directory explicitly and keeps the catalog untouched", async () => {
-  const view = setup();
-  vi.spyOn(view.services.nativeBridge.directories, "selectDirectory").mockResolvedValue({ path: "/buried" });
-  const attach = vi.spyOn(view.services.api, "attachWorkspace").mockResolvedValue({
-    binding: {
-      projectID: project.projectID,
-      workspaceID: "buried",
-      projectKey: project.projectKey,
-      projectName: project.displayName,
-      workspaceName: "Buried",
-      workspaceStatus: "available",
-    },
-    outcome: "already_attached",
-  });
-  const invalidate = vi.spyOn(view.client, "invalidateQueries");
-  await act(async () => {
-    view.result.current.chooseWorkspace(undefined);
-  });
-  expect(attach).toHaveBeenCalledWith(project.projectID, "/buried");
-  expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
-  expect(invalidate).not.toHaveBeenCalledWith(
-    expect.objectContaining({ queryKey: queryKeys.projectWorkspaceCatalog(project.projectID) }),
-  );
-});
+it.each(["attached", "already_attached"] as const)(
+  "refreshes the visible Workspace catalog after linking returns %s",
+  async (outcome) => {
+    const context = fixture();
+    const workspace = { id: "workspace-2", name: "Extra", rootPath: "/extra", isDefault: false };
+    const page = { projectID: project.projectID, offset: 0, nextOffset: null };
+    const list = vi.spyOn(context.services.api, "listWorkspaces").mockResolvedValue({
+      ...page,
+      workspaces: [],
+    });
+    vi.spyOn(context.services.nativeBridge.directories, "selectDirectory").mockResolvedValue({
+      path: workspace.rootPath,
+    });
+    const attach = vi.spyOn(context.services.api, "attachWorkspace").mockImplementation(async () => {
+      list.mockResolvedValue({ ...page, workspaces: [workspace] });
+      return {
+        binding: {
+          projectID: project.projectID,
+          workspaceID: workspace.id,
+          projectKey: project.projectKey,
+          projectName: project.displayName,
+          workspaceName: workspace.name,
+          workspaceStatus: "available",
+        },
+        outcome,
+      };
+    });
+    const view = renderHook(
+      () => ({
+        catalog: useAtomValue(context.model.catalog),
+        workspaces: useAtomValue(context.model.workspaces),
+        ...useProjectEditActions(context.model),
+      }),
+      { wrapper: ({ children }: { children: ReactNode }) => <RegistryProvider>{children}</RegistryProvider> },
+    );
+    await waitFor(() => {
+      expect(view.result.current.catalog.isSuccess).toBe(true);
+    });
+    expect(view.result.current.workspaces).toHaveLength(0);
+    act(() => {
+      view.result.current.chooseWorkspace(undefined);
+    });
+    await waitFor(() => {
+      expect(view.result.current.workspaces.map((entry) => entry.workspace)).toEqual([workspace]);
+    });
+    expect(attach).toHaveBeenCalledWith(project.projectID, workspace.rootPath);
+    expect(context.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));
+  },
+);
 
 it("admits only one inline Unlink while its request is pending", async () => {
   const view = setup();
@@ -238,7 +284,6 @@ it("admits only one inline Unlink while its request is pending", async () => {
   await act(async () => {
     response.resolve({
       blockers: [],
-      project: null,
       projectID: project.projectID,
       workspaceID: "workspace-1",
     });
@@ -258,7 +303,7 @@ it("refreshes the visible workspace catalog after Unlink", async () => {
   });
   vi.spyOn(context.services.api, "unlinkWorkspace").mockImplementation(async () => {
     list.mockResolvedValue({ projectID: project.projectID, workspaces: [], nextOffset: null, offset: 0 });
-    return { blockers: [], project: null, projectID: project.projectID, workspaceID: workspace.id };
+    return { blockers: [], projectID: project.projectID, workspaceID: workspace.id };
   });
   const view = renderHook(
     () => ({
@@ -283,7 +328,6 @@ it("reports Unlink blockers and permits an explicit retry", async () => {
   const unlink = vi.spyOn(view.services.api, "unlinkWorkspace").mockResolvedValue({
     projectID: project.projectID,
     workspaceID: "workspace-1",
-    project: null,
     blockers: [{ code: "in-use", message: "Workspace is in use" }],
   });
   const invalidate = vi.spyOn(view.client, "invalidateQueries");
@@ -363,7 +407,7 @@ it("keeps admission attached when visual readers leave during a pending Save", a
   });
   expect(context.update).toHaveBeenCalledTimes(1);
   await act(async () => {
-    context.response.resolve({ project: savedProject });
+    context.response.resolve();
     await context.response.promise;
   });
   expect(context.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "success" }));

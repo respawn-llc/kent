@@ -38,7 +38,6 @@ export function LinkWorkflowSidebar({
   navigator?: SidebarPageNavigator | undefined;
   selectedWorkflowID?: string | undefined;
 }>) {
-  const { t } = useTranslation();
   if (creating) {
     return (
       <WorkflowCreateForm
@@ -56,7 +55,6 @@ export function LinkWorkflowSidebar({
       projectID={projectID}
       navigator={navigator}
       selectedWorkflowID={selectedWorkflowID}
-      title={t("workflowLibrary.linkWorkflow")}
     />
   );
 }
@@ -66,13 +64,11 @@ function LinkWorkflowPicker({
   projectID,
   navigator,
   selectedWorkflowID,
-  title,
 }: Readonly<{
   onLinked: (workflowID: string) => void;
   projectID: string;
   navigator?: SidebarPageNavigator | undefined;
   selectedWorkflowID?: string | undefined;
-  title: string;
 }>) {
   const { t } = useTranslation();
   const { api } = useAppServices();
@@ -91,7 +87,7 @@ function LinkWorkflowPicker({
   useSidebarBackWhen(projectMissing, navigator);
 
   if (workflowsQuery.isPending || linksQuery.isPending) {
-    return <LoadingState appearanceDelayMs={0} fullPage={false} title={title} />;
+    return <LoadingState appearanceDelayMs={0} fullPage={false} />;
   }
   if (workflowsQuery.isError) {
     return (
@@ -135,7 +131,6 @@ function LinkWorkflowPicker({
       hasNextPage={workflowsQuery.hasNextPage}
       isFetchingNextPage={workflowsQuery.isFetchingNextPage}
       items={workflows}
-      loadingLabel={t("app.loadingMore")}
       onLoadMore={() => {
         workflowsQuery.fetchNextPage();
       }}

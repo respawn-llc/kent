@@ -1535,7 +1535,7 @@ func TestRemotePendingWorkContractsPreserveTypedResults(t *testing.T) {
 	}
 	id := runtimeids.NewQueueItemID()
 	list := &runtimepb.ListPendingWorkSuccess{PendingWork: &runtimepb.PendingWork{Items: []*runtimepb.PendingWorkItem{{
-		Id: id.String(), Lane: runtimepb.PendingWorkLane_PENDING_WORK_LANE_STEER, Kind: runtimepb.PendingWorkItemKind_PENDING_WORK_ITEM_KIND_MANUAL_COMPACTION,
+		Id: id.String(), Lane: runtimepb.PendingWorkLane_PENDING_WORK_LANE_STEER,
 		CanonicalInput: exact,
 		State:          runtimepb.PendingWorkItemState_PENDING_WORK_ITEM_STATE_PENDING,
 		Payload:        &runtimepb.PendingWorkItem_ManualCompaction{ManualCompaction: &runtimepb.ManualCompactionAdmission{Guidance: &guidance}},

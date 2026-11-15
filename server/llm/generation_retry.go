@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
+	"core/shared/llmerrors"
 	"core/shared/rpcwire"
 )
 
@@ -62,7 +62,7 @@ func GenerateWithRetry(ctx context.Context, attempt GenerationAttempt, options G
 		}
 		if options.Callbacks.OnReasoningSummaryDelta != nil {
 			callbacks.OnReasoningSummaryDelta = func(delta ReasoningSummaryDelta) {
-				if done.Load() || strings.TrimSpace(delta.Text) == "" {
+				if done.Load() {
 					return
 				}
 				reasoningEmitted = true
@@ -116,6 +116,9 @@ func GenerateWithRetry(ctx context.Context, attempt GenerationAttempt, options G
 		delays := options.Schedule.Failures
 		if errors.Is(err, ErrModelStreamStalled) {
 			delays = options.Schedule.StreamStalls
+		}
+		if llmerrors.IsMessageLimitError(err) {
+			delays = delays[:min(len(delays), 3)]
 		}
 		if i >= len(delays) {
 			break

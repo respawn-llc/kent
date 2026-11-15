@@ -383,7 +383,7 @@ func loadBindingCommandConfig(path string) (config.Connection, error) {
 	if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
 		absPath = filepath.Dir(absPath)
 	}
-	return config.LoadConnectionDiscovery(absPath, config.LoadOptions{})
+	return loadCommandConnection(absPath)
 }
 
 var errWorkspaceNotRegistered = serverapi.ErrWorkspaceNotRegistered

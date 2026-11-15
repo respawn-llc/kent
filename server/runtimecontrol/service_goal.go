@@ -251,9 +251,6 @@ func applyLiveGoalMutation(ctx context.Context, engine *runtime.Engine, mutation
 			return runtime.GoalCommandResult{}, err
 		}
 		if mutation.StartLoop {
-			if err := engine.RequireGoalLoopStartAllowed(); err != nil {
-				return runtime.GoalCommandResult{}, err
-			}
 			return engine.SetGoalAndStartLoop(ctx, mutation.Objective, mutation.Actor)
 		}
 		return engine.SetGoal(ctx, mutation.Objective, mutation.Actor)

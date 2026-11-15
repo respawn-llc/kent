@@ -8,7 +8,7 @@ import { worktreeErrorMessage } from "./worktreeErrorMessage";
 export function createWorktreeCommandDelete({
   present,
   ...dependencies
-}: Omit<Parameters<typeof createWorktreeDeletion>[0], "close"> &
+}: Parameters<typeof createWorktreeDeletion>[0] &
   Readonly<{
     present(preview: WorktreeDeletePreview): void;
   }>) {

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"core/shared/protoapi"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
@@ -25,8 +24,7 @@ func TestRemoteTranscriptPageRejectsMalformedLocatorPayload(t *testing.T) {
 		request := receiveRemoteGeneratedCall(t, ws, "ReadService", "GetPage", &transcriptpb.PageRequest{})
 		response := &transcriptpb.PageResult{Outcome: &transcriptpb.PageResult_Success{Success: &transcriptpb.PageSuccess{
 			Transcript: &transcriptpb.Page{
-				SessionId:             "12345678-1234-4234-8234-123456789012",
-				ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED,
+				SessionId: "12345678-1234-4234-8234-123456789012",
 				Entries: []*transcriptpb.CommittedRow{{
 					Visibility: transcriptpb.EntryVisibility_ENTRY_VISIBILITY_ONGOING,
 					Integrity:  transcriptpb.RowIntegrity_ROW_INTEGRITY_VALID,

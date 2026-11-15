@@ -87,7 +87,6 @@ it.each([-1n, 0n, 255n, 2147483648n, 3221225477n, 4294967295n])(
               command: "child",
               workdir: "/tmp",
               startedAt: { seconds: 1n, nanos: 0 },
-              lastUpdatedAt: { seconds: 1n, nanos: 0 },
               exitCode,
             },
           ],

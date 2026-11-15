@@ -18,8 +18,48 @@ import (
 	"core/shared/textutil"
 	"core/shared/worktreecontract"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestWorktreeOriginSessionPresentationUsesPersistedIdentity(t *testing.T) {
+	env := newServiceTestEnv(t)
+	id := uuid.NewString()
+	if err := env.store.UpsertWorktreeRecord(env.ctx, metadata.WorktreeRecord{
+		ID: id, WorkspaceID: env.binding.WorkspaceID, CanonicalRoot: filepath.Join(t.TempDir(), "missing"),
+		DisplayName: "missing", OriginSessionID: env.session.Meta().SessionID, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	identity := env.session.Identity()
+	if identity.ShortID == nil {
+		t.Fatal("Expected persisted Session numeric ID")
+	}
+	named := "Review changes"
+	for _, name := range []*string{&named, nil} {
+		if err := env.session.SetName(name); err != nil {
+			t.Fatal(err)
+		}
+		list, err := env.service.ListWorktrees(env.ctx, &worktreepb.ListRequest{
+			SessionId: &sharedpb.SessionSelector{Value: &sharedpb.SessionSelector_SessionId{
+				SessionId: identity.ID.String(),
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var projection *worktreepb.ListProjection
+		for _, entry := range list.Worktrees {
+			if worktreeID := topologyWorktreeID(entry.Topology); worktreeID != nil && *worktreeID == id {
+				projection = entry.Projection
+			}
+		}
+		if projection == nil || !reflect.DeepEqual(projection.OriginSessionName, name) ||
+			projection.OriginSessionShortId == nil || *projection.OriginSessionShortId != identity.ShortID.Int64() {
+			t.Fatalf("Origin Session projection = %+v, want name %v and ID %v", projection, name, *identity.ShortID)
+		}
+	}
+}
 
 func TestListWorktreesSupportsNonGitWorkspace(t *testing.T) {
 	env := newServiceTestEnv(t)

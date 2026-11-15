@@ -208,6 +208,9 @@ type toolDisplay struct {
 func toolDisplayText(row *transcriptpb.ToolRow, meta toolMeta, mode Mode) toolDisplay {
 	if mode == ModeOngoing || mode == ModeOngoingCollapsed || mode == ModeDetailCollapsed {
 		text := compactToolText(meta, firstNonEmpty(optionalString(row.CondensedText), row.Text))
+		if isWebSearchTool(meta.ToolName) && row.WebSearch != nil {
+			text = webActionDisplayText(row.WebSearch)
+		}
 		status := ""
 		if !isWebSearchTool(meta.ToolName) {
 			resultSummary := optionalString(row.ResultSummary)

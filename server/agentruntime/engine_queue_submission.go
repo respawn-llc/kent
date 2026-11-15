@@ -385,9 +385,10 @@ func (e *Engine) scheduleQueuedUserInjections() bool {
 	return true
 }
 
-// CancelScheduledQueuedUserWork stops only the currently owned worker. Its
-// completion remains pending until startup/submission and model work exit.
-func (e *Engine) CancelScheduledQueuedUserWork() {
+// CancelScheduledModelWork prevents continuation beyond the canceled execution,
+// including when its current Step has already entered terminal publication.
+func (e *Engine) CancelScheduledModelWork() {
+	e.goalLoopState().Suspend()
 	e.queuedUserWorkMu.Lock()
 	defer e.queuedUserWorkMu.Unlock()
 	if e.queuedUserWorkCancel != nil {

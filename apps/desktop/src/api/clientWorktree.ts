@@ -250,9 +250,11 @@ export async function deleteWorktree(
         selector: authority.deletionSelector,
         forceFolderRemoval: authority.cleanliness.kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
         branchCleanupPolicy:
-          confirmation === "confirm"
-            ? BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED
-            : BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE,
+          confirmation === "confirm_without_branch"
+            ? BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_RETAIN
+            : confirmation === "confirm"
+              ? BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_AUTO_IF_KENT_CREATED
+              : BranchCleanupMode.WORKTREE_BRANCH_CLEANUP_MODE_DELETE_SAFE,
       }),
     ),
   );

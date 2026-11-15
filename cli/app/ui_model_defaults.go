@@ -1,7 +1,5 @@
 package app
 
-import runtimepb "core/shared/protoapi/gen/kent/api/runtime"
-
 import (
 	"os"
 	"strings"
@@ -44,7 +42,6 @@ func newUIInputFeatureState() uiInputFeatureState {
 		reviewerMode:          "off",
 		autoCompactionEnabled: true,
 		questionsEnabled:      true,
-		conversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
 	}
 }
 
@@ -74,6 +71,7 @@ func newUISessionTransitionFeatureState() uiSessionTransitionFeatureState {
 func newUIStatusFeatureState() uiStatusFeatureState {
 	debug := envFlagEnabled("KENT_DEBUG")
 	return uiStatusFeatureState{
+		status:              uiStatusOverlayState{uiStatusCollection: &uiStatusCollection{}},
 		statusRepository:    status.NewMemoryRepository(),
 		clipboardPaster:     newSystemClipboardPaster(),
 		clipboardTextCopier: newSystemClipboardTextCopier(),

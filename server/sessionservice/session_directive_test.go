@@ -17,7 +17,7 @@ import (
 
 func TestSessionTransitionMapsEveryActionToTypedLifecycleResult(t *testing.T) {
 	parentID := runtimeids.NewSessionID()
-	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
+	service := newTestSessionLifecycleService(t, t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 
 	tests := []struct {
 		name       string
@@ -89,7 +89,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 	appendSessionMessage(t, store, "step-1", session.MessageRoleUser, "u1")
 	appendSessionMessage(t, store, "step-1", session.MessageRoleAssistant, "a1")
 
-	service := newTestSessionLifecycleService(cfg.PersistenceRoot, metadataStore)
+	service := newTestSessionLifecycleService(t, cfg.PersistenceRoot, metadataStore)
 	result, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{
 		SessionId: proto.String(store.Meta().SessionID),
 		Transition: &sessionlaunchpb.SessionTransition{
@@ -126,7 +126,7 @@ func TestSessionTransitionRollbackLaunchesCreatedFork(t *testing.T) {
 }
 
 func TestSessionTransitionLogoutResultDependsOnCurrentSession(t *testing.T) {
-	service := newTestSessionLifecycleService(t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
+	service := newTestSessionLifecycleService(t, t.TempDir(), testsetup.OpenStore(t, t.TempDir()))
 	currentID := runtimeids.NewSessionID()
 
 	withCurrent, err := service.ResolveTransition(context.Background(), &sessionlaunchpb.SessionResolveTransitionRequest{

@@ -80,7 +80,7 @@ func testAgentChangeShutdown(t *testing.T, abort bool) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("switch did not finish after execution shutdown")
 	}
-	if _, err := handle.Wait(t.Context()); !errors.Is(err, context.Canceled) {
+	if err := handle.Wait(t.Context()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("stopped execution: %v", err)
 	}
 }

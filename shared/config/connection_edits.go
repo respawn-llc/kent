@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type ConnectionAlreadyExistsError struct{ ID ConnectionID }
@@ -46,8 +47,63 @@ func SetProviderConnectionEnvironment(path string, id ConnectionID, name string)
 		if *connection.EnvironmentVariable == name {
 			return nil
 		}
-		connection.EnvironmentVariable = &name
 		return document.set([]string{"connections", string(id), "environment_variable"}, name)
+	})
+}
+
+// DeepSeekEndpointChoice is the explicit base for a DeepSeek reference edit.
+// Official selects the default base. A custom choice carries the absolute base to store.
+type DeepSeekEndpointChoice struct {
+	Official bool
+	Endpoint string
+}
+
+func (choice DeepSeekEndpointChoice) Base() (string, error) {
+	if choice.Official {
+		if strings.TrimSpace(choice.Endpoint) != "" {
+			return "", fmt.Errorf("official DeepSeek base does not include an endpoint")
+		}
+		return DefaultDeepSeekResponsesEndpoint, nil
+	}
+	return NormalizeDeepSeekBase(choice.Endpoint)
+}
+
+func SetDeepSeekConnectionReference(path string, id ConnectionID, name string, choice DeepSeekEndpointChoice) error {
+	return editConnectionDocument(path, id, func(document *settingsDocument, existing map[ConnectionID]ProviderConnection) error {
+		connection, present := existing[id]
+		if !present {
+			return &ConnectionReferenceError{Connection: &id}
+		}
+		if connection.EnvironmentVariable == nil {
+			return &ConnectionNotAPIKeyError{ID: id}
+		}
+		if connection.Protocol != ConnectionDeepSeekAPIKey {
+			return fmt.Errorf("connection %q cannot change its endpoint", id)
+		}
+		base, err := choice.Base()
+		if err != nil {
+			return err
+		}
+		persisted, err := PersistDeepSeekEndpoint(&base)
+		if err != nil {
+			return err
+		}
+		if *connection.EnvironmentVariable != name {
+			if err := document.set([]string{"connections", string(id), "environment_variable"}, name); err != nil {
+				return err
+			}
+		}
+		endpointPath := []string{"connections", string(id), "endpoint"}
+		raw, rawPresent := document.get(endpointPath)
+		rawText, rawIsText := raw.(string)
+		switch {
+		case persisted == nil && rawPresent:
+			return document.delete(endpointPath)
+		case persisted != nil && (!rawPresent || !rawIsText || rawText != *persisted):
+			return document.set(endpointPath, *persisted)
+		default:
+			return nil
+		}
 	})
 }
 

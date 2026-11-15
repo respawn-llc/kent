@@ -47,11 +47,11 @@ func (d *TaskDetail) GetTask(ctx context.Context, taskID string) (*taskpb.TaskDe
 	if d == nil {
 		return nil, errors.New("task detail is required")
 	}
-	task, err := d.queries.GetTask(ctx, taskID)
+	resolvedTaskID, err := d.queries.GetTaskID(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}
-	return d.task(ctx, task)
+	return d.task(ctx, resolvedTaskID)
 }
 
 func (d *TaskDetail) ListCurrentNodes(ctx context.Context, taskID string) ([]workflow.CurrentNode, error) {
@@ -71,11 +71,11 @@ func (d *TaskDetail) GetTaskByProjectShortID(ctx context.Context, projectID stri
 	}
 	trimmedProjectID := strings.TrimSpace(projectID)
 	trimmedShortID := strings.TrimSpace(shortID)
-	task, err := d.queries.GetTaskByProjectShortID(ctx, sqlitegen.GetTaskByProjectShortIDParams{ProjectID: trimmedProjectID, ShortID: trimmedShortID})
+	taskID, err := d.queries.GetTaskIDByProjectShortID(ctx, sqlitegen.GetTaskIDByProjectShortIDParams{ProjectID: trimmedProjectID, ShortID: trimmedShortID})
 	if err != nil {
 		return nil, err
 	}
-	return d.task(ctx, task)
+	return d.task(ctx, taskID)
 }
 
 func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (*taskpb.TaskDetail, error) {
@@ -83,46 +83,47 @@ func (d *TaskDetail) GetTaskByShortID(ctx context.Context, shortID string) (*tas
 		return nil, errors.New("task detail is required")
 	}
 	trimmedShortID := strings.TrimSpace(shortID)
-	tasks, err := d.queries.ListTasksByShortID(ctx, trimmedShortID)
+	taskIDs, err := d.queries.ListTaskIDsByShortID(ctx, trimmedShortID)
 	if err != nil {
 		return nil, err
 	}
-	if len(tasks) == 0 {
+	if len(taskIDs) == 0 {
 		return nil, sql.ErrNoRows
 	}
-	if len(tasks) > 1 {
+	if len(taskIDs) > 1 {
 		return nil, fmt.Errorf("task short_id %q is ambiguous; use task id", trimmedShortID)
 	}
-	if strings.TrimSpace(tasks[0].ID) == "" {
+	if strings.TrimSpace(taskIDs[0]) == "" {
 		return nil, ErrTaskIDRequired
 	}
-	return d.GetTask(ctx, tasks[0].ID)
+	return d.GetTask(ctx, taskIDs[0])
 }
 
-func (d *TaskDetail) task(ctx context.Context, task sqlitegen.TaskRecord) (*taskpb.TaskDetail, error) {
-	taskID := workflow.TaskID(task.ID)
-	observation, err := d.projection.Observe([]workflow.TaskID{taskID})
+func (d *TaskDetail) task(ctx context.Context, taskID string) (*taskpb.TaskDetail, error) {
+	projectionTaskID := workflow.TaskID(taskID)
+	observation, err := d.projection.Observe([]workflow.TaskID{projectionTaskID})
 	if err != nil {
 		return nil, err
 	}
-	results, err := d.projection.Project(ctx, observation, d.queries, []workflow.TaskID{taskID})
+	results, err := d.projection.Project(ctx, observation, d.queries, []workflow.TaskID{projectionTaskID})
 	if err != nil {
 		return nil, err
 	}
-	projected, ok := results[taskID]
+	projected, ok := results[projectionTaskID]
 	if !ok {
-		return nil, fmt.Errorf("task status projection omitted Task %q", task.ID)
+		return nil, fmt.Errorf("task status projection omitted Task %q", taskID)
 	}
-	projectedDependencies, err := d.dependencies.projectTaskDependencies(ctx, task.ID, observation, d.queries)
+	projectedDependencies, err := d.dependencies.projectTaskDependencies(ctx, taskID, observation, d.queries)
 	if err != nil {
 		return nil, err
 	}
-	task = projected.Task
+	task := projected.Task
 	definition := projected.Definition
-	liveSessions, currentScripts, err := taskDetailLiveTargets(
+	liveSessions, currentScripts, err := taskDetailTargets(
 		ctx,
 		d.queries.ListSessionNamesByIDs,
 		task.ID,
+		projected.CurrentNodes,
 		projected.LiveExecutions,
 		definition,
 	)
@@ -209,35 +210,45 @@ func (d *TaskDetail) taskDetailCurrentNodes(ctx context.Context, nodes []workflo
 	return projected, nil
 }
 
-func taskDetailLiveTargets(
+func taskDetailTargets(
 	ctx context.Context,
 	nameLookup sessionNameLookup,
 	taskID string,
+	currentNodes []workflow.CurrentNode,
 	executions []sessionruntime.TaskExecution,
 	definition definitionSnapshot,
 ) ([]*taskpb.LiveSession, []*taskpb.CurrentScript, error) {
-	type liveAgent struct {
-		sessionID       string
-		nodeDisplayName string
-	}
-	agents := make([]liveAgent, 0, len(executions))
-	sessionIDs := make([]string, 0, len(executions))
+	agents := make(map[string]string, len(currentNodes)+len(executions))
+	sessionIDs := make([]string, 0, len(currentNodes)+len(executions))
 	scripts := make([]*taskpb.CurrentScript, 0, len(executions))
 	nodesByID := workflowNodesByID(definition.api)
+	addSession := func(sessionID, nodeID string) error {
+		node, exists := nodesByID[nodeID]
+		if !exists {
+			return fmt.Errorf("task %q Session references unknown Node %q", taskID, nodeID)
+		}
+		if node.Kind != pb.NodeKind_WORKFLOW_NODE_KIND_AGENT {
+			return fmt.Errorf("task %q Session references %s Node %q", taskID, node.Kind, nodeID)
+		}
+		if _, exists := agents[sessionID]; !exists {
+			sessionIDs = append(sessionIDs, sessionID)
+			agents[sessionID] = workflow.DisplayLabel(node.DisplayName, node.Key)
+		}
+		return nil
+	}
+	for _, current := range currentNodes {
+		if current.SessionID != nil {
+			if err := addSession(current.SessionID.String(), string(current.Reference.NodeID)); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 	for _, execution := range executions {
 		switch {
 		case execution.Agent != nil:
-			sessionID := execution.Agent.SessionID.String()
-			nodeID := string(execution.Ref.CurrentNode.NodeID)
-			node, exists := nodesByID[nodeID]
-			if !exists {
-				return nil, nil, fmt.Errorf("task %q live Agent execution references unknown Node %q", taskID, nodeID)
+			if err := addSession(execution.Agent.SessionID.String(), string(execution.Ref.CurrentNode.NodeID)); err != nil {
+				return nil, nil, err
 			}
-			if node.Kind != pb.NodeKind_WORKFLOW_NODE_KIND_AGENT {
-				return nil, nil, fmt.Errorf("task %q live Agent execution references %s Node %q", taskID, node.Kind, nodeID)
-			}
-			sessionIDs = append(sessionIDs, sessionID)
-			agents = append(agents, liveAgent{sessionID: sessionID, nodeDisplayName: workflow.DisplayLabel(node.DisplayName, node.Key)})
 		case execution.Script != nil:
 			scripts = append(scripts, &taskpb.CurrentScript{
 				CurrentNode: workflowCurrentNodeReference(execution.Ref.CurrentNode),
@@ -247,15 +258,15 @@ func taskDetailLiveTargets(
 	}
 	names, err := resolveSessionPresentations(ctx, nameLookup, sessionIDs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("task %q live Sessions: %w", taskID, err)
+		return nil, nil, fmt.Errorf("task %q Sessions: %w", taskID, err)
 	}
 	liveSessions := make([]*taskpb.LiveSession, 0, len(agents))
-	for _, agent := range agents {
+	for sessionID, nodeDisplayName := range agents {
 		liveSessions = append(liveSessions, &taskpb.LiveSession{
-			SessionId:       agent.sessionID,
-			SessionName:     names[agent.sessionID].Name,
-			ShortId:         names[agent.sessionID].ShortID,
-			NodeDisplayName: agent.nodeDisplayName,
+			SessionId:       sessionID,
+			SessionName:     names[sessionID].Name,
+			ShortId:         names[sessionID].ShortID,
+			NodeDisplayName: nodeDisplayName,
 		})
 	}
 	sort.Slice(liveSessions, func(i, j int) bool { return liveSessions[i].SessionId < liveSessions[j].SessionId })

@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/shared/config"
 	"core/shared/protocol"
+	"core/shared/proxyhttp"
 	"core/shared/sessionenv"
 	"encoding/json"
 	"errors"
@@ -241,6 +242,15 @@ func runServiceCommandAction(ctx context.Context, action serviceAction, opts ser
 		return 1
 	}
 	backend := serviceBackendFactory()
+	proxy, err := config.ResolveClientProxy(spec.Config.PersistenceRoot)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if err := proxyhttp.Configure(proxy); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 

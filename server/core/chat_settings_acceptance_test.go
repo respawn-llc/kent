@@ -2,12 +2,12 @@ package core
 
 import (
 	"context"
-	"core/internal/testharness/requestfixture"
-	"core/internal/testharness/testsetup"
 	"sync"
 	"testing"
 	"time"
 
+	"core/internal/testharness/chatfixture"
+	"core/internal/testharness/testsetup"
 	"core/server/authmanager"
 	serverbootstrap "core/server/bootstrap"
 	"core/server/llm"
@@ -152,15 +152,7 @@ func testChatSettingsRuntimeMutation(t *testing.T, switchAgent bool) {
 	initialQuestions := before.GetSession().Settings.Questions.Enabled
 	requestedQuestions := !initialQuestions
 
-	err = appCore.SessionRuntimeClient().ActivateSessionRuntime(t.Context(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, sessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: resolved.Config.Settings,
-			QuestionsEnabled:      textutil.Value(initialQuestions),
-			AutoCompactionEnabled: textutil.Value(before.GetSession().Settings.AutoCompaction.Effective),
-			Source:                resolved.Config.Source},
-	})
-	if err != nil {
-		t.Fatalf("ActivateSessionRuntime: %v", err)
-	}
+	chatfixture.OpenRuntime(t, appCore.ChatMutationClient(), appCore.SessionTranscriptClient(), sessionID.String())
 
 	t.Cleanup(model.unblock)
 

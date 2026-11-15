@@ -238,40 +238,6 @@ func setOptionalNonblank(target **string, value string) {
 	*target = &copied
 }
 
-func SessionRuntimeAgentSelectionFromProto(
-	message *sessionlaunchpb.SessionRuntimeAgentSelection,
-) (*serverapi.SessionRuntimeAgentSelection, error) {
-	if message == nil {
-		return nil, nil
-	}
-	return &serverapi.SessionRuntimeAgentSelection{
-		AgentRole: clonePointer(message.AgentRole),
-		Baseline: serverapi.SessionRuntimeChatSettings{
-			Supervisor:     message.Baseline.Supervisor,
-			Thinking:       message.Baseline.Thinking,
-			Fast:           message.Baseline.Fast,
-			Questions:      message.Baseline.Questions,
-			AutoCompaction: message.Baseline.AutoCompaction,
-		},
-	}, nil
-}
-
-func SessionRuntimeAgentSelectionToProto(selection *serverapi.SessionRuntimeAgentSelection) *sessionlaunchpb.SessionRuntimeAgentSelection {
-	if selection == nil {
-		return nil
-	}
-	return &sessionlaunchpb.SessionRuntimeAgentSelection{
-		AgentRole: clonePointer(selection.AgentRole),
-		Baseline: &sessionlaunchpb.SessionRuntimeChatSettings{
-			Supervisor:     selection.Baseline.Supervisor,
-			Thinking:       selection.Baseline.Thinking,
-			Fast:           selection.Baseline.Fast,
-			Questions:      selection.Baseline.Questions,
-			AutoCompaction: selection.Baseline.AutoCompaction,
-		},
-	}
-}
-
 func SessionToolIDToProto(toolID toolspec.ID) (configurationpb.ToolID, error) {
 	return enumToProto(sessionToolIDValues, toolID, "tool id")
 }

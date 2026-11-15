@@ -226,7 +226,7 @@ func waitEngineLifecycleTasks(t *testing.T, eng *Engine) {
 
 func scheduleSpeculativeCompactionAndWait(t *testing.T, eng *Engine) {
 	t.Helper()
-	window := eng.cfg.ContextWindowTokens
+	window := int(eng.contextPolicy.ContextWindowTokens)
 	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(window), WindowTokens: window, ContextUsage: &llm.ContextUsage{Tokens: window, MeasurementPoint: llm.ContextMeasurementInput}})
 	eng.maybeReserveEagerCompaction(ActiveKindUserTurn, LiveRunResultAssistantFinalAnswer, llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("final")})
 	waitEngineLifecycleTasks(t, eng)

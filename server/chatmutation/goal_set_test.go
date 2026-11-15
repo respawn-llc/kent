@@ -276,7 +276,7 @@ type goalSetTestRuntime struct {
 	calls int
 }
 
-func (r *goalSetTestRuntime) Open(_ context.Context, _ runtimeids.SessionID, _ *serverapi.SessionRuntimePreparationOptions) error {
+func (r *goalSetTestRuntime) Open(_ context.Context, _ runtimeids.SessionID, _ *serverapi.RunPromptOverrides) error {
 	r.calls++
 	return r.err
 }

@@ -210,6 +210,10 @@ export class SharedTextMotion {
         duration,
         ease: "easeInOut",
         onUpdate: (progress) => {
+          if (prefersReducedMotion()) {
+            finish();
+            return;
+          }
           if (!target.isConnected) return;
           const current = target.getBoundingClientRect();
           visual.style.left = `${String(source.rect.x + (current.x - source.rect.x) * progress)}px`;

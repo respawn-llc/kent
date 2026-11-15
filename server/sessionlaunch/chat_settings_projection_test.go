@@ -55,8 +55,8 @@ func TestNewChatCatalogCarriesCompletePreparedBaselines(t *testing.T) {
 			t.Fatalf("Fast baseline = %v", *choice.Baseline.Fast)
 		}
 	}
-	if !proto.Equal(catalog.InitialSettings, catalog.Choices[0].Baseline) {
-		t.Fatalf("initial selection differs from default baseline")
+	if catalog.InitialAgentRole != config.DefaultSubagentRole {
+		t.Fatalf("initial selection = %q", catalog.InitialAgentRole)
 	}
 }
 
@@ -81,6 +81,32 @@ func TestNewChatCatalogRejectsIncompleteAgentSelection(t *testing.T) {
 	t.Fatal("fixture requires a Fast-capable Agent")
 }
 
+func TestNewChatCatalogRejectsInvalidInitialRole(t *testing.T) {
+	app := testNewChatSettingsApp(t)
+	response, err := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil).NewChatSettings(t.Context(), serverapi.RunPromptOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"", "missing", " default", "default "} {
+		t.Run(role, func(t *testing.T) {
+			catalog := proto.Clone(response.GetNewChat()).(*chatsettingspb.NewChatCatalog)
+			catalog.InitialAgentRole = role
+			if err := protoapi.Validate(catalog); err == nil {
+				t.Fatal("catalog accepted invalid initial role")
+			}
+		})
+	}
+	for _, choice := range response.GetNewChat().Choices {
+		t.Run("duplicate-"+choice.Agent.Role, func(t *testing.T) {
+			catalog := proto.Clone(response.GetNewChat()).(*chatsettingspb.NewChatCatalog)
+			catalog.Choices = append(catalog.Choices, proto.Clone(choice).(*chatsettingspb.NewChatAgentChoice))
+			if err := protoapi.Validate(catalog); err == nil {
+				t.Fatal("catalog accepted duplicate Agent")
+			}
+		})
+	}
+}
+
 func TestNewChatCatalogUsesInvocationCapabilitiesAndSelectedRole(t *testing.T) {
 	app := testNewChatSettingsApp(t)
 	service := NewService(launch.Planner{Config: app}, ChatSettingsOwner{}, nil)
@@ -92,14 +118,14 @@ func TestNewChatCatalogUsesInvocationCapabilitiesAndSelectedRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	catalog := response.GetNewChat()
-	if catalog.InitialSettings.AgentRole != config.BuiltInSubagentRoleFast || catalog.InitialSettings.GetThinking() != "ultra" {
-		t.Fatalf("invocation selection = %+v", catalog.InitialSettings)
+	if catalog.InitialAgentRole != config.BuiltInSubagentRoleFast {
+		t.Fatalf("invocation selection = %q", catalog.InitialAgentRole)
 	}
 	for _, choice := range catalog.Choices {
 		if choice.Agent.Role != config.BuiltInSubagentRoleFast {
 			continue
 		}
-		if choice.Agent.GetModel() != "gpt-5.6-sol" || choice.Thinking == nil || !slices.Contains(choice.Thinking.Values, "ultra") ||
+		if choice.Baseline.GetThinking() != "ultra" || choice.Agent.GetModel() != "gpt-5.6-sol" || choice.Thinking == nil || !slices.Contains(choice.Thinking.Values, "ultra") ||
 			choice.ConnectionId == nil || *choice.ConnectionId != "test" {
 			t.Fatalf("invocation choices = %+v", choice)
 		}

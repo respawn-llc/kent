@@ -1,17 +1,14 @@
 import { Trash2 } from "lucide-react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  hasDeletableWorktreeBranch,
-  type WorktreeDeletePreview,
-  type WorktreeDeleteConfirmationChoice,
-} from "@/api";
+import type { WorktreeDeletePreview } from "@/api";
 import {
   Button,
+  Checkbox,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -22,20 +19,30 @@ import { WorktreeCleanliness } from "./WorktreeCleanliness";
 type Props = Readonly<{
   open: boolean;
   onOpenChange(open: boolean): void;
-  preview: WorktreeDeletePreview | undefined;
-  pending: boolean;
-  confirm(choice: WorktreeDeleteConfirmationChoice): void;
+  cleanliness: WorktreeDeletePreview["cleanliness"] | null;
+  confirm(): void;
+  includeBranch: boolean;
+  canIncludeBranch: boolean;
+  disabled?: boolean;
+  onIncludeBranchChange(include: boolean): void;
 }>;
 
 export function WorktreeDeleteButton(props: Props) {
   const { t } = useTranslation();
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label={t("chat.worktree.delete")}>
+              <Button
+                ref={trigger}
+                disabled={props.disabled}
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("chat.worktree.delete")}
+              >
                 <Trash2 size={16} />
               </Button>
             </PopoverTrigger>
@@ -44,61 +51,41 @@ export function WorktreeDeleteButton(props: Props) {
         </Tooltip>
       </TooltipProvider>
       <PopoverContent
-        onEscapeKeyDown={(event) => {
-          event.stopPropagation();
+        align="start"
+        onOpenAutoFocus={(event) => {
+          if (document.activeElement !== trigger.current) event.preventDefault();
         }}
       >
-        {props.open ? <WorktreeDeleteContent {...props} /> : null}
+        <WorktreeDeleteContent {...props} />
       </PopoverContent>
     </Popover>
   );
 }
 
-function WorktreeDeleteContent({ preview, pending, confirm, onOpenChange }: Props) {
+function WorktreeDeleteContent({
+  cleanliness,
+  confirm,
+  includeBranch,
+  canIncludeBranch,
+  onIncludeBranchChange,
+}: Props) {
   const { t } = useTranslation();
-  const cleanliness = preview?.cleanliness;
   return (
-    <>
-      {preview === undefined || pending ? <Spinner size="sm" /> : null}
-      {cleanliness === undefined ? null : <WorktreeCleanliness value={cleanliness} />}
-      {preview !== undefined ? (
-        <TooltipProvider>
-          <Tooltip {...(pending ? {} : { open: false })}>
-            <TooltipTrigger asChild>
-              <div className="flex flex-wrap gap-[var(--space-2)]">
-                <Button
-                  disabled={pending}
-                  variant="danger"
-                  onClick={() => {
-                    confirm("confirm");
-                  }}
-                >
-                  {t("chat.worktree.confirm")}
-                </Button>
-                {hasDeletableWorktreeBranch(preview) ? (
-                  <Button
-                    disabled={pending}
-                    variant="danger"
-                    onClick={() => {
-                      confirm("confirm_and_branch");
-                    }}
-                  >
-                    {t("chat.worktree.confirmBranch")}
-                  </Button>
-                ) : null}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>{t("chat.worktree.requestPending")}</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      ) : null}
-      <Button
-        onClick={() => {
-          onOpenChange(false);
-        }}
-      >
-        {t("app.close")}
+    <div className="grid gap-[var(--space-3)]">
+      {cleanliness === null ? null : <WorktreeCleanliness value={cleanliness} />}
+      <label className="flex items-center gap-[var(--space-2)] text-sm">
+        <Checkbox
+          checked={includeBranch && canIncludeBranch}
+          onCheckedChange={(value) => {
+            onIncludeBranchChange(value === true);
+          }}
+          disabled={!canIncludeBranch}
+        />
+        {t("chat.worktree.includeBranch")}
+      </label>
+      <Button variant="danger" onClick={confirm}>
+        {t("chat.worktree.confirm")}
       </Button>
-    </>
+    </div>
   );
 }

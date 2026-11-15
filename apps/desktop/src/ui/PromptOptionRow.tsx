@@ -15,6 +15,7 @@ export function PromptOptionRow({
   selected = false,
   appearance = "plain",
   onActivate,
+  onDoubleActivate,
   className,
 }: Readonly<{
   disabled: boolean;
@@ -26,6 +27,7 @@ export function PromptOptionRow({
   appearance?: "plain" | "picker";
   className?: string | undefined;
   onActivate?: () => void;
+  onDoubleActivate?: () => void;
 }>) {
   const { t } = useTranslation();
   const id = useId();
@@ -48,6 +50,10 @@ export function PromptOptionRow({
         } else {
           activateRadioFromOption(event, radioRef);
         }
+      }}
+      onDoubleClick={(event) => {
+        if (disabled || onDoubleActivate === undefined || optionLink(event)) return;
+        onDoubleActivate();
       }}
     >
       <RadioGroupItem
@@ -79,6 +85,9 @@ export function PromptOptionRow({
                   <span
                     className="ml-[var(--space-1)] inline-flex align-baseline text-[var(--color-primary)]"
                     onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                    onDoubleClick={(event) => {
                       event.stopPropagation();
                     }}
                   >

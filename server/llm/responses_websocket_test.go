@@ -202,6 +202,81 @@ func TestResponsesSocketContinuesExactNativePrefixWithOnlyNewInput(t *testing.T)
 	}
 }
 
+func TestResponsesSocketExpiryReusesGenerationRetryOnFreshConnection(t *testing.T) {
+	var openings, requests atomic.Int32
+	user := ResponseItem{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}`)}
+	prepared := make(chan []ResponseItem, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		openings.Add(1)
+		serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+			turn := requests.Add(1)
+			var create struct {
+				Input    []json.RawMessage `json:"input"`
+				Previous *string           `json:"previous_response_id"`
+			}
+			if err := json.Unmarshal(raw, &create); err != nil {
+				t.Error(err)
+			}
+			switch turn {
+			case 2:
+				if create.Previous == nil || *create.Previous != "response-1" {
+					t.Error("warm request lost its continuation before expiry")
+				}
+				return []string{`{"type":"error","status":400,"error":{"type":"invalid_request_error","code":"websocket_connection_limit_reached","message":"Connection lifetime exhausted"}}`}
+			case 3:
+				expected := <-prepared
+				if create.Previous != nil || len(create.Input) != len(expected) {
+					t.Errorf("recreated connection did not receive prepared context: %s", raw)
+				} else {
+					for index, item := range expected {
+						if !bytes.Equal(create.Input[index], item.Raw) {
+							t.Errorf("recreated connection changed prepared item %d", index)
+						}
+					}
+				}
+			case 4:
+				if create.Previous == nil || *create.Previous != "response-3" || len(create.Input) != 0 {
+					t.Errorf("new connection did not resume incremental delivery: %s", raw)
+				}
+			}
+			native := fmt.Sprintf(`{"type":"message","id":"message-%d","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"continue","annotations":[]}]}`, turn)
+			return []string{
+				fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":%s}`, native),
+				fmt.Sprintf(`{"type":"response.completed","response":{"id":"response-%d","end_turn":false,"output":[]}}`, turn),
+			}
+		})
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	defer func() { _ = transport.Close() }()
+	request := ResponsesRequest{
+		Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session-1"),
+		CodexDispatch: newTestCodexDispatch(t), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Items: []ResponseItem{user},
+	}
+	first, err := transport.Generate(t.Context(), request, StreamCallbacks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Items = append(request.Items, first.OutputItems...)
+	request.Items = append(request.Items, user)
+	prepared <- CloneResponseItems(request.Items)
+	recovered, err := GenerateWithRetry(t.Context(), func(ctx context.Context, callbacks StreamCallbacks, _ func()) (Response, error) {
+		response, err := transport.Generate(ctx, request, callbacks)
+		return Response{OutputItems: response.OutputItems}, err
+	}, GenerationRetryOptions{Schedule: GenerationRetrySchedule{Failures: []time.Duration{time.Nanosecond}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Items = append(request.Items, recovered.OutputItems...)
+	if _, err := transport.Generate(t.Context(), request, StreamCallbacks{}); err != nil {
+		t.Fatal(err)
+	}
+	if openings.Load() != 2 || requests.Load() != 4 {
+		t.Fatalf("openings=%d requests=%d, want one replacement and one retried request", openings.Load(), requests.Load())
+	}
+}
+
 func TestResponsesSocketContinuesWithRequiredEmptyInput(t *testing.T) {
 	for _, emptyInitial := range []bool{false, true} {
 		t.Run(fmt.Sprintf("empty_initial=%t", emptyInitial), func(t *testing.T) {

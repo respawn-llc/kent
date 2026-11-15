@@ -396,8 +396,8 @@ func TestHydrationAdmissionSerializesUnaryAndStopRefreshUntilWholeEventCompletes
 	next, refreshAfterStop := m.Update(interruptMessage)
 	m = next.(*uiModel)
 	assertRuntimeTupleView(t, runtimeClient.MainView(), v12)
-	if refreshAfterStop == nil {
-		t.Fatal("Stop did not schedule authoritative refresh")
+	if refreshAfterStop != nil || m.hasPendingInterrupt() {
+		t.Fatal("late Stop completion refreshed after authoritative idle acknowledged Interrupt")
 	}
 	if m.runtimeActivityBusy() || m.runtimeActivityBlocksInput() {
 		t.Fatalf("reduced monotonic candidates left runtime busy: %+v", m.runtimeActivityProjection)
@@ -430,6 +430,10 @@ func (s *blockingOngoingSurface) ApplyTerminalMessage(*transcriptpb.Message, ong
 
 func (s *blockingOngoingSurface) Render(ongoing.FrameInput) (ongoing.Result, error) {
 	return ongoing.Result{}, nil
+}
+
+func (s *blockingOngoingSurface) ApplyHistoryRows(_ []*transcriptpb.CommittedRow, frame ongoing.FrameInput) (ongoing.Result, error) {
+	return s.Render(frame)
 }
 
 func (s *blockingOngoingSurface) Resize(ongoing.Size, ongoing.FrameInput) (ongoing.Result, error) {

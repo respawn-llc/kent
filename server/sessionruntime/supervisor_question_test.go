@@ -144,7 +144,7 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := handle.Wait(ctx); err != nil {
+	if err := handle.Wait(ctx); err != nil {
 		t.Fatalf("original answer did not complete: %v", err)
 	}
 	if _, live := authority.SessionExecution(sessionID); live {
@@ -175,7 +175,7 @@ func TestSupervisorQuestionAfterOriginalExecutionRetires(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("Supervisor follow-up did not resume after the answer")
 		}
-		if _, err := current.Wait(ctx); err != nil {
+		if err := current.Wait(ctx); err != nil {
 			t.Fatalf("Supervisor follow-up did not complete: %v", err)
 		}
 	case <-ctx.Done():

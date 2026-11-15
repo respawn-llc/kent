@@ -291,7 +291,7 @@ func TestListWorktreesMarksSessionInUseWhileAwaitingAnswer(t *testing.T) {
 			handle.RequestStop()
 			waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			if _, err := handle.Wait(waitCtx); err != nil && !errors.Is(err, context.Canceled) {
+			if err := handle.Wait(waitCtx); err != nil && !errors.Is(err, context.Canceled) {
 				t.Errorf("wait for canceled Session execution: %v", err)
 			}
 		}
@@ -317,7 +317,7 @@ func TestListWorktreesMarksSessionInUseWhileAwaitingAnswer(t *testing.T) {
 	handle.RequestStop()
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(waitCtx); !errors.Is(err, context.Canceled) {
+	if err := handle.Wait(waitCtx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("wait for stopped Session execution = %v, want context canceled", err)
 	}
 	executionStopped = true
@@ -394,7 +394,7 @@ func stopWorktreeUsageSessionExecution(t *testing.T, handle sessionruntime.Execu
 	client.unblock()
 	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := handle.Wait(waitCtx); err != nil {
+	if err := handle.Wait(waitCtx); err != nil {
 		t.Fatalf("wait for Session execution: %v", err)
 	}
 }
@@ -426,7 +426,7 @@ func waitForWorktreeUsageActivityState(
 			view, available := runtimeRegistry.RuntimeMainViewSnapshot(sessionID)
 			select {
 			case <-handle.Done():
-				_, runErr := handle.Wait(context.Background())
+				runErr := handle.Wait(context.Background())
 				t.Fatalf(
 					"Session %q finished before activity state %s; execution error: %v; main view: %+v (available=%t); pending prompts: %+v",
 					sessionID,

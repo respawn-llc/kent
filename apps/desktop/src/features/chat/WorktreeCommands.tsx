@@ -108,7 +108,6 @@ function WorktreeCommandPresentation({
   model,
   focusComposer,
 }: Readonly<{ model: WorktreeCommandModel; focusComposer(): void }>) {
-  const { t } = useTranslation();
   useWorktreeActions(model.actions.transitions);
   const { confirm } = useWorktreeCommandDelete(model.deletion);
   const preparing = useAtomValue(model.deletion.requestPending);
@@ -125,7 +124,6 @@ function WorktreeCommandPresentation({
       {preparing || switching || deleting ? (
         <div className="flex items-center gap-[var(--space-2)] text-sm">
           <Spinner size="sm" />
-          {t("chat.worktree.requestPending")}
         </div>
       ) : null}
       {preview === null ? null : (

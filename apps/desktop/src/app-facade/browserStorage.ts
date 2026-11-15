@@ -1,3 +1,8 @@
+import type { AppStorageNamespace } from "./services";
+export function appStorageKey(namespace: AppStorageNamespace, key: string): string {
+  return `${namespace.kind}:${encodeURIComponent(namespace.identity)}:${key}`;
+}
+
 export type BrowserStorageArea = "local" | "session";
 export type BrowserStorageOperation = "read" | "write" | "remove";
 

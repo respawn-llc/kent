@@ -92,7 +92,6 @@ func TestProcessRefreshSingleFlightSchedulesOneDirtyFollowUp(t *testing.T) {
 	}
 
 	next, followUp := m.Update(processListRefreshDoneMsg{
-		token:   m.processList.refreshToken,
 		entries: []*processpb.BackgroundProcess{{Id: "proc-1", Command: "sleep 1"}}})
 	updated := next.(*uiModel)
 	if !updated.processList.refreshInFlight {

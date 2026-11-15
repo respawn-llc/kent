@@ -281,27 +281,6 @@ func assertFreshResourceRepairOnEngine(
 	}
 }
 
-func assertFreshResourceRepairExactlyOnce(t *testing.T, store *session.Store, callID string) {
-	assertFreshResourceRepairExactlyOnceWith(t, store, callID, nil)
-}
-
-func assertFreshResourceRepairExactlyOnceWithHydratedPrefix(
-	t *testing.T,
-	store *session.Store,
-	callID string,
-	prefixCallID string,
-) {
-	t.Helper()
-	assertFreshResourceRepairExactlyOnceWith(
-		t,
-		store,
-		callID,
-		func(restored *Engine, _ *session.Store) {
-			assertHydratedToolRowsExactlyOnce(t, restored, prefixCallID)
-		},
-	)
-}
-
 func assertHydratedToolRowsExactlyOnce(
 	t *testing.T,
 	engine *Engine,

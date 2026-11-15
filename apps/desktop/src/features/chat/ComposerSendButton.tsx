@@ -14,7 +14,6 @@ export function ComposerSendButton() {
       <PromptSendButton
         picker={promptPicker}
         restricted={composer.interactionRestricted || (speech.busy && speech.phase !== "recording")}
-        reason={speech.busy && speech.phase !== "recording" ? speech.busyReason : undefined}
       />
     );
   }
@@ -24,29 +23,22 @@ export function ComposerSendButton() {
 function OrdinarySendButton() {
   const { t } = useTranslation();
   const { composer, speech, queueHeld, onSendClick } = useComposerSurface();
+  const label = t(queueHeld ? "chatComposer.queue" : "chatComposer.send");
   const reason = composer.heldReadonly
     ? t("chatComposer.awaitingConfirmation")
     : !composer.canPrepare
       ? t("chatComposer.rejections.pending_work_capacity")
-      : composer.interactionRestricted
-        ? t("chat.navigationPending")
-        : composer.draft.kind === "loading"
-          ? t("chatComposer.loadingDraft")
-          : composer.submission.kind !== "ready"
-            ? t("chatComposer.loadingSettings")
-            : t("chatComposer.empty");
+      : composer.interactionRestricted ||
+          composer.draft.kind === "loading" ||
+          composer.submission.kind !== "ready"
+        ? label
+        : t("chatComposer.empty");
   return (
     <SendButton
       enabled={composer.canSubmit}
       pending={composer.inputPending || composer.interactionRestricted}
       intent={queueHeld ? "queue" : "send"}
-      tooltip={
-        speech.busy && speech.phase !== "recording"
-          ? speech.busyReason
-          : composer.canSubmit
-            ? t(queueHeld ? "chatComposer.queue" : "chatComposer.send")
-            : reason
-      }
+      tooltip={speech.busy && speech.phase !== "recording" ? label : composer.canSubmit ? label : reason}
       onClick={onSendClick}
     />
   );
@@ -55,11 +47,9 @@ function OrdinarySendButton() {
 function PromptSendButton({
   picker,
   restricted,
-  reason,
 }: Readonly<{
   picker: NonNullable<ReturnType<typeof useChatPromptPicker>>;
   restricted: boolean;
-  reason?: string | undefined;
 }>) {
   const { t } = useTranslation();
   const dispatch = useAtomSet(picker.dispatch);
@@ -68,7 +58,7 @@ function PromptSendButton({
     <SendButton
       enabled={!restricted && !picker.request.isPending && canConfirmPicker(picker.state)}
       pending={restricted || picker.request.isPending}
-      tooltip={restricted ? (reason ?? t("chat.navigationPending")) : t("chatComposer.send")}
+      tooltip={t("chatComposer.send")}
       onClick={async () => {
         if (speech.busy && !(await speech.finish())) return;
         dispatch({ action: { kind: "confirm" } });

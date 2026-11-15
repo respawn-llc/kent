@@ -115,7 +115,7 @@ func (m *uiModel) clearCommandInput(command commands.Command, draft *tuiinput.Ed
 }
 
 func finalizeSlashCommandCmd(action commands.Action, primary tea.Cmd, record tea.Cmd) tea.Cmd {
-	if action == commands.ActionStatus {
+	if action == commands.ActionStatus || action == commands.ActionAgent {
 		return tea.Batch(primary, record)
 	}
 	return sequenceCmds(record, primary)
