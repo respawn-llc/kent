@@ -40,12 +40,12 @@
 - When a Project has more than one attached Workspace, Kent must include a typed Workspaces reminder in fresh Session context and in fresh post-compaction context before model work. This requirement includes Workflow Sessions and Sessions targeting Worktrees.
 - Reopening a Session, retrying a prepared request, or changing attachments during the current context must not add another Workspaces reminder or rewrite historical context.
 - The reminder must use the Project Workspace catalog order defined in [Projects And Workspaces](project-workspaces.md#api).
-- The reminder must consider only the first five catalog rows. Kent must check only those paths for availability and omit a row when its path is missing, is not a directory, or its directory lookup fails. Kent must not backfill omitted rows or inspect directory contents, Git, or read/write access.
+- The reminder must list up to five available Workspaces in catalog order. Kent must skip a row when its path is missing, is not a directory, or its directory lookup fails and continue through the catalog until five available Workspaces are found or the catalog ends. Kent must not inspect directory contents, Git, or read/write access.
 - The reminder must report the total attached Workspace count even when it omits unavailable paths. Availability filtering must not change the Workspace catalog or command listings.
 - The reminder heading must be `This project <ProjectName> has <WorkspaceCount> workspaces:`.
 - Each included Workspace must appear as a path bullet. The Project default Workspace must have the suffix ` (default)`, independently of the Session's Main Workspace or Worktree.
 - Reminder paths under home must use `~` shortening. Reminder paths must not use Working Directory-relative shortening. Paths outside home must be absolute.
-- When more than five Workspaces are attached, the reminder must end with the bullet ``<WorkspaceCount minus 5> more. `kent project workspaces` to list all``. Otherwise it must omit that bullet.
+- When attached Workspaces are omitted, the reminder must end with the bullet ``<WorkspaceCount minus the number of listed Workspaces> more. `kent project workspaces` to list all``. Otherwise it must omit that bullet.
 - A Project or catalog read failure must prevent request preparation and surface the failure for explicit retry. An individual directory lookup failure must only omit that Workspace.
 - Client presentation is defined in [TUI Transcript](tui-transcript.md) and [Desktop Chat](desktop-chat.md).
 
