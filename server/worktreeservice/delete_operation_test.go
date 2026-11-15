@@ -94,6 +94,35 @@ func TestDeleteWorktreeCompletesNonCurrentDeletionAndRetainsBranch(t *testing.T)
 	}
 }
 
+func TestDeleteWorktreeWithMissingSourcePreservesOrphanedFolder(t *testing.T) {
+	env := newServiceTestEnv(t)
+	created := mustCreateWorktree(t, env, "feature/orphaned-source")
+	contentPath := filepath.Join(created.CanonicalRoot, "unsaved.txt")
+	content := []byte("user work")
+	if err := os.WriteFile(contentPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(env.workspaceRoot, filepath.Join(t.TempDir(), "removed-source")); err != nil {
+		t.Fatal(err)
+	}
+	req := worktreeDeleteRequest(env, created.WorktreeID)
+	req.Scope = worktreecontract.WorkspaceManagementScope(env.binding.ProjectID, env.binding.WorkspaceID, nil)
+	result, err := env.service.DeleteWorktree(env.ctx, req)
+	if err != nil {
+		t.Fatalf("DeleteWorktree: %v", err)
+	}
+	if result.LeftoverRoot == nil || *result.LeftoverRoot != created.CanonicalRoot {
+		t.Fatalf("leftover root = %v, want %s", result.LeftoverRoot, created.CanonicalRoot)
+	}
+	got, err := os.ReadFile(contentPath)
+	if err != nil || string(got) != string(content) {
+		t.Fatalf("orphaned worktree content = %q, %v", got, err)
+	}
+	if _, err := env.store.GetWorktreeRecordByID(env.ctx, created.WorktreeID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("worktree record = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestDeleteWorktreeForceDeletesUnmergedBranch(t *testing.T) {
 	env := newServiceTestEnv(t)
 	created := mustCreateWorktree(t, env, "feature/delete-force-branch")
