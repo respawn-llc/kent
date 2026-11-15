@@ -246,7 +246,7 @@ const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
     return yield* Effect.fail(new SpeechActionError(new SpeechOperationError("captureUnavailable")));
   let startedAt: number | null = null;
   let stoppedAt: number | null = null;
-  let power = 0;
+  let frequencyBins: ArrayLike<number> = new Uint8Array(56);
   let hasSignal = false;
   let limitTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveReady!: (time: number) => void;
@@ -274,10 +274,11 @@ const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
     });
   };
   const analyser = {
-    frequencyBinCount: 56,
+    get frequencyBinCount() {
+      return frequencyBins.length;
+    },
     getByteFrequencyData: (data: Uint8Array) => {
-      // Native capture already converts dBFS to normalized linear amplitude.
-      data.fill(Math.round(Math.max(0, Math.min(1, power)) * 255));
+      data.set(frequencyBins);
     },
   };
   yield* Effect.acquireRelease(
@@ -294,8 +295,8 @@ const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
             resolveReady(startedAt);
             break;
           case "meter":
-            power = event.power;
-            hasSignal ||= power > 1 / 128;
+            frequencyBins = event.frequencyBins;
+            hasSignal ||= event.power > 1 / 128;
             break;
           case "limit":
             if (stoppedAt !== null) return;

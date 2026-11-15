@@ -8,6 +8,7 @@ fn main() {
         for framework in [
             "Foundation",
             "AVFoundation",
+            "Accelerate",
             "CoreMedia",
             "UniformTypeIdentifiers",
         ] {

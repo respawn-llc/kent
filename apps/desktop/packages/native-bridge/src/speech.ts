@@ -2,7 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 
 export type NativeMicrophoneEvent =
   | Readonly<{ kind: "ready" | "limit" }>
-  | Readonly<{ kind: "meter"; power: number }>
+  | Readonly<{ kind: "meter"; power: number; frequencyBins: readonly number[] }>
   | Readonly<{ kind: "finished"; error: string | null }>;
 
 export type NativeSpeechOriginal = Readonly<{
