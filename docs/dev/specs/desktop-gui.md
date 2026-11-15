@@ -528,14 +528,14 @@
 - Interrupt acts immediately without confirmation.
 - Task Detail opened from Inbox must not close after resolution while Inbox updates in the background.
 - Desktop attention includes workflow Questions, workflow Approvals, ordinary Session Questions and Approvals with a Desktop response surface, and executable Nodes interrupted by errors. It excludes user interruptions.
-- Notifications must offer Automatic, Native, and In-app and default to Automatic. This setting must not change ordinary action and error feedback.
+- Notifications must offer Automatic, Native, and In-app and default to Automatic. This setting must govern all attention alerts, including Task attention, Session prompts, Session turn-end alerts, and Session naming failures. This setting must not change ordinary action and error feedback.
 - In Automatic mode, a focused window must show a persistent in-app attention notification. An ordinary Session prompt must not show a duplicate notification while its owning Session Chat and picker are already the focused destination. An unfocused window must attempt a system notification when available.
 - Native mode must send native-capable attention alerts to the OS even when focused, without duplicate Sonners. In-app mode must deliver attention alerts as Sonners even when unfocused.
 - Selecting an in-app attention notification must open Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. System notification activation must focus the main window and open the matching Task Detail or Session Chat target. Question notifications must select the first unresolved Question in their batch. Approval and error-interruption notifications must select their matching item.
 - Notification batches are server-authoritative. Resolved notifications dismiss matching persistent in-app notifications. Notification delivery never changes Workflow state. Development failures fail immediately with diagnostics, while production proceeds without delivery.
 - Notification messages are optional structured context. Desktop owns and localizes fallback copy when a message is absent. The server never supplies fallback UI copy.
 - Desktop must receive global Session turn-end attention through the [Runtime Steering And Model Loop](runtime-steering-loop.md#turn-end-attention) contract, including for Sessions without an open Chat.
-- A focused Desktop must show a turn-end notification through the existing in-app notification surface. An unfocused Desktop must attempt a system notification through its existing notification handling.
+- Desktop must deliver turn-end notifications according to the Notifications setting.
 - Selecting a turn-end notification must open its Session through ordinary Desktop Session navigation.
 - Turn-end system notifications must identify Kent as the app, use `Session ended: <name>` as the title, and show a plain-text preview of the turn-ending assistant final message as the body. Desktop must localize the copy and ellipsize the title and preview independently to at most 80 Unicode code points each.
 - Desktop must not run TUI client lifecycle hooks.
