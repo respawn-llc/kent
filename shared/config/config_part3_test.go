@@ -34,10 +34,10 @@ func TestLoadIdleResumeReminderPolicy(t *testing.T) {
 		t.Fatalf("default threshold = %d", got)
 	}
 	path := filepath.Join(home, ConfigDirName, "config.toml")
-	for _, seconds := range []int{20, 0, -1, 9_007_199_254_740_991, 9_007_199_254_740_992} {
+	for _, seconds := range []int{20, 0, -1, 31_536_000, 31_536_001} {
 		writeConfigTestFile(t, path, fmt.Sprintf("idle_resume_reminder_seconds = %d\n", seconds))
 		cfg, err := Load(workspace, workspace, LoadOptions{})
-		if seconds < 0 || seconds > 9_007_199_254_740_991 {
+		if seconds < 0 || seconds > 31_536_000 {
 			if err == nil {
 				t.Fatalf("invalid threshold %d accepted", seconds)
 			}

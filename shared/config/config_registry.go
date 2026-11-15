@@ -594,8 +594,12 @@ func newSettingsRegistry() settingsRegistry {
 			{validateShellOutputMaxChars, []string{"shell_output_max_chars"}},
 			{validateShellMaxConcurrent, []string{"shell.max_concurrent"}},
 			{validateMinimumExecToBgSeconds, []string{"minimum_exec_to_bg_seconds"}},
-			{validateConnectionUsageFallbackSeconds, []string{"connection_usage_fallback_seconds"}},
-			{validateIdleResumeReminderSeconds, []string{"idle_resume_reminder_seconds"}},
+			{numericRange("connection_usage_fallback_seconds", func(state settingsState) int {
+				return state.Settings.ConnectionUsageFallbackSeconds
+			}, 0, nil), []string{"connection_usage_fallback_seconds"}},
+			{numericRange("idle_resume_reminder_seconds", func(state settingsState) int {
+				return state.Settings.IdleResumeReminderSeconds
+			}, 0, textutil.Value(31_536_000)), []string{"idle_resume_reminder_seconds"}},
 			{validateBGShellsOutput, []string{"bg_shells_output"}},
 			{validateShellPostprocessing, []string{"shell.postprocessing_mode", "shell.postprocess_hook"}},
 			{validateCacheWarningMode, []string{"cache_warning_mode"}},
