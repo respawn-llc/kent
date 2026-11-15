@@ -34,6 +34,7 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
 @property(nonatomic) AVCaptureAudioDataOutput *output;
 @property(nonatomic) AVAssetWriter *writer;
 @property(nonatomic) AVAssetWriterInput *input;
+@property(nonatomic, copy) NSDictionary<NSString *, id> *writerSettings;
 @property(nonatomic) id runtimeErrorObserver;
 @property(nonatomic) BOOL stopping;
 @property(nonatomic) BOOL completed;
@@ -88,13 +89,6 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
     }
     self.session = [AVCaptureSession new];
     self.output = [AVCaptureAudioDataOutput new];
-    self.output.audioSettings = @{
-        AVFormatIDKey: @(kAudioFormatLinearPCM),
-        AVLinearPCMBitDepthKey: @32,
-        AVLinearPCMIsFloatKey: @YES,
-        AVLinearPCMIsBigEndianKey: @NO,
-        AVLinearPCMIsNonInterleavedKey: @NO,
-    };
     _spectrumSetup = vDSP_DFT_zrop_CreateSetup(NULL, KentSpectrumSampleCount, vDSP_DFT_FORWARD);
     if (!_spectrumSetup) {
         [self stopWithError:@"Microphone spectrum analysis is unavailable"];
@@ -112,6 +106,22 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
     }
     [self.session addInput:input];
     [self.session addOutput:self.output];
+    [self.session commitConfiguration];
+    // The recommendation must describe the AAC writer, not the analyzer's PCM output format.
+    self.writerSettings =
+        [self.output recommendedAudioSettingsForAssetWriterWithOutputFileType:AVFileTypeMPEG4];
+    if (!self.writerSettings) {
+        [self stopWithError:@"Recommended microphone encoding is unavailable"];
+        return;
+    }
+    [self.session beginConfiguration];
+    self.output.audioSettings = @{
+        AVFormatIDKey: @(kAudioFormatLinearPCM),
+        AVLinearPCMBitDepthKey: @32,
+        AVLinearPCMIsFloatKey: @YES,
+        AVLinearPCMIsBigEndianKey: @NO,
+        AVLinearPCMIsNonInterleavedKey: @NO,
+    };
     [self.output setSampleBufferDelegate:self queue:self.queue];
     [self.session commitConfiguration];
     __weak KentMicrophone *weakSelf = self;
@@ -202,13 +212,6 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
     if (self.stopping || !CMSampleBufferDataIsReady(sample) || CMSampleBufferGetNumSamples(sample) == 0) return;
     if (![self updateSpectrumFromSampleBuffer:sample]) return;
     if (!self.writer) {
-        // Capture's recommended settings include Apple's encoder choices rather
-        // than a Kent-selected speech bitrate.
-        NSDictionary *settings = [self.output recommendedAudioSettingsForAssetWriterWithOutputFileType:AVFileTypeMPEG4];
-        if (!settings) {
-            [self stopWithError:@"Recommended microphone encoding is unavailable"];
-            return;
-        }
         self.writer = [[AVAssetWriter alloc] initWithContentType:UTTypeMPEG4Movie];
         self.writer.outputFileTypeProfile = AVFileTypeProfileMPEG4AppleHLS;
         self.writer.preferredOutputSegmentInterval = CMTimeMake(1, 4);
@@ -217,7 +220,7 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
         self.writer.initialSegmentStartTime = kCMTimeZero;
         self.writer.delegate = self;
         self.input = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeAudio
-            outputSettings:settings sourceFormatHint:CMSampleBufferGetFormatDescription(sample)];
+            outputSettings:self.writerSettings sourceFormatHint:CMSampleBufferGetFormatDescription(sample)];
         self.input.expectsMediaDataInRealTime = YES;
         if (![self.writer canAddInput:self.input]) {
             [self stopWithError:@"Microphone encoder cannot accept audio"];
