@@ -106,6 +106,7 @@
 - The Project workspace Workflow strip uses infinite scroll. The visible content of each Workflow chip is its name. Selecting one opens that Project's Workflow board.
 - `Manage workflows` is available from `Link workflow` for reusable Workflows, including those not linked to the selected Project. Project Task and board destinations are Project-scoped.
 - Board actions belong in board chrome. Workflow selection uses a click-controlled non-modal popover that closes after selection or outside activation. Desktop has no default browser-style hover effects beyond explicitly designed interaction feedback.
+- Each Workflow row in the board's Workflow selection popover must offer a small pen action on the right. The action must close the popover and open that Workflow's editor in the current Project context without changing the board's selected Workflow.
 - An empty Inbox says `All caught up` without showing recent Projects or choosing a Project automatically.
 - Project navigation rows show Project identity and editing. Project name and default-workspace path use at most two lines. Selection is communicated accessibly as well as visually.
 

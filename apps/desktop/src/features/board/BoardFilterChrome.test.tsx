@@ -150,6 +150,7 @@ describe("BoardFilterChrome", () => {
           validationErrors: [],
           version: 1,
         }}
+        onEditWorkflow={vi.fn()}
         onLinkWorkflow={vi.fn()}
         onNewTask={vi.fn()}
         onOpenTask={vi.fn()}

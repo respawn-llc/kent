@@ -45,6 +45,14 @@ function createBoardNavigation(projectID: string, workflowID: string) {
     (input) => navigate(async () => input.navigation.openProjectTasks(projectID), input.report),
     { concurrent: true },
   );
+  const editWorkflow = Atom.fn<Context & Readonly<{ workflowID: string }>>()(
+    (input) =>
+      navigate(
+        async () => input.navigation.openWorkflowEditor({ projectID, workflowID: input.workflowID }),
+        input.report,
+      ),
+    { concurrent: true },
+  );
   const openDependencies = Atom.fn<Context & Readonly<{ taskID: string }>>()(
     (input) =>
       Effect.sync(() => {
@@ -84,7 +92,15 @@ function createBoardNavigation(projectID: string, workflowID: string) {
       }),
     { concurrent: true },
   );
-  return { openTask, selectWorkflow, openTasks, openDependencies, openNewTask, openLinkWorkflow } as const;
+  return {
+    openTask,
+    selectWorkflow,
+    openTasks,
+    editWorkflow,
+    openDependencies,
+    openNewTask,
+    openLinkWorkflow,
+  } as const;
 }
 
 export function useBoardNavigation(
@@ -126,6 +142,7 @@ export function useBoardNavigation(
   const openTask = useAtomSet(model.openTask, { mode: "value" });
   const selectWorkflow = useAtomSet(model.selectWorkflow, { mode: "value" });
   const openTasks = useAtomSet(model.openTasks, { mode: "value" });
+  const editWorkflow = useAtomSet(model.editWorkflow, { mode: "value" });
   const openDependencies = useAtomSet(model.openDependencies, { mode: "value" });
   const openNewTask = useAtomSet(model.openNewTask, { mode: "value" });
   const openLinkWorkflow = useAtomSet(model.openLinkWorkflow, { mode: "value" });
@@ -142,6 +159,9 @@ export function useBoardNavigation(
     },
     openTasks: () => {
       openTasks(context);
+    },
+    editWorkflow: (target: string) => {
+      editWorkflow({ ...context, workflowID: target });
     },
     openDependencies: (taskID: string) => {
       openDependencies({ ...context, taskID });
