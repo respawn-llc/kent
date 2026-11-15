@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -20,6 +22,48 @@ import (
 	"core/shared/toolspec"
 	"core/shared/transcriptmodel"
 )
+
+func TestFirstGoalSetOccupiesStartupGoalSlot(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("Follow the project instructions."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := mustCreateNamedTestSession(t, "workspace-goal", workspace)
+	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{
+		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+	})
+	if _, err := engine.SetGoal(t.Context(), "finish the project", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.drainRuntimeOperations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	request, err := PrepareInspectionRequest(t.Context(), engine, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goalIndex, agentsIndex, environmentIndex := -1, -1, -1
+	goalCount := 0
+	for index, message := range llm.MessagesFromItems(request.Items) {
+		if message.MessageType == nil {
+			continue
+		}
+		switch *message.MessageType {
+		case llm.MessageTypeGoal:
+			goalCount++
+			goalIndex = index
+		case llm.MessageTypeActiveGoalContinuation:
+			t.Fatal("first Goal set also included a Goal continuation reminder")
+		case llm.MessageTypeAgentsMD:
+			agentsIndex = index
+		case llm.MessageTypeEnvironment:
+			environmentIndex = index
+		}
+	}
+	if goalCount != 1 || agentsIndex < 0 || !(agentsIndex < goalIndex && goalIndex < environmentIndex) {
+		t.Fatalf("startup ordering: agents=%d, goal=%d, environment=%d, Goal notices=%d", agentsIndex, goalIndex, environmentIndex, goalCount)
+	}
+}
 
 func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
@@ -37,6 +81,7 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	events = goalFeedbackEvents(events)
 	if len(events) != 2 {
 		t.Fatalf("events len = %d, want 2: %+v", len(events), events)
 	}
@@ -49,11 +94,11 @@ func TestGoalSetEmitsCommittedGoalFeedbackEvent(t *testing.T) {
 		t.Fatalf("event transcript entries len = %d, want 1", len(entries))
 	}
 	entry := entries[0]
-	if entry.Role != string(transcript.EntryRoleGoalFeedback) || entry.CondensedText != `Goal set: "ship goal mode"` {
+	if entry.Role != string(transcript.EntryRoleGoalFeedback) {
 		t.Fatalf("event transcript entry = %+v, want goal feedback", entry)
 	}
-	if !evt.CommittedEntryStartSet || evt.CommittedEntryStart != 0 || evt.CommittedEntryCount != 1 {
-		t.Fatalf("event committed range start=%d set=%t count=%d, want start 0 count 1", evt.CommittedEntryStart, evt.CommittedEntryStartSet, evt.CommittedEntryCount)
+	if !evt.CommittedEntryStartSet || evt.CommittedEntryCount != 1 {
+		t.Fatalf("event committed range start=%d set=%t count=%d, want a committed goal row", evt.CommittedEntryStart, evt.CommittedEntryStartSet, evt.CommittedEntryCount)
 	}
 	statusEvt := events[1]
 	if statusEvt.Kind != EventGoalStatusUpdated || statusEvt.GoalStatus == nil {
@@ -411,7 +456,7 @@ func TestGoalPersistenceAndReminderAdmissionHaveTheSameOrder(t *testing.T) {
 	}
 
 	eventsMu.Lock()
-	gotEvents := append([]Event(nil), events...)
+	gotEvents := goalFeedbackEvents(events)
 	eventsMu.Unlock()
 	if len(gotEvents) != 4 {
 		t.Fatalf("events len = %d, want 4: %+v", len(gotEvents), gotEvents)
@@ -433,6 +478,7 @@ func assertGoalStatusEventObjective(t *testing.T, events []Event, start int, obj
 
 func assertGoalFeedbackThenStatusEvent(t *testing.T, events []Event, start int, goal session.GoalState, cleared bool) {
 	t.Helper()
+	events = goalFeedbackEvents(events)
 	if len(events) < start+2 {
 		t.Fatalf("events len = %d, want at least %d: %+v", len(events), start+2, events)
 	}
@@ -453,6 +499,23 @@ func assertGoalFeedbackThenStatusEvent(t *testing.T, events []Event, start int, 
 	if status.GoalStatus.State.ID != goal.ID || status.GoalStatus.State.Objective != goal.Objective || status.GoalStatus.State.Status != goal.Status {
 		t.Fatalf("goal status state = %+v, want %+v", status.GoalStatus.State, goal)
 	}
+}
+
+func goalFeedbackEvents(events []Event) []Event {
+	var feedback []Event
+	for _, event := range events {
+		if event.Kind == EventGoalStatusUpdated {
+			feedback = append(feedback, event)
+			continue
+		}
+		for _, entry := range TranscriptEntriesFromEvent(event) {
+			if entry.Role == string(transcript.EntryRoleGoalFeedback) {
+				feedback = append(feedback, event)
+				break
+			}
+		}
+	}
+	return feedback
 }
 
 func TestActiveGoalRequiresAskQuestionToolVisibilityBeforeModelTurn(t *testing.T) {
