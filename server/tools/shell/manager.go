@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"core/server/tools"
@@ -23,7 +24,7 @@ type Manager struct {
 	mu                     sync.Mutex
 	nextID                 int
 	entries                sync.Map
-	completedRecency       []string
+	accessSequence         atomic.Uint64
 	onEvent                func(Event) bool
 	onBackgroundListChange func(string)
 	minimumExecToBgTime    time.Duration
@@ -197,6 +198,7 @@ func (m *Manager) Start(ctx context.Context, req ExecRequest) (ExecResult, error
 		outputFinalized:      make(chan struct{}),
 	}
 	entry.log = newAsyncLogWriter(logFile, entry.signal)
+	m.touchEntry(entry)
 	logHandedOff = true
 	if entry.command == "" {
 		entry.command = strings.Join(req.Command, " ")
@@ -431,6 +433,7 @@ func (m *Manager) InlineOutput(id string, maxChars int) (string, string, error) 
 	if err != nil {
 		return "", "", err
 	}
+	m.touchEntry(entry)
 	maxOutputChars := maxChars
 	if maxOutputChars <= 0 {
 		maxOutputChars = defaultOutputTokenCap * 4

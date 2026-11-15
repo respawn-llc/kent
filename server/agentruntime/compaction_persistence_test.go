@@ -25,7 +25,7 @@ func TestReplaceHistoryPublishesProjectedTranscriptEntriesBeforeCompactionStatus
 	if err != nil || !receipt.Committed {
 		t.Fatalf("replace history: receipt=%+v error=%v", receipt, err)
 	}
-	if err := newCompactionPersistence(engine).emitStatus(stepID, EventCompactionCompleted, compactionModeManual, "local", "openai", nil, 1, ""); err != nil {
+	if err := newCompactionPersistence(engine).emitStatus(stepID, EventCompactionCompleted, compactionModeManual, "local", "openai", 1, ""); err != nil {
 		t.Fatalf("emit completion status: %v", err)
 	}
 
@@ -61,7 +61,7 @@ func TestAutoCompactionStatusEventDoesNotPublishCommittedEntryStart(t *testing.T
 	stepID := runtimeTestStepID("compact")
 	restoreStep := setTestActiveStep(engine, stepID)
 	defer restoreStep()
-	if err := newCompactionPersistence(engine).emitStatus(stepID, EventCompactionCompleted, compactionModeAuto, "local", "openai", nil, 1, ""); err != nil {
+	if err := newCompactionPersistence(engine).emitStatus(stepID, EventCompactionCompleted, compactionModeAuto, "local", "openai", 1, ""); err != nil {
 		t.Fatalf("emit auto completion status: %v", err)
 	}
 	if len(events) != 1 || events[0].Kind != EventCompactionCompleted || events[0].CommittedEntryStartSet {

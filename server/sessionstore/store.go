@@ -59,7 +59,6 @@ type Store struct {
 	shortID                  *runtimeids.SessionShortID
 	contextFacts             SessionContextFacts
 	initialContextFacts      SessionContextFacts
-	conversationFreshness    ConversationFreshness
 	persisted                bool
 	metadataVersion          uint64
 	persistedMetaVersion     uint64
@@ -267,7 +266,6 @@ func newLazyWithIDAndStoreOptions(sessionID runtimeids.SessionID, workspaceConta
 		},
 		contextFacts:            independentSessionContextFacts(),
 		initialContextFacts:     independentSessionContextFacts(),
-		conversationFreshness:   ConversationFreshnessFresh,
 		persisted:               false,
 		eventLogCreationVersion: eventLogVersionPointer(EventLogVersionV2),
 	}, nil
@@ -354,11 +352,6 @@ func openPersistedSession(
 	defer joinEventLogPersistenceLockRelease(&resultErr, lock, lockPath)
 	s.metadataVersion = 1
 	s.persistedMetaVersion = 1
-	if s.meta.ConversationEstablished {
-		s.conversationFreshness = ConversationFreshnessEstablished
-	} else {
-		s.conversationFreshness = ConversationFreshnessFresh
-	}
 	return s, nil
 }
 
@@ -533,11 +526,6 @@ func (s *Store) RemoveDurable() error {
 	return nil
 }
 
-type metaSnapshot struct {
-	meta                  Meta
-	conversationFreshness ConversationFreshness
-}
-
 func (s *Store) Identity() runtimeids.SessionIdentity {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -593,15 +581,6 @@ func (s *Store) RestorePromptFacingMetadata(snapshot PromptFacingMetadataSnapsho
 		s.meta.UpdatedAt = time.Now().UTC()
 		return nil
 	})
-}
-
-func (s *Store) metaSnapshot() metaSnapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return metaSnapshot{
-		meta:                  cloneMeta(s.meta),
-		conversationFreshness: s.conversationFreshness,
-	}
 }
 
 func (s *Store) mutateAndPersist(mutator func() error) error {

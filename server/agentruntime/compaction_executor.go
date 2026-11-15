@@ -22,19 +22,17 @@ var (
 	errLocalCompactionToolCallEmptyID = errors.New("local compaction summary attempted tool call with empty id")
 )
 
-func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (compactionResult, []llm.ResponseItem, error) {
+func (e *Engine) compactRemote(ctx context.Context, stepID string, input []llm.ResponseItem, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (compactionResult, []llm.ResponseItem, error) {
 	resp, sentInput, repairStats, err := e.compactWithContextRepairRetry(ctx, stepID, input, instructions, dispatchFactory, retryPolicy)
-	providerID = e.connectionSnapshot().transportCapabilities.ProviderID
 	if err != nil {
-		return compactionResult{overflowRepair: repairStats, provider: providerID}, sentInput, err
+		return compactionResult{overflowRepair: repairStats}, sentInput, err
 	}
 
 	return compactionResult{
 		engine:         "remote",
 		items:          llm.CloneResponseItems(resp.OutputItems),
-		usage:          resp.Usage,
+		windowTokens:   resp.Usage.WindowTokens,
 		overflowRepair: repairStats,
-		provider:       providerID,
 	}, nil, nil
 }
 
@@ -234,7 +232,7 @@ func (e *Engine) compactionRequestFromItems(ctx context.Context, items []llm.Res
 	return req, nil
 }
 
-func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.ResponseItem, providerID string, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (compactionResult, error) {
+func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.ResponseItem, instructions string, dispatchFactory dispatchRequestFactory, retryPolicy modelRequestRetryPolicy) (compactionResult, error) {
 	summary, repairStats, toolCallRejectionCount, err := e.localCompactionSummaryWithRepair(
 		ctx,
 		stepID,
@@ -250,15 +248,12 @@ func (e *Engine) compactLocal(ctx context.Context, stepID string, input []llm.Re
 		Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeCompactionSummary), Content: textutil.Value(strings.TrimSpace(summary)),
 	}})
 
-	usageInputTokens := llm.EstimateItemsTokens(e.connectionSnapshot().estimator, replacement)
 	return compactionResult{
 		engine:                      "local",
 		items:                       replacement,
-		usage:                       llm.Usage{InputTokens: textutil.Value(usageInputTokens), WindowTokens: e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot())},
-		trimmedItemsCount:           nil,
+		windowTokens:                e.compactionPlannerState().contextWindowTokens(e.compactionPlanningSnapshot()),
 		overflowRepair:              repairStats,
 		localToolCallRejectionCount: toolCallRejectionCount,
-		provider:                    e.connectionSnapshot().transportCapabilities.ProviderID,
 	}, nil
 }
 

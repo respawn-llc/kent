@@ -115,7 +115,7 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 		t.Fatalf("compaction = active %+v", snapshot.ActiveCompaction)
 	}
 	if snapshot.ContextUsage == nil ||
-		snapshot.ContextUsage.WindowTokens != int(engine.LiveChatContextSnapshot().Policy.ContextWindowTokens) ||
+		snapshot.ContextUsage.WindowTokens != engine.ContextUsage().WindowTokens ||
 		snapshot.ContextUsage.UsedTokens <= 0 {
 		t.Fatalf("context usage = %+v", snapshot.ContextUsage)
 	}

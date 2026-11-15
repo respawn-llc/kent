@@ -32,6 +32,7 @@ import (
 	"core/shared/config"
 	"core/shared/labelcontract"
 	"core/shared/protoapi"
+	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -1063,7 +1064,7 @@ func TestServiceWorkflowTaskReadDoesNotWaitForRuntimeLifecycleOwnership(t *testi
 	if err != nil {
 		t.Fatalf("PrepareDetachedScriptExecution: %v", err)
 	}
-	handle, launch, err := detached.Publish(ctx, func() error { return nil }, nil)
+	handle, launch, err := detached.Publish(ctx, func() error { return nil })
 	if err != nil {
 		t.Fatalf("Publish detached Script execution: %v", err)
 	}
@@ -2531,9 +2532,6 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAndLinkWorkflowToProject: %v", err)
 	}
-	if workflowServiceID(t, created.Workflow.Id).IsZero() || workflowServiceID(t, created.Link.WorkflowId) != workflowServiceID(t, created.Workflow.Id) || !created.Link.Default {
-		t.Fatalf("created = %+v, want first default link", created)
-	}
 	projectID := binding.ProjectID
 	projectLimit := int32(10)
 	projectPage, err := service.ListWorkflows(ctx, &pb.ListRequest{ProjectId: &projectID, Limit: &projectLimit})
@@ -2543,7 +2541,7 @@ func TestServiceWorkflowListPaginatesAndCreateLinkIsAtomic(t *testing.T) {
 	if projectPage.ProjectId == nil || *projectPage.ProjectId != projectID || len(projectPage.Workflows) != 1 {
 		t.Fatalf("project page = %+v, want one project-scoped workflow", projectPage)
 	}
-	if projectPage.Workflows[0].ProjectLink == nil || !projectPage.Workflows[0].ProjectLink.Default {
+	if projectPage.Workflows[0].Id != created.Workflow.Id || projectPage.Workflows[0].ProjectLink == nil || !projectPage.Workflows[0].ProjectLink.Default {
 		t.Fatalf("project workflow = %+v, want default project metadata", projectPage.Workflows[0])
 	}
 	exactWorkflowID := workflowServiceID(t, created.Workflow.Id)
@@ -3508,7 +3506,6 @@ func newWorkflowServiceReadModels(
 		TaskSessions:     taskSessions,
 		Activity:         activity,
 		Attention:        attention,
-		PendingPrompts:   observationPendingPromptSourceStub{},
 	}
 }
 
@@ -3539,7 +3536,7 @@ func (s workflowViewStatusObservationSource) ObserveWorkflowTaskExecutions(taskI
 
 type emptyWorkflowPendingPromptSource struct{}
 
-func (emptyWorkflowPendingPromptSource) ListPendingPrompts(string) ([]workflowview.PendingPromptSnapshot, error) {
+func (emptyWorkflowPendingPromptSource) ListPendingPrompts(string) ([]*promptpb.ObservationQuestion, error) {
 	return nil, nil
 }
 

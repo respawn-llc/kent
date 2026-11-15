@@ -1400,13 +1400,10 @@ func TestPlanLaunchSessionAgentSelectionUsesCompletePreparedBaseline(t *testing.
 	if err != nil {
 		t.Fatalf("encode Session plan: %v", err)
 	}
-	if generated.Plan.ActivationAgentSelection == nil ||
-		!textutil.EqualOptional(generated.Plan.ActivationAgentSelection.AgentRole, textutil.Value("worker")) ||
-		generated.Plan.ActivationAgentSelection.Baseline == nil ||
-		generated.Plan.ActivationAgentSelection.Baseline.Thinking != "high" {
+	if generated.Plan.ActiveSettings.ThinkingLevel != "high" {
 		t.Fatalf(
-			"generated activation Agent selection = %+v, want complete worker selection",
-			generated.Plan.ActivationAgentSelection,
+			"projected Thinking = %s, want selected worker Thinking",
+			generated.Plan.ActiveSettings.ThinkingLevel,
 		)
 	}
 }

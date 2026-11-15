@@ -126,7 +126,7 @@ func TestQuestionBatchTrackerPublishesOncePerBatchAndResolvesAfterClears(t *test
 	fixture.noError("Prepare", tracker.Prepare(batch))
 	fixture.noError("MarkMaterialized ask-1", tracker.MarkMaterialized(batch.StepID, "ask-1"))
 	first := fixture.next(sub)
-	if first.Pending.Question.DisplayCount != 2 || len(first.Pending.Question.CurrentUnresolvedAskIDs) != 1 {
+	if first.Pending.Question.DisplayCount != 2 {
 		t.Fatalf("first question state = %+v", first.Pending.Question)
 	}
 	if first.Pending.Question.Preview != "question from agent" {
@@ -257,12 +257,8 @@ func testQuestionNotification(id string, revision uint64) clientui.AttentionNoti
 		OccurredAt: testTime(),
 		Revision:   revision,
 		Question: &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs:          []string{"ask-1", "ask-2"},
-			MaterializedAskIDs:      []string{"ask-1"},
-			CurrentUnresolvedAskIDs: []string{"ask-1"},
-			Preview:                 "question from agent",
-			DisplayCount:            2,
-			MaterializedCount:       1,
+			Preview:      "question from agent",
+			DisplayCount: 2,
 		},
 		Target: testQuestionTarget(),
 	}
@@ -280,12 +276,8 @@ func testSessionPromptNotification(id string) clientui.AttentionNotification {
 			SessionID: "session-1",
 		},
 		Question: &clientui.AttentionNotificationQuestionState{
-			PreparedAskIDs:          []string{id},
-			MaterializedAskIDs:      []string{id},
-			CurrentUnresolvedAskIDs: []string{id},
-			Preview:                 "question from agent",
-			DisplayCount:            1,
-			MaterializedCount:       1,
+			Preview:      "question from agent",
+			DisplayCount: 1,
 		},
 	}
 }

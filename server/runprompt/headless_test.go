@@ -1924,7 +1924,7 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
 	}
 	close(releaseFinalResponse)
-	if _, err := before.Wait(context.Background()); err != nil {
+	if err := before.Wait(context.Background()); err != nil {
 		t.Fatalf("continued execution: %v", err)
 	}
 }
@@ -2066,7 +2066,7 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 		t.Fatalf("execution after answer = %v active=%t, want the same active execution", after, active)
 	}
 	continued.Unblock()
-	if _, err := before.Wait(context.Background()); err != nil {
+	if err := before.Wait(context.Background()); err != nil {
 		t.Fatalf("continued execution: %v", err)
 	}
 	output, err := os.ReadFile(target)

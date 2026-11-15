@@ -91,9 +91,8 @@ func (m *uiModel) loadNewSessionSettingsCmd(retry *newSessionSettingsRetry) tea.
 			result.err = errors.New("New Chat settings catalog is required")
 			return result
 		}
-		initial := result.catalog.InitialSettings
 		for _, choice := range result.catalog.Choices {
-			if choice.Agent.Role != initial.AgentRole || choice.ConnectionId == nil {
+			if choice.Agent.Role != result.catalog.InitialAgentRole || choice.ConnectionId == nil {
 				continue
 			}
 			result.readiness, result.err = target.auth.GetBootstrapStatus(context.Background(), &authpb.GetBootstrapStatusRequest{
@@ -119,7 +118,12 @@ func (m *uiModel) applyNewSessionSettingsLoaded(msg newSessionSettingsLoadedMsg)
 	}
 	target.settingsLoad = uiNewSettingsReady{choices: msg.catalog.Choices, readiness: msg.readiness}
 	if target.creation.InitialSettings == nil {
-		target.creation.InitialSettings = proto.Clone(msg.catalog.InitialSettings).(*settingspb.InitialChatSettings)
+		for _, choice := range msg.catalog.Choices {
+			if choice.Agent.Role == msg.catalog.InitialAgentRole {
+				target.creation.InitialSettings = proto.Clone(choice.Baseline).(*settingspb.InitialChatSettings)
+				break
+			}
+		}
 	}
 	if invocation := target.creation.Invocation; invocation != nil {
 		invocation.AgentRole = nil
@@ -323,6 +327,7 @@ func (m *uiModel) mutateNewSessionSettings(operation *settingspb.MutationOperati
 				if selected.AgentRole == operation.AgentRole {
 					return nil
 				}
+				m.status.uiStatusCollection = &uiStatusCollection{}
 				m.newChatTarget().InitialSettings = proto.Clone(candidate.Baseline).(*settingspb.InitialChatSettings)
 				m.projectNewSessionSettings()
 				return m.loadNewSessionSettingsCmd(nil)

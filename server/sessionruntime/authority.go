@@ -133,23 +133,6 @@ func (a *Authority) runLifecycleTask(ctx context.Context, task func(context.Cont
 	close(result)
 }
 
-func (a *Authority) ExecutionByWorkflow(ref WorkflowExecutionRef) (ExecutionHandle, bool) {
-	if a == nil {
-		return nil, false
-	}
-	key, err := workflowExecutionKeyFor(ref)
-	if err != nil {
-		return nil, false
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	execution := a.workflowExecutionLocked(ref, key)
-	if execution == nil {
-		return nil, false
-	}
-	return executionHandle{execution: execution}, true
-}
-
 func (a *Authority) ExecutionByCurrentNode(
 	projectID string,
 	workflowID runtimeids.WorkflowID,
@@ -200,10 +183,6 @@ func (a *Authority) workflowTaskExecutionsLocked(taskID workflow.TaskID) []*exec
 		return executions[i].scope.ID().String() < executions[j].scope.ID().String()
 	})
 	return executions
-}
-
-func (a *Authority) workflowExecutionLocked(ref WorkflowExecutionRef, key workflow.CurrentNodeReferenceKey) *execution {
-	return a.workflowExecutionByCurrentNodeLocked(ref, key)
 }
 
 func (a *Authority) workflowExecutionByCurrentNodeLocked(ref WorkflowExecutionRef, key workflow.CurrentNodeReferenceKey) *execution {
@@ -557,23 +536,4 @@ func (a *Authority) Close(ctx context.Context) error {
 		}
 	}
 	return errors.Join(closeErrs...)
-}
-
-func (a *Authority) reserveScriptExecutionLocked(req ScriptExecutionRequest) (*execution, error) {
-	if a.closed {
-		return nil, ErrAuthorityClosed
-	}
-	scopeID := runtimeids.NewExecutionScopeID()
-	scope := newScriptExecutionScope(scopeID, nil)
-	runCtx, cancel := context.WithCancel(context.Background())
-	reserved := &execution{
-		authority: a,
-		scope:     scope,
-		ctx:       runCtx,
-		cancel:    cancel,
-		done:      make(chan struct{}),
-		prompts:   newExecutionPromptStore(a, scope, a.promptFeed),
-		phase:     executionPhaseRunning,
-	}
-	return reserved, nil
 }

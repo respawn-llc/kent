@@ -78,7 +78,10 @@ func (c MaterializedEventLog) ConversationFreshness() (ConversationFreshness, er
 		return ConversationFreshnessFresh, err
 	}
 	defer release()
-	return c.store.conversationFreshness, nil
+	if c.store.meta.ConversationEstablished {
+		return ConversationFreshnessEstablished, nil
+	}
+	return ConversationFreshnessFresh, nil
 }
 
 func (c MaterializedEventLog) ReadRecentRecords(maxRecords int) (EventRecordWindow, error) {

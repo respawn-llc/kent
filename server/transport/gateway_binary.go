@@ -135,9 +135,6 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerSessionLifecycleGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}
-	if err := registerSessionRuntimeGatewayBinaryBindings(bindings); err != nil {
-		return nil, err
-	}
 	if err := registerSessionViewGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}

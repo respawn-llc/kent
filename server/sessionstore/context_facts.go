@@ -80,7 +80,7 @@ func (s *Store) SetSessionContextFacts(completedCompactionCount int, manualCompa
 	if s.options.contextFactWriter == nil {
 		return errors.New("Session Context-fact writer is required")
 	}
-	sessionID := s.metaSnapshot().meta.SessionID
+	sessionID := s.Meta().SessionID
 	facts := SessionContextFacts{
 		CompletedCompactionCount: &completedCompactionCount,
 		ManualCompactEligible:    &manualCompactEligible,
@@ -113,7 +113,7 @@ func (s *Store) SetManualCompactEligibility(eligible bool) error {
 	if s.options.contextFactWriter == nil {
 		return errors.New("Session Context-fact writer is required")
 	}
-	sessionID := s.metaSnapshot().meta.SessionID
+	sessionID := s.Meta().SessionID
 	if err := s.options.contextFactWriter.WriteManualCompactEligibility(
 		context.Background(),
 		sessionID,

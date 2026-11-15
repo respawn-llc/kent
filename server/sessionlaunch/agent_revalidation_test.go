@@ -15,6 +15,7 @@ import (
 	"core/server/agentruntime"
 	"core/server/launch"
 	"core/server/metadata"
+	"core/server/operation"
 	"core/server/registry"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
@@ -31,7 +32,9 @@ import (
 func TestChatSettingsRefreshOnlyWhenAppliedToLiveRuntime(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg, service, db, id := agentReplacementFixture(t)
-		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, db)
+		operations := operation.NewOperationOwner()
+		t.Cleanup(func() { _ = operations.Close() })
+		lifecycle := sessionservice.NewGlobalSessionLifecycleService(cfg.PersistenceRoot, service.settingsOwner.Authority, db, operations)
 		saveDraft := func() {
 			t.Helper()
 			if _, err := lifecycle.PersistInputDraft(t.Context(), &sessionlaunchpb.SessionPersistInputDraftRequest{
@@ -209,7 +212,7 @@ func replaceAgentDuringStop(t *testing.T, cfg config.App, service *Service, id r
 	release <- struct{}{}
 	select {
 	case outcome := <-done:
-		if _, err := handle.Wait(t.Context()); !errors.Is(err, context.Canceled) {
+		if err := handle.Wait(t.Context()); !errors.Is(err, context.Canceled) {
 			t.Fatalf("stopped execution: %v", err)
 		}
 		return outcome.result, outcome.err

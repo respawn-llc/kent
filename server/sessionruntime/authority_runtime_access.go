@@ -79,10 +79,21 @@ func (a *Authority) WithRetainedWorkflowRuntime(
 	sessionID runtimeids.SessionID,
 	callback func(context.Context, *runtime.Engine) error,
 ) error {
+	if a == nil {
+		return errors.New("session runtime authority is required")
+	}
 	if callback == nil {
 		return errors.New("retained workflow runtime callback is required")
 	}
-	return a.WithCurrentRuntime(ctx, sessionID, func(ctx context.Context, engine *runtime.Engine) error {
+	admission, _, err := a.admitAgentTurn(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	defer admission.release()
+	if admission.resource == nil {
+		return runtimeUnavailableErr(sessionID.String())
+	}
+	return admission.resource.withEngineUnderAdmission(ctx, func(ctx context.Context, engine *runtime.Engine) error {
 		if !engine.CurrentNodeExecutionConfigured() {
 			return errors.Join(
 				serverapi.ErrRuntimeNoActiveRun,

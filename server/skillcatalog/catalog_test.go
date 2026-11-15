@@ -11,33 +11,6 @@ import (
 	brand "core/shared/config"
 )
 
-func TestDiscoverOrdersRootsAndReadsEmbeddedGeneratedWhenUnseeded(t *testing.T) {
-	root := t.TempDir()
-	workspace := t.TempDir()
-	globalSkillPath := writeSkill(t, filepath.Join(root, SkillsDirName, "global-skill"), "global-skill", "global")
-	workspaceSkillPath := writeSkill(t, filepath.Join(workspace, brand.ConfigDirName, SkillsDirName, "workspace-skill"), "workspace-skill", "workspace")
-
-	result, err := Discover(Options{WorkspaceRoot: workspace, ConfigRoot: root, IncludeEmbeddedGenerated: true})
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, globalSkillPath))
-	requireSkillPath(t, result.PromptSkills(), canonicalSlashPath(t, workspaceSkillPath))
-	generatedRoot := filepath.Join(root, ".generated", SkillsDirName)
-	foundGenerated := false
-	for _, skill := range result.PromptSkills() {
-		if skill.SourceKind == SourceKindGenerated {
-			foundGenerated = true
-			if !strings.HasPrefix(skill.Path, filepath.ToSlash(generatedRoot)+"/") {
-				t.Fatalf("generated skill path = %q, want projected under %q", skill.Path, generatedRoot)
-			}
-		}
-	}
-	if !foundGenerated {
-		t.Fatalf("expected embedded generated skills, got %+v", result.PromptSkills())
-	}
-}
-
 func TestDiscoverDisabledSkillNamedEnabledStillEnumeratesCatalog(t *testing.T) {
 	root := t.TempDir()
 	enabledPath := writeSkill(t, filepath.Join(root, SkillsDirName, "enabled"), "enabled", "enabled skill")

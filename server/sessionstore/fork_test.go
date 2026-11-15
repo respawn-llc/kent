@@ -1,12 +1,10 @@
 package session
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 
 	"core/shared/rollbacktarget"
@@ -79,71 +77,6 @@ func collectForkRecords(t *testing.T, log MaterializedEventLog) []EventRecord {
 		t.Fatalf("walk typed records: %v", err)
 	}
 	return records
-}
-
-type forkReplayCountingPersistence struct {
-	base         *testSessionMetadata
-	mu           sync.Mutex
-	parentID     string
-	appendCounts []int
-}
-
-func newForkReplayCountingPersistence() *forkReplayCountingPersistence {
-	return &forkReplayCountingPersistence{
-		base: &testSessionMetadata{records: map[string]PersistedSessionRecord{}},
-	}
-}
-
-func (p *forkReplayCountingPersistence) ObservePersistedStore(
-	ctx context.Context,
-	snapshot PersistedStoreSnapshot,
-) (CommitReceipt, error) {
-	return p.base.ObservePersistedStore(ctx, snapshot)
-}
-
-func (p *forkReplayCountingPersistence) ObserveEventLogReconciliation(
-	ctx context.Context,
-	reconciliation PersistedEventLogReconciliation,
-) error {
-	return p.base.ObserveEventLogReconciliation(ctx, reconciliation)
-}
-
-func (p *forkReplayCountingPersistence) ResolvePersistedSession(
-	ctx context.Context,
-	sessionID string,
-) (PersistedSessionRecord, error) {
-	return p.base.ResolvePersistedSession(ctx, sessionID)
-}
-
-func (p *forkReplayCountingPersistence) options() []StoreOption {
-	return []StoreOption{
-		WithPersistenceObserver(p),
-		WithPersistedSessionResolver(p),
-		WithDurabilityObserver(p),
-	}
-}
-
-func (p *forkReplayCountingPersistence) startChildCapture(parentID string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.parentID = parentID
-	p.appendCounts = nil
-}
-
-func (p *forkReplayCountingPersistence) ObserveEventLogAppend(observation EventLogAppendObservation) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.parentID != "" && observation.Succeeded {
-		p.appendCounts = append(p.appendCounts, observation.RecordCount)
-	}
-}
-
-func (p *forkReplayCountingPersistence) ObserveEventLogSync(EventLogSyncObservation) {}
-
-func (p *forkReplayCountingPersistence) childAppendCounts() []int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return append([]int(nil), p.appendCounts...)
 }
 
 func TestCloneSessionStreamsLargeHistoryAcrossChunks(t *testing.T) {
@@ -292,11 +225,10 @@ func TestForkAtUserMessageOutOfRangeCleansUpChild(t *testing.T) {
 	assertOnlyForkParentSessionDir(t, root, parent)
 }
 
-func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
+func TestCloneSessionPreservesHistoryAcrossCountAndByteBudgets(t *testing.T) {
 	tests := []struct {
-		name            string
-		payloads        []EventRecordPayload
-		wantChildCounts []int
+		name     string
+		payloads []EventRecordPayload
 	}{
 		{
 			name: "event count",
@@ -311,10 +243,6 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 				}
 				return payloads
 			}(),
-			wantChildCounts: []int{
-				forkReplayFlushEventCount,
-				1,
-			},
 		},
 		{
 			name: "encoded bytes",
@@ -323,22 +251,11 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 				largeForkLocalEntry(),
 				largeForkLocalEntry(),
 			},
-			wantChildCounts: []int{1, 1, 1},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			persistence := newForkReplayCountingPersistence()
-			parent, err := Create(
-				t.TempDir(),
-				"workspace",
-				"/tmp/work",
-				testSessionCategory,
-				persistence.options()...,
-			)
-			if err != nil {
-				t.Fatalf("create parent: %v", err)
-			}
+			parent := newSessionTestStore(t)
 			if err := parent.EnsureDurable(); err != nil {
 				t.Fatalf("persist parent: %v", err)
 			}
@@ -350,21 +267,18 @@ func TestCloneSessionFlushesAtCountAndByteBudgets(t *testing.T) {
 			); err != nil || !receipt.Committed {
 				t.Fatalf("append parent fixtures: receipt=%+v err=%v", receipt, err)
 			}
-			persistence.startChildCapture(parent.Meta().SessionID)
-
 			child, err := CloneSession(parentLog, new("clone"), testSessionCategory, ForkThinking{Desired: "medium", PreserveNativeUpdates: true})
 			if err != nil {
 				t.Fatalf("clone session: %v", err)
 			}
-			if got := persistence.childAppendCounts(); !reflect.DeepEqual(
-				got,
-				test.wantChildCounts,
-			) {
-				t.Fatalf(
-					"child replay batch sizes = %v, want %v",
-					got,
-					test.wantChildCounts,
-				)
+			records := collectForkRecords(t, materializedForkEventLog(t, child))
+			if len(records) != len(test.payloads) {
+				t.Fatalf("child replay records = %d, want %d", len(records), len(test.payloads))
+			}
+			for index, record := range records {
+				if record.Seq() != int64(index+1) || !reflect.DeepEqual(mustEventRecordPayload(record), test.payloads[index]) {
+					t.Fatalf("child replay record %d did not preserve source order and content: %+v", index, record)
+				}
 			}
 			assertNoForkTemporaryArtifacts(t, parent.Dir())
 			assertNoForkTemporaryArtifacts(t, child.Dir())
@@ -408,6 +322,33 @@ func TestForkReplayBatchReportsDeterministicRetainedMaxima(t *testing.T) {
 	for index, record := range batch.records[:cap(batch.records)] {
 		if record.payload != nil {
 			t.Fatalf("reset replay batch retained payload at slot %d", index)
+		}
+	}
+}
+
+func TestForkReplayBatchFlushesAtCountBudget(t *testing.T) {
+	batch := newForkReplayBatch()
+	for index := range forkReplayFlushEventCount + 1 {
+		record := mustForkRecord(t, int64(index+1), LocalEntryRecord{
+			Visibility: EntryVisibilityHidden,
+			Role:       "test",
+			Text:       new("small"),
+		})
+		recordBytes, err := replayRecordByteSize(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if shouldFlush := batch.shouldFlushBefore(recordBytes); shouldFlush != (index == forkReplayFlushEventCount) {
+			t.Fatalf("batch flush before record %d = %t, want count budget %d", index, shouldFlush, forkReplayFlushEventCount)
+		}
+		if index == forkReplayFlushEventCount {
+			batch.reset()
+			if batch.shouldFlushBefore(recordBytes) {
+				t.Fatal("drained batch still requires flush")
+			}
+		}
+		if err := batch.add(record, recordBytes); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

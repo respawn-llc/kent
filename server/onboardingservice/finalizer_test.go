@@ -492,15 +492,12 @@ func TestFinalizerImportsSkillsAndCommandsBeforeConfigWrite(t *testing.T) {
 	skills := createProviderSkillSource(t, home, ".claude")
 	commands := createProviderCommandSource(t, home, ".claude")
 
-	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		SkillsImport:   skills,
 		CommandsImport: commands,
 	})
 	if err != nil {
 		t.Fatalf("Finalize: %v", err)
-	}
-	if !resp.Completed {
-		t.Fatal("expected finalize completion")
 	}
 	assertSymlink(t, filepath.Join(root, "skills"))
 	assertSymlink(t, filepath.Join(root, "prompts"))
@@ -521,16 +518,13 @@ func assertFinalizesPersonalProviderImports(t *testing.T, homeEntry string) {
 	skills := createProviderSkillSource(t, home, homeEntry)
 	commands := createProviderCommandSource(t, home, homeEntry)
 
-	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		SkillsImport:       skills,
 		CommandsImport:     commands,
 		DisabledSkillNames: []string{"Example"},
 	})
 	if err != nil {
 		t.Fatalf("Finalize: %v", err)
-	}
-	if !resp.Completed {
-		t.Fatal("expected finalize completion")
 	}
 	skillsTarget, err := os.Readlink(filepath.Join(root, "skills"))
 	if err != nil {
@@ -560,7 +554,7 @@ func TestFinalizerImportsSelectedCapabilityFactSkillRoot(t *testing.T) {
 	createSkillDirectory(t, filepath.Join(regularRoot, "regular-example"))
 	providerID := "codex"
 
-	resp, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
+	_, err := newTestFinalizer(t, root, home).Finalize(context.Background(), &onboardingpb.FinalizeRequest{
 		SkillsImport: &onboardingpb.ImportSelection{
 			Mode:             onboardingpb.ImportMode_IMPORT_MODE_SYMLINK_SOURCE,
 			ImportProviderId: &providerID,
@@ -569,9 +563,6 @@ func TestFinalizerImportsSelectedCapabilityFactSkillRoot(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Finalize: %v", err)
-	}
-	if !resp.Completed {
-		t.Fatal("expected finalize completion")
 	}
 	target, err := os.Readlink(filepath.Join(root, "skills"))
 	if err != nil {
@@ -739,12 +730,9 @@ func TestFinalizerSkipsImportDiscoveryWhenNoImportsRequested(t *testing.T) {
 	}
 	finalizer := newTestFinalizer(t, root, home)
 
-	resp, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{})
+	_, err := finalizer.Finalize(context.Background(), &onboardingpb.FinalizeRequest{})
 	if err != nil {
 		t.Fatalf("Finalize: %v", err)
-	}
-	if !resp.Completed {
-		t.Fatal("expected finalize completion")
 	}
 	if _, err := os.Stat(filepath.Join(root, "config.toml")); err != nil {
 		t.Fatalf("expected config file: %v", err)

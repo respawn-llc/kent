@@ -216,7 +216,7 @@ function SessionCatalogRow({
 }>) {
   const { t } = useTranslation();
   const nativeChat = useNativeChatOpening();
-  const title = sessionDisplayTitle(session, (id) => t("home.subagentTitle", { id }));
+  const title = sessionDisplayTitle({ ...session, category }, (id) => t("home.subagentTitle", { id }));
   const pending = nativeChat.pendingSessionID === session.id;
   const target = { projectID, sessionID: session.id };
   return (

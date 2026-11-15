@@ -44,6 +44,20 @@ func TestResponsesClientSelectsServedModelMetadata(t *testing.T) {
 			headers:        http.Header{"Openai-Model": {"header-model"}},
 			want:           stringPointer("completed-model"),
 		},
+		{
+			name:    "secondary provider header",
+			headers: http.Header{"Openai-Model": {" "}, "X-Openai-Model": {" fallback-model "}},
+			want:    stringPointer("fallback-model"),
+		},
+		{
+			name: "absent metadata",
+		},
+		{
+			name:           "blank metadata",
+			createdModel:   " ",
+			completedModel: " ",
+			headers:        http.Header{"Openai-Model": {" "}, "X-Openai-Model": {" "}},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -53,14 +67,25 @@ func TestResponsesClientSelectsServedModelMetadata(t *testing.T) {
 				return successfulMetadataEvents(test.createdModel, test.completedModel)
 			})
 			request := Request{SessionID: stringPointer("metadata-session"), Model: "requested-model", ToolChoiceMode: ToolChoiceModeAutomatic}
-			client := NewResponsesClient(transport, nil)
+			var pricedModels []string
+			client := NewResponsesClient(transport, func(_ context.Context, model string, _ Usage) {
+				pricedModels = append(pricedModels, model)
+			})
 			response, err := client.Generate(context.Background(), request, StreamCallbacks{})
 			if err != nil {
 				t.Fatalf("generate: %v", err)
 			}
-			if (response.ServedModel == nil) != (test.want == nil) ||
-				response.ServedModel != nil && *response.ServedModel != *test.want {
-				t.Fatalf("served model = %#v, want %#v", response.ServedModel, test.want)
+			servedModel := response.ProviderEvidence.ServedModel
+			if (servedModel == nil) != (test.want == nil) ||
+				servedModel != nil && *servedModel != *test.want {
+				t.Fatalf("evidence served model = %#v, want %#v", servedModel, test.want)
+			}
+			wantPricedModel := request.Model
+			if test.want != nil {
+				wantPricedModel = *test.want
+			}
+			if len(pricedModels) != 1 || pricedModels[0] != wantPricedModel {
+				t.Fatalf("priced models = %v, want [%s]", pricedModels, wantPricedModel)
 			}
 			if request.Model != "requested-model" || capturedModel != "requested-model" {
 				t.Fatalf("requested model changed: request=%q wire=%q", request.Model, capturedModel)

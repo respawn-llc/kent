@@ -294,7 +294,7 @@ func TestDefaultHeadlessChatSettingsUseRoleBaseline(t *testing.T) {
 		t.Fatalf("headless thinking=%s, want low", prepared.Effective.Thinking)
 	}
 	entry, ok := prepared.Catalog.Lookup(config.DefaultSubagentRole)
-	if !ok || entry.Choice.GetModel() != "gpt-6-luna" || entry.Choice.AgentCallable {
+	if !ok || entry.Choice.GetModel() != "gpt-6-luna" {
 		t.Fatalf("headless default choice=%+v, exists=%t", entry.Choice, ok)
 	}
 	resolved, rejected, err := resolveChatSettingsSelection(prepared, &chatsettingspb.MutationOperation{

@@ -20,6 +20,7 @@ import {
 import { ProjectAvailability } from "@app/server-api-contract/gen/kent/api/project/project_pb";
 import {
   BranchCleanupOutcomeKind,
+  BranchCleanupOutcomeSchema,
   CreateResultSchema,
   CreateService,
   CreateTargetResolutionKind,
@@ -53,6 +54,14 @@ export { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/
 export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
 export { processObservationFixture, processObservationFixtureRoute } from "./processFixtures";
 export { binaryAck } from "./rpcFrames";
+
+export function branchCleanupOutcomeFixture(
+  kind: BranchCleanupOutcomeKind,
+  branchName?: string,
+  diagnostic?: string,
+) {
+  return create(BranchCleanupOutcomeSchema, { kind, branchName, diagnostic });
+}
 
 export async function unexpectedProjectOverflow(): Promise<never> {
   throw new Error("Unexpected Project event overflow in API fixture.");

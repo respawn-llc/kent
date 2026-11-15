@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -53,7 +52,6 @@ func TestTaskActionsOfferResumeForInterruptedSiblingOfRunningExecution(t *testin
 				live = append(live, sibling)
 			}
 			facts := NewTaskProjector().ProjectTaskFacts(TaskFactsInput{
-				Task: sqlitegen.TaskRecord{ID: string(taskID), ProjectID: projectID, WorkflowID: workflowID},
 				Status: workflowTaskStatusFact{
 					Status: &taskpb.TaskStatus{Kind: taskpb.TaskStatusKind_TASK_STATUS_KIND_RUNNING},
 					Done:   test.done,

@@ -32,7 +32,6 @@ type PreparedChatAgentCatalogEntry struct {
 	Settings             *PreparedChatSettings
 	SelectionError       error
 	providerCapabilities llm.ProviderCapabilities
-	systemPromptFile     *config.SystemPromptFile
 }
 
 func (e PreparedChatAgentCatalogEntry) ProviderCapabilities() llm.ProviderCapabilities {
@@ -120,7 +119,7 @@ func prepareChatAgentCatalogForSession(ctx context.Context, app config.App, prep
 			if err != nil {
 				return PreparedChatAgentCatalogEntry{}, err
 			}
-			return chatAgentCatalogEntry(app, selector, currentTarget, capabilities, llm.SupportsFastModeProvider(capabilities))
+			return chatAgentCatalogEntry(selector, currentTarget, capabilities, llm.SupportsFastModeProvider(capabilities))
 		}
 		return prepareChatAgentEntry(ctx, app, selector, preparation, true, serverapi.RunPromptOverrides{})
 	})
@@ -160,13 +159,6 @@ func buildChatAgentCatalog(app config.App, current *string, prepare func(string)
 		}
 		entries = append(entries, entry)
 	}
-	defaultPrompt := entries[0].systemPromptFile
-	for index := range entries {
-		entries[index].Choice.CustomSystemPrompt = !textutil.EqualOptional(
-			entries[index].systemPromptFile,
-			defaultPrompt,
-		)
-	}
 	return PreparedChatAgentCatalog{entries: entries}, nil
 }
 
@@ -202,7 +194,7 @@ func prepareChatAgentEntry(ctx context.Context, app config.App, selector string,
 	prepared, err := prepareAgent(ctx, app, invocation, preparation, applyDerivedModelContextBudgetOverrides)
 	if err == nil && prepared.Unavailable != nil {
 		if allowUnavailable {
-			return partialChatAgentEntry(app, selector, *prepared.Unavailable), nil
+			return partialChatAgentEntry(selector, *prepared.Unavailable), nil
 		}
 		err = prepared.Unavailable.Cause
 	}
@@ -229,18 +221,16 @@ func prepareChatAgentEntry(ctx context.Context, app config.App, selector string,
 		capabilities = *prepared.ProviderCapabilities
 		fastAvailable = llm.SupportsFastModeProvider(capabilities)
 	}
-	return chatAgentCatalogEntry(app, selector, *target, capabilities, fastAvailable)
+	return chatAgentCatalogEntry(selector, *target, capabilities, fastAvailable)
 }
 
-func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseTarget, capabilities llm.ProviderCapabilities, fastAvailable bool) (PreparedChatAgentCatalogEntry, error) {
+func chatAgentCatalogEntry(selector string, target PreparedBaseTarget, capabilities llm.ProviderCapabilities, fastAvailable bool) (PreparedChatAgentCatalogEntry, error) {
 	settings, err := PrepareChatSettingsForPreparedTarget(target, fastAvailable)
 	if err != nil {
 		return PreparedChatAgentCatalogEntry{}, fmt.Errorf("%w: %w", &serverapi.ChatSettingsAgentPreparationError{
 			Agent: selector, Category: serverapi.ChatSettingsAgentInvalidConfiguration,
 		}, err)
 	}
-	tools := append([]toolspec.ID(nil), target.EnabledTools...)
-	role := app.Settings.Subagents[selector]
 	connection, err := target.Settings.Connection.ConcreteID()
 	if err != nil {
 		return PreparedChatAgentCatalogEntry{}, err
@@ -249,30 +239,22 @@ func chatAgentCatalogEntry(app config.App, selector string, target PreparedBaseT
 		Defaults:     target,
 		ConnectionID: connection,
 		Choice: &chatsettingspb.AgentChoice{
-			Role:               selector,
-			Model:              textutil.OptionalTrimmedString(target.Settings.Model),
-			Thinking:           textutil.Value(settings.Baseline.Thinking),
-			Tools:              toolspec.IDStrings(tools),
-			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),
-			AgentCallable:      config.SubagentRoleCallable(role),
+			Role:     selector,
+			Model:    textutil.OptionalTrimmedString(target.Settings.Model),
+			Thinking: textutil.Value(settings.Baseline.Thinking),
 		},
 		Settings: &settings,
 	}
 	entry.providerCapabilities = capabilities
-	entry.systemPromptFile = target.Settings.SystemPromptFile
 	return entry, nil
 }
 
-func partialChatAgentEntry(app config.App, selector string, partial unavailableAgent) PreparedChatAgentCatalogEntry {
-	role := app.Settings.Subagents[selector]
+func partialChatAgentEntry(selector string, partial unavailableAgent) PreparedChatAgentCatalogEntry {
 	return PreparedChatAgentCatalogEntry{
 		Choice: &chatsettingspb.AgentChoice{
 			Role: selector, Model: partial.Role.Model, Thinking: partial.Role.Thinking,
-			CustomCapabilities: config.SubagentRoleHasCapabilityOverrides(role),
-			AgentCallable:      config.SubagentRoleCallable(role),
 		},
-		SelectionError:   partial.Cause,
-		systemPromptFile: partial.Role.Settings.SystemPromptFile,
+		SelectionError: partial.Cause,
 	}
 }
 

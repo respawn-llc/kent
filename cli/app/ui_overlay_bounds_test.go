@@ -18,7 +18,7 @@ func TestBoundedOverlayFramesFitTerminal(t *testing.T) {
 	for range 12 {
 		status.status.snapshot.AgentsPaths = append(status.status.snapshot.AgentsPaths, "/workspace/long/path/to/AGENTS.md")
 	}
-	status.status.pendingSections = map[uiStatusSection]bool{uiStatusSectionEnvironment: true}
+	status.status.pendingSections = map[uiStatusSection]int{uiStatusSectionEnvironment: 1}
 	status.status.scroll = 1 << 30
 	_ = status.activateSurface(uiSurfaceStatus)
 

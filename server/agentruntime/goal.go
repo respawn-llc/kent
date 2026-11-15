@@ -20,6 +20,7 @@ const goalObjectivePreviewMaxRunes = 120
 const goalLoopBusyRetryDelay = 50 * time.Millisecond
 
 var ErrGoalRequiresAskQuestion = errors.New("active goal requires ask_question tool visibility; start with ask_question available or pause/clear the goal")
+var ErrGoalRequiresWorkflowExecution = errors.New("goal cannot start ordinary execution while its workflow activation is retained; resume the workflow task first")
 var errGoalLoopInactive = errors.New("goal loop inactive")
 var ErrAgentGoalStepInactive = errors.New("agent goal command originating step is no longer active")
 
@@ -220,7 +221,7 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 		return GoalCommandResult{}, err
 	}
 	if current := e.Goal(); current != nil && current.Status == status {
-		if status != session.GoalStatusActive || e.GoalLoopContinuationEnforced() {
+		if status != session.GoalStatusActive || e.GoalLoopContinuationEnforced() || e.CurrentNodeExecutionConfigured() {
 			result := goalCommandResult(GoalCommandNoop, *current, false, session.CommitReceipt{}, session.CommitReceipt{})
 			result.Availability = &availability
 			return result, nil
@@ -709,6 +710,17 @@ func (e *Engine) goalLoopState() *goalLoopState {
 }
 
 func (e *Engine) RequireGoalLoopStartAllowed() error {
+	state := e.currentNodeExecution
+	state.mu.RLock()
+	retained := state.config != nil && state.owner == nil
+	state.mu.RUnlock()
+	if retained {
+		return ErrGoalRequiresWorkflowExecution
+	}
+	return e.requireGoalAskQuestion()
+}
+
+func (e *Engine) requireGoalAskQuestion() error {
 	shape, err := e.lockedRequestShape()
 	if err != nil {
 		return err
@@ -726,7 +738,7 @@ func (e *Engine) requireAskQuestionWhenGoalActive() error {
 	if goal == nil || goal.Status != session.GoalStatusActive {
 		return nil
 	}
-	return e.RequireGoalLoopStartAllowed()
+	return e.requireGoalAskQuestion()
 }
 
 func goalSetCompactText(objective string) string {

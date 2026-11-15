@@ -42,7 +42,6 @@ var _ apicontract.CapabilityFactsService = onboardingCapabilityFactsClientFunc(n
 
 func TestOnboardingDefaultsFinalizeThroughServerAPI(t *testing.T) {
 	finalizer := &recordingOnboardingFinalizer{response: &onboardingpb.FinalizeSuccess{
-		Completed:    true,
 		SettingsPath: "/server/.kent/config.toml",
 	}}
 	state := newOnboardingFinalizeProjectionState(t, func(cfg *config.App) {
@@ -147,7 +146,7 @@ func TestOnboardingFinalizationJoinsSubmittedResultAfterParentCancellation(t *te
 	finalizer := onboardingFinalizeClientFunc(func(context.Context, *onboardingpb.FinalizeRequest) (*onboardingpb.FinalizeSuccess, error) {
 		close(started)
 		<-release
-		return &onboardingpb.FinalizeSuccess{Completed: true, SettingsPath: "/server/config.toml"}, nil
+		return &onboardingpb.FinalizeSuccess{SettingsPath: "/server/config.toml"}, nil
 	})
 	finalization := newOnboardingFinalization(finalizer, parent)
 	request := &onboardingpb.FinalizeRequest{}
@@ -512,7 +511,7 @@ func TestOnboardingRecoverableRetrySubmitsUnchangedRequest(t *testing.T) {
 		t.Fatal("typed finalization failure must be rendered in the wizard")
 	}
 	finalizer.err = nil
-	finalizer.response = &onboardingpb.FinalizeSuccess{Completed: true}
+	finalizer.response = &onboardingpb.FinalizeSuccess{SettingsPath: "/server/config.toml"}
 	second := model.finalizeCmd(false)().(onboardingFinalizeDoneMsg)
 	if second.err != nil {
 		t.Fatalf("retry finalization: %v", second.err)

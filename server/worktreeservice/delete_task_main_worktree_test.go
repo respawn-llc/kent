@@ -13,6 +13,7 @@ import (
 	"core/internal/testharness/workflowfixture"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/operation"
 	"core/server/registry"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
@@ -174,6 +175,8 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 	})
 	publisher := &serviceTestPublisher{}
 	processes := &serviceTestProcessSource{}
+	operations := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = operations.Close() })
 	return &serviceTestEnv{
 		t:         t,
 		ctx:       ctx,
@@ -185,6 +188,7 @@ func newStructuredTaskDeletionEnv(t *testing.T) *serviceTestEnv {
 		publisher: publisher,
 		processes: processes,
 		service: NewService(store, nil, authority, publisher, processes, ServiceOptions{
+			Operations:                    operations,
 			PersistenceRoot:               cfg.PersistenceRoot,
 			BaseDir:                       cfg.Settings.Worktrees.BaseDir,
 			RuntimeActivitySnapshotReader: runtimeRegistry,

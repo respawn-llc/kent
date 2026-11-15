@@ -4,7 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-facade";
+import { queryKeys, SidebarHeaderActionProvider, SidebarHeaderActionSlot } from "@/app-facade";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { WorktreeBrowser } from "./WorktreeBrowser";
 
@@ -13,12 +13,15 @@ import {
   pendingWorkItemIDFromProto,
   type ChatInputMutationResult,
   type ChatSettingsRead,
+  type ChatSettingsMutationResponse,
+  type ChatMainView,
 } from "@/api";
 import { createTestServices } from "@/test-support/app-services";
 import {
   changedIdentity,
   deferred,
   hydration,
+  mainViewRead,
   target as sessionTarget,
   transcriptPage,
 } from "@/test-support/chat-runtime";
@@ -36,6 +39,7 @@ import {
   navigation,
   renderDestination,
   sessionWithPrompts,
+  sessionSettingsRead,
 } from "@/test-support/chat-destination";
 let restoreStorage: (() => void) | undefined;
 beforeEach(() => {
@@ -45,6 +49,69 @@ afterEach(() => {
   restoreStorage?.();
   restoreStorage = undefined;
 });
+
+it.each([
+  { kind: "rejected", reason: "thinking_unavailable" },
+  { kind: "applied", changed: true },
+  { kind: "applied", changed: false },
+] satisfies ChatSettingsMutationResponse["result"][])(
+  "applies a $kind Settings response to the displayed Session Context without a broadcast",
+  async (result) => {
+    const read = sessionSettingsRead();
+    const response: ChatSettingsMutationResponse = {
+      ...read,
+      result,
+      settings: {
+        ...read.settings,
+        questions: { ...read.settings.questions, enabled: result.kind === "rejected" },
+      },
+      context: {
+        usedTokens: 750,
+        contextWindowTokens: 1000,
+        remainingTokens: 250,
+        automaticThresholdTokens: 800,
+        autoCompactionEnabled: false,
+        compactionMode: "disabled",
+        completedCompactionCount: 3,
+        compactionRunning: false,
+        manualCompactAvailable: false,
+      },
+    };
+    const view = sessionWithPrompts((services) => {
+      vi.spyOn(services.api.chat, "mutateSettings").mockResolvedValue(response);
+    });
+    expect(await screen.findByRole("button", { name: "10%" })).toBeInTheDocument();
+    const user = userEvent.setup({ delay: null });
+    await user.click(await screen.findByRole("button", { name: appI18n.t("chatSettings.open") }));
+    await user.click(await screen.findByRole("switch", { name: appI18n.t("chatSettings.questions") }));
+    await waitFor(() => {
+      expect(view.services.api.chat.mutateSettings).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByRole("button", { name: "75%" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: appI18n.t("chatSettings.questions") })).toHaveAttribute(
+      "aria-checked",
+      String(response.settings.questions.enabled),
+    );
+    const original = mainViewRead().mainView;
+    expect(view.client.getQueryData<ChatMainView>(queryKeys.chatMainView(sessionTarget.sessionID))).toEqual({
+      ...original,
+      status: {
+        ...original.status,
+        autoCompactionEnabled: false,
+        compactionMode: "disabled",
+        compactionCount: 3,
+        contextUsage: { ...original.status.contextUsage, usedTokens: 750, windowTokens: 1000 },
+      },
+    });
+    await user.keyboard("{Escape}");
+    await user.hover(screen.getByRole("button", { name: "75%" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: appI18n.t("chatComposer.context.compact") })).toBeDisabled();
+    });
+    expect(view.services.api.chat.getMainView).toHaveBeenCalledTimes(1);
+    view.unmount();
+  },
+);
 
 it.each([question(), approval()])(
   "hides navigation and position for a single $kind prompt",

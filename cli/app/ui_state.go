@@ -92,16 +92,14 @@ type uiInputFeatureState struct {
 	reviewerMode           string
 	autoCompactionEnabled  bool
 	questionsEnabled       bool
-	conversationFreshness  runtimepb.ConversationFreshness
 	localConversationTurn  bool
 	runtimeControlToken    uint64
 	runtimeControlTokens   map[runtimeControlOperation]uint64
 	runtimeControlPending  map[runtimeControlOperation]runtimeControlPendingState
 
-	injectedQueue      []*injectedRuntimeQueueItem
-	interruptLifecycle uiInterruptLifecycle
-	currentStepID      string
-	interruptStepID    string
+	injectedQueue    []*injectedRuntimeQueueItem
+	pendingInterrupt *uiPendingInterrupt
+	currentStepID    string
 
 	modelName                 string
 	configuredModelName       *string
@@ -177,20 +175,19 @@ type uiSessionTransitionFeatureState struct {
 }
 
 type uiStatusFeatureState struct {
-	processList                 uiProcessListState
-	reasoningStatusHeader       string
-	turnQueueHook               turnQueueHook
-	statusConfig                uiStatusConfig
-	statusCollector             uiStatusCollector
-	statusRepository            uiStatusRepository
-	status                      uiStatusOverlayState
-	goal                        uiGoalOverlayState
-	goalRuntimeToken            uint64
-	goalRuntimeMutationSerial   uint64
-	goalRuntimePending          goalRuntimePendingState
-	statusGitBackgroundInFlight bool
-	clipboardPaster             uiClipboardPaster
-	clipboardTextCopier         uiClipboardTextCopier
+	processList               uiProcessListState
+	reasoningStatusHeader     string
+	turnQueueHook             turnQueueHook
+	statusConfig              uiStatusConfig
+	statusCollector           uiStatusCollector
+	statusRepository          uiStatusRepository
+	status                    uiStatusOverlayState
+	goal                      uiGoalOverlayState
+	goalRuntimeToken          uint64
+	goalRuntimeMutationSerial uint64
+	goalRuntimePending        goalRuntimePendingState
+	clipboardPaster           uiClipboardPaster
+	clipboardTextCopier       uiClipboardTextCopier
 
 	transientStatus              string
 	transientStatusKind          uiStatusNoticeKind

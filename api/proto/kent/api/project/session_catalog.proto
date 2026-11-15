@@ -22,10 +22,6 @@ message SessionSummary {
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
-  SessionCategory category = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   optional string name = 3 [(buf.validate.field).string.min_len = 1];
   optional string first_prompt_preview = 4 [(buf.validate.field).string.min_len = 1];
   google.protobuf.Timestamp updated_at = 5 [
@@ -62,12 +58,6 @@ message SessionPageSuccess {
   }];
   repeated SessionSummary sessions = 3 [(buf.validate.field).repeated.max_items = 100];
   optional int32 next_offset = 4 [(buf.validate.field).int32.gt = 0];
-
-  option (buf.validate.message).cel = {
-    id: "session_page.categories"
-    message: "every session category must match the page category"
-    expression: "this.sessions.all(session, session.category == this.category)"
-  };
 }
 
 message SessionPageError {

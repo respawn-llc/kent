@@ -250,8 +250,9 @@ func TestWithExactExecutionsDoesNotBlockTaskExecutionObservation(t *testing.T) {
 			t.Errorf("close authority: %v", err)
 		}
 	})
-	handle, err := authority.StartScriptExecution(context.Background(), ScriptExecutionRequest{
-		Command: ScriptCommand{Path: sleepPath, Args: []string{"30"}},
+	handle, err := startDetachedScriptExecutionForTest(t, authority, DetachedScriptExecutionRequest{
+		Workflow: workflowExecutionRefForTest(t, "task-exact-observation", "node-exact-observation", nil),
+		Command:  ScriptCommand{Path: sleepPath, Args: []string{"30"}},
 	})
 	if err != nil {
 		t.Fatalf("start script execution: %v", err)
@@ -326,7 +327,7 @@ func TestWorkflowTaskExecutionReadSnapshotDoesNotWaitForLifecycleSelection(t *te
 		Command:  ScriptCommand{Path: sleepPath, Args: []string{"30"}},
 	})
 	if err != nil {
-		t.Fatalf("StartScriptExecution: %v", err)
+		t.Fatalf("start detached Script execution: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = handle.Stop(context.Background())
@@ -399,7 +400,7 @@ func TestWorkflowManualMoveSelectionDoesNotRetainAuthorityOwnership(t *testing.T
 		Command:  ScriptCommand{Path: sleepPath, Args: []string{"30"}},
 	})
 	if err != nil {
-		t.Fatalf("StartScriptExecution: %v", err)
+		t.Fatalf("start detached Script execution: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = handle.Stop(context.Background())
@@ -745,7 +746,7 @@ func TestExecutionRetirementKeepsRetainedRuntimeSteerableUntilDrain(t *testing.T
 		}
 
 		close(finishExecution)
-		if _, err := handle.Wait(context.Background()); err != nil {
+		if err := handle.Wait(context.Background()); err != nil {
 			t.Fatalf("wait ownerless execution: %v", err)
 		}
 		if err := authority.WithRuntime(context.Background(), resource, func(ctx context.Context, engine *runtime.Engine) error {
@@ -920,12 +921,12 @@ func TestDetachedScriptAdmissionRunsAfterValidationAndBeforePublication(t *testi
 	}
 	admitted := false
 	handle, launch, err := detached.Publish(context.Background(), func() error {
-		if authority.workflowExecutionLocked(ref, detached.workflowKey) != nil {
+		if authority.workflowExecutionByCurrentNodeLocked(ref, detached.workflowKey) != nil {
 			return errors.New("Script became live before durable admission")
 		}
 		admitted = true
 		return nil
-	}, nil)
+	})
 	if err != nil || !admitted {
 		t.Fatalf("publish detached Script: admitted=%t err=%v", admitted, err)
 	}
@@ -939,7 +940,7 @@ func TestDetachedScriptAdmissionRunsAfterValidationAndBeforePublication(t *testi
 		t.Fatalf("Script publication after admission = %+v, %v", snapshot, err)
 	}
 	launch()
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait Script: %v", err)
 	}
 }
@@ -960,7 +961,7 @@ func TestDetachedScriptAdmissionFailurePublishesNoExactState(t *testing.T) {
 		t.Fatalf("prepare detached Script: %v", err)
 	}
 	admissionErr := errors.New("durable admission rejected")
-	if _, _, err := detached.Publish(context.Background(), func() error { return admissionErr }, nil); !errors.Is(err, admissionErr) {
+	if _, _, err := detached.Publish(context.Background(), func() error { return admissionErr }); !errors.Is(err, admissionErr) {
 		t.Fatalf("publish error = %v, want %v", err, admissionErr)
 	}
 	snapshots, err := authority.CurrentScopedTaskExecutionSnapshots(
@@ -1026,7 +1027,7 @@ func TestDetachedScriptPublicationDoesNotChangeDispositionAfterOwnerEntry(t *tes
 		return detached.Publish(ctx, func() error {
 			close(admitted)
 			return nil
-		}, nil)
+		})
 	})
 	if result.err != nil {
 		t.Fatalf("publication changed disposition after owner entry: %v", result.err)
@@ -1037,7 +1038,7 @@ func TestDetachedScriptPublicationDoesNotChangeDispositionAfterOwnerEntry(t *tes
 		t.Fatal("publication skipped durable admission after owner entry")
 	}
 	result.launch()
-	if _, err := result.handle.Wait(context.Background()); err != nil {
+	if err := result.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait Script: %v", err)
 	}
 }
@@ -1207,7 +1208,7 @@ func TestTerminalScriptIsNotRunningWhileCleanupCompletes(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("StartScriptExecution: %v", err)
+		t.Fatalf("start detached Script execution: %v", err)
 	}
 	t.Cleanup(func() {
 		select {
@@ -1239,8 +1240,61 @@ func TestTerminalScriptIsNotRunningWhileCleanupCompletes(t *testing.T) {
 	}
 
 	close(releaseFinalize)
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("Wait: %v", err)
+	}
+}
+
+func TestDetachedScriptFinalizerReceivesBoundedOutputAndProcessFailure(t *testing.T) {
+	shellPath, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("shell executable unavailable: %v", err)
+	}
+	for _, exitCode := range []int{0, 23} {
+		t.Run(fmt.Sprint(exitCode), func(t *testing.T) {
+			authority := NewAuthority(AuthorityOptions{})
+			t.Cleanup(func() { _ = authority.Close(context.Background()) })
+			outputLimit := 4
+			var result ScriptResult
+			var runErr error
+			finalizeErr := errors.New("finalizer failed")
+			handle, err := startDetachedScriptExecutionForTest(t, authority, DetachedScriptExecutionRequest{
+				Workflow: workflowExecutionRefForTest(t, "task-script-output", "node-script-output", nil),
+				Command: ScriptCommand{
+					Path: shellPath, Args: []string{"-c", fmt.Sprintf("printf 123456; printf abcdef >&2; exit %d", exitCode)},
+					OutputLimitBytes: &outputLimit,
+				},
+				Finalize: func(_ context.Context, _ ExecutionScope, captured ScriptResult, failure error) error {
+					result, runErr = captured, failure
+					return finalizeErr
+				},
+			})
+			if err != nil {
+				t.Fatalf("start detached Script: %v", err)
+			}
+			waitErr := handle.Wait(t.Context())
+			if !errors.Is(waitErr, finalizeErr) {
+				t.Fatalf("wait error = %v, want finalizer failure", waitErr)
+			}
+			if string(result.Stdout) != "1234" || string(result.Stderr) != "abcd" {
+				t.Fatalf("captured output = %q, %q", result.Stdout, result.Stderr)
+			}
+			if !result.StdoutOverflow || !result.StderrOverflow || result.Canceled {
+				t.Fatalf("capture flags = %+v", result)
+			}
+			if exitCode == 0 {
+				if runErr != nil {
+					t.Fatalf("successful process error = %v", runErr)
+				}
+				return
+			}
+			for _, failure := range []error{runErr, waitErr} {
+				var exitErr *exec.ExitError
+				if !errors.As(failure, &exitErr) || exitErr.ExitCode() != exitCode {
+					t.Fatalf("process failure = %v, want exit code %d", failure, exitCode)
+				}
+			}
+		})
 	}
 }
 
@@ -1267,7 +1321,7 @@ func TestScriptStartupFailureLeavesNoWorkflowRunningOrInterruptibleState(t *test
 		},
 	})
 	if err != nil {
-		t.Fatalf("StartScriptExecution: %v", err)
+		t.Fatalf("start detached Script execution: %v", err)
 	}
 	t.Cleanup(func() {
 		select {
@@ -1335,7 +1389,7 @@ func TestStaleRuntimeReferenceCannotAffectReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replace runtime: %v", err)
 	}
-	if _, err := replacement.Wait(context.Background()); err != nil {
+	if err := replacement.Wait(context.Background()); err != nil {
 		t.Fatalf("wait replacement execution: %v", err)
 	}
 	second, err := authority.OpenRuntime(context.Background(), RuntimeOpenRequest{
@@ -1433,7 +1487,7 @@ func TestResourceReplacementDoesNotWaitForObservation(t *testing.T) {
 	if outcome.err != nil {
 		t.Fatalf("replace after retained generation drain: %v", outcome.err)
 	}
-	if _, err := outcome.handle.Wait(context.Background()); err != nil {
+	if err := outcome.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait replacement: %v", err)
 	}
 }
@@ -1491,14 +1545,14 @@ func TestResourceReplacementWaitsForCurrentExecutionToFinish(t *testing.T) {
 
 	close(releaseCurrent)
 	released = true
-	if _, err := current.Wait(context.Background()); err != nil {
+	if err := current.Wait(context.Background()); err != nil {
 		t.Fatalf("wait current execution: %v", err)
 	}
 	outcome := <-replaced
 	if outcome.err != nil {
 		t.Fatalf("replace after current execution finished: %v", outcome.err)
 	}
-	if _, err := outcome.handle.Wait(context.Background()); err != nil {
+	if err := outcome.handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait replacement execution: %v", err)
 	}
 }
@@ -1611,7 +1665,7 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 		t.Fatalf("start scoped process: %v", startResult.err)
 	}
 	scoped := startResult.snapshot
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait agent execution: %v", err)
 	}
 	resource, ok := handle.Scope().Resource()
@@ -1916,7 +1970,7 @@ func TestBackgroundCompletionAfterFinalStepStartsContinuationAfterExecutionRetir
 		t.Fatal("terminal background event was not delivered")
 	}
 	close(releaseExecution)
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait initial execution: %v", err)
 	}
 	client.await(t)
@@ -2543,7 +2597,7 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 		t.Fatalf("second pending prompt = %+v", pending)
 	}
 	close(releaseExecution)
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait agent execution: %v", err)
 	}
 }
@@ -2628,7 +2682,7 @@ func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t
 			if interruptionCount != 1 {
 				t.Fatalf("interruption entries = %d, want 1", interruptionCount)
 			}
-			if _, err := handle.Wait(context.Background()); !errors.Is(err, context.Canceled) {
+			if err := handle.Wait(context.Background()); !errors.Is(err, context.Canceled) {
 				t.Fatalf("wait interrupted execution = %v, want context canceled", err)
 			}
 		})
@@ -2914,7 +2968,7 @@ func TestAuthorityResolvePromptBatchUsesExactFullKey(t *testing.T) {
 	} else {
 		requireQuestionAnswer(t, result.resolution, "yes")
 	}
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait agent execution: %v", err)
 	}
 	results, err := authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []PromptAnswerCommand{{
@@ -2967,7 +3021,7 @@ func TestQuestionCompletionReplacesRetainedRuntimeAfterDrain(t *testing.T) {
 	if err := resolveAuthorityQuestionForTest(authority, sessionID, stepID, askID, testQuestionResolution("yes")); err != nil {
 		t.Fatalf("resolve prompt batch: %v", err)
 	}
-	if _, err := handle.Wait(context.Background()); err != nil {
+	if err := handle.Wait(context.Background()); err != nil {
 		t.Fatalf("wait questioning execution: %v", err)
 	}
 
@@ -2982,7 +3036,7 @@ func TestQuestionCompletionReplacesRetainedRuntimeAfterDrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replace retained runtime after question completion: %v", err)
 	}
-	if _, err := successor.Wait(context.Background()); err != nil {
+	if err := successor.Wait(context.Background()); err != nil {
 		t.Fatalf("wait successor execution: %v", err)
 	}
 	if err := authority.Close(context.Background()); err != nil {
@@ -3034,7 +3088,7 @@ func startDetachedScriptExecutionForTest(
 	if err != nil {
 		return nil, err
 	}
-	handle, launch, err := detached.Publish(context.Background(), func() error { return nil }, nil)
+	handle, launch, err := detached.Publish(context.Background(), func() error { return nil })
 	if err == nil {
 		launch()
 	}

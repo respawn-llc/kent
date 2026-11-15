@@ -2,7 +2,6 @@ package workflowstore
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,7 +10,6 @@ import (
 
 	"core/internal/testharness/testsetup"
 	"core/server/metadata"
-	"core/server/metadata/sqlitegen"
 	"core/server/sessionstore"
 	"core/server/workflow"
 	"core/shared/config"
@@ -41,20 +39,6 @@ func testEdgeID(alias string) workflow.EdgeID {
 	return workflow.EdgeID(testGraphEntityID(alias))
 }
 
-func removeWorkflowGraphSaveEdgesTouchingNode(def workflow.Definition, edges []EdgeRecord, nodeID workflow.NodeID) []EdgeRecord {
-	sourceByGroup := map[workflow.TransitionGroupID]workflow.NodeID{}
-	for _, group := range def.TransitionGroups {
-		sourceByGroup[group.ID] = group.SourceNodeID
-	}
-	filtered := make([]EdgeRecord, 0, len(edges))
-	for _, edge := range edges {
-		if edge.TargetNodeID != nodeID && sourceByGroup[edge.TransitionGroupID] != nodeID {
-			filtered = append(filtered, edge)
-		}
-	}
-	return filtered
-}
-
 func workflowGraphSaveBlockerCount(blockers []WorkflowGraphSaveBlocker, code string) int64 {
 	for _, blocker := range blockers {
 		if blocker.Code == code {
@@ -82,59 +66,6 @@ func nodeByID(t *testing.T, def workflow.Definition, nodeID workflow.NodeID) wor
 	}
 	t.Fatalf("node %q not found in %+v", nodeID, def.Nodes)
 	return nil
-}
-
-func workflowGraphEditPolicyErrorHasBlocker(err error, code string) bool {
-	var policyErr WorkflowGraphEditPolicyError
-	if !errors.As(err, &policyErr) {
-		return false
-	}
-	for _, blocker := range policyErr.Blockers {
-		if blocker.Code == code {
-			return true
-		}
-	}
-	return false
-}
-
-func forceWorkflowGraphRowsForSnapshotTest(t *testing.T, ctx context.Context, store *Store, workflowID runtimeids.WorkflowID, nodes []NodeRecord, groups []TransitionGroupRecord, edges []EdgeRecord) {
-	t.Helper()
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx force graph rows: %v", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	q := store.queries.WithTx(tx)
-	for i, node := range nodes {
-		if node.WorkflowID.IsZero() {
-			node.WorkflowID = workflowID
-		}
-		if err := upsertWorkflowNode(ctx, q, node, int64(10000+i*100), "force workflow node"); err != nil {
-			t.Fatalf("force workflow node %s: %v", node.ID, err)
-		}
-	}
-	for i, group := range groups {
-		if group.WorkflowID.IsZero() {
-			group.WorkflowID = workflowID
-		}
-		if err := upsertWorkflowTransitionGroup(ctx, q, group, int64(10000+i*100), "force workflow transition group"); err != nil {
-			t.Fatalf("force workflow transition group %s: %v", group.ID, err)
-		}
-	}
-	for i, edge := range edges {
-		if edge.WorkflowID.IsZero() {
-			edge.WorkflowID = workflowID
-		}
-		if err := upsertWorkflowEdge(ctx, q, edge, int64(10000+i*100), "force workflow edge"); err != nil {
-			t.Fatalf("force workflow edge %s: %v", edge.ID, err)
-		}
-	}
-	if _, err := q.IncrementWorkflowVersion(ctx, sqlitegen.IncrementWorkflowVersionParams{ID: workflowID, UpdatedAtUnixMs: store.now().UnixMilli()}); err != nil {
-		t.Fatalf("increment forced workflow version: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit forced graph rows: %v", err)
-	}
 }
 
 func newTestStore(t *testing.T) (*Store, metadata.Binding) {

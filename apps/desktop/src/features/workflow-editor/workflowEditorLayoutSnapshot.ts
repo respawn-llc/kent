@@ -1,9 +1,7 @@
 import { type WorkflowValidation } from "@/api";
-import type { WorkflowGraphLayout } from "./workflowGraphLayout";
 
 export type WorkflowLayoutSnapshot = Readonly<{
   graphVersion: number;
-  layout: WorkflowGraphLayout | undefined;
   validation: WorkflowValidation | null;
 }>;
 
@@ -30,15 +28,11 @@ export function workflowLayoutSnapshotAfterRender(
   update: Readonly<{
     cleanGraphVersion: number;
     cleanValidation: WorkflowValidation | null;
-    layout: WorkflowGraphLayout | undefined;
   }>,
 ): WorkflowLayoutSnapshot {
   const graphVersion = update.cleanValidation === null ? current.graphVersion : update.cleanGraphVersion;
   const validation = update.cleanValidation ?? current.validation;
-  const layout = update.layout ?? current.layout;
-  return graphVersion === current.graphVersion &&
-    validation === current.validation &&
-    layout === current.layout
+  return graphVersion === current.graphVersion && validation === current.validation
     ? current
-    : { graphVersion, layout, validation };
+    : { graphVersion, validation };
 }

@@ -5,22 +5,21 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"core/server/metadata/sqlitegen"
+	"core/server/workflowstore"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
-	"core/shared/runtimeids"
-
-	"github.com/google/uuid"
 )
 
-func TestTaskProjectorProjectsFullUnicodeTaskBodyPreview(t *testing.T) {
+func TestTaskDetailProjectsFullUnicodeTaskBodyPreview(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
 	body := "a" + strings.Repeat("я", 60)
-	summary := projectTaskBodyPreview(t, body)
-	if got := summary.GetBodyPreview(); got != body {
+	detail := projectTaskBodyPreview(t, fixture, body)
+	if got := detail.Summary.GetBodyPreview(); got != body {
 		t.Fatalf("Task body preview = %q, want the full valid UTF-8 description %q", got, body)
 	}
 }
 
-func TestTaskProjectorProjectsTaskBodyPreviewBoundaries(t *testing.T) {
+func TestTaskDetailProjectsTaskBodyPreviewBoundaries(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
 	tests := []struct {
 		name string
 		body string
@@ -84,44 +83,34 @@ func TestTaskProjectorProjectsTaskBodyPreviewBoundaries(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			summary := projectTaskBodyPreview(t, test.body)
-			if got := summary.GetBodyPreview(); got != test.want {
+			detail := projectTaskBodyPreview(t, fixture, test.body)
+			if got := detail.Summary.GetBodyPreview(); got != test.want {
 				t.Fatalf("Task body preview = %q, want %q", got, test.want)
 			}
 		})
 	}
 }
 
-func projectTaskBodyPreview(t *testing.T, body string) *taskpb.TaskSummary {
+func projectTaskBodyPreview(t *testing.T, fixture currentNodeViewFixture, body string) *taskpb.TaskDetail {
 	t.Helper()
-	task := sqlitegen.TaskRecord{
-		ID:              uuid.NewString(),
-		ProjectID:       uuid.NewString(),
-		WorkflowID:      runtimeids.NewWorkflowID(),
-		TaskSeq:         1,
-		ShortID:         "1",
-		Title:           "Unicode preview",
-		Body:            body,
-		CreatedAtUnixMs: 1,
-		UpdatedAtUnixMs: 1,
-	}
-	projector := NewTaskProjector()
-	status, err := projector.DecodeStatus(TaskStatusInput{
-		TaskID:             task.ID,
-		Kind:               "backlog",
-		NodeIDsJSON:        "[]",
-		AttentionTypesJSON: "[]",
+	task, err := fixture.store.CreateTask(fixture.ctx, workflowstore.CreateTaskRequest{
+		ProjectID:  fixture.binding.ProjectID,
+		WorkflowID: &fixture.workflowID,
+		Title:      "Unicode preview",
+		Body:       body,
 	})
 	if err != nil {
-		t.Fatalf("DecodeStatus: %v", err)
+		t.Fatalf("CreateTask: %v", err)
 	}
-
-	projected := projector.ProjectTaskFacts(TaskFactsInput{Task: task, Status: status})
-	if task.Body != body {
-		t.Fatalf("Task body changed during projection: %q", task.Body)
+	detail, err := fixture.detail.GetTask(fixture.ctx, string(task.ID))
+	if err != nil {
+		t.Fatalf("TaskDetail.GetTask: %v", err)
 	}
-	if preview := projected.Summary.GetBodyPreview(); !utf8.ValidString(preview) {
+	if detail.Body != task.Body {
+		t.Fatalf("Task body changed during projection: %q", detail.Body)
+	}
+	if preview := detail.Summary.GetBodyPreview(); !utf8.ValidString(preview) {
 		t.Fatalf("Task body preview is invalid UTF-8: %q", preview)
 	}
-	return projected.Summary
+	return detail
 }

@@ -32,7 +32,6 @@ await mock.module("@/app-facade", () => ({
           nodeID: "node-1",
           cards: [],
           nextOffset: offset < 100 ? offset + 25 : null,
-          generatedAt: 1,
         };
       },
     },

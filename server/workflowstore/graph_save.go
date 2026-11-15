@@ -12,7 +12,6 @@ import (
 
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
-	"core/server/metadata/sqlitelifecyclegen"
 	"core/server/workflow"
 	"core/server/workflowscript"
 	"core/shared/runtimeids"
@@ -247,7 +246,7 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 	blockingValidationErrors := validation.BlockingErrors()
 	plan.ValidationErrors = validation.Errors
 	blockers := workflowGraphSaveBlockers(req, evaluation)
-	blockers = append(blockers, workflowGraphSaveBlockersFromEditPolicy(evaluation.EditPolicy.Blockers)...)
+	blockers = append(blockers, evaluation.EditPolicy.Blockers...)
 	if len(blockingValidationErrors) > 0 {
 		blockers = append(blockers, WorkflowGraphSaveBlocker{
 			Code:             "validation_failed",
@@ -284,7 +283,7 @@ func (s *Store) saveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := sqlitelifecyclegen.New(tx).DeferForeignKeys(ctx); err != nil {
+	if err := deferWorkflowGraphForeignKeys(ctx, tx); err != nil {
 		return WorkflowGraphSaveResult{}, err
 	}
 	q := s.queries.WithTx(tx)
@@ -309,7 +308,7 @@ func (s *Store) saveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 		return WorkflowGraphSaveResult{}, err
 	}
 	blockers := workflowGraphSaveBlockers(req, evaluation)
-	blockers = append(blockers, workflowGraphSaveBlockersFromEditPolicy(evaluation.EditPolicy.Blockers)...)
+	blockers = append(blockers, evaluation.EditPolicy.Blockers...)
 	if len(blockers) > 0 {
 		plan.Removed = plan.Structural.Removed
 		plan.Impact = evaluation.Impact
@@ -382,6 +381,13 @@ func (s *Store) saveWorkflowGraph(ctx context.Context, req WorkflowGraphSaveRequ
 	result.Record = record
 	result.Definition = plan.Definition
 	return result, nil
+}
+
+func deferWorkflowGraphForeignKeys(ctx context.Context, tx *sql.Tx) error {
+	// sqlc does not generate PRAGMA adapters. This fixed transaction setting is
+	// the approved narrow exception to generated SQL; graph queries remain sqlc-owned.
+	_, err := tx.ExecContext(ctx, "PRAGMA defer_foreign_keys = ON;")
+	return err
 }
 
 func (p WorkflowGraphSavePlan) workflowGraphSaveResult(saved bool) WorkflowGraphSaveResult {
@@ -482,7 +488,6 @@ func prepareWorkflowGraphSave(workflowID runtimeids.WorkflowID, displayName stri
 			trimmed := strings.TrimSpace(*node.GroupID)
 			node.GroupID = &trimmed
 		}
-		node.GroupKey = strings.TrimSpace(node.GroupKey)
 		node.CompletionMode = nodeCompletionMode(node)
 		prepared.nodes[i] = node
 	}
@@ -654,22 +659,6 @@ func workflowGraphSaveHasBlocker(blockers []WorkflowGraphSaveBlocker, code strin
 		}
 	}
 	return false
-}
-
-func workflowGraphSaveBlockersFromEditPolicy(blockers []WorkflowGraphEditPolicyBlocker) []WorkflowGraphSaveBlocker {
-	if len(blockers) == 0 {
-		return nil
-	}
-	out := make([]WorkflowGraphSaveBlocker, 0, len(blockers))
-	for _, blocker := range blockers {
-		out = append(out, WorkflowGraphSaveBlocker{
-			Code:             blocker.Code,
-			Message:          blocker.Message,
-			Count:            blocker.Count,
-			AffectedEntities: canonicalWorkflowGraphEntityReferences(blocker.AffectedEntities),
-		})
-	}
-	return out
 }
 
 func workflowGraphSaveConfirmationEntities(removed []WorkflowGraphEntityReference) []WorkflowGraphEntityReference {

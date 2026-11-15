@@ -14,7 +14,6 @@ import (
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
-	"io"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +40,7 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 	}, nil)
 
 	server := fixture.attachRemoteSessionServer(t, Options{WorkspaceRoot: workspace, WorkspaceRootExplicit: true}, newHeadlessAuthInteractor())
-	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))}, io.Discard, "test remote prompt snapshot reads")
+	_, runtimePlan := prepareAppRuntimePlan(t, server, sessionLaunchRequest{Mode: launchModeInteractive, Intent: requestfixture.LaunchIntent(t, serverapi.CreateNewSessionLaunchIntent(serverapi.IndependentSessionCreateOrigin()))})
 	defer closeRuntimeLaunchPlan(t, runtimePlan)
 
 	submissionDone, submissionFailed := startAppTestRuntimeSubmission(t, runtimePlan.Wiring, "start prompt snapshot")

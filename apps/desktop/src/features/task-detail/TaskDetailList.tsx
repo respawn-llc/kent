@@ -1,7 +1,15 @@
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { InfiniteData } from "@tanstack/react-query";
 
-import type { ActivityItem, AttentionItem, TaskComment, TaskDetail, TaskDependencyDirection } from "@/api";
+import type {
+  ActivityItem,
+  AttentionItem,
+  OffsetPage,
+  TaskComment,
+  TaskDetail,
+  TaskDependencyDirection,
+} from "@/api";
 import { errorMessage } from "@/api";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import { taskDetailInitialFocusRequestKey } from "@/app-facade";
@@ -35,7 +43,6 @@ import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from ".
 import type { PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
 import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 import { selectedFeed, taskDetailPaging } from "./taskDetailPaging";
-import type { TaskDetailFeedPage } from "./taskDetailQueries";
 import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
 import type { TaskDetailReads } from "./TaskDetailViewModel";
 
@@ -131,15 +138,9 @@ export function TaskDetailList({
 }>) {
   const { t } = useTranslation();
   const headerOffset = useSidebarHeaderOffset();
-  const activityItems = useMemo(
-    () => withPresentationKeys(activity.data?.pages ?? [], "activity"),
-    [activity.data],
-  );
-  const commentItems = useMemo(
-    () => withPresentationKeys(comments.data?.pages ?? [], "comment"),
-    [comments.data],
-  );
-  const commentCount = commentCountFromData(comments.data);
+  const activityItems = useMemo(() => withPresentationKeys(activity.data, "activity"), [activity.data]);
+  const commentItems = useMemo(() => withPresentationKeys(comments.data, "comment"), [comments.data]);
+  const commentCount = comments.data?.pages[0]?.totalCount ?? 0;
   const attentionItems = useMemo(
     () =>
       (attention.data?.items ?? []).filter(
@@ -515,21 +516,21 @@ function ActivityItemRow({ item }: TaskDetailListRowProps): ReactNode {
 }
 
 function withPresentationKeys<T>(
-  pages: readonly TaskDetailFeedPage<T>[],
+  data: InfiniteData<OffsetPage<T>, number> | undefined,
   prefix: string,
 ): readonly TaskDetailFeedRow<T>[] {
-  return pages.flatMap((page) =>
-    page.items.map((item, index) => ({
-      item,
-      presentationKey: `${prefix}:offset:${page.offset.toString()}:item:${index.toString()}`,
-    })),
+  return (
+    data?.pages.flatMap((page, pageIndex) => {
+      const offset = data.pageParams[pageIndex];
+      if (offset === undefined) {
+        throw new Error("Task Detail feed page is missing its query page parameter");
+      }
+      return page.items.map((item, index) => ({
+        item,
+        presentationKey: `${prefix}:offset:${offset.toString()}:item:${index.toString()}`,
+      }));
+    }) ?? []
   );
-}
-
-function commentCountFromData<T>(
-  data: Readonly<{ pages: readonly TaskDetailFeedPage<T>[] }> | undefined,
-): number {
-  return data?.pages[0]?.totalCount ?? 0;
 }
 
 function taskDetailListItems({

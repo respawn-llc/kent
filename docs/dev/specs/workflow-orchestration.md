@@ -157,6 +157,8 @@
 - Each changed save increments the Workflow Version once. A save that changes both details and graph structure also increments it once. A save that changes nothing leaves the Workflow Version unchanged.
 - Pending Approvals store the Workflow Version and branch snapshots the operator is approving.
 - Executable Current Nodes resolve the latest Workflow definition and Runtime Parameter Contract when they start or resume. Kent stores no completed execution contracts as history.
+- When an already-started Agent Current Node resumes after a Workflow edit, Kent must use its saved Agent, model, and thinking selection while executable. When no prior selection exists, Kent must use available saved Session settings and otherwise the current Node's configured fallback Assignee and ordinary defaults. Missing thinking selection is valid. Invalid saved selections must produce errors.
+- If a saved Agent role or its settings are unavailable, Resume must use the saved model and available Session settings with current defaults for missing Agent settings.
 - Script Nodes use the current script path and completion requirements each time they execute.
 
 ## Nodes, Transitions, And Validation
@@ -168,6 +170,7 @@
 - Role configuration must follow [Configuration Resolution](core-runtime-tools.md#configuration-resolution), including Main Workspace private settings for managed Workflow worktrees. Connection selection, saved Session bindings, and incompatible context must follow [Provider Connections](provider-connections.md).
 - Agent Nodes do not own invocation prompts. Each incoming Transition Branch owns its Transition Prompt. Kent provides no Node-level prompt fallback.
 - Every Agent Node's configured fallback Assignee, including default and built-in roles, must have `ask_question` enabled. A Transition-selected Assignee is exempt because Kent force-enables Questions only for that execution path. Validation reports affected fallback Nodes without changing role configuration. Workflow Drafts and Backlog Tasks are allowed. Task Start, Resume, and manual movement to an executable target validate the latest Workflow before target selection, Task movement, or execution. Pending Approval creation validates before freezing its target. Approval must not repeat that graph or configuration validation.
+- Resume must validate an already-started Agent Current Node against its saved or recovered effective selection. Changes to its incoming Assignee or thinking selector, or to an unused configured fallback Assignee, must not by themselves prevent otherwise executable work from resuming. Resume must validate structure, provider and Session ownership, and current outgoing completion requirements.
 - Every Agent Node has a required configured Assignee.
 - Each eligible incoming serial Transition Branch independently may override that fallback by selecting the effective Assignee through a protected required Transition Parameter.
 - An eligible Transition without the override uses the target Agent Node's configured Assignee, so separate incoming Transitions may mix override-enabled and fallback-only behavior.
@@ -191,6 +194,7 @@
 - Assignee and thinking selectors own Protected Parameters with the lifecycle and edit behavior defined in the terminology specification.
 - Ordinary and protected Parameter Keys must be unique across one Transition contract even while a protected Parameter is dormant.
 - A supplied protected value is ignored only for saved-Session Assignee reuse, sole-role automation, or finite zero/one thinking automation. A value for a selector that is disabled, unavailable, or topology-inapplicable is an unknown Transition Result output.
+- An ignored protected value must not affect the effective selection or enter target inputs, prior Parameter values, prompts, Join requirements, or frozen Approval targets. Manual Move must apply the same rule. Kent must not rewrite existing history.
 - A blank protected Assignee description derives `Override the subagent role for the next node, available roles: <CSV of roles in config.toml that have agent_callable=true>` when Workflow completion instructions are prepared.
 - The derived Assignee list uses the server's loaded configuration and deterministic alphabetical order.
 - A nonblank authored Assignee description takes precedence over the derived description.
@@ -476,7 +480,8 @@
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.
 - Applying a Transition materializes each branch's declared Parameters for its target. Prompt rendering uses those values and never searches discarded execution history.
 - Built-in [Session references](workflow-editor.md#session-references) resolve the Task's existing Session associations when the prompt is rendered.
-- If the latest Workflow definition requires an already-current executable Node to have a Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. Kent must not reconstruct discarded Workflow history. Another selected parallel Current Node is independently admissible.
+- If the latest Workflow definition requires an already-current executable Node to have an ordinary Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. A protected Assignee or thinking Parameter required by a Workflow edit must not by itself prevent Resume. Kent must not reconstruct discarded Workflow history. Another selected parallel Current Node is independently admissible.
+- For Resume, Kent must derive missing exposed protected prompt inputs from the saved or recovered effective selection without changing historical Transition values or prior Parameters. Hidden automatic selections must stay hidden. If effective thinking has no named value, Kent must render `model default` only when a thinking placeholder added by a Workflow edit requires a value.
 - The Start Node's outgoing Transition cannot declare Parameters and should use task fields such as `.TaskTitle` and `.TaskBody`.
 - Kent derives Parameter flow and completion requirements from Transition Branch declarations, Workflow structure, and Join sources.
 
@@ -677,6 +682,12 @@
 - The status must update through existing Worktree list refreshes, without polling or activity-triggered refresh.
 - The status must be informational only. It must not change Worktree deletion admission.
 - Task ownership alone must not block ordinary Worktree deletion. Deletion must remove the Worktree registration and managed binding when every owning Task is Not Started or Done, without deleting those Tasks. Deletion must leave other owning Tasks' managed bindings and recovery evidence intact.
+- If safe branch cleanup leaves a branch undeleted during Task deletion, Kent must complete Task deletion.
+- Task deletion must report any branch left undeleted by safe branch cleanup and its cleanup diagnostic.
+- Desktop must show that cleanup warning through Sonner even if the operator has navigated away.
+- Human CLI output must warn about that cleanup outcome.
+- The server must log the cleanup diagnostic.
+- This warning must not trigger deletion replay or forced branch removal.
 - If a linked Worktree directory is absent, deletion must remove its stale Git registration and removable Kent information without requiring forced folder removal.
 - If Git recognizes a linked Worktree whose directory exists without its `.git` marker, delete preview must report unknown cleanliness without a failed Git command diagnostic. Deletion must leave the directory untouched unless forced folder removal is explicitly authorized. Authorized deletion must remove the directory and stale Git registration for both Kent-registered and External Worktrees.
 - Worktree deletion fails immediately if any targeting Active Session Runtime is Executing, processing or holding pending Steering, or has selected/begun exact execution. It must not wait for or stop that work.

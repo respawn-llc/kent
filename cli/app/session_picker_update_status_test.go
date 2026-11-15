@@ -99,7 +99,7 @@ func TestSessionPickerUpdateStatusRunsIndependentlyOfInitialPageLoads(t *testing
 			t.Fatal("session pages did not load while the update request remained blocked")
 		}
 	}
-	response := availableUpdateStatusSuccess("1.0.0", "1.1.0")
+	response := availableUpdateStatusSuccess("1.1.0")
 	updates.completion <- updateStatusCompletion{response: response}
 	deadline = time.After(time.Second)
 	for {
@@ -148,20 +148,16 @@ func TestSessionPickerRequestsUpdateStatusForEachOpen(t *testing.T) {
 	}
 }
 
-func currentUpdateStatusSuccess(current, latest string) *serverpb.GetUpdateStatusSuccess {
+func currentUpdateStatusSuccess() *serverpb.GetUpdateStatusSuccess {
 	return &serverpb.GetUpdateStatusSuccess{Status: &serverpb.UpdateStatus{
-		Status: &serverpb.UpdateStatus_Current{Current: &serverpb.UpdateVersions{
-			CurrentVersion: current,
-			LatestVersion:  latest,
-		}},
+		Status: &serverpb.UpdateStatus_Current{Current: &emptypb.Empty{}},
 	}}
 }
 
-func availableUpdateStatusSuccess(current, latest string) *serverpb.GetUpdateStatusSuccess {
+func availableUpdateStatusSuccess(latest string) *serverpb.GetUpdateStatusSuccess {
 	return &serverpb.GetUpdateStatusSuccess{Status: &serverpb.UpdateStatus{
 		Status: &serverpb.UpdateStatus_Available{Available: &serverpb.UpdateVersions{
-			CurrentVersion: current,
-			LatestVersion:  latest,
+			LatestVersion: latest,
 		}},
 	}}
 }

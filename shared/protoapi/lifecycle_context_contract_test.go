@@ -11,18 +11,16 @@ import (
 
 func TestTranscriptSessionNameMustBeNonblankWhenPresent(t *testing.T) {
 	if err := protoapi.Validate(&transcriptpb.SessionIdentity{
-		Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-		SessionId:             "11111111-1111-4111-8111-111111111111",
-		ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
+		Category:  projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+		SessionId: "11111111-1111-4111-8111-111111111111",
 	}); err != nil {
 		t.Fatalf("absent name: %v", err)
 	}
 	for _, name := range []string{" \t", "session"} {
 		message := &transcriptpb.SessionIdentity{
-			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-			SessionId:             "11111111-1111-4111-8111-111111111111",
-			SessionName:           &name,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH,
+			Category:    projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+			SessionId:   "11111111-1111-4111-8111-111111111111",
+			SessionName: &name,
 		}
 		if err := protoapi.Validate(message); (err == nil) != (name == "session") {
 			t.Errorf("name %q acceptance = %v", name, err)

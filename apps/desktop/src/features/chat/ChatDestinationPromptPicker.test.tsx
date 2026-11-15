@@ -17,6 +17,104 @@ afterEach(() => {
   restoreStorage = undefined;
 });
 
+it("keeps original positions and confirmation policy while Questions materialize and resolve elsewhere", async () => {
+  const view = sessionWithPrompts();
+  onTestFinished(() => {
+    view.unmount();
+  });
+  const toolCallIDs = ["first", "second", "third"];
+  const first = question("first", {
+    recommendedOptionIndex: 2,
+    batch: { toolCallIDs, unmaterializedCount: 2 },
+  });
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt: first }] },
+    });
+  });
+  const user = userEvent.setup({ delay: null });
+  expect(await screen.findByRole("radio", { name: "two" })).toBeChecked();
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 3 }))).toBeInTheDocument();
+  await user.click(screen.getByRole("radio", { name: "two" }));
+  await user.keyboard("{Enter}");
+  expect(view.answer).not.toHaveBeenCalled();
+
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 2,
+      kind: "prompt",
+      payload: { state: "resolved", toolCallID: first.toolCallID },
+    });
+  });
+  expect(screen.queryByRole("radio", { name: "two" })).not.toBeInTheDocument();
+  const third = question("third", {
+    recommendedOptionIndex: 1,
+    batch: { toolCallIDs, unmaterializedCount: 0 },
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 3,
+      kind: "prompt",
+      payload: { state: "pending", prompt: third },
+    });
+  });
+  expect(await screen.findByRole("radio", { name: "one" })).toBeChecked();
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 3, count: 3 }))).toBeInTheDocument();
+  await user.click(screen.getByRole("radio", { name: "one" }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledTimes(1);
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+    { toolCallID: third.toolCallID, kind: "question", selectedOptionNumber: 1, freeform: null },
+  ]);
+});
+
+it("keeps multi-prompt confirmation after an Approval outside the prepared Question IDs resolves elsewhere", async () => {
+  const view = sessionWithPrompts();
+  onTestFinished(() => {
+    view.unmount();
+  });
+  const batch = { toolCallIDs: ["first"], unmaterializedCount: 0 };
+  const first = question("first", { batch });
+  const access = { ...approval(), batch };
+  await waitFor(() => {
+    expect(view.handlers).toHaveLength(1);
+  });
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 1,
+      kind: "hydration",
+      payload: {
+        ...hydration(),
+        PendingPrompts: [first, access].map((prompt) => ({ state: "pending", prompt })),
+      },
+    });
+  });
+  expect(
+    await screen.findByText(appI18n.t("chat.picker.position", { current: 1, count: 2 })),
+  ).toBeInTheDocument();
+  await act(async () => {
+    view.handlers[0]?.onEvent({
+      sequence: 2,
+      kind: "prompt",
+      payload: { state: "resolved", toolCallID: access.toolCallID },
+    });
+  });
+  expect(screen.getByText(appI18n.t("chat.picker.position", { current: 1, count: 2 }))).toBeInTheDocument();
+  await userEvent.setup({ delay: null }).click(screen.getByRole("radio", { name: "one" }));
+  await waitFor(() => {
+    expect(view.answer).toHaveBeenCalledTimes(1);
+  });
+  expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+    { toolCallID: first.toolCallID, kind: "question", selectedOptionNumber: 1, freeform: null },
+  ]);
+});
+
 it("does not apply a trailing native double-click to a later batch question", async () => {
   const view = sessionWithPrompts();
   onTestFinished(() => {

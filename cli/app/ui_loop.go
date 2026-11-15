@@ -233,8 +233,8 @@ func composeUIProgram(request uiLoopRequest, output io.Writer) (*uiProgramCompos
 	model.pendingWorkClient = request.wiring.pendingWork
 	if request.newChat == nil {
 		selected := model.presentationTarget.(uiKnownSessionTarget)
-		selected.preparation = request.wiring.preparation
-		request.wiring.preparation = nil
+		selected.invocation = request.wiring.invocation
+		request.wiring.invocation = nil
 		model.presentationTarget = selected
 	}
 	model.createSession = request.createSession

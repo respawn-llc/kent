@@ -28,10 +28,9 @@ type sessionRuntimeClient struct {
 	sessionID               string
 	connectionStateObserver func(error)
 
-	mu               sync.RWMutex
-	mainView         *runtimepb.MainView
-	hasMainView      bool
-	metadataRevision uint64
+	mu          sync.RWMutex
+	mainView    *runtimepb.MainView
+	hasMainView bool
 }
 
 func newUIRuntimeClientWithReads(

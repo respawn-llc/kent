@@ -215,27 +215,8 @@ func (b *questionBatch) displayCount() int {
 }
 
 func (b *questionBatch) questionState() *clientui.AttentionNotificationQuestionState {
-	materialized := make([]string, 0)
-	unresolved := make([]string, 0)
-	skipped := make([]string, 0)
-	for _, askID := range b.PreparedAskIDs {
-		switch b.status[askID] {
-		case questionAskMaterialized:
-			materialized = append(materialized, askID)
-			unresolved = append(unresolved, askID)
-		case questionAskCleared:
-			materialized = append(materialized, askID)
-		case questionAskSkipped:
-			skipped = append(skipped, askID)
-		}
-	}
 	return &clientui.AttentionNotificationQuestionState{
-		PreparedAskIDs:          append([]string(nil), b.PreparedAskIDs...),
-		MaterializedAskIDs:      materialized,
-		CurrentUnresolvedAskIDs: unresolved,
-		SkippedAskIDs:           skipped,
-		Preview:                 b.Preview,
-		DisplayCount:            b.displayCount(),
-		MaterializedCount:       len(materialized),
+		Preview:      b.Preview,
+		DisplayCount: b.displayCount(),
 	}
 }

@@ -35,14 +35,19 @@ export function loadingState(kind: ChatSettingsTarget["kind"]): SettingsState {
   return { kind: kind === "new_chat" ? "loading-new-chat" : "loading-session" };
 }
 export function loadedState(response: ChatSettingsRead): ReadyNewChat | ReadySession {
-  return response.kind === "session"
-    ? {
-        kind: "ready-session",
-        settings: response.settings,
-        session: response.session,
-        lastDelivered: response.settings,
-      }
-    : { kind: "ready-new-chat", catalog: response.catalog, initialSettings: response.initialSettings };
+  if (response.kind === "session") {
+    return {
+      kind: "ready-session",
+      settings: response.settings,
+      session: response.session,
+      lastDelivered: response.settings,
+    };
+  }
+  const selected = response.catalog.choices.find(
+    (choice) => choice.agent.role === response.catalog.initialAgentRole,
+  );
+  if (selected === undefined) throw new Error("Initial Agent is not in the New Chat catalog.");
+  return { kind: "ready-new-chat", catalog: response.catalog, initialSettings: selected.baseline };
 }
 export function settingsReducer(state: SettingsState, action: SettingsAction): SettingsState {
   switch (action.kind) {

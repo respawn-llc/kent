@@ -9,7 +9,7 @@ import (
 
 	"core/shared/config"
 	"core/shared/protoapi"
-	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
+	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
 	"core/shared/serverapi"
 	"core/shared/textutil"
 
@@ -91,7 +91,7 @@ func TestToolSelectionGeneratedOriginValidation(t *testing.T) {
 	}
 }
 
-func TestRuntimeAgentSelectionRolePresence(t *testing.T) {
+func TestInvocationAgentRolePresence(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		role  *string
@@ -104,18 +104,7 @@ func TestRuntimeAgentSelectionRolePresence(t *testing.T) {
 		{name: "blank role", role: textutil.Value(" ")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			encoded, err := proto.Marshal(protoapi.SessionRuntimeAgentSelectionToProto(&serverapi.SessionRuntimeAgentSelection{
-				AgentRole: test.role,
-				Baseline:  serverapi.SessionRuntimeChatSettings{Supervisor: "off", Thinking: "low"},
-			}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			var wire sessionlaunchpb.SessionRuntimeAgentSelection
-			if err := proto.Unmarshal(encoded, &wire); err != nil {
-				t.Fatal(err)
-			}
-			err = protoapi.Validate(&wire)
+			invocation, err := protoapi.RunPromptOverridesToProto(serverapi.RunPromptOverrides{AgentRole: test.role})
 			if !test.valid {
 				if err == nil {
 					t.Fatal("present invalid role accepted")
@@ -125,7 +114,19 @@ func TestRuntimeAgentSelectionRolePresence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			selection, err := protoapi.SessionRuntimeAgentSelectionFromProto(&wire)
+			encoded, err := proto.Marshal(invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire invocationpb.RunPromptOverrides
+			if err := proto.Unmarshal(encoded, &wire); err != nil {
+				t.Fatal(err)
+			}
+			err = protoapi.Validate(&wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection, err := protoapi.RunPromptOverridesFromProto(&wire)
 			if err != nil {
 				t.Fatal(err)
 			}

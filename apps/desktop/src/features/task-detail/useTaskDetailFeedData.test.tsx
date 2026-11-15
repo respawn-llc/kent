@@ -19,7 +19,7 @@ function useFeeds(client: QueryClient) {
   const [model] = useState(() => {
     const services = createTestServices([]);
     vi.spyOn(services.api, "getTask").mockRejectedValue(new Error("Not used by feed presentation"));
-    vi.spyOn(services.api, "listTaskAttention").mockResolvedValue({ items: [], generatedAt: 1 });
+    vi.spyOn(services.api, "listTaskAttention").mockResolvedValue({ items: [] });
     vi.spyOn(services.api, "listTaskComments").mockImplementation(async (_id, offset) => {
       testState.requests.push({ feed: "comments", offset });
       return taskPage("comments", offset);
@@ -32,7 +32,7 @@ function useFeeds(client: QueryClient) {
         items: page.items.map((comment) => ({
           id: comment.id,
           type: "comment" as const,
-          taskID: comment.taskID,
+          taskID: _id,
           occurredAt: 1,
           updatedAt: 1,
           comment,
@@ -198,7 +198,6 @@ function taskPage(feed: Request["feed"], offset: number) {
     items: [
       {
         id: `${feed}-stable`,
-        taskID: "task-1",
         body: "Comment",
         authorKind: "user",
         authorID: null,

@@ -30,6 +30,8 @@ func (m *uiModel) surface() uiSurface {
 
 func (m *uiModel) surfaceHasPendingOperation() bool {
 	switch m.surface() {
+	case uiSurfaceStatus:
+		return len(m.status.pendingSections) > 0
 	case uiSurfaceAgent:
 		return m.agentPickerLoading()
 	case uiSurfaceConnectionRemoval:

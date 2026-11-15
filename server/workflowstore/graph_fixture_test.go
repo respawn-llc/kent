@@ -25,11 +25,6 @@ func TestNewWorkflowGraphSaveRequestPreservesProductGraph(t *testing.T) {
 				ID:          groupID,
 				Key:         "parallel",
 				DisplayName: new("Parallel"),
-				MemberNodeIDs: []workflow.NodeID{
-					agentID,
-					scriptID,
-					joinID,
-				},
 			},
 			{WorkflowID: workflowID, ID: testGraphEntityID("group-followup"), Key: "followup", DisplayName: new("Follow-up")},
 		},
@@ -89,12 +84,12 @@ func TestNewWorkflowGraphSaveRequestPreservesProductGraph(t *testing.T) {
 		t.Fatalf("node groups = %+v, want canonical order with normalized sort values", req.NodeGroups)
 	}
 	agent := workflowGraphSaveNodeRecord(t, req.Nodes, agentID)
-	if agent.GroupID == nil || *agent.GroupID != groupID || agent.GroupKey != "parallel" || agent.SubagentRole != "coder" || agent.CompletionMode != "tool" {
+	if agent.GroupID == nil || *agent.GroupID != groupID || agent.SubagentRole != "coder" || agent.CompletionMode != "tool" {
 		t.Fatalf("agent record = %+v, want identity and execution fields preserved", agent)
 	}
 	script := workflowGraphSaveNodeRecord(t, req.Nodes, scriptID)
-	if script.ScriptPath != "scripts/run" || script.GroupKey != "parallel" {
-		t.Fatalf("script record = %+v, want path and group key preserved", script)
+	if script.ScriptPath != "scripts/run" || script.GroupID == nil || *script.GroupID != groupID {
+		t.Fatalf("script record = %+v, want path and group membership preserved", script)
 	}
 	absentScript := workflowGraphSaveNodeRecord(t, req.Nodes, testNodeID("node-script-absent"))
 	if absentScript.ScriptPath != "" {

@@ -96,7 +96,7 @@ func TestGoalQuestionRemainsInterruptibleAcrossCurrentTurnCompletion(t *testing.
 	if _, err := service.LiveStop(t.Context(), &runtimepb.LiveStopRequest{SessionId: requestfixture.Selector(t, sessionID.String())}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := goalExecution.Wait(t.Context()); err != nil && !errors.Is(err, context.Canceled) {
+	if err := goalExecution.Wait(t.Context()); err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	waitForRuntimeControlIdle(t, engine)

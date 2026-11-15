@@ -73,14 +73,8 @@ func attentionQuestionState(question *clientui.AttentionNotificationQuestionStat
 	if err != nil {
 		return nil, err
 	}
-	materializedCount, err := protoapi.Int32(question.MaterializedCount, "materialized count")
-	if err != nil {
-		return nil, err
-	}
 	return &attentionpb.QuestionState{
-		PreparedAskIds: question.PreparedAskIDs, MaterializedAskIds: question.MaterializedAskIDs,
-		CurrentUnresolvedAskIds: question.CurrentUnresolvedAskIDs, SkippedAskIds: question.SkippedAskIDs,
-		Preview: question.Preview, DisplayCount: displayCount, MaterializedCount: materializedCount,
+		Preview: question.Preview, DisplayCount: displayCount,
 	}, nil
 }
 

@@ -142,8 +142,8 @@ func remoteProjectListResultFrame(projectID string, correlation *string) (rpcwir
 	result := &projectpb.ProjectListResult{
 		Outcome: &projectpb.ProjectListResult_Success{Success: &projectpb.ProjectListSuccess{
 			Projects: []*projectpb.ProjectSummary{{
-				ProjectId: projectID, ProjectKey: "TST", DisplayName: "Test Project",
-				RootPath: "/tmp/project", Availability: projectpb.ProjectAvailability_PROJECT_AVAILABILITY_AVAILABLE,
+				ProjectId: projectID, DisplayName: "Test Project",
+				RootPath:  "/tmp/project",
 				UpdatedAt: timestamppb.Now(),
 			}},
 		}},

@@ -47,6 +47,7 @@ import type {
   TaskApproveResponse,
   TaskComment,
   TaskDetail,
+  TaskDeleteResponse,
   TaskDependencyDirection,
   TaskDependencyListResponse,
   TaskDependencyMutationResponse,
@@ -127,11 +128,7 @@ export interface ApiService {
     workspaceRoot: string,
   ): Promise<ProjectMutationBinding>;
   attachWorkspace(projectID: string, workspaceRoot: string): Promise<ProjectWorkspaceAttachResponse>;
-  updateProject(
-    projectID: string,
-    displayName: string,
-    projectKey?: string,
-  ): Promise<ProjectMutationResponse>;
+  updateProject(projectID: string, displayName: string, projectKey?: string): Promise<void>;
   setDefaultWorkspace(projectID: string, workspaceID: string): Promise<ProjectMutationResponse>;
   unlinkWorkspace(projectID: string, workspaceID: string): Promise<WorkspaceUnlinkResponse>;
   deleteProject(projectID: string): Promise<ProjectDeleteResponse>;
@@ -152,7 +149,7 @@ export interface ApiService {
   createWorkflow(input: WorkflowCreateInput): Promise<WorkflowRecord>;
   createAndLinkWorkflowToProject(
     input: WorkflowCreateAndLinkInput,
-  ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>>;
+  ): Promise<Readonly<{ workflow: WorkflowRecord }>>;
   linkWorkflowToProject(input: WorkflowProjectLinkInput): Promise<ProjectWorkflowLink>;
   validateWorkflow(
     workflowID: string,
@@ -188,7 +185,7 @@ export interface ApiService {
   interruptTask(taskID: string, sessionID?: string): Promise<void>;
   resumeTask(input: TaskResumeInput): Promise<TaskResumeResponse>;
   approveApproval(approvalID: string): Promise<TaskApproveResponse>;
-  deleteTask(taskID: string): Promise<void>;
+  deleteTask(taskID: string): Promise<TaskDeleteResponse>;
   getTask(taskID: string): Promise<TaskDetail>;
   listTaskActivity(taskID: string, offset: number): Promise<ActivityPage>;
   listTaskComments(taskID: string, offset: number): Promise<CommentPage>;

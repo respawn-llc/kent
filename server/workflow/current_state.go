@@ -532,5 +532,4 @@ type PendingApprovalContextSourceResolution struct {
 type CurrentNodeMutationResult struct {
 	Removed []CurrentNodeReference
 	Created []CurrentNode
-	Updated []CurrentNode
 }

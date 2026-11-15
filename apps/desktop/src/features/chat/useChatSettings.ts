@@ -1,6 +1,6 @@
 import { createElement, type ReactElement } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import type { ChatContext, ChatSettingsMutation, ChatSettingsMutationResponse } from "@/api";
+import type { ChatSettingsMutation, ChatSettingsMutationResponse } from "@/api";
 import { ChatSettingsView, type ChatSettingsViewProps } from "./ChatSettingsView";
 import type { ChatSettingsViewModel } from "./ChatSettingsViewModel";
 import type { ReadyNewChat, ReadySession, SettingsState } from "./chatSettingsState";
@@ -16,7 +16,6 @@ export type ChatDestinationNavigation = ChatSettingsNavigation &
 export type ChatSettingsOptions = ChatSettingsNavigation &
   Readonly<{
     model: ChatSettingsViewModel;
-    onContextChange?(context: ChatContext): void;
   }>;
 export type ReadyChatSettings =
   | (ReadyNewChat & Readonly<{ activate(operation: ChatSettingsMutation): void }>)
@@ -47,7 +46,6 @@ export function useChatSettings(options: ChatSettingsOptions): ChatSettingsFeatu
         operation,
         completed: resolve,
         rejected: reject,
-        ...(options.onContextChange === undefined ? {} : { onContextChange: options.onContextChange }),
       });
     });
   const feature: ReadyChatSettings =

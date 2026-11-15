@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"core/server/sessionruntime"
 	"core/server/workflow"
@@ -537,7 +538,7 @@ func (c *CurrentNodeController) applyPendingApproval(
 	if source, live := c.authority.ExecutionByCurrentNode(scope.ProjectID, scope.WorkflowID, initial.Source); live {
 		// The source may have published its Approval before completing its
 		// post-turn compaction. Do not hold the Task lane while it finalizes.
-		if _, err := source.Wait(ctx); err != nil {
+		if err := source.Wait(ctx); err != nil {
 			return workflowstore.PendingApprovalApplyResult{}, err
 		}
 	}
@@ -597,23 +598,62 @@ func (c *CurrentNodeController) RunTaskOperation(ctx context.Context, operation 
 	if c == nil || ctx == nil || operation == nil {
 		return errors.New("Task operation owner, context, and operation are required")
 	}
+	if active, _ := ctx.Value(currentNodeLifecycleContextKey{}).(*CurrentNodeController); active == c {
+		return operation(ctx)
+	}
+	owned, release, err := c.admitTaskOperation(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return operation(owned)
+}
+
+// StartTaskOperation admits work before returning; the caller observes completion
+// independently of the controller-owned operation lifetime.
+func (c *CurrentNodeController) StartTaskOperation(ctx context.Context, operation func(context.Context) error) (<-chan error, error) {
+	if c == nil || ctx == nil || operation == nil {
+		return nil, errors.New("Task operation owner, context, and operation are required")
+	}
+	owned, release, err := c.admitTaskOperation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() {
+		defer release()
+		err := operation(owned)
+		// Joined errors can also contain independent failures.
+		if err != nil && err != context.Cause(owned) && err != owned.Err() {
+			slog.ErrorContext(owned, "workflow Task operation failed", "error", err)
+		}
+		done <- err
+		close(done)
+	}()
+	return done, nil
+}
+
+func (c *CurrentNodeController) admitTaskOperation(ctx context.Context) (context.Context, func(), error) {
 	c.mu.Lock()
 	if c.closed || c.closing {
 		c.mu.Unlock()
-		return errors.New("current node workflow controller is closed")
+		return nil, nil, errors.New("current node workflow controller is closed")
 	}
 	c.operationWG.Add(1)
 	c.mu.Unlock()
-	defer c.operationWG.Done()
 	owned, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	shutdown := errors.New("workflow controller shut down")
 	stop := context.AfterFunc(c.workerContext, func() { cancel(shutdown) })
-	defer stop()
-	defer cancel(nil)
-	if c.workerContext.Err() != nil {
-		return shutdown
+	release := func() {
+		stop()
+		cancel(nil)
+		c.operationWG.Done()
 	}
-	return operation(context.WithValue(owned, currentNodeLifecycleContextKey{}, c))
+	if c.workerContext.Err() != nil {
+		release()
+		return nil, nil, shutdown
+	}
+	return context.WithValue(owned, currentNodeLifecycleContextKey{}, c), release, nil
 }
 
 func (c *CurrentNodeController) ApplyManualMove(

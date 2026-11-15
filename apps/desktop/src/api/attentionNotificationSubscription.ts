@@ -81,7 +81,6 @@ function attentionEvent(event: pb.AttentionNotificationEventValid): AttentionNot
       return {
         type: "session_naming_failure",
         sequence,
-        shortID: failure.shortId === undefined ? null : Number(failure.shortId),
         target: { kind: "session_prompt", projectID: failure.projectId, sessionID: failure.sessionId },
         error: { cause: failure.error.cause ?? null },
       };
@@ -123,13 +122,8 @@ function attentionNotification(value: pb.AttentionNotificationValid): AttentionN
       return {
         ...base,
         question: {
-          preparedAskIDs: state.preparedAskIds,
-          materializedAskIDs: state.materializedAskIds,
-          currentUnresolvedAskIDs: state.currentUnresolvedAskIds,
-          skippedAskIDs: state.skippedAskIds,
           preview: state.preview,
           displayCount: state.displayCount,
-          materializedCount: state.materializedCount,
         },
       };
     }

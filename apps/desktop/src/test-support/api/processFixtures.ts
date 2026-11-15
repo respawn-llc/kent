@@ -25,7 +25,6 @@ export function processObservationFixture(transport: FakeRpcTransport) {
             command: "sleep 30",
             workdir: "/workspace",
             startedAt: { seconds: 1n, nanos: 0 },
-            lastUpdatedAt: { seconds: 1n, nanos: 0 },
             running: process.running,
             ...(process.running ? {} : { finishedAt: { seconds: 2n, nanos: 0 } }),
             backgrounded: true,

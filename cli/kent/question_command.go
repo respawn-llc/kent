@@ -74,10 +74,10 @@ type questionCommandPendingQuestion struct {
 	SessionID              runtimeids.SessionID
 	ShortID                *runtimeids.SessionShortID
 	StepID                 runtimeids.StepID
-	Kind                   taskpb.AttentionQuestionKind
 	Question               string
 	Suggestions            []string
 	RecommendedOptionIndex *int
+	Batch                  *clientui.QuestionBatch
 	Approval               *clientui.PendingApproval
 }
 
@@ -250,19 +250,8 @@ func (c questionCommand) showResolvedTaskQuestion(
 		fmt.Fprintln(stdout, noPendingQuestionsText)
 		return 0
 	}
-	expected := candidate.Questions[0]
-	return c.withRemote(stderr, candidate.SessionID, func(promptRemote questionCommandRemote) int {
-		question, ok, err := readPendingSessionPromptByKey(context.Background(), promptRemote, expected)
-		if err != nil {
-			return questionOperationFailure(stderr, selector.Command, err)
-		}
-		if !ok {
-			fmt.Fprintln(stdout, noPendingQuestionsText)
-			return 0
-		}
-		writePendingQuestion(stdout, question, false)
-		return 0
-	})
+	writePendingQuestion(stdout, candidate.Questions[0], false)
+	return 0
 }
 
 func (c questionCommand) answerTaskQuestion(
@@ -307,23 +296,14 @@ func (c questionCommand) answerResolvedTaskQuestion(
 		fmt.Fprintln(stderr, noPendingQuestionAnswerText)
 		return 1
 	}
-	expected := candidate.Questions[0]
 	return c.withRemote(stderr, candidate.SessionID, func(promptRemote questionCommandRemote) int {
-		question, ok, err := readPendingSessionPromptByKey(context.Background(), promptRemote, expected)
-		if err != nil {
-			return questionOperationFailure(stderr, selector.Command, err)
-		}
-		if !ok {
-			fmt.Fprintln(stderr, noPendingQuestionAnswerText)
-			return 1
-		}
 		return answerQuestionThroughBatch(
 			promptRemote,
-			question,
+			candidate.Questions[0],
 			option,
 			commentary,
 			func(ctx context.Context) (questionCommandPendingQuestion, bool, error) {
-				return readTaskQuestionFollowUp(ctx, workflows, promptRemote, taskID, candidate.SessionID)
+				return readTaskQuestionFollowUp(ctx, workflows, taskID, candidate.SessionID)
 			},
 			stdout,
 			stderr,
@@ -439,7 +419,7 @@ func questionBatchAnswer(
 	commentary *string,
 ) (*promptpb.AnswerBatchEntry, error) {
 	entry := &promptpb.AnswerBatchEntry{ToolCallId: string(question.ToolCallID)}
-	if question.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL {
+	if question.Approval != nil {
 		if option == nil {
 			return nil, &questionAnswerUsageError{message: "question answer requires --option for an access request"}
 		}
@@ -477,7 +457,6 @@ func questionBatchAnswer(
 func readTaskQuestionFollowUp(
 	ctx context.Context,
 	remote apicontract.WorkflowService,
-	promptRemote questionCommandRemote,
 	taskID string,
 	sessionID runtimeids.SessionID,
 ) (questionCommandPendingQuestion, bool, error) {
@@ -487,7 +466,7 @@ func readTaskQuestionFollowUp(
 	}
 	for _, next := range refreshed {
 		if next.SessionID == sessionID && len(next.Questions) > 0 {
-			return readPendingSessionPromptByKey(ctx, promptRemote, next.Questions[0])
+			return next.Questions[0], true, nil
 		}
 	}
 	return questionCommandPendingQuestion{}, false, nil
@@ -563,39 +542,6 @@ func listPendingSessionPrompt(
 	return pendingQuestionFromObservation(prompt.Question)
 }
 
-func readPendingSessionPromptByKey(
-	ctx context.Context,
-	remote questionCommandRemote,
-	expected questionCommandPendingQuestion,
-) (questionCommandPendingQuestion, bool, error) {
-	asks, err := listPendingSessionQuestions(ctx, remote, expected.SessionID)
-	if err != nil {
-		return questionCommandPendingQuestion{}, false, err
-	}
-	approvals, err := listPendingSessionApprovals(ctx, remote, expected.SessionID)
-	if err != nil {
-		return questionCommandPendingQuestion{}, false, err
-	}
-	if expected.Kind == taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY {
-		for _, ask := range asks {
-			if ask.SessionID == expected.SessionID &&
-				ask.StepID == expected.StepID &&
-				ask.ToolCallID == expected.ToolCallID {
-				return pendingSessionQuestion(ask), true, nil
-			}
-		}
-		return questionCommandPendingQuestion{}, false, nil
-	}
-	for _, approval := range approvals {
-		if approval.SessionID == expected.SessionID &&
-			approval.StepID == expected.StepID &&
-			approval.ToolCallID == expected.ToolCallID {
-			return pendingSessionApproval(approval), true, nil
-		}
-	}
-	return questionCommandPendingQuestion{}, false, nil
-}
-
 func pendingQuestionFromObservation(
 	question serverapi.ObservationQuestion,
 ) (questionCommandPendingQuestion, bool, error) {
@@ -664,7 +610,7 @@ func listTaskQuestionCandidates(
 func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessionCandidate, error) {
 	questions := make([]*taskpb.AttentionItem, 0, len(items))
 	for _, item := range items {
-		if item.Kind != taskpb.AttentionItemKind_ATTENTION_ITEM_KIND_QUESTION {
+		if _, ok := item.GetDetail().(*taskpb.AttentionItem_Question); !ok {
 			continue
 		}
 		questions = append(questions, item)
@@ -679,42 +625,23 @@ func taskQuestionCandidates(items []*taskpb.AttentionItem) ([]taskQuestionSessio
 	candidateBySession := make(map[runtimeids.SessionID]int)
 	for _, item := range questions {
 		detail := item.GetQuestion()
-		prompt := detail.Question
-		sessionID := runtimeids.SessionIDFromProto(prompt.SessionId)
-		shortID := protoapi.SessionShortIDFromProto(prompt.ShortId)
-		stepID, err := runtimeids.StepIDFromProto(prompt.StepId)
+		prompt, err := protoapi.ObservationQuestionFromProto(detail.Question)
 		if err != nil {
 			return nil, err
 		}
+		question, _, err := pendingQuestionFromObservation(prompt)
+		if err != nil {
+			return nil, err
+		}
+		sessionID := question.SessionID
 		sessionName := normalizedOptionalQuestionSessionName(detail.SessionName)
-		question := questionCommandPendingQuestion{
-			ToolCallID: clientui.ToolCallID(prompt.ToolCallId),
-			SessionID:  sessionID,
-			ShortID:    shortID,
-			StepID:     stepID,
-		}
-		if ordinary := prompt.GetOrdinary(); ordinary != nil {
-			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY
-			question.Question = *detail.Message
-			question.Suggestions = append([]string(nil), ordinary.Suggestions...)
-			if ordinary.RecommendedOptionIndex != nil {
-				index := int(*ordinary.RecommendedOptionIndex)
-				question.RecommendedOptionIndex = &index
-			}
-		} else {
-			question.Kind = taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL
-			if detail.Message == nil {
-				continue
-			}
-			question.Question = *detail.Message
-		}
 		index, exists := candidateBySession[sessionID]
 		if !exists {
 			index = len(candidates)
 			candidateBySession[sessionID] = index
 			candidates = append(candidates, taskQuestionSessionCandidate{
 				SessionID:   sessionID,
-				ShortID:     shortID,
+				ShortID:     question.ShortID,
 				SessionName: sessionName,
 			})
 		} else if !textutil.EqualOptional(candidates[index].SessionName, sessionName) {
@@ -744,6 +671,16 @@ func selectTaskQuestionCandidate(
 	if len(candidates) > 1 {
 		writeTaskQuestionAmbiguity(stderr, selector, candidates)
 		return nil, 1
+	}
+	caller, err := app.LiveSteerCallerSessionID()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return nil, 1
+	}
+	if caller != nil && *caller == candidates[0].SessionID.String() {
+		return nil, questionOperationFailure(stderr, selector.Command, &serverapi.SessionSelfTargetError{
+			SessionID: candidates[0].SessionID,
+		})
 	}
 	return &candidates[0], 0
 }
@@ -865,10 +802,10 @@ func pendingSessionQuestion(ask clientui.PendingAsk) questionCommandPendingQuest
 		SessionID:              ask.SessionID,
 		ShortID:                ask.ShortID,
 		StepID:                 ask.StepID,
-		Kind:                   taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_ORDINARY,
 		Question:               ask.Question,
 		Suggestions:            append([]string(nil), ask.Suggestions...),
 		RecommendedOptionIndex: textutil.Pointer(ask.RecommendedOptionIndex),
+		Batch:                  ask.Batch,
 	}
 }
 
@@ -883,7 +820,6 @@ func pendingSessionApproval(
 		SessionID:  approval.SessionID,
 		ShortID:    approval.ShortID,
 		StepID:     approval.StepID,
-		Kind:       taskpb.AttentionQuestionKind_ATTENTION_QUESTION_KIND_APPROVAL,
 		Question:   approval.Question,
 		Approval:   &cloned,
 	}
@@ -897,6 +833,7 @@ func writePendingQuestion(stdout io.Writer, ask questionCommandPendingQuestion, 
 		ToolCallID: ask.ToolCallID, SessionID: ask.SessionID, StepID: ask.StepID,
 		Question: ask.Question, Suggestions: ask.Suggestions,
 		RecommendedOptionIndex: ask.RecommendedOptionIndex,
+		Batch:                  ask.Batch,
 	}}
 	if ask.Approval != nil {
 		question = serverapi.ObservationQuestion{Approval: ask.Approval}

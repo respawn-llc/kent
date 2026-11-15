@@ -25,6 +25,7 @@ import (
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestNewSessionSettingsFailureRepaintsNativeComposer(t *testing.T) {
@@ -323,7 +324,10 @@ func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = server.Close() }()
-	request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{})
+	role := config.BuiltInSubagentRoleFast
+	request, err := prepareNewSessionUIRun(t.Context(), server, nil, serverapi.RunPromptOverrides{
+		AgentRole: &role, ThinkingLevel: "high",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,6 +342,9 @@ func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
 	initial := model.newChatTarget().InitialSettings
 	if initial == nil {
 		t.Fatal("New Session settings did not load")
+	}
+	if initial.AgentRole != role || initial.GetThinking() != "high" {
+		t.Fatalf("invocation settings = %v", initial)
 	}
 	if model.statusConfig.Settings.ModelContextWindow != fixture.config.Settings.ModelContextWindow {
 		t.Fatalf("New status context window = %d, want %d", model.statusConfig.Settings.ModelContextWindow, fixture.config.Settings.ModelContextWindow)
@@ -355,6 +362,20 @@ func TestNewSessionSettingsEditsStayLocal(t *testing.T) {
 	})
 	if got := *model.newChatTarget().InitialSettings.QuestionsEnabled; got != selected {
 		t.Fatalf("selected Questions = %t, want %t", got, selected)
+	}
+	model.chatSettingsMutationCommand(&chatsettingspb.MutationOperation{
+		Operation: &chatsettingspb.MutationOperation_Supervisor{Supervisor: chatsettingspb.SupervisorValue_SUPERVISOR_VALUE_ALWAYS},
+	})
+	model.mainEditor.SetText("unsent draft")
+	edited := proto.Clone(model.newChatTarget().InitialSettings)
+	for _, reload := range []func() tea.Cmd{
+		func() tea.Cmd { return model.loadNewSessionSettingsCmd(nil) },
+		func() tea.Cmd { return model.applyNewSessionLoginDone(newSessionLoginDoneMsg{}) },
+	} {
+		model.Update(newSessionSettingsReadResult(t, reload()))
+		if !proto.Equal(model.newChatTarget().InitialSettings, edited) || model.mainEditor.Text() != "unsent draft" {
+			t.Fatal("settings reload or login replaced edited New Session settings or text")
+		}
 	}
 	page, err := (projectScopedSessionPageLoader{
 		projectID: server.ProjectID(), client: server.ProjectViewClient(),

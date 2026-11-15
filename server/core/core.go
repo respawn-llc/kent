@@ -610,13 +610,6 @@ func (s *Core) SessionLaunchClient() apicontract.SessionLaunchService {
 	return s.safeBundles().Sessions.sessionLaunch
 }
 
-func (s *Core) SessionRuntimeClient() apicontract.SessionRuntimeService {
-	if s == nil {
-		return nil
-	}
-	return s.safeBundles().Runtime.sessionRuntime
-}
-
 func (s *Core) SessionLifecycleClient() apicontract.SessionLifecycleService {
 	if s == nil {
 		return nil

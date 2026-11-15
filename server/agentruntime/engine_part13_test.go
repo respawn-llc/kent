@@ -99,7 +99,7 @@ func countCompactionSoonReminderWarnings(_ *Engine, snapshot ChatSnapshot) int {
 func TestCompactionSoonReminderUsesResponseBaselineAfterTranscriptMutation(t *testing.T) {
 	store := mustCreateTestSession(t)
 
-	client := &contextWindowClient{contextWindow: 2_000}
+	client := &fakeClient{}
 	eng := mustNewHandoffTestEngine(t, store, client, Config{
 		ContextWindowTokens:   2_000,
 		AutoCompactTokenLimit: 1_000,

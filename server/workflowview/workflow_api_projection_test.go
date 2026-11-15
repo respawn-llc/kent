@@ -26,6 +26,23 @@ func TestValidationErrorsInheritOnlyAnExplicitOptionalWorkflowID(t *testing.T) {
 	}
 }
 
+func TestValidationErrorsPreserveBlockingAndNonblockingDiagnostics(t *testing.T) {
+	result := workflow.ValidationResult{Errors: []workflow.ValidationError{
+		{Code: workflow.CodeMissingNodeID, BlocksContext: false},
+		{Code: workflow.CodeMissingEdgeID, BlocksContext: true},
+	}}
+	projected, err := ValidationErrors(nil, result.Errors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projected) != 2 {
+		t.Fatalf("projected diagnostics = %d, want 2", len(projected))
+	}
+	if projected[0].BlocksContext || !projected[1].BlocksContext {
+		t.Fatalf("projected blocking flags = %v, %v", projected[0].BlocksContext, projected[1].BlocksContext)
+	}
+}
+
 func TestValidationErrorsProjectSessionReferenceCodesAndDetails(t *testing.T) {
 	for _, test := range []struct {
 		name string

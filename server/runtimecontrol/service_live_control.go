@@ -86,10 +86,8 @@ func (s *Service) LiveSteer(ctx context.Context, req *runtimepb.LiveSteerRequest
 		if !accepted {
 			return serverapi.ErrRuntimeNoActiveRun
 		}
-		displayText := item.DisplayText()
 		resp = &runtimepb.LiveSteerSuccess{
 			QueueItemId: item.ID,
-			Text:        displayText,
 		}
 		return nil
 	})

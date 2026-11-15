@@ -94,10 +94,8 @@ type Root struct {
 }
 
 type Choice struct {
-	Ref        ChoiceRef
-	ProviderID *ProviderID
-	SourceRoot *string
-	ItemCount  int
+	Ref       ChoiceRef
+	ItemCount int
 }
 
 type ChoiceRef struct {
@@ -394,7 +392,7 @@ func choicesForItems(items []Item, kind ItemKind) []Choice {
 	choices := make([]Choice, 0, len(keys))
 	for _, key := range keys {
 		ref := refs[key]
-		choices = append(choices, Choice{Ref: ref, ProviderID: ref.ProviderID, SourceRoot: ref.SourceRoot, ItemCount: len(grouped[key])})
+		choices = append(choices, Choice{Ref: ref, ItemCount: len(grouped[key])})
 	}
 	return choices
 }
@@ -408,13 +406,13 @@ func recommendationForChoices(choices []Choice, items []Item, target Target) *Mo
 		if choice.Ref.Mode != ChoiceModeSymlinkSource || choice.ItemCount == 0 {
 			continue
 		}
-		if best.Ref.Mode != ChoiceModeSymlinkSource || choice.ItemCount > best.ItemCount || choice.ItemCount == best.ItemCount && providerRank(*choice.ProviderID) < providerRank(*best.ProviderID) {
+		if best.Ref.Mode != ChoiceModeSymlinkSource || choice.ItemCount > best.ItemCount || choice.ItemCount == best.ItemCount && providerRank(*choice.Ref.ProviderID) < providerRank(*best.Ref.ProviderID) {
 			best = choice
 		}
 	}
 	paths := make([]string, 0)
 	for _, item := range items {
-		if best.Ref.Mode == ChoiceModeSymlinkSource && item.Ref.ProviderID != nil && best.ProviderID != nil && *item.Ref.ProviderID == *best.ProviderID && item.Ref.SourcePath != nil {
+		if best.Ref.Mode == ChoiceModeSymlinkSource && item.Ref.ProviderID != nil && best.Ref.ProviderID != nil && *item.Ref.ProviderID == *best.Ref.ProviderID && item.Ref.SourcePath != nil {
 			paths = append(paths, *item.Ref.SourcePath)
 		}
 	}

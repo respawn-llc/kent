@@ -64,6 +64,7 @@ import type {
   TaskAttention,
   TaskComment,
   TaskDetail,
+  TaskDeleteResponse,
   TaskDependencyDirection,
   TaskDependencyListResponse,
   TaskDependencyMutationResponse,
@@ -222,7 +223,7 @@ export class ApiClient implements ApiService {
 
   async createAndLinkWorkflowToProject(
     input: WorkflowCreateAndLinkInput,
-  ): Promise<Readonly<{ workflow: WorkflowRecord; link: ProjectWorkflowLink }>> {
+  ): Promise<Readonly<{ workflow: WorkflowRecord }>> {
     return workflow.createAndLinkWorkflowToProject(this.#transport, input);
   }
 
@@ -348,8 +349,8 @@ export class ApiClient implements ApiService {
     return taskLifecycle.approveApproval(this.#transport, approvalID);
   }
 
-  async deleteTask(taskID: string): Promise<void> {
-    await taskLifecycle.deleteTask(this.#transport, taskID);
+  async deleteTask(taskID: string): Promise<TaskDeleteResponse> {
+    return taskLifecycle.deleteTask(this.#transport, taskID);
   }
 
   async getTask(taskID: string): Promise<TaskDetail> {
@@ -427,10 +428,7 @@ function projectReadiness(readiness: Readiness): ServerReadiness {
   return {
     globalConfigPath: readiness.globalConfigPath ?? null,
     ready: readiness.ready,
-    serverID: readiness.serverId,
-    serverVersion: readiness.serverVersion,
     protocolVersion: readiness.protocolVersion,
-    endpoint: readiness.endpoint,
     subagentRoles: readiness.subagentRoles.map((role) => ({ name: role.name })),
     causes: readiness.causes.map((cause) => ({
       code: cause.code,

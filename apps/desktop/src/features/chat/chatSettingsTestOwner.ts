@@ -4,7 +4,7 @@ import * as Atom from "effect/reactivity/Atom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAppServices } from "@/app-facade";
-import type { ChatSettingsTarget, ChatContext, InitialChatSettings } from "@/api";
+import type { ChatSettingsTarget, InitialChatSettings } from "@/api";
 import { createChatSettingsViewModel } from "./ChatSettingsViewModel";
 import { useChatSettings as useSettings, type ChatSettingsNavigation } from "./useChatSettings";
 
@@ -17,7 +17,6 @@ export type ChatSettingsOptions =
       Readonly<{
         target: Extract<ChatSettingsTarget, { kind: "session" }>;
         authoritativeRefreshGeneration: unknown;
-        onContextChange(context: ChatContext): void;
       }>);
 
 export function useChatSettings(options: ChatSettingsOptions) {
@@ -61,7 +60,6 @@ export function useChatSettings(options: ChatSettingsOptions) {
   const feature = useSettings({
     model,
     ...testNavigation(options),
-    ...("onContextChange" in options ? { onContextChange: options.onContextChange } : {}),
   });
   return active === selected
     ? feature

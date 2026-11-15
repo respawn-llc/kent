@@ -1,5 +1,5 @@
 import type { ApprovalSnapshot, TaskCurrentNode } from "./models";
-import type { AttentionQuestionPrompt } from "./promptModels";
+import type { PendingPrompt } from "./promptModels";
 
 type AttentionItemBase = Readonly<{
   id: string;
@@ -16,8 +16,7 @@ export type QuestionAttentionItem = AttentionItemBase &
     kind: "question";
     currentNode: TaskCurrentNode;
     sessionName: string | null;
-    message: string | null;
-    question: AttentionQuestionPrompt;
+    question: PendingPrompt;
   }>;
 
 export type ApprovalAttentionItem = AttentionItemBase &

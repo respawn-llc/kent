@@ -223,7 +223,7 @@ func scriptSteps(file ScriptFile) ([]scriptedllm.Step, error) {
 		if err != nil {
 			return nil, err
 		}
-		step.Response.ServedModel = servedModel
+		step.Response.ProviderEvidence.ServedModel = servedModel
 		step.StreamDeltas = assistantDeltas(file.StreamDeltas)
 		delay, err := streamDeltaDelay(file.StreamDelayMS)
 		if err != nil {
@@ -265,7 +265,7 @@ func scriptStep(spec StepFile) (scriptedllm.Step, error) {
 	if err != nil {
 		return scriptedllm.Step{}, err
 	}
-	step.Response.ServedModel = servedModel
+	step.Response.ProviderEvidence.ServedModel = servedModel
 	delay, err := streamDeltaDelay(spec.StreamDelayMS)
 	if err != nil {
 		return scriptedllm.Step{}, err

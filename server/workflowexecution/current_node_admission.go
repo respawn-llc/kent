@@ -290,7 +290,7 @@ func (c *CurrentNodeController) admitPreparedScript(
 				return admissionErr
 			}
 			return nil
-		}, nil)
+		})
 		if publishErr != nil {
 			return currentNodeAdmissionError{cause: publishErr, admitted: admitted}
 		}

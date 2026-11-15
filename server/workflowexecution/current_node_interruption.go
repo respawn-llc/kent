@@ -46,7 +46,7 @@ func (c *CurrentNodeController) cleanupInterrupt(ctx context.Context, state curr
 	})
 	var waitErrs []error
 	for _, handle := range state.waitHandles {
-		_, waitErr := handle.Wait(cleanupCtx)
+		waitErr := handle.Wait(cleanupCtx)
 		if _, live := c.authority.ExecutionByScope(handle.Scope().ID()); !live {
 			c.mu.Lock()
 			c.interrupts.finishScope(handle.Scope().ID())

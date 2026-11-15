@@ -861,7 +861,6 @@ message ProjectWorkflowLink {
 
 message CreateAndLinkProjectSuccess {
   WorkflowRecord workflow = 1 [(buf.validate.field).required = true];
-  ProjectWorkflowLink link = 2 [(buf.validate.field).required = true];
 }
 
 message UpdateRequest {

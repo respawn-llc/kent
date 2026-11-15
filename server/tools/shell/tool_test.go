@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -777,106 +776,6 @@ func TestEnrichEnvKeepsUserRIPGREPConfigPath(t *testing.T) {
 	}
 }
 
-func TestManagerSubscribeOutputStreamsTailAndEndsAtEOF(t *testing.T) {
-	shortID := testsetup.ShellLogSessionShortID(t)
-	manager := newBackgroundTestManager(t)
-	workspace := t.TempDir()
-
-	result, err := manager.Start(context.Background(), ExecRequest{
-		OwnerSessionShortID: shortID,
-		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"sh", "-c", "printf 'hello\\n'; sleep 0.3; printf 'world\\n'"},
-		DisplayCommand:      "tail-test",
-		Workdir:             workspace,
-		YieldTime:           250 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	if !result.Backgrounded {
-		t.Fatalf("expected backgrounded process, got %+v", result)
-	}
-
-	sub, err := manager.SubscribeOutput(context.Background(), result.SessionID, 0)
-	if err != nil {
-		t.Fatalf("SubscribeOutput: %v", err)
-	}
-	defer func() { _ = sub.Close() }()
-
-	first, err := sub.Next(context.Background())
-	if err != nil {
-		t.Fatalf("first Next: %v", err)
-	}
-	if first.ProcessID != result.SessionID || !strings.Contains(first.Text, "hello") {
-		t.Fatalf("unexpected first chunk: %+v", first)
-	}
-
-	second, err := sub.Next(context.Background())
-	if err != nil {
-		t.Fatalf("second Next: %v", err)
-	}
-	if second.OffsetBytes <= first.OffsetBytes || second.NextOffsetBytes <= second.OffsetBytes || !strings.Contains(second.Text, "world") {
-		t.Fatalf("unexpected second chunk: %+v", second)
-	}
-
-	if _, err := sub.Next(context.Background()); err != io.EOF {
-		t.Fatalf("expected EOF after process exit, got %v", err)
-	}
-
-	tailSub, err := manager.SubscribeOutput(context.Background(), result.SessionID, second.NextOffsetBytes)
-	if err != nil {
-		t.Fatalf("SubscribeOutput from tail: %v", err)
-	}
-	defer func() { _ = tailSub.Close() }()
-	if _, err := tailSub.Next(context.Background()); err != io.EOF {
-		t.Fatalf("expected EOF for tail subscription at end, got %v", err)
-	}
-}
-
-func TestManagerSubscribeOutputReceivesSingleLineWhileProcessKeepsRunning(t *testing.T) {
-	manager := newBackgroundTestManager(t)
-	workspace := t.TempDir()
-
-	result, err := manager.Start(context.Background(), ExecRequest{
-		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
-		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"sh", "-c", "printf 'ready\\n'; sleep 1"},
-		DisplayCommand:      "single-line-running",
-		Workdir:             workspace,
-		YieldTime:           250 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	if !result.Backgrounded {
-		t.Fatalf("expected backgrounded process, got %+v", result)
-	}
-	defer func() { _ = manager.Kill(result.SessionID) }()
-
-	sub, err := manager.SubscribeOutput(context.Background(), result.SessionID, 0)
-	if err != nil {
-		t.Fatalf("SubscribeOutput: %v", err)
-	}
-	defer func() { _ = sub.Close() }()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	chunk, err := sub.Next(ctx)
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if !strings.Contains(chunk.Text, "ready") {
-		t.Fatalf("expected ready output, got %+v", chunk)
-	}
-	snapshot, err := manager.Snapshot(result.SessionID)
-	if err != nil {
-		t.Fatalf("Snapshot: %v", err)
-	}
-	if !snapshot.Running {
-		t.Fatalf("expected process to still be running, got %+v", snapshot)
-	}
-}
-
 func TestManagerInlineOutputUsesRecentOutputBeforeLogFlush(t *testing.T) {
 	manager := newBackgroundTestManager(t)
 	workspace := t.TempDir()
@@ -933,65 +832,6 @@ func TestManagerInlineOutputTruncatesRecentOutputFallback(t *testing.T) {
 	if len(preview) > 200 {
 		t.Fatalf("expected truncated recent output fallback, got len=%d preview=%q", len(preview), preview)
 	}
-}
-
-func TestManagerSubscribeOutputRejectsInvalidOffset(t *testing.T) {
-	manager := newBackgroundTestManager(t)
-	if _, err := manager.SubscribeOutput(context.Background(), "proc-1", -1); err == nil {
-		t.Fatal("expected invalid offset error")
-	}
-}
-
-func TestManagerSubscribeOutputRejectsUnknownProcess(t *testing.T) {
-	manager := newBackgroundTestManager(t)
-	if _, err := manager.SubscribeOutput(context.Background(), "missing", 0); err == nil {
-		t.Fatal("expected unknown process error")
-	}
-}
-
-func TestManagerSubscribeOutputCloseUnblocksNext(t *testing.T) {
-	manager := newBackgroundTestManager(t)
-	workspace := t.TempDir()
-
-	result, err := manager.Start(context.Background(), ExecRequest{
-		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
-		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"sh", "-c", "sleep 1"},
-		DisplayCommand:      "tail-close-test",
-		Workdir:             workspace,
-		YieldTime:           250 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("start: %v", err)
-	}
-	if !result.Backgrounded {
-		t.Fatalf("expected backgrounded process, got %+v", result)
-	}
-
-	sub, err := manager.SubscribeOutput(context.Background(), result.SessionID, 0)
-	if err != nil {
-		t.Fatalf("SubscribeOutput: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := sub.Next(context.Background())
-		done <- err
-	}()
-
-	time.Sleep(20 * time.Millisecond)
-	if err := sub.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	select {
-	case err := <-done:
-		if err != io.EOF {
-			t.Fatalf("expected EOF after Close, got %v", err)
-		}
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("timed out waiting for Next to unblock after Close")
-	}
-	_ = manager.Kill(result.SessionID)
 }
 
 func TestTruncateDoesNotDuplicateWholeOutputWhenShorterThanHeadTailWindow(t *testing.T) {

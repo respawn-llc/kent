@@ -69,13 +69,8 @@ type AttentionNotification struct {
 }
 
 type AttentionNotificationQuestionState struct {
-	PreparedAskIDs          []string `json:"prepared_ask_ids"`
-	MaterializedAskIDs      []string `json:"materialized_ask_ids"`
-	CurrentUnresolvedAskIDs []string `json:"current_unresolved_ask_ids"`
-	SkippedAskIDs           []string `json:"skipped_ask_ids"`
-	Preview                 string   `json:"preview,omitempty"`
-	DisplayCount            int      `json:"display_count"`
-	MaterializedCount       int      `json:"materialized_count"`
+	Preview      string `json:"preview,omitempty"`
+	DisplayCount int    `json:"display_count"`
 }
 
 type AttentionNotificationApprovalState struct {

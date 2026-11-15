@@ -21,7 +21,6 @@ function definitionWithEdge(edge: WorkflowDefinition["edges"][number]): Workflow
       {
         completionMode: "",
         groupID: null,
-        groupKey: "",
         id: "source",
         joinInputProviders: [],
         key: "source",
@@ -34,7 +33,6 @@ function definitionWithEdge(edge: WorkflowDefinition["edges"][number]): Workflow
       {
         completionMode: "",
         groupID: null,
-        groupKey: "",
         id: "target",
         joinInputProviders: [],
         key: "target",

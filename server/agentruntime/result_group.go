@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -13,42 +12,6 @@ import (
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
-
-type ResultGroupFlushReason uint8
-
-const (
-	ResultGroupFlushStepBoundary ResultGroupFlushReason = iota + 1
-	ResultGroupFlushQuestion
-	ResultGroupFlushApproval
-	ResultGroupFlushCompleteNode
-)
-
-func (r ResultGroupFlushReason) String() string {
-	switch r {
-	case ResultGroupFlushStepBoundary:
-		return "step_boundary"
-	case ResultGroupFlushQuestion:
-		return "question"
-	case ResultGroupFlushApproval:
-		return "approval"
-	case ResultGroupFlushCompleteNode:
-		return "complete_node"
-	default:
-		return fmt.Sprintf("unknown(%d)", r)
-	}
-}
-
-type ResultGroupFlushObservation struct {
-	Reason      ResultGroupFlushReason
-	ResultCount int
-	RecordCount int
-	Latency     time.Duration
-	Succeeded   bool
-}
-
-type ResultGroupDurabilityObserver interface {
-	ObserveResultGroupFlush(ResultGroupFlushObservation)
-}
 
 type resultGroupCallIdentity struct {
 	CallID     string
@@ -428,13 +391,9 @@ func resultGroupIdentityFromToolCall(call llm.ToolCall) resultGroupCallIdentity 
 func (e *Engine) flushResultGroup(
 	stepID string,
 	collector *resultGroupCollector,
-	reason ResultGroupFlushReason,
 ) error {
 	if collector == nil {
 		return errors.New("result group collector is required")
-	}
-	if err := validateResultGroupFlushReason(reason); err != nil {
-		return err
 	}
 	if fatal := collector.fatalSnapshot(); fatal != nil {
 		return fatal
@@ -448,20 +407,10 @@ func (e *Engine) flushResultGroup(
 		collector.abort(resultGroupFatal{Committed: false, Cause: err})
 		return collector.fatalSnapshot()
 	}
-	started := time.Now()
 	records, receipt, appendErr := e.eventLog.AppendRecordsAtomic(
 		textutil.OptionalExactString(stepID),
 		plan.payloads,
 	)
-	if e.cfg.DurabilityObserver != nil {
-		e.cfg.DurabilityObserver.ObserveResultGroupFlush(ResultGroupFlushObservation{
-			Reason:      reason,
-			ResultCount: len(ready),
-			RecordCount: len(plan.payloads),
-			Latency:     time.Since(started),
-			Succeeded:   appendErr == nil,
-		})
-	}
 	if !receipt.Committed {
 		fatal := resultGroupFatal{Committed: false, Cause: appendErr}
 		if fatal.Cause == nil {
@@ -507,28 +456,12 @@ func (e *Engine) closeResultGroup(
 		return err
 	}
 	if len(collector.readyPrefix()) > 0 {
-		if err := e.flushResultGroup(
-			stepID,
-			collector,
-			ResultGroupFlushStepBoundary,
-		); err != nil {
+		if err := e.flushResultGroup(stepID, collector); err != nil {
 			closeErr := collector.close()
 			return errors.Join(err, closeErr)
 		}
 	}
 	return collector.close()
-}
-
-func validateResultGroupFlushReason(reason ResultGroupFlushReason) error {
-	switch reason {
-	case ResultGroupFlushStepBoundary,
-		ResultGroupFlushQuestion,
-		ResultGroupFlushApproval,
-		ResultGroupFlushCompleteNode:
-		return nil
-	default:
-		return fmt.Errorf("unknown result group flush reason %d", reason)
-	}
 }
 
 func (e *Engine) prepareResultGroupProjection(

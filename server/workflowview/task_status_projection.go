@@ -218,7 +218,6 @@ func (p *TaskStatusProjection) Project(
 		}
 		sort.Strings(pendingApprovalIDs)
 		facts := p.projector.ProjectTaskFacts(TaskFactsInput{
-			Task:              task,
 			Status:            status,
 			CurrentNodes:      currentNodes,
 			LiveExecutions:    liveExecutions,

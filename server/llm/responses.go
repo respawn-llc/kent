@@ -66,7 +66,6 @@ type ResponsesResponse struct {
 	attemptDiagnostic *providerAttemptDiagnostic
 	AssistantText     *string
 	ProviderPhase     *ProviderPhase
-	ServedModel       *string
 	ProviderEvidence  modelcontract.ProviderUsageEvidence
 	ReasoningIncluded bool
 	ToolCalls         []ToolCall
@@ -85,10 +84,6 @@ type ResponsesCompactionResponse struct {
 type ResponsesTransport interface {
 	Generate(ctx context.Context, request ResponsesRequest, callbacks StreamCallbacks) (ResponsesResponse, error)
 	Compact(ctx context.Context, request ResponsesRequest) (ResponsesCompactionResponse, error)
-}
-
-type ResponsesModelContextWindowTransport interface {
-	ResolveModelContextWindow(ctx context.Context, model string) (int, error)
 }
 
 type ResponsesProviderCapabilitiesTransport interface {
@@ -128,7 +123,7 @@ func (c *ResponsesClient) Generate(ctx context.Context, request Request, callbac
 		return Response{}, fmt.Errorf("responses generate: %w", err)
 	}
 	// Runtime acceptance can still fail; the provider has already consumed these tokens.
-	c.observeUsage(ctx, request.Model, providerResp.ServedModel, providerResp.Usage)
+	c.observeUsage(ctx, request.Model, providerResp.ProviderEvidence.ServedModel, providerResp.Usage)
 	response, err := responseFromResponses(providerResp)
 	if err == nil {
 		providerResp.attemptDiagnostic.diagnoseEmptyLocalCompaction(ctx, providerResp, response)
@@ -164,7 +159,6 @@ func responseFromResponses(providerResp ResponsesResponse) (Response, error) {
 			ReasoningItems: append([]ReasoningItem(nil), providerResp.ReasoningItems...),
 		},
 		ProviderPhase:     providerResp.ProviderPhase,
-		ServedModel:       textutil.Pointer(providerResp.ServedModel),
 		ProviderEvidence:  providerResp.ProviderEvidence.Clone(),
 		ReasoningIncluded: providerResp.ReasoningIncluded,
 		ToolCalls:         providerResp.ToolCalls,
@@ -221,15 +215,4 @@ func (c *ResponsesClient) ProviderCapabilities(ctx context.Context) (ProviderCap
 		return transport.ProviderCapabilities(ctx)
 	}
 	return ProviderCapabilities{}, fmt.Errorf("provider capabilities are not supported by Responses transport %T", c.transport)
-}
-
-func (c *ResponsesClient) ResolveModelContextWindow(ctx context.Context, model string) (int, error) {
-	if c == nil || c.transport == nil {
-		return 0, ErrMissingTransport
-	}
-	resolver, ok := c.transport.(ResponsesModelContextWindowTransport)
-	if !ok {
-		return 0, fmt.Errorf("model context window resolution is not supported by Responses transport")
-	}
-	return resolver.ResolveModelContextWindow(ctx, model)
 }

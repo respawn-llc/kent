@@ -19,6 +19,9 @@ import {
   useWorkflowGraphEditorActions,
 } from "./WorkflowEditorViewModel";
 import { useWorkflowEditorDraftView } from "./useWorkflowEditorView";
+import * as workflowLayout from "./workflowGraphLayout";
+import { workflowEditorViewState } from "./workflowEditorViewState";
+import { workflowDefinition } from "./workflowEditorGraphMutationFixtures";
 
 function definition(version = 1, name = "Workflow"): WorkflowDefinition {
   return {
@@ -87,6 +90,104 @@ function setup(beforeMount?: Parameters<typeof fixture>[0]) {
   );
   return { ...view, ...context };
 }
+
+it("keeps the visible graph during topology relayout and replaces it when layout completes", async () => {
+  const view = setup(({ services }) => {
+    vi.spyOn(services.api, "getWorkflow").mockResolvedValue(workflowDefinition);
+  });
+  await waitFor(() => {
+    expect(view.result.current.graph.layoutQuery.isSuccess).toBe(true);
+  });
+  const previous = view.result.current.graph.projectedGraph;
+  if (previous === undefined) throw new Error("Expected initialized graph");
+  expect(previous.nodes.length).toBeGreaterThan(0);
+  expect(previous.edges.length).toBeGreaterThan(0);
+  const response = deferred<workflowLayout.WorkflowGraphLayout>();
+  const layout = vi.spyOn(workflowLayout, "layoutWorkflowGraph").mockReturnValue(response.promise);
+  vi.spyOn(view.services.api, "deriveWorkflowGraphWiring").mockResolvedValue(emptyWorkflowDerivedWiring);
+  try {
+    act(() => {
+      view.result.current.edit({ type: "addNode", input: { id: "node-1", kind: "agent", name: "Added" } });
+    });
+    await waitFor(() => {
+      expect(view.result.current.graph.layoutQuery.isFetching).toBe(true);
+      expect(layout).toHaveBeenCalled();
+    });
+    const pending = view.result.current;
+    expect(pending.graph.layoutQuery.isPlaceholderData).toBe(true);
+    const visible = workflowEditorViewState(
+      pending.data,
+      pending.graph.layoutQuery,
+      pending.graph.projectedGraph,
+    );
+    expect(visible.kind).toBe("ready");
+    if (visible.kind !== "ready") throw new Error("Expected visible graph during relayout");
+    expect(visible.graph.nodes).toEqual(previous.nodes);
+    expect(visible.graph.edges).toEqual(previous.edges);
+    // Run the real layout for the edited definition, while the observer is still waiting.
+    layout.mockRestore();
+    const draftDefinition = view.result.current.graph.draftDefinition;
+    if (draftDefinition === undefined) throw new Error("Expected initialized Draft");
+    const completed = await workflowLayout.layoutWorkflowGraph(draftDefinition, { valid: true, errors: [] });
+    await act(async () => {
+      response.resolve(completed);
+      await response.promise;
+    });
+    await waitFor(() => {
+      expect(view.result.current.graph.layoutQuery.isFetching).toBe(false);
+      expect(
+        view.result.current.graph.projectedGraph?.nodes.some((node) => node.data.entityID === "node-1"),
+      ).toBe(true);
+    });
+  } finally {
+    layout.mockRestore();
+    view.unmount();
+  }
+});
+
+it("shows a layout read error and explicitly retries the edited graph", async () => {
+  const view = setup(({ services }) => {
+    vi.spyOn(services.api, "getWorkflow").mockResolvedValue(workflowDefinition);
+  });
+  await waitFor(() => {
+    expect(view.result.current.graph.layoutQuery.isSuccess).toBe(true);
+  });
+  const response = deferred<workflowLayout.WorkflowGraphLayout>();
+  const layout = vi.spyOn(workflowLayout, "layoutWorkflowGraph").mockReturnValue(response.promise);
+  vi.spyOn(view.services.api, "deriveWorkflowGraphWiring").mockResolvedValue(emptyWorkflowDerivedWiring);
+  const failure = new Error("Layout unavailable");
+  try {
+    act(() => {
+      view.result.current.edit({ type: "addNode", input: { id: "node-1", kind: "agent" } });
+    });
+    await waitFor(() => {
+      expect(view.result.current.graph.layoutQuery.isFetching).toBe(true);
+    });
+    await act(async () => {
+      response.reject(failure);
+      await response.promise.catch(() => undefined);
+    });
+    await waitFor(() => {
+      const { data, graph } = view.result.current;
+      expect(workflowEditorViewState(data, graph.layoutQuery, graph.projectedGraph)).toEqual({
+        kind: "loadError",
+        error: failure,
+      });
+    });
+    layout.mockRestore();
+    act(() => {
+      view.result.current.retryLayout(undefined);
+    });
+    await waitFor(() => {
+      const { data, graph } = view.result.current;
+      expect(workflowEditorViewState(data, graph.layoutQuery, graph.projectedGraph).kind).toBe("ready");
+      expect(graph.projectedGraph?.nodes.some((node) => node.data.entityID === "node-1")).toBe(true);
+    });
+  } finally {
+    layout.mockRestore();
+    view.unmount();
+  }
+});
 
 it("retains a loaded Draft when a refresh fails without sending global-library Project requests", async () => {
   const view = setup();

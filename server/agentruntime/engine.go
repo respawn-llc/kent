@@ -122,7 +122,6 @@ type Config struct {
 	RuntimeWriteAccepted  func()
 	LifecycleRuntimeAbort func() error
 	SubmitAgentSteer      func(context.Context, AgentSteer) error
-	DurabilityObserver    ResultGroupDurabilityObserver
 }
 
 type ReviewerConfig struct {
@@ -337,7 +336,6 @@ func New(
 		eng.cfg.SessionNaming = nil
 	}
 	eng.transcriptState.chatProjection().bindTokenEstimator(connection.estimator)
-	eng.compactionRuntimeState().SetContextFacts(store.ContextFacts())
 	providerCapabilities := connection.requestCapabilities
 	if eng.cfg.ModelCapabilities == nil {
 		capabilities := llm.LockedModelCapabilitiesForModel(cfg.Model, providerCapabilities)
@@ -349,9 +347,6 @@ func New(
 		CompactionMode:                   config.CompactionMode(eng.cfg.CompactionMode),
 	}
 	eng.contextPolicy = chatcontext.ResolvePolicy(policySettings, providerCapabilities, store.Meta().Locked)
-	eng.cfg.ContextWindowTokens = int(eng.contextPolicy.ContextWindowTokens)
-	eng.cfg.AutoCompactTokenLimit = int(eng.contextPolicy.AutomaticThresholdTokens)
-	eng.cfg.CompactionMode = eng.compactionPlannerState().mode(eng.contextPolicy)
 	eng.ensureLifecycle()
 	eng.ensureOrchestrationCollaborators()
 
@@ -495,38 +490,6 @@ func (e *Engine) closeAdmissionAfterRuntimeAbort() {
 	}
 	e.closed.Store(true)
 	e.runtimeFIFO.beginClose()
-}
-
-func (e *Engine) closeAndRetireAfterRuntimeAbort() {
-	if e == nil {
-		return
-	}
-	retire := e.registerRuntimeAbortRetirement()
-	e.closeAdmissionAfterRuntimeAbort()
-	if retire != nil {
-		go retire()
-	}
-}
-
-func (e *Engine) registerRuntimeAbortRetirement() func() {
-	if e.cfg.LifecycleRuntimeAbort == nil {
-		return nil
-	}
-	e.ensureLifecycle()
-	e.lifecycleMu.Lock()
-	if e.lifecycleClosed {
-		e.lifecycleMu.Unlock()
-		return nil
-	}
-	e.lifecycleWG.Add(1)
-	callback := e.cfg.LifecycleRuntimeAbort
-	e.lifecycleMu.Unlock()
-	return func() {
-		// Resource retirement may close this Engine and wait for lifecycle work.
-		// Leave the wait group before entering the authoritative resource owner.
-		e.lifecycleWG.Done()
-		e.surfaceRunError(callback())
-	}
 }
 
 func (e *Engine) ensureLifecycle() {

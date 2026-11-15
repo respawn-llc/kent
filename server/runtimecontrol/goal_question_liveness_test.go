@@ -192,7 +192,7 @@ func exerciseGoalQuestion(t *testing.T, resume bool, action goalQuestionAction) 
 			t.Fatal(err)
 		}
 	}
-	_, err = execution.Wait(t.Context())
+	err = execution.Wait(t.Context())
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}

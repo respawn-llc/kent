@@ -262,7 +262,7 @@ func TestReopenRetargetedSessionDoesNotSaveDraftOnNavigation(t *testing.T) {
 		released = true
 	}}
 	sessionID := "11111111-1111-4111-8111-111111111111"
-	next, err := reopenRetargetedSession(
+	next, err := reattachAndOpenSession(
 		context.Background(),
 		server,
 		runtimePlan,
@@ -300,7 +300,7 @@ func TestReopenRetargetedSessionReportsReattachmentFailureWithoutSavingDraft(t *
 	runtimePlan := &runtimeLaunchPlan{stopEventStreams: func() {
 		released = true
 	}}
-	_, err := reopenRetargetedSession(
+	_, err := reattachAndOpenSession(
 		context.Background(),
 		server,
 		runtimePlan,

@@ -518,8 +518,8 @@ func assertTerminalSafeFrameLines(t *testing.T, lines []string) {
 func ongoingHydrationMessage(sequence uint64) *transcriptpb.Message {
 	return transcriptTestMessage(sequence, &transcriptpb.Hydration{
 		SessionIdentity: &transcriptpb.SessionIdentity{SessionId: ongoingTestSessionID().String(),
-			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_FRESH},
+			Category: projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+		},
 		SessionStatus: &transcriptpb.SessionStatus{
 			ReviewerFrequency: "off",
 			ThinkingLevel:     "medium",
@@ -566,9 +566,9 @@ func ongoingTranscriptMessage(sequence uint64, kind reflect.Type) *transcriptpb.
 	case reflect.TypeFor[*transcriptpb.Event_SessionIdentity]():
 		sessionName := "KENT-196"
 		payload = &transcriptpb.SessionIdentity{SessionId: ongoingTestSessionID().String(),
-			Category:              projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
-			SessionName:           &sessionName,
-			ConversationFreshness: runtimepb.ConversationFreshness_CONVERSATION_FRESHNESS_ESTABLISHED}
+			Category:    projectpb.SessionCategory_SESSION_CATEGORY_MAIN,
+			SessionName: &sessionName,
+		}
 	case reflect.TypeFor[*transcriptpb.Event_CompactionStatus]():
 		payload = &transcriptpb.CompactionStatus{StepId: ongoingTestStepID().String(),
 			Mode:  transcriptpb.CompactionMode_COMPACTION_MODE_AUTO,

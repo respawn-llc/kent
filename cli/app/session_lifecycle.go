@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 
 	"core/cli/app/commands"
@@ -173,7 +172,7 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 			nextSessionOverrides = serverapi.RunPromptOverrides{}
 			transition := extractUITransition(finalModel)
 			if model, ok := finalModel.(*uiModel); ok && model.currentRuntimeSessionID() != "" {
-				next, err = resolveSessionAction(ctx, server, interactor, model.currentRuntimeSessionID(), transition)
+				next, err = resolveAndReleaseSessionAction(ctx, server, interactor, model.currentRuntimeSessionID(), transition, nil, finalModel)
 				if err != nil {
 					return err
 				}
@@ -235,7 +234,7 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 				runtimePlan.Close()
 				return errors.New("Session rebind requires a Remote server")
 			}
-			next, err = reopenRetargetedSession(ctx, reattacher, runtimePlan, plan.SessionID)
+			next, err = reattachAndOpenSession(ctx, reattacher, runtimePlan, plan.SessionID)
 			if err != nil {
 				return err
 			}
@@ -253,15 +252,17 @@ func runSessionLifecycleWithOptions(ctx context.Context, server interactiveSessi
 	}
 }
 
-func reopenRetargetedSession(
+func reattachAndOpenSession(
 	ctx context.Context,
 	server sessionReattachServer,
 	runtimePlan *runtimeLaunchPlan,
 	rawSessionID string,
 ) (*sessionlaunchpb.SessionDirective, error) {
-	defer runtimePlan.Close()
-	sessionID := runtimeids.SessionIDFromProto(rawSessionID)
 	runtimePlan.Close()
+	sessionID, err := runtimeids.ParseSessionID(rawSessionID)
+	if err != nil {
+		return nil, err
+	}
 	if err := server.ReattachSession(ctx, rawSessionID); err != nil {
 		return &sessionlaunchpb.SessionDirective{}, err
 	}
@@ -300,6 +301,14 @@ func resolveAndReleaseSessionAction(
 	runtimePlan *runtimeLaunchPlan,
 	finalModel any,
 ) (*sessionlaunchpb.SessionDirective, error) {
+	if transition.Action == UIActionFollowSelectedSession {
+		reattacher, ok := server.(sessionReattachServer)
+		if !ok {
+			runtimePlan.Close()
+			return nil, errors.New("following a selected Session requires a Remote server")
+		}
+		return reattachAndOpenSession(ctx, reattacher, runtimePlan, transition.TargetSessionID)
+	}
 	resolved, err := resolveSessionAction(ctx, server, interactor, sessionID, transition)
 	runtimePlan.Close()
 	if err != nil {
@@ -369,7 +378,7 @@ func prepareSessionObservation(ctx context.Context, server interactiveSessionSer
 	if _, err := server.SessionLifecycleClient().Promote(ctx, &sessionlaunchpb.SessionPromoteRequest{SessionId: protoapi.SessionSelectorToProto(id)}); err != nil {
 		return nil, err
 	}
-	return planner.PrepareRuntime(ctx, plan, os.Stderr, "app.start session_id="+plan.SessionID+" workspace="+plan.ExecutionTarget.EffectiveWorkdir+" model="+plan.ActiveSettings.Model)
+	return planner.PrepareRuntime(ctx, plan)
 }
 
 type uiCommandCatalog struct {

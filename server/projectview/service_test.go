@@ -13,6 +13,7 @@ import (
 	"core/server/llm"
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
+	"core/server/operation"
 	"core/server/runtimewire"
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
@@ -27,6 +28,34 @@ import (
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
+
+func TestServiceUpdateProjectPersistsMetadataForSubsequentReads(t *testing.T) {
+	store, _, binding := newProjectViewMetadataStore(t)
+	svc := newProjectViewMetadataService(t, store)
+	ctx := t.Context()
+	for _, update := range []struct {
+		name string
+		key  *string
+	}{
+		{name: "Renamed project", key: new("RENAMED")},
+		{name: "Name-only edit"},
+	} {
+		if _, err := svc.UpdateProject(ctx, &projectpb.UpdateProjectRequest{
+			ProjectId:   binding.ProjectID,
+			DisplayName: update.name,
+			ProjectKey:  update.key,
+		}); err != nil {
+			t.Fatalf("UpdateProject: %v", err)
+		}
+		edit, err := svc.GetProjectEdit(ctx, &projectpb.ProjectEditGetRequest{ProjectId: binding.ProjectID})
+		if err != nil {
+			t.Fatalf("GetProjectEdit after update: %v", err)
+		}
+		if edit.DisplayName != update.name || edit.ProjectKey != "RENAMED" {
+			t.Fatalf("persisted metadata = %v, want name %q and key RENAMED", edit, update.name)
+		}
+	}
+}
 
 func TestServiceDeletesProjectMetadataAndSessionArtifacts(t *testing.T) {
 	store, cfg, binding := newProjectViewMetadataStore(t)
@@ -722,10 +751,6 @@ func TestMetadataServiceListsProjectHomeForGUI(t *testing.T) {
 	if first.AttentionCount != 0 {
 		t.Fatalf("attention count = %d, want 0", first.AttentionCount)
 	}
-	if firstPage.GeneratedAt == nil || firstPage.GeneratedAt.AsTime().UnixMilli() <= 0 {
-		t.Fatalf("generated_at = %v, want positive", firstPage.GeneratedAt)
-	}
-
 	secondPage, err := svc.ListProjectHome(context.Background(), &projectpb.ProjectHomeListRequest{
 		PageSize:  int32Pointer(1),
 		PageToken: firstPage.NextPageToken,
@@ -969,7 +994,9 @@ func TestMetadataServicePlansHeadlessAmbiguousRemoteWorkspaces(t *testing.T) {
 
 func newProjectViewMetadataService(t testing.TB, store *metadata.Store) *Service {
 	t.Helper()
-	svc, err := NewMetadataService(store)
+	owner := operation.NewOperationOwner()
+	t.Cleanup(func() { _ = owner.Close() })
+	svc, err := NewMetadataService(store, owner)
 	if err != nil {
 		t.Fatalf("NewMetadataService: %v", err)
 	}

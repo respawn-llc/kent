@@ -2,7 +2,6 @@ package workflowstore
 
 import (
 	"context"
-	"strings"
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
@@ -20,54 +19,9 @@ type WorkflowGraphEditPolicyImpact struct {
 	HistoryReinterpretingEdgeRefCount    int64
 }
 
-type WorkflowGraphEditPolicyBlocker struct {
-	Code             string
-	Message          string
-	Count            int64
-	AffectedEntities []WorkflowGraphEntityReference
-}
-
 type WorkflowGraphEditPolicyResult struct {
 	Impact   WorkflowGraphEditPolicyImpact
-	Blockers []WorkflowGraphEditPolicyBlocker
-}
-
-type WorkflowGraphEditPolicyError struct {
-	Blockers []WorkflowGraphEditPolicyBlocker
-}
-
-func (e WorkflowGraphEditPolicyError) Error() string {
-	if len(e.Blockers) == 0 {
-		return "workflow graph edit blocked"
-	}
-	messages := make([]string, 0, len(e.Blockers))
-	for _, blocker := range e.Blockers {
-		messages = append(messages, blocker.Message)
-	}
-	return strings.Join(messages, "; ")
-}
-
-func enforceWorkflowGraphEditPolicy(ctx context.Context, q *sqlitegen.Queries, workflowID runtimeids.WorkflowID, prepared preparedWorkflowGraphSave) error {
-	result, err := workflowGraphEditPolicy(ctx, q, workflowID, prepared)
-	if err != nil {
-		return err
-	}
-	if len(result.Blockers) > 0 {
-		return WorkflowGraphEditPolicyError{Blockers: result.Blockers}
-	}
-	return nil
-}
-
-func workflowGraphEditPolicy(ctx context.Context, q *sqlitegen.Queries, workflowID runtimeids.WorkflowID, prepared preparedWorkflowGraphSave) (WorkflowGraphEditPolicyResult, error) {
-	currentGraph, err := currentWorkflowGraphSavePrepared(ctx, q, workflowID)
-	if err != nil {
-		return WorkflowGraphEditPolicyResult{}, err
-	}
-	evaluation, err := evaluateWorkflowGraphSaveDynamicImpact(ctx, q, workflowID, describeWorkflowGraphSave(currentGraph, prepared))
-	if err != nil {
-		return WorkflowGraphEditPolicyResult{}, err
-	}
-	return evaluation.EditPolicy, nil
+	Blockers []WorkflowGraphSaveBlocker
 }
 
 type workflowGraphEditPolicyStructuralDescriptor struct {
@@ -276,19 +230,19 @@ func workflowGraphEditPolicyBlockers(
 	lastTerminalChanges []WorkflowGraphEntityReference,
 	nodeKindChanges []WorkflowGraphEntityReference,
 	historyEdgeChanges []WorkflowGraphEntityReference,
-) []WorkflowGraphEditPolicyBlocker {
-	blockers := []WorkflowGraphEditPolicyBlocker{}
+) []WorkflowGraphSaveBlocker {
+	blockers := []WorkflowGraphSaveBlocker{}
 	if impact.StartNodeChangeCount > 0 {
-		blockers = append(blockers, WorkflowGraphEditPolicyBlocker{Code: "start_node_changed", Message: "The workflow start node cannot be removed, replaced, or changed to another kind.", Count: impact.StartNodeChangeCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(startNodeChanges)})
+		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "start_node_changed", Message: "The workflow start node cannot be removed, replaced, or changed to another kind.", Count: impact.StartNodeChangeCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(startNodeChanges)})
 	}
 	if impact.LastTerminalChangeCount > 0 {
-		blockers = append(blockers, WorkflowGraphEditPolicyBlocker{Code: "last_terminal_changed", Message: "Workflow graph changes must leave at least one terminal node.", Count: impact.LastTerminalChangeCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(lastTerminalChanges)})
+		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "last_terminal_changed", Message: "Workflow graph changes must leave at least one terminal node.", Count: impact.LastTerminalChangeCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(lastTerminalChanges)})
 	}
 	if impact.TaskReferencedNodeKindChangeCount > 0 {
-		blockers = append(blockers, WorkflowGraphEditPolicyBlocker{Code: "task_referenced_node_kind_changed", Message: "Workflow node kind changes are blocked for nodes referenced by existing tasks.", Count: impact.TaskReferencedNodeKindChangeRefCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(nodeKindChanges)})
+		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "task_referenced_node_kind_changed", Message: "Workflow node kind changes are blocked for nodes referenced by existing tasks.", Count: impact.TaskReferencedNodeKindChangeRefCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(nodeKindChanges)})
 	}
 	if impact.HistoryReinterpretingEdgeChangeCount > 0 {
-		blockers = append(blockers, WorkflowGraphEditPolicyBlocker{Code: "task_referenced_edge_group_changed", Message: "Transition branch routing changes are blocked for branches referenced by existing tasks.", Count: impact.HistoryReinterpretingEdgeRefCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(historyEdgeChanges)})
+		blockers = append(blockers, WorkflowGraphSaveBlocker{Code: "task_referenced_edge_group_changed", Message: "Transition branch routing changes are blocked for branches referenced by existing tasks.", Count: impact.HistoryReinterpretingEdgeRefCount, AffectedEntities: canonicalWorkflowGraphEntityReferences(historyEdgeChanges)})
 	}
 	return blockers
 }

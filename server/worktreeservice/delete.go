@@ -10,12 +10,19 @@ import (
 	"strings"
 
 	"core/server/metadata"
+	"core/server/operation"
 	"core/shared/protoapi"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/worktreecontract"
 )
 
 func (s *Service) DeleteWorktree(ctx context.Context, req *worktreepb.DeleteRequest) (*worktreepb.DeleteSuccess, error) {
+	return operation.Run(ctx, s.operations, func(scope operation.OperationScope) (*worktreepb.DeleteSuccess, error) {
+		return s.deleteWorktree(scope.Context(), req)
+	})
+}
+
+func (s *Service) deleteWorktree(ctx context.Context, req *worktreepb.DeleteRequest) (*worktreepb.DeleteSuccess, error) {
 	release, management, err := s.beginManagementMutation(ctx, req.Scope)
 	if err != nil {
 		return nil, err

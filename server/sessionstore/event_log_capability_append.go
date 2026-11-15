@@ -293,10 +293,8 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 
 	previousMeta := cloneMeta(s.meta)
 	previousVersion := s.metadataVersion
-	previousFreshness := s.conversationFreshness
 	if err := s.advanceAppendedRecordMetadataLocked(records); err != nil {
 		s.meta = previousMeta
-		s.conversationFreshness = previousFreshness
 		s.mu.Unlock()
 		return recordAppendOutcome{records: records}, err
 	}
@@ -304,13 +302,11 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 		applied, err := transition(&s.meta)
 		if err != nil {
 			s.meta = previousMeta
-			s.conversationFreshness = previousFreshness
 			s.mu.Unlock()
 			return recordAppendOutcome{records: records}, err
 		}
 		if !applied {
 			s.meta = previousMeta
-			s.conversationFreshness = previousFreshness
 			s.mu.Unlock()
 			return recordAppendOutcome{}, nil
 		}
@@ -322,7 +318,6 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 	endOffset, err := candidate.appendRecords(records)
 	if err != nil {
 		s.meta = previousMeta
-		s.conversationFreshness = previousFreshness
 		s.mu.Unlock()
 		return recordAppendOutcome{records: records}, err
 	}
@@ -331,12 +326,10 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 	observation, err := s.preparePersistenceObservationLocked()
 	if err != nil {
 		s.meta = previousMeta
-		s.conversationFreshness = previousFreshness
 		s.mu.Unlock()
 		return recordAppendOutcome{records: records}, err
 	}
 	s.meta = previousMeta
-	s.conversationFreshness = previousFreshness
 	s.mu.Unlock()
 	receipt, persistErr := s.observePersistenceReceipt(observation)
 	if !receipt.Committed {
@@ -348,9 +341,6 @@ func (c MaterializedEventLog) appendRecordInputsAtomic(
 	s.mu.Lock()
 	*log = candidate
 	s.meta = postMeta
-	if postMeta.ConversationEstablished {
-		s.conversationFreshness = ConversationFreshnessEstablished
-	}
 	s.mu.Unlock()
 	outcome = recordAppendOutcome{
 		records:       records,
@@ -504,7 +494,7 @@ func (s *Store) captureFirstPromptPreviewFromRecordsLocked(records []EventRecord
 }
 
 func (s *Store) advanceConversationFreshnessFromRecordsLocked(records []EventRecord) error {
-	if s.conversationFreshness == ConversationFreshnessEstablished {
+	if s.meta.ConversationEstablished {
 		return nil
 	}
 	for _, record := range records {
@@ -517,7 +507,6 @@ func (s *Store) advanceConversationFreshnessFromRecordsLocked(records []EventRec
 			return err
 		}
 		if visible || IsContextBoundary(kind) {
-			s.conversationFreshness = ConversationFreshnessEstablished
 			s.meta.ConversationEstablished = true
 			return nil
 		}

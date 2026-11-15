@@ -21,6 +21,8 @@ import (
 	"core/shared/runtimeinput"
 	"core/shared/serverapi"
 	"core/shared/transcriptmodel"
+
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type SessionSettingFeedbackPublisher interface {
@@ -39,31 +41,16 @@ type PromptCommandResolver interface {
 	ResolvePromptCommand(ctx context.Context, sessionID, name, arguments string) (promptcommands.ResolvedCommand, error)
 }
 
-type WorkflowTaskSessionResolver interface {
-	SessionHasWorkflowTask(ctx context.Context, sessionID string) (bool, error)
-}
-
-var errWorkflowTaskSessionAutoCompactionDisable = errors.New("auto-compaction cannot be disabled for workflow task sessions")
-
 type Service struct {
 	metadata       *metadata.Store
 	authority      *sessionruntime.Authority
 	feedback       SessionSettingFeedbackPublisher
 	promptStore    PromptHistoryStore
 	promptCommands PromptCommandResolver
-	workflowTasks  WorkflowTaskSessionResolver
 	persisted      session.PersistedSessionResolver
 	pendingPrompts promptcontrol.PendingPromptSource
 	attention      servicecontract.AttentionNotificationService
 	settings       SessionSettingsPublisher
-}
-
-type sessionUserTurnRequest struct {
-	SessionID string
-	Kind      runtimeinput.Kind
-	Text      string
-	Name      string
-	Arguments string
 }
 
 func NewService(authority *sessionruntime.Authority, metadataStore *metadata.Store) *Service {
@@ -104,14 +91,6 @@ func (s *Service) WithPromptCommandResolver(resolver PromptCommandResolver) *Ser
 		return nil
 	}
 	s.promptCommands = resolver
-	return s
-}
-
-func (s *Service) WithWorkflowTaskSessionResolver(resolver WorkflowTaskSessionResolver) *Service {
-	if s == nil {
-		return nil
-	}
-	s.workflowTasks = resolver
 	return s
 }
 
@@ -253,14 +232,12 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 		return errors.New("Session settings authority is required")
 	}
 	var mutation session.NameMutationResult
-	var resultingName *string
 	var live bool
 	err = s.authority.WithSessionChatSettings(ctx, req.SessionId, func(
 		_ context.Context, store *session.Store, engine *runtime.Engine,
 	) (bool, error) {
 		var err error
 		mutation, err = store.MutateName(name)
-		resultingName = store.Meta().Name
 		live = engine != nil
 		return false, err
 	})
@@ -273,9 +250,8 @@ func (s *Service) SetSessionName(ctx context.Context, req *runtimepb.SetSessionN
 	}
 	if s.feedback != nil && live {
 		publishErr := s.feedback.PublishSessionSettingFeedback(req.SessionId, &transcriptpb.SessionSettingFeedback{
-			Kind:    transcriptpb.SessionSettingKind_SESSION_SETTING_KIND_SESSION_NAME,
 			Changed: mutation.Changed,
-			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &transcriptpb.SessionNameValue{Name: resultingName}},
+			Value:   &transcriptpb.SessionSettingFeedback_SessionName{SessionName: &emptypb.Empty{}},
 		})
 		return errors.Join(err, publishErr)
 	}
@@ -406,37 +382,6 @@ func (s *Service) recordPromptHistory(ctx context.Context, sessionID string, tex
 		SessionID: strings.TrimSpace(sessionID),
 		Text:      text,
 	})
-}
-
-func (s *Service) rejectWorkflowAutoCompactionDisable(ctx context.Context, sessionID string, engine *runtime.Engine) error {
-	workflowSession, err := s.workflowTaskSession(ctx, sessionID, engine)
-	if err != nil {
-		return err
-	}
-	if workflowSession {
-		return errWorkflowTaskSessionAutoCompactionDisable
-	}
-	return nil
-}
-
-func (s *Service) workflowTaskSession(ctx context.Context, sessionID string, engine *runtime.Engine) (bool, error) {
-	if engine != nil {
-		workflowState, err := engine.WorkflowSessionState()
-		if err != nil {
-			return false, err
-		}
-		if workflowState != nil && workflowState.TaskID != "" {
-			return true, nil
-		}
-	}
-	if s != nil && s.workflowTasks != nil {
-		workflow, err := s.workflowTasks.SessionHasWorkflowTask(ctx, sessionID)
-		if err != nil {
-			return false, err
-		}
-		return workflow, nil
-	}
-	return false, nil
 }
 
 var _ servicecontract.RuntimeControlService = (*Service)(nil)

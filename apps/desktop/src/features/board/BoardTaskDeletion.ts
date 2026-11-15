@@ -3,8 +3,11 @@ import { useMemo } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import * as Effect from "effect/Effect";
-import type { ApiService } from "@/api";
-import { queryAction, useAppServices } from "@/app-facade";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import type { ApiService, TaskDeleteResponse } from "@/api";
+import { queryAction, useAppServices, useStatusController, type StatusController } from "@/app-facade";
+import { notifyTaskDeletionCleanup } from "@/shared/task-delete";
 import { refreshBoardAfterTaskDelete } from "./useBoardData";
 
 export type BoardDeleteCompletion = Readonly<{
@@ -14,13 +17,21 @@ export type BoardDeleteCompletion = Readonly<{
 
 const taskDeletionMutationKey = ["board-task-delete"] as const;
 
-function createBoardTaskDeletions(api: ApiService, client: QueryClient) {
+function createBoardTaskDeletions(
+  api: ApiService,
+  client: QueryClient,
+  push: StatusController["push"],
+  t: TFunction,
+) {
   const task = Atom.family((taskID: string) =>
     queryAction(
-      new MutationObserver<void, Error, BoardDeleteCompletion>(client, {
+      new MutationObserver<TaskDeleteResponse, Error, BoardDeleteCompletion>(client, {
         mutationKey: taskDeletionMutationKey,
         mutationFn: async () => api.deleteTask(taskID),
-        onSuccess: async (_result, input) => input.onDeleted(),
+        onSuccess: async (result, input) => {
+          notifyTaskDeletionCleanup(result, push, t);
+          await input.onDeleted();
+        },
         onError: (error, input) => {
           input.onError(error);
         },
@@ -43,8 +54,10 @@ function createBoardTaskDeletions(api: ApiService, client: QueryClient) {
 
 export function useBoardTaskDeletions() {
   const { api } = useAppServices();
+  const { push } = useStatusController();
+  const { t } = useTranslation();
   const client = useQueryClient();
-  const model = useMemo(() => createBoardTaskDeletions(api, client), [api, client]);
+  const model = useMemo(() => createBoardTaskDeletions(api, client, push, t), [api, client, push, t]);
   return {
     task: model.task,
     submit: useAtomSet(model.submit, { mode: "value" }),

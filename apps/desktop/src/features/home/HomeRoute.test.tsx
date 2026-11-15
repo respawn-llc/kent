@@ -26,12 +26,10 @@ it.each(["created", "attached"] as const)(
     vi.spyOn(services.api, "listProjects").mockResolvedValue({
       projects: [],
       nextPageToken: null,
-      generatedAt: 1,
     });
     vi.spyOn(services.api, "listAttention").mockResolvedValue({
       items: [],
       nextPageToken: null,
-      generatedAt: 1,
     });
     const picker = vi
       .spyOn(services.nativeBridge.directories, "selectDirectory")

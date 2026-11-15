@@ -26,7 +26,6 @@ import (
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	"core/shared/serverapi"
 	"core/shared/textutil"
-	"core/shared/toolspec"
 )
 
 type launchMode string
@@ -43,23 +42,16 @@ type sessionLaunchRequest struct {
 }
 
 type sessionLaunchPlan struct {
-	ConnectionScope            config.ConnectionScope
 	Mode                       launchMode
 	SessionID                  string
 	ActiveSettings             config.Settings
-	EnabledTools               []toolspec.ID
 	ConfiguredModelName        *string
 	SessionTitle               *string
 	ModelContractLocked        bool
 	ChatSettings               *chatsettingspb.Settings
 	ChatSettingsErr            error
-	QuestionsEnabled           bool
-	AutoCompactionEnabled      bool
-	ThinkingOverrideExplicit   bool
-	ActivationAgentSelection   *serverapi.SessionRuntimeAgentSelection
-	ExplicitToolSelection      *config.ToolSelection
+	Invocation                 serverapi.RunPromptOverrides
 	StatusConfig               uiStatusConfig
-	ExecutionTarget            *worktreepb.SessionExecutionTarget
 	Source                     config.SourceReport
 	ClientLifecycleCommand     []string
 	ClientLifecycleOpeningKind lifecyclecontract.OpeningKind
@@ -197,24 +189,8 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 	if err != nil {
 		return sessionLaunchPlan{}, err
 	}
-	enabledTools := make([]toolspec.ID, 0, len(resp.Plan.EnabledToolIds))
-	for _, generated := range resp.Plan.EnabledToolIds {
-		id := protoapi.SessionToolIDFromProto(generated)
-		enabledTools = append(enabledTools, id)
-	}
 	cfg := p.server.Connection()
 	activeSettings := interactivePresentationSettings(p.server, settings)
-	activationAgentSelection, err := protoapi.SessionRuntimeAgentSelectionFromProto(
-		resp.Plan.ActivationAgentSelection,
-	)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
-	explicitTools, err := protoapi.ToolSelectionFromProto(resp.Plan.ExplicitToolSelection)
-	if err != nil {
-		return sessionLaunchPlan{}, err
-	}
-	scopeSelection := protoapi.ConnectionSelectionFromProto(resp.Plan.ConnectionScope.Selection)
 	var chatSettings *chatsettingspb.Settings
 	var chatSettingsErr error
 	if req.Mode == launchModeInteractive {
@@ -229,21 +205,15 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 		}
 	}
 	return sessionLaunchPlan{
-		ChatSettings:             chatSettings,
-		ChatSettingsErr:          chatSettingsErr,
-		ConnectionScope:          config.ConnectionScope{Selection: scopeSelection, UnavailableRole: resp.Plan.ConnectionScope.UnavailableRole},
-		Mode:                     req.Mode,
-		SessionID:                resp.Plan.SessionId,
-		ActiveSettings:           activeSettings,
-		EnabledTools:             enabledTools,
-		ConfiguredModelName:      textutil.Pointer(resp.Plan.ConfiguredModelName),
-		SessionTitle:             textutil.Pointer(resp.Plan.SessionName),
-		ModelContractLocked:      resp.Plan.ModelContractLocked,
-		QuestionsEnabled:         resp.Plan.QuestionsEnabled,
-		AutoCompactionEnabled:    resp.Plan.AutoCompactionEnabled,
-		ThinkingOverrideExplicit: resp.Plan.ThinkingOverrideExplicit,
-		ActivationAgentSelection: activationAgentSelection,
-		ExplicitToolSelection:    explicitTools,
+		ChatSettings:        chatSettings,
+		ChatSettingsErr:     chatSettingsErr,
+		Mode:                req.Mode,
+		SessionID:           resp.Plan.SessionId,
+		ActiveSettings:      activeSettings,
+		ConfiguredModelName: textutil.Pointer(resp.Plan.ConfiguredModelName),
+		SessionTitle:        textutil.Pointer(resp.Plan.SessionName),
+		ModelContractLocked: resp.Plan.ModelContractLocked,
+		Invocation:          overrides,
 		StatusConfig: uiStatusConfig{
 			WorkspaceRoot:   executionTarget.EffectiveWorkdir,
 			ExecutionTarget: executionTarget,
@@ -253,8 +223,7 @@ func (p *launchPlanner) PlanSession(ctx context.Context, req sessionLaunchReques
 			Source:          source,
 			AuthStatus:      p.server.AuthStatusClient(),
 		},
-		ExecutionTarget: executionTarget,
-		Source:          source,
+		Source: source,
 	}, nil
 }
 
@@ -269,7 +238,7 @@ func loadSelectedSessionExecutionTarget(ctx context.Context, sessionViews sessio
 	return clientui.NormalizeSessionExecutionTarget(resp.MainView.Session.ExecutionTarget), nil
 }
 
-func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPlan, diagnosticWriter io.Writer, startLogLine string) (*runtimeLaunchPlan, error) {
+func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPlan) (*runtimeLaunchPlan, error) {
 	if p == nil || p.server == nil {
 		return nil, io.ErrClosedPipe
 	}
@@ -277,7 +246,7 @@ func (p *launchPlanner) PrepareRuntime(ctx context.Context, plan sessionLaunchPl
 	if !ok {
 		return nil, errors.New("runtime attachment server is required")
 	}
-	return prepareSharedRuntime(ctx, runtimeServer, plan, diagnosticWriter, startLogLine)
+	return prepareSharedRuntime(ctx, runtimeServer, plan)
 }
 
 func (p *launchPlanner) selectSession(ctx context.Context, notice *startupPickerNotice) (sessionPickerResult, error) {
@@ -342,7 +311,7 @@ func loadSessionPickerModelFacts(ctx context.Context, service apicontract.ChatSe
 	}
 	var modelFacts *sessionPickerModelFacts
 	for _, choice := range catalog.Choices {
-		if choice.Agent.Role == catalog.InitialSettings.AgentRole {
+		if choice.Agent.Role == catalog.InitialAgentRole {
 			if choice.Agent.Model != nil {
 				modelFacts = &sessionPickerModelFacts{Name: choice.Agent.Model, ThinkingLevel: choice.Agent.Thinking}
 			}

@@ -57,7 +57,6 @@ type ListTaskSearchPageDescriptorsRow struct {
 	TotalHitCount      int64
 	Ordinal            int64
 	SourceOrdinal      int64
-	TaskWeightedRank   float64
 	RawSnippet         interface{}
 }
 
@@ -101,7 +100,6 @@ func (q *Queries) ListTaskSearchPageDescriptors(ctx context.Context, arg ListTas
 			&item.TotalHitCount,
 			&item.Ordinal,
 			&item.SourceOrdinal,
-			&item.TaskWeightedRank,
 			&item.RawSnippet,
 		), listTaskSearchPageDescriptors, 12); err != nil {
 			return nil, err

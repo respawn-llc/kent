@@ -2363,70 +2363,6 @@ func (q *Queries) GetTaskActiveFanout(ctx context.Context, taskID string) (strin
 	return task_id, err
 }
 
-const getTaskByProjectShortID = `-- name: GetTaskByProjectShortID :one
-SELECT
-    id,
-    project_id,
-    project_workflow_link_id,
-    workflow_id,
-    workflow_revision_seen,
-    task_seq,
-    short_id,
-    title,
-    body,
-    source_url,
-    source_workspace_id,
-    managed_worktree_id,
-    pending_initial_managed_branch_name,
-    execution_target_mode,
-    execution_target_requested_ref,
-    execution_target_resolved_ref,
-    execution_target_commit_oid,
-    execution_target_provenance,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    metadata_json
-FROM task_records
-WHERE project_id = ?1
-  AND short_id = ?2
-LIMIT 1
-`
-
-type GetTaskByProjectShortIDParams struct {
-	ProjectID string
-	ShortID   string
-}
-
-func (q *Queries) GetTaskByProjectShortID(ctx context.Context, arg GetTaskByProjectShortIDParams) (TaskRecord, error) {
-	row := q.db.QueryRowContext(ctx, getTaskByProjectShortID, arg.ProjectID, arg.ShortID)
-	var i TaskRecord
-	err := recordQueryError(ctx, row.Scan(
-		&i.ID,
-		&i.ProjectID,
-		&i.ProjectWorkflowLinkID,
-		&i.WorkflowID,
-		&i.WorkflowRevisionSeen,
-		&i.TaskSeq,
-		&i.ShortID,
-		&i.Title,
-		&i.Body,
-		&i.SourceUrl,
-		&i.SourceWorkspaceID,
-		&i.ManagedWorktreeID,
-		&i.PendingInitialManagedBranchName,
-		&i.ExecutionTargetMode,
-		&i.ExecutionTargetRequestedRef,
-		&i.ExecutionTargetResolvedRef,
-		&i.ExecutionTargetCommitOid,
-		&i.ExecutionTargetProvenance,
-		&i.CreatedAtUnixMs,
-		&i.UpdatedAtUnixMs,
-		&i.MetadataJson,
-	), getTaskByProjectShortID, 2)
-
-	return i, err
-}
-
 const getTaskDependency = `-- name: GetTaskDependency :one
 SELECT blocker_task_id, blocked_task_id
 FROM task_dependencies
@@ -2446,6 +2382,42 @@ func (q *Queries) GetTaskDependency(ctx context.Context, arg GetTaskDependencyPa
 	err := recordQueryError(ctx, row.Scan(&i.BlockerTaskID, &i.BlockedTaskID), getTaskDependency, 2)
 
 	return i, err
+}
+
+const getTaskID = `-- name: GetTaskID :one
+SELECT id
+FROM task_records
+WHERE id = ?1
+LIMIT 1
+`
+
+func (q *Queries) GetTaskID(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskID, id)
+	var id_2 string
+	err := recordQueryError(ctx, row.Scan(&id_2), getTaskID, 1)
+
+	return id_2, err
+}
+
+const getTaskIDByProjectShortID = `-- name: GetTaskIDByProjectShortID :one
+SELECT id
+FROM task_records
+WHERE project_id = ?1
+  AND short_id = ?2
+LIMIT 1
+`
+
+type GetTaskIDByProjectShortIDParams struct {
+	ProjectID string
+	ShortID   string
+}
+
+func (q *Queries) GetTaskIDByProjectShortID(ctx context.Context, arg GetTaskIDByProjectShortIDParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTaskIDByProjectShortID, arg.ProjectID, arg.ShortID)
+	var id string
+	err := recordQueryError(ctx, row.Scan(&id), getTaskIDByProjectShortID, 2)
+
+	return id, err
 }
 
 const getTaskIdentityForComment = `-- name: GetTaskIdentityForComment :one
@@ -2525,10 +2497,7 @@ func (q *Queries) GetTaskProjectWorkflowIDs(ctx context.Context, taskID string) 
 
 const getTaskSearchSourceByDocumentID = `-- name: GetTaskSearchSourceByDocumentID :one
 SELECT
-    document.document_id,
     document.source_kind,
-    document.task_id,
-    document.comment_id,
     content.short_id,
     content.title,
     content.body,
@@ -2541,10 +2510,7 @@ LIMIT 1
 `
 
 type GetTaskSearchSourceByDocumentIDRow struct {
-	DocumentID int64
 	SourceKind string
-	TaskID     sql.NullString
-	CommentID  sql.NullString
 	ShortID    interface{}
 	Title      interface{}
 	Body       interface{}
@@ -2555,10 +2521,7 @@ func (q *Queries) GetTaskSearchSourceByDocumentID(ctx context.Context, documentI
 	row := q.db.QueryRowContext(ctx, getTaskSearchSourceByDocumentID, documentID)
 	var i GetTaskSearchSourceByDocumentIDRow
 	err := recordQueryError(ctx, row.Scan(
-		&i.DocumentID,
 		&i.SourceKind,
-		&i.TaskID,
-		&i.CommentID,
 		&i.ShortID,
 		&i.Title,
 		&i.Body,
@@ -4066,25 +4029,9 @@ const listBoardNodeTasks = `-- name: ListBoardNodeTasks :many
 WITH board_node_tasks AS (
     SELECT
         t.id,
-        t.project_id,
-        t.project_workflow_link_id,
-        t.workflow_id,
-        t.workflow_revision_seen,
         t.task_seq,
-        t.short_id,
-        t.title,
-        t.body,
-        t.source_url,
-        t.source_workspace_id,
-        t.managed_worktree_id,
-        t.execution_target_mode,
-        t.execution_target_requested_ref,
-        t.execution_target_resolved_ref,
-        t.execution_target_commit_oid,
-        t.execution_target_provenance,
         t.created_at_unix_ms,
         t.updated_at_unix_ms,
-        t.metadata_json,
 
 (
     SELECT group_concat(printf('%03d', ordered_label.ordinal), '')
@@ -4189,7 +4136,7 @@ board_sort AS (
 ),
 board_sort_keys AS (
     SELECT
-        t.id, t.project_id, t.project_workflow_link_id, t.workflow_id, t.workflow_revision_seen, t.task_seq, t.short_id, t.title, t.body, t.source_url, t.source_workspace_id, t.managed_worktree_id, t.execution_target_mode, t.execution_target_requested_ref, t.execution_target_resolved_ref, t.execution_target_commit_oid, t.execution_target_provenance, t.created_at_unix_ms, t.updated_at_unix_ms, t.metadata_json, t.label_ordinals,
+        t.id, t.task_seq, t.created_at_unix_ms, t.updated_at_unix_ms, t.label_ordinals,
         CASE WHEN sort.sort_field = 'labels' AND t.label_ordinals IS NULL THEN 1 ELSE 0 END AS sort_null_labels,
         CASE WHEN sort.sort_field = 'updated' AND sort.sort_direction = 'asc' THEN t.updated_at_unix_ms END AS sort_updated_ascending,
         CASE WHEN sort.sort_field = 'updated' AND sort.sort_direction = 'desc' THEN t.updated_at_unix_ms END AS sort_updated_descending,
@@ -4205,7 +4152,7 @@ board_sort_keys AS (
     CROSS JOIN board_sort sort
 ),
 paged_board_tasks AS (
-    SELECT id, project_id, project_workflow_link_id, workflow_id, workflow_revision_seen, task_seq, short_id, title, body, source_url, source_workspace_id, managed_worktree_id, execution_target_mode, execution_target_requested_ref, execution_target_resolved_ref, execution_target_commit_oid, execution_target_provenance, created_at_unix_ms, updated_at_unix_ms, metadata_json, label_ordinals, sort_null_labels, sort_updated_ascending, sort_updated_descending, sort_created_ascending, sort_created_descending, sort_labels_ascending, sort_labels_descending, sort_short_id_ascending, sort_short_id_descending, sort_tiebreak_ascending, sort_tiebreak_descending
+    SELECT id, task_seq, created_at_unix_ms, updated_at_unix_ms, label_ordinals, sort_null_labels, sort_updated_ascending, sort_updated_descending, sort_created_ascending, sort_created_descending, sort_labels_ascending, sort_labels_descending, sort_short_id_ascending, sort_short_id_descending, sort_tiebreak_ascending, sort_tiebreak_descending
     FROM board_sort_keys
     ORDER BY
         sort_null_labels ASC,
@@ -4240,25 +4187,6 @@ dependency_progress AS (
 )
 SELECT
     page.id,
-    page.project_id,
-    page.project_workflow_link_id,
-    page.workflow_id,
-    page.workflow_revision_seen,
-    page.task_seq,
-    page.short_id,
-    page.title,
-    page.body,
-    page.source_url,
-    page.source_workspace_id,
-    page.managed_worktree_id,
-    page.execution_target_mode,
-    page.execution_target_requested_ref,
-    page.execution_target_resolved_ref,
-    page.execution_target_commit_oid,
-    page.execution_target_provenance,
-    page.created_at_unix_ms,
-    page.updated_at_unix_ms,
-    page.metadata_json,
     dependency_progress.dependency_satisfied_count,
     dependency_progress.dependency_total_count
 FROM paged_board_tasks page
@@ -4293,28 +4221,9 @@ type ListBoardNodeTasksParams struct {
 }
 
 type ListBoardNodeTasksRow struct {
-	ID                          string
-	ProjectID                   string
-	ProjectWorkflowLinkID       string
-	WorkflowID                  runtimeids.WorkflowID
-	WorkflowRevisionSeen        int64
-	TaskSeq                     int64
-	ShortID                     string
-	Title                       string
-	Body                        string
-	SourceUrl                   string
-	SourceWorkspaceID           sql.NullString
-	ManagedWorktreeID           sql.NullString
-	ExecutionTargetMode         sql.NullString
-	ExecutionTargetRequestedRef sql.NullString
-	ExecutionTargetResolvedRef  sql.NullString
-	ExecutionTargetCommitOid    sql.NullString
-	ExecutionTargetProvenance   sql.NullString
-	CreatedAtUnixMs             int64
-	UpdatedAtUnixMs             int64
-	MetadataJson                string
-	DependencySatisfiedCount    sql.NullInt64
-	DependencyTotalCount        sql.NullInt64
+	ID                       string
+	DependencySatisfiedCount sql.NullInt64
+	DependencyTotalCount     sql.NullInt64
 }
 
 func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasksParams) ([]ListBoardNodeTasksRow, error) {
@@ -4341,30 +4250,7 @@ func (q *Queries) ListBoardNodeTasks(ctx context.Context, arg ListBoardNodeTasks
 	var items []ListBoardNodeTasksRow
 	for rows.Next() {
 		var i ListBoardNodeTasksRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
-			&i.WorkflowID,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
-			&i.ShortID,
-			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.ExecutionTargetMode,
-			&i.ExecutionTargetRequestedRef,
-			&i.ExecutionTargetResolvedRef,
-			&i.ExecutionTargetCommitOid,
-			&i.ExecutionTargetProvenance,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
-			&i.DependencySatisfiedCount,
-			&i.DependencyTotalCount,
-		), listBoardNodeTasks, 12); err != nil {
+		if err := recordQueryError(ctx, rows.Scan(&i.ID, &i.DependencySatisfiedCount, &i.DependencyTotalCount), listBoardNodeTasks, 12); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -5098,23 +4984,19 @@ const listProjects = `-- name: ListProjects :many
 SELECT
     p.id,
     p.display_name,
-    p.project_key,
     COALESCE(w.canonical_root_path, '') AS root_path,
-    CAST(COALESCE(COUNT(s.project_id), 0) AS INTEGER) AS session_count,
     COALESCE(MAX(s.updated_at_unix_ms), p.updated_at_unix_ms) AS latest_activity_unix_ms
 FROM projects p
 LEFT JOIN workspaces w ON w.id = p.primary_workspace_id AND w.project_id = p.id
 LEFT JOIN sessions s ON s.project_id = p.id AND s.launch_visible <> 0
-GROUP BY p.id, p.display_name, p.project_key, w.canonical_root_path, p.updated_at_unix_ms
+GROUP BY p.id, p.display_name, w.canonical_root_path, p.updated_at_unix_ms
 ORDER BY latest_activity_unix_ms DESC
 `
 
 type ListProjectsRow struct {
 	ID                   string
 	DisplayName          string
-	ProjectKey           string
 	RootPath             string
-	SessionCount         int64
 	LatestActivityUnixMs int64
 }
 
@@ -5131,9 +5013,7 @@ func (q *Queries) ListProjects(ctx context.Context) ([]ListProjectsRow, error) {
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.ID,
 			&i.DisplayName,
-			&i.ProjectKey,
 			&i.RootPath,
-			&i.SessionCount,
 			&i.LatestActivityUnixMs,
 		), listProjects, 0); err != nil {
 			return nil, err
@@ -5201,7 +5081,6 @@ SELECT
     short_id,
     name,
     first_prompt_preview,
-    COALESCE(category, 'main') AS category,
     updated_at_unix_ms
 FROM sessions
 WHERE project_id = ?1
@@ -5224,7 +5103,6 @@ type ListSessionPageRow struct {
 	ShortID            sql.NullInt64
 	Name               sql.NullString
 	FirstPromptPreview string
-	Category           string
 	UpdatedAtUnixMs    int64
 }
 
@@ -5249,7 +5127,6 @@ func (q *Queries) ListSessionPage(ctx context.Context, arg ListSessionPageParams
 			&i.ShortID,
 			&i.Name,
 			&i.FirstPromptPreview,
-			&i.Category,
 			&i.UpdatedAtUnixMs,
 		), listSessionPage, 4); err != nil {
 			return nil, err
@@ -6023,6 +5900,37 @@ func (q *Queries) ListTaskDependencyProjectionRows(ctx context.Context, taskID s
 	return items, nil
 }
 
+const listTaskIDsByShortID = `-- name: ListTaskIDsByShortID :many
+SELECT id
+FROM task_records
+WHERE short_id = ?1
+LIMIT 2
+`
+
+func (q *Queries) ListTaskIDsByShortID(ctx context.Context, shortID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskIDsByShortID, shortID)
+	err = recordQueryError(ctx, err, listTaskIDsByShortID, 1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := recordQueryError(ctx, rows.Scan(&id), listTaskIDsByShortID, 1); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := recordQueryError(ctx, rows.Close(), listTaskIDsByShortID, 1); err != nil {
+		return nil, err
+	}
+	if err := recordQueryError(ctx, rows.Err(), listTaskIDsByShortID, 1); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskPendingApprovalBranches = `-- name: ListTaskPendingApprovalBranches :many
 SELECT
     approval_id,
@@ -6312,86 +6220,6 @@ func (q *Queries) ListTasksByIDs(ctx context.Context, taskIdsJson interface{}) (
 		return nil, err
 	}
 	if err := recordQueryError(ctx, rows.Err(), listTasksByIDs, 1); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listTasksByShortID = `-- name: ListTasksByShortID :many
-SELECT
-    id,
-    project_id,
-    project_workflow_link_id,
-    workflow_id,
-    workflow_revision_seen,
-    task_seq,
-    short_id,
-    title,
-    body,
-    source_url,
-    source_workspace_id,
-    managed_worktree_id,
-    created_at_unix_ms,
-    updated_at_unix_ms,
-    metadata_json
-FROM task_records
-WHERE short_id = ?1
-ORDER BY created_at_unix_ms ASC, id ASC
-`
-
-type ListTasksByShortIDRow struct {
-	ID                    string
-	ProjectID             string
-	ProjectWorkflowLinkID string
-	WorkflowID            runtimeids.WorkflowID
-	WorkflowRevisionSeen  int64
-	TaskSeq               int64
-	ShortID               string
-	Title                 string
-	Body                  string
-	SourceUrl             string
-	SourceWorkspaceID     sql.NullString
-	ManagedWorktreeID     sql.NullString
-	CreatedAtUnixMs       int64
-	UpdatedAtUnixMs       int64
-	MetadataJson          string
-}
-
-func (q *Queries) ListTasksByShortID(ctx context.Context, shortID string) ([]ListTasksByShortIDRow, error) {
-	rows, err := q.db.QueryContext(ctx, listTasksByShortID, shortID)
-	err = recordQueryError(ctx, err, listTasksByShortID, 1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListTasksByShortIDRow
-	for rows.Next() {
-		var i ListTasksByShortIDRow
-		if err := recordQueryError(ctx, rows.Scan(
-			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
-			&i.WorkflowID,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
-			&i.ShortID,
-			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.CreatedAtUnixMs,
-			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
-		), listTasksByShortID, 1); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listTasksByShortID, 1); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listTasksByShortID, 1); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -7273,26 +7101,14 @@ effective_status AS (
 eligible_rows AS (
     SELECT
         t.id,
-        pwl.project_id,
         t.project_workflow_link_id,
         pwl.workflow_id,
         w.name AS workflow_name,
-        t.workflow_revision_seen,
         t.task_seq,
         t.short_id,
         t.title,
-        t.body,
-        t.source_url,
-        t.source_workspace_id,
-        t.managed_worktree_id,
-        t.execution_target_mode,
-        t.execution_target_requested_ref,
-        t.execution_target_resolved_ref,
-        t.execution_target_commit_oid,
-        t.execution_target_provenance,
         t.created_at_unix_ms,
         t.updated_at_unix_ms,
-        t.metadata_json,
         column_facts.column_rank,
         column_facts.column_keys_json,
         CAST(status.kind AS TEXT) AS kind,
@@ -7431,7 +7247,7 @@ task_label_values AS (
 ),
 scored_rows AS (
     SELECT
-        eligible.id, eligible.project_id, eligible.project_workflow_link_id, eligible.workflow_id, eligible.workflow_name, eligible.workflow_revision_seen, eligible.task_seq, eligible.short_id, eligible.title, eligible.body, eligible.source_url, eligible.source_workspace_id, eligible.managed_worktree_id, eligible.execution_target_mode, eligible.execution_target_requested_ref, eligible.execution_target_resolved_ref, eligible.execution_target_commit_oid, eligible.execution_target_provenance, eligible.created_at_unix_ms, eligible.updated_at_unix_ms, eligible.metadata_json, eligible.column_rank, eligible.column_keys_json, eligible.kind, eligible.primary_status_rank, eligible.node_ids_json, eligible.attention_types_json, eligible.title_sort,
+        eligible.id, eligible.project_workflow_link_id, eligible.workflow_id, eligible.workflow_name, eligible.task_seq, eligible.short_id, eligible.title, eligible.created_at_unix_ms, eligible.updated_at_unix_ms, eligible.column_rank, eligible.column_keys_json, eligible.kind, eligible.primary_status_rank, eligible.node_ids_json, eligible.attention_types_json, eligible.title_sort,
         labels.label_ordinals,
         CASE WHEN args.labels_requested != 0 AND labels.task_id IS NULL THEN 1 ELSE 0 END AS labels_unlabeled,
         CASE args.sort_1_field
@@ -7524,7 +7340,7 @@ matching_workflows AS (
       )
 ),
 page_rows AS (
-    SELECT "rows".id, "rows".project_id, "rows".project_workflow_link_id, "rows".workflow_id, "rows".workflow_name, "rows".workflow_revision_seen, "rows".task_seq, "rows".short_id, "rows".title, "rows".body, "rows".source_url, "rows".source_workspace_id, "rows".managed_worktree_id, "rows".execution_target_mode, "rows".execution_target_requested_ref, "rows".execution_target_resolved_ref, "rows".execution_target_commit_oid, "rows".execution_target_provenance, "rows".created_at_unix_ms, "rows".updated_at_unix_ms, "rows".metadata_json, "rows".column_rank, "rows".column_keys_json, "rows".kind, "rows".primary_status_rank, "rows".node_ids_json, "rows".attention_types_json, "rows".title_sort, "rows".label_ordinals, "rows".labels_unlabeled, "rows".sort_1_value, "rows".sort_2_value, "rows".sort_3_value, "rows".sort_4_value, "rows".sort_5_value, "rows".sort_6_value, "rows".sort_7_value   FROM scored_rows rows
+    SELECT "rows".id, "rows".project_workflow_link_id, "rows".workflow_id, "rows".workflow_name, "rows".task_seq, "rows".short_id, "rows".title, "rows".created_at_unix_ms, "rows".updated_at_unix_ms, "rows".column_rank, "rows".column_keys_json, "rows".kind, "rows".primary_status_rank, "rows".node_ids_json, "rows".attention_types_json, "rows".title_sort, "rows".label_ordinals, "rows".labels_unlabeled, "rows".sort_1_value, "rows".sort_2_value, "rows".sort_3_value, "rows".sort_4_value, "rows".sort_5_value, "rows".sort_6_value, "rows".sort_7_value   FROM scored_rows rows
     CROSS JOIN args
     ORDER BY
         CASE WHEN args.sort_selector_count >= 1 AND args.labels_requested != 0 AND args.sort_1_field = 'labels' THEN rows.labels_unlabeled ELSE 0 END ASC,
@@ -7554,33 +7370,17 @@ page_rows AS (
 )
 SELECT
     page.id,
-    page.project_id,
-    page.project_workflow_link_id,
     page.workflow_id,
     page.workflow_name,
-    page.workflow_revision_seen,
-    page.task_seq,
     page.short_id,
     page.title,
-    page.body,
-    page.source_url,
-    page.source_workspace_id,
-    page.managed_worktree_id,
-    page.execution_target_mode,
-    page.execution_target_requested_ref,
-    page.execution_target_resolved_ref,
-    page.execution_target_commit_oid,
-    page.execution_target_provenance,
     page.created_at_unix_ms,
     page.updated_at_unix_ms,
-    page.metadata_json,
     page.column_rank,
     page.column_keys_json,
     page.kind,
-    page.primary_status_rank,
     page.node_ids_json,
     page.attention_types_json,
-    page.title_sort,
     CAST((SELECT COUNT(*) FROM matching_workflows) AS INTEGER) AS matching_workflow_count
 FROM args
 CROSS JOIN (SELECT 1) summary
@@ -7646,35 +7446,19 @@ type ListWorkflowTaskListRowsParams struct {
 }
 
 type ListWorkflowTaskListRowsRow struct {
-	ID                          sql.NullString
-	ProjectID                   sql.NullString
-	ProjectWorkflowLinkID       sql.NullString
-	WorkflowID                  *runtimeids.WorkflowID
-	WorkflowName                sql.NullString
-	WorkflowRevisionSeen        sql.NullInt64
-	TaskSeq                     sql.NullInt64
-	ShortID                     sql.NullString
-	Title                       sql.NullString
-	Body                        sql.NullString
-	SourceUrl                   sql.NullString
-	SourceWorkspaceID           sql.NullString
-	ManagedWorktreeID           sql.NullString
-	ExecutionTargetMode         sql.NullString
-	ExecutionTargetRequestedRef sql.NullString
-	ExecutionTargetResolvedRef  sql.NullString
-	ExecutionTargetCommitOid    sql.NullString
-	ExecutionTargetProvenance   sql.NullString
-	CreatedAtUnixMs             sql.NullInt64
-	UpdatedAtUnixMs             sql.NullInt64
-	MetadataJson                sql.NullString
-	ColumnRank                  sql.NullInt64
-	ColumnKeysJson              sql.NullString
-	Kind                        sql.NullString
-	PrimaryStatusRank           sql.NullInt64
-	NodeIdsJson                 sql.NullString
-	AttentionTypesJson          sql.NullString
-	TitleSort                   sql.NullString
-	MatchingWorkflowCount       int64
+	ID                    sql.NullString
+	WorkflowID            *runtimeids.WorkflowID
+	WorkflowName          sql.NullString
+	ShortID               sql.NullString
+	Title                 sql.NullString
+	CreatedAtUnixMs       sql.NullInt64
+	UpdatedAtUnixMs       sql.NullInt64
+	ColumnRank            sql.NullInt64
+	ColumnKeysJson        sql.NullString
+	Kind                  sql.NullString
+	NodeIdsJson           sql.NullString
+	AttentionTypesJson    sql.NullString
+	MatchingWorkflowCount int64
 }
 
 func (q *Queries) ListWorkflowTaskListRows(ctx context.Context, arg ListWorkflowTaskListRowsParams) ([]ListWorkflowTaskListRowsRow, error) {
@@ -7723,33 +7507,17 @@ func (q *Queries) ListWorkflowTaskListRows(ctx context.Context, arg ListWorkflow
 		var i ListWorkflowTaskListRowsRow
 		if err := recordQueryError(ctx, rows.Scan(
 			&i.ID,
-			&i.ProjectID,
-			&i.ProjectWorkflowLinkID,
 			&i.WorkflowID,
 			&i.WorkflowName,
-			&i.WorkflowRevisionSeen,
-			&i.TaskSeq,
 			&i.ShortID,
 			&i.Title,
-			&i.Body,
-			&i.SourceUrl,
-			&i.SourceWorkspaceID,
-			&i.ManagedWorktreeID,
-			&i.ExecutionTargetMode,
-			&i.ExecutionTargetRequestedRef,
-			&i.ExecutionTargetResolvedRef,
-			&i.ExecutionTargetCommitOid,
-			&i.ExecutionTargetProvenance,
 			&i.CreatedAtUnixMs,
 			&i.UpdatedAtUnixMs,
-			&i.MetadataJson,
 			&i.ColumnRank,
 			&i.ColumnKeysJson,
 			&i.Kind,
-			&i.PrimaryStatusRank,
 			&i.NodeIdsJson,
 			&i.AttentionTypesJson,
-			&i.TitleSort,
 			&i.MatchingWorkflowCount,
 		), listWorkflowTaskListRows, 32); err != nil {
 			return nil, err

@@ -7,6 +7,7 @@ import (
 
 	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/testsetup"
+	"core/server/operation"
 	"core/server/runtimecontrol"
 	"core/server/sessionstore"
 	"core/shared/config"
@@ -21,45 +22,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 )
-
-func TestOperationOwnerShutdownRejectsCancelsAndJoins(t *testing.T) {
-	owner := newTestOperationOwner()
-	started := make(chan struct{})
-	canceled := make(chan error, 1)
-	allowExit := make(chan struct{})
-	operation, err := owner.Start(t.Context(), func(scope OperationScope) error {
-		close(started)
-		<-scope.Context().Done()
-		canceled <- context.Cause(scope.Context())
-		<-allowExit
-		return context.Cause(scope.Context())
-	})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	<-started
-
-	closed := make(chan error, 1)
-	go func() { closed <- owner.Close() }()
-	if err := <-canceled; !errors.Is(err, ErrOperationOwnerClosed) {
-		t.Fatalf("operation cancellation = %v, want owner shutdown", err)
-	}
-	select {
-	case err := <-closed:
-		t.Fatalf("Close returned before operation joined: %v", err)
-	default:
-	}
-	if _, err := owner.Start(t.Context(), func(OperationScope) error { return nil }); !errors.Is(err, ErrOperationOwnerClosed) {
-		t.Fatalf("Start after shutdown error = %v, want closed owner", err)
-	}
-	close(allowExit)
-	if err := <-closed; err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if err := operation.Await(t.Context()); !errors.Is(err, ErrOperationOwnerClosed) {
-		t.Fatalf("operation result = %v, want shutdown cancellation", err)
-	}
-}
 
 type lifecycleContextKey struct{}
 
@@ -144,9 +106,6 @@ func (s lifecycleCreation) PlanSession(
 	}
 	return &sessionlaunchpb.SessionPlanSuccess{Plan: &sessionlaunchpb.SessionPlan{
 		SessionId: s.sessionID.String(), ActiveSettings: settings, Source: source,
-		ConnectionScope:       &sessionlaunchpb.ConnectionScope{Selection: protoapi.ConnectionSelectionToProto(configured.Connection)},
-		QuestionsEnabled:      request.InitialChatSettings.GetQuestionsEnabled(),
-		AutoCompactionEnabled: request.InitialChatSettings.GetAutoCompactionEnabled(),
 	}}, nil
 }
 
@@ -157,7 +116,7 @@ type lifecyclePlanner struct {
 func (p lifecyclePlanner) Open(
 	ctx context.Context,
 	_ runtimeids.SessionID,
-	_ *serverapi.SessionRuntimePreparationOptions,
+	_ *serverapi.RunPromptOverrides,
 ) error {
 	p.recorder.operationStage("Runtime opening", ctx)
 	return nil
@@ -319,8 +278,8 @@ func TestServiceCarriesOneOperationContextAcrossChatLifecycle(t *testing.T) {
 	}
 }
 
-func newTestOperationOwner() *OperationOwner {
-	return NewOperationOwner()
+func newTestOperationOwner() *operation.OperationOwner {
+	return operation.NewOperationOwner()
 }
 
 func validNewChatTarget() *chatpb.NewChatTarget {

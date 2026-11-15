@@ -48,13 +48,14 @@ export function emptyQuestionSelection(): QuestionSelectionState {
 }
 
 export function questionPresentation(attention: QuestionAttentionItem): QuestionPresentation {
+  const question = attention.question.question;
   if (attention.question.kind === "approval") {
-    return approvalQuestionPresentation(attention.message ?? undefined, attention.question.approvalDecisions);
+    return approvalQuestionPresentation(question ?? undefined, attention.question.approvalDecisions);
   }
-  if (attention.message === null) {
+  if (question === null) {
     throw new Error("Ordinary question requires a message");
   }
-  return ordinaryQuestionPresentation(attention.message, attention.question);
+  return ordinaryQuestionPresentation(question, attention.question);
 }
 
 function approvalQuestionPresentation(

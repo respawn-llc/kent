@@ -644,9 +644,6 @@ func TestLoadUsesDefaultsWithoutCreatingConfigOnFirstUse(t *testing.T) {
 	if string(rgConfigBytes) != managedRGConfigContents {
 		t.Fatalf("managed rg config contents mismatch: %q", string(rgConfigBytes))
 	}
-	if cfg.Source.CreatedDefaultConfig {
-		t.Fatalf("expected CreatedDefaultConfig=false")
-	}
 	if cfg.Source.SettingsFileExists() {
 		t.Fatalf("expected SettingsFileExists=false")
 	}

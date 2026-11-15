@@ -33,7 +33,7 @@ func holdWorktreeSessionExecution(t *testing.T, env *serviceTestEnv, target serv
 		barrier.Unblock()
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if _, err := handle.Wait(ctx); err != nil {
+		if err := handle.Wait(ctx); err != nil {
 			t.Errorf("finish held execution: %v", err)
 		}
 	})

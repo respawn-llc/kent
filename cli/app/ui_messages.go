@@ -65,6 +65,7 @@ const (
 )
 
 type runtimeControlDoneMsg struct {
+	interrupt *uiPendingInterrupt
 	token     uint64
 	sessionID string
 	operation runtimeControlOperation
@@ -102,13 +103,11 @@ type spinnerTickMsg struct {
 type processListRefreshTickMsg struct{}
 
 type processListRefreshDoneMsg struct {
-	token   uint64
 	entries []*processpb.BackgroundProcess
 	err     error
 }
 
 type processActionDoneMsg struct {
-	token             uint64
 	surfaceGeneration uint64
 	inputDraftToken   uint64
 	action            string
@@ -137,10 +136,9 @@ type runtimeConnectionStateChangedMsg struct {
 }
 
 type runtimeMainViewRefreshedMsg struct {
-	token                    uint64
-	metadataBaselineRevision *uint64
-	view                     *runtimepb.MainView
-	err                      error
+	token uint64
+	view  *runtimepb.MainView
+	err   error
 }
 
 type runtimeMainViewRetryMsg struct {

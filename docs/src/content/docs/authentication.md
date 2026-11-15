@@ -33,7 +33,7 @@ When using a custom persistence root, place `.env` in that root. For a remote se
 
 A background service reads this file independently of your terminal shell. A variable already present in the server's launch environment takes precedence, including an empty value. Restart the server after changing either source.
 
-The OpenAI and Grok API-key choices use their official endpoints. Choose Generic to supply a different Responses endpoint.
+The OpenAI and Grok API-key choices use their official endpoints. DeepSeek API key defaults to `https://api.deepseek.com`, and its endpoint can be changed. Choose Generic to supply a different Responses endpoint.
 
 ## OpenRouter
 
@@ -84,6 +84,10 @@ protocol = "grok-oauth-api"
 protocol = "grok-api-key"
 environment_variable = "XAI_API_KEY"
 
+[connections.deepseek]
+protocol = "deepseek-api-key"
+environment_variable = "DEEPSEEK_API_KEY"
+
 [connections.local]
 protocol = "responses"
 endpoint = "http://127.0.0.1:8000/v1"
@@ -95,6 +99,8 @@ model = "gpt-6-astra"
 [reviewer]
 connection = "api"
 ```
+
+DeepSeek models accept `thinking_level` values `low`, `high`, `max`, or `none`.
 
 :::tip
 

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"core/internal/testharness/requestfixture"
 	"core/internal/testharness/scriptedllm"
 	"core/internal/testharness/testsetup"
 	"core/internal/testharness/workflowfixture"
@@ -21,9 +20,10 @@ import (
 	"core/server/metadata"
 	"core/server/runtimewire"
 	"core/server/workflow"
+	"core/server/workflowconfig"
 	"core/server/workflowstore"
 	"core/shared/config"
-	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
+	chatpb "core/shared/protoapi/gen/kent/api/chat"
 	pb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
@@ -111,7 +111,7 @@ func newTaskRecoveryFixtureWithResumeSteps(
 	if err := app.MetadataStore().SetProjectKey(ctx, binding.ProjectID, "REC"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := workflowstore.New(app.MetadataStore(), workflowstore.WithRoleResolver(configRoleResolver{app: resolved.Config}))
+	store, err := workflowstore.New(app.MetadataStore(), workflowstore.WithRoleResolver(workflowconfig.Catalog{App: resolved.Config}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,18 +305,12 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 	if retained.Task.ManagedWorktreeID == nil || *retained.Task.ManagedWorktreeID != f.original.ID {
 		t.Fatalf("setup failure changed the original Worktree binding: %+v", retained.Task.ManagedWorktreeID)
 	}
-	cfg := f.app.Config()
-	err = f.app.SessionRuntimeClient().ActivateSessionRuntime(context.Background(), serverapi.SessionRuntimeActivateRequest{
-		SessionID: requestfixture.SessionID(t, node.SessionID.String()), SessionRuntimePreparationOptions: serverapi.SessionRuntimePreparationOptions{ActiveSettings: cfg.Settings, Source: cfg.Source,
-			QuestionsEnabled: textutil.Value(true), AutoCompactionEnabled: textutil.Value(false)},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	const message = "Continue on the restored original checkout"
-	submitted := testsetup.Start(func() (*runtimepb.SubmitUserTurnSuccess, error) {
-		return f.app.RuntimeControlClient().SubmitUserTurn(context.Background(), &runtimepb.SubmitUserTurnRequest{QueueItemId: runtimeids.NewQueueItemID().String(), SessionId: node.SessionID.String(), Input: &runtimepb.UserTurnInput{Input: &runtimepb.UserTurnInput_Text{Text: message}}})
+	submitted := testsetup.Start(func() (*chatpb.InputMutationSuccess, error) {
+		return f.app.ChatMutationClient().Steer(t.Context(), &chatpb.SteerRequest{
+			QueueItemId: runtimeids.NewQueueItemID().String(), Target: chatCommandTarget(node.SessionID.String()),
+			Activation: &chatpb.Activation{Input: &chatpb.Activation_Text{Text: message}},
+		})
 	})
 	waitRecoveryModel(t, f.second, f.store, f.task.ID)
 	select {
@@ -324,7 +318,7 @@ func TestWorkflowRestoredOriginalAcceptsSessionMessageAfterSetupFailure(t *testi
 		if outcome.Err != nil {
 			t.Fatal(outcome.Err)
 		}
-		if outcome.Value.GetQueued() == nil || outcome.Value.GetQueued().GetQueueItemId() == "" {
+		if outcome.Value.GetAccepted() == nil || outcome.Value.GetAccepted().GetQueueItem().GetId() == "" {
 			t.Fatalf("Session submission = %+v, want accepted input", outcome.Value)
 		}
 	case <-time.After(10 * time.Second):
@@ -553,6 +547,7 @@ func TestWorkflowMoveFromDoneRetainsFailedCandidateWithoutAdoption(t *testing.T)
 func TestWorkflowMoveClientCancellationDoesNotCancelReplacementSetup(t *testing.T) {
 	f := newTaskRecoveryFixture(t)
 	f.makeOriginalUnavailable(t)
+	logs := testsetup.CaptureSlogRecords(t)
 	attempts := filepath.Join(t.TempDir(), "attempts")
 	release := filepath.Join(t.TempDir(), "release")
 	f.setup(t, fmt.Sprintf("printf x >> %q\nwhile [ ! -f %q ]; do sleep 0.01; done\nexit 1\n", attempts, release))
@@ -571,19 +566,27 @@ func TestWorkflowMoveClientCancellationDoesNotCancelReplacementSetup(t *testing.
 		return err == nil && len(data) == 1
 	}, "replacement setup did not start")
 	cancel()
+	select {
+	case outcome := <-result:
+		if !errors.Is(outcome.Err, context.Canceled) || outcome.Value != nil {
+			t.Fatalf("canceled Move observer = %+v, %v", outcome.Value, outcome.Err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("canceled Move observer did not detach from accepted setup")
+	}
 	if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case outcome := <-result:
-		var retained *worktreecontract.SetupRetainedError
-		if !errors.As(outcome.Err, &retained) || outcome.Value.GetApplied() != nil ||
-			retained.Details.RecoveryDisposition != worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT {
-			t.Fatalf("accepted Move lost its setup outcome after client cancellation: %+v, %v", outcome.Value, outcome.Err)
+	testsetup.RequireUntil(t, time.Now().Add(10*time.Second), 10*time.Millisecond, func() bool {
+		for _, record := range logs.Records() {
+			diagnostic, ok := record.Fields["error"].(error)
+			var retained *worktreecontract.SetupRetainedError
+			if ok && errors.As(diagnostic, &retained) {
+				return retained.Details.RecoveryDisposition == worktreepb.SetupRecoveryDisposition_SETUP_RECOVERY_DISPOSITION_FRESH_REPLACEMENT
+			}
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("accepted Move did not finish")
-	}
+		return false
+	}, "accepted setup failure did not retain its diagnostic after observer cancellation")
 	if target := f.assertEvidence(t); target.Task.ManagedWorktreeID == nil || *target.Task.ManagedWorktreeID != f.original.ID {
 		t.Fatal("failed candidate was adopted after client cancellation")
 	}

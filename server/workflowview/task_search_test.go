@@ -373,7 +373,7 @@ func TestTaskSearchFiltersQueuedAndRunningCurrentNodeExecutions(t *testing.T) {
 	runningHandle := startTaskSearchScript(t, fixture, shellPath, running)
 	t.Cleanup(func() {
 		runningHandle.RequestStop()
-		_, _ = runningHandle.Wait(context.Background())
+		_ = runningHandle.Wait(context.Background())
 	})
 	testsetup.RequireUntil(t, time.Now().Add(3*time.Second), 10*time.Millisecond, func() bool {
 		snapshots, snapshotErr := fixture.authority.CurrentWorkflowTaskExecutionSnapshots()
@@ -569,7 +569,7 @@ func startTaskSearchScript(
 	if err != nil {
 		t.Fatalf("PrepareDetachedScriptExecution: %v", err)
 	}
-	handle, launch, err := detached.Publish(context.Background(), func() error { return nil }, nil)
+	handle, launch, err := detached.Publish(context.Background(), func() error { return nil })
 	if err != nil {
 		t.Fatalf("Publish detached Script execution: %v", err)
 	}

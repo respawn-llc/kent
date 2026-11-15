@@ -111,8 +111,8 @@ export function createChatSettingsApi(
       }
       return {
         kind: "new_chat",
-        initialSettings: initialSettings(response.target.value.initialSettings),
         catalog: {
+          initialAgentRole: response.target.value.initialAgentRole,
           choices: response.target.value.choices.map((choice) => ({
             agent: completeAgentChoice(choice.agent),
             baseline: initialSettings(choice.baseline),
@@ -268,10 +268,6 @@ function agentChoice(value: AgentChoice) {
     role: value.role,
     model: value.model ?? null,
     thinking: value.thinking ?? null,
-    tools: value.tools,
-    customSystemPrompt: value.customSystemPrompt,
-    customCapabilities: value.customCapabilities,
-    agentCallable: value.agentCallable,
   };
 }
 

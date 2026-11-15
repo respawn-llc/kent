@@ -567,8 +567,12 @@ func (s *currentNodeCompletionExecutionStub) Interrupt(context.Context, workflow
 	return nil
 }
 
-func (*currentNodeCompletionExecutionStub) RunTaskOperation(ctx context.Context, operation func(context.Context) error) error {
-	return operation(ctx)
+func (*currentNodeCompletionExecutionStub) StartTaskOperation(ctx context.Context, operation func(context.Context) error) (<-chan error, error) {
+	done := make(chan error, 1)
+	go func() {
+		done <- operation(context.WithoutCancel(ctx))
+	}()
+	return done, nil
 }
 
 func (*currentNodeCompletionExecutionStub) InterruptForManualMove(context.Context, workflow.TaskID, func() error) error {

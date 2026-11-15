@@ -169,7 +169,7 @@ func (h *supervisorTurnHarness) finishOriginal(t *testing.T) supervisorModelExch
 	handle := h.startHuman(t)
 	h.awaitModel(t, h.main).reply <- supervisorFinalResponse("Done")
 	review := h.awaitModel(t, h.reviewer)
-	if _, err := handle.Wait(h.ctx); err != nil {
+	if err := handle.Wait(h.ctx); err != nil {
 		t.Fatalf("finish original execution: %v", err)
 	}
 	if _, live := h.authority.SessionExecution(h.sessionID); live {
@@ -206,7 +206,7 @@ func TestSupervisorStartedQuestionCanBeInterrupted(t *testing.T) {
 		if interrupted, err := h.authority.InterruptSession(h.ctx, h.sessionID); err != nil || !interrupted {
 			t.Fatalf("interrupt Supervisor question = (%t, %v)", interrupted, err)
 		}
-		if _, err := handle.Wait(h.ctx); !errors.Is(err, context.Canceled) {
+		if err := handle.Wait(h.ctx); !errors.Is(err, context.Canceled) {
 			t.Fatalf("Supervisor execution result = %v, want canceled", err)
 		}
 		select {
@@ -333,7 +333,7 @@ func TestSupervisorTurnStaysMarkedThroughOrdinarySteerAndResetsAtIdle(t *testing
 		t.Fatalf("ordinary steer cleared Supervisor activity: %s", activity)
 	}
 	afterSteer.reply <- supervisorFinalResponse("Verified")
-	if _, err := handle.Wait(h.ctx); err != nil {
+	if err := handle.Wait(h.ctx); err != nil {
 		t.Fatalf("finish Supervisor turn: %v", err)
 	}
 	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
@@ -350,7 +350,7 @@ func TestSupervisorTurnStaysMarkedThroughOrdinarySteerAndResetsAtIdle(t *testing
 	h.awaitModel(t, h.main).reply <- supervisorFinalResponse("Next task complete")
 	nextReview := h.awaitModel(t, h.reviewer)
 	nextReview.reply <- supervisorFinalResponse(`{"suggestions":[]}`)
-	if _, err := next.Wait(h.ctx); err != nil {
+	if err := next.Wait(h.ctx); err != nil {
 		t.Fatalf("finish next ordinary turn: %v", err)
 	}
 	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
@@ -390,7 +390,7 @@ func TestSupervisorFeedbackJoinsBusyHumanExactExecution(t *testing.T) {
 		t.Fatalf("busy Supervisor feedback activity = %s", activity)
 	}
 	withFeedback.reply <- supervisorFinalResponse("Checked")
-	if _, err := second.Wait(h.ctx); err != nil {
+	if err := second.Wait(h.ctx); err != nil {
 		t.Fatalf("finish human execution with Supervisor feedback: %v", err)
 	}
 	h.awaitActivity(t, runtimepb.ReviewerActivity_REVIEWER_ACTIVITY_INACTIVE)
@@ -446,7 +446,7 @@ func TestSupervisorFinalBoundarySteerKeepsQuestionOwned(t *testing.T) {
 		t.Fatalf("answer final-boundary question: %v", err)
 	}
 	h.awaitModel(t, h.main).reply <- supervisorFinalResponse("Verified")
-	if _, err := current.Wait(h.ctx); err != nil {
+	if err := current.Wait(h.ctx); err != nil {
 		t.Fatalf("finish final-boundary continuation: %v", err)
 	}
 	original, err := originalRun.Wait()

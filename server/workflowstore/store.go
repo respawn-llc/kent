@@ -140,7 +140,6 @@ type NodeRecord struct {
 	Kind               workflow.NodeKind
 	DisplayName        string
 	GroupID            *string
-	GroupKey           string
 	SubagentRole       string
 	CompletionMode     string
 	ScriptPath         string
@@ -271,6 +270,7 @@ type CurrentNodeStartContext struct {
 	Node                           NodeRecord
 	CurrentNode                    workflow.CurrentNode
 	EnteringEdge                   workflow.Edge
+	SourceNodeKind                 workflow.NodeKind
 	ContextMode                    workflow.ContextMode
 	SourceSessionID                *runtimeids.SessionID
 	PromptSessionID                *runtimeids.SessionID

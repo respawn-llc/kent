@@ -41,7 +41,6 @@ import { createChatApi } from "./chat";
 import type { ChatTranscriptCompletion } from "./chatTypes";
 import { ContractError, TransportError } from "./errors";
 import { StreamService, MessageSchema } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
-import { ConversationFreshness } from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
 import { TaskReadService, SearchMode } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
 import { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
@@ -185,7 +184,7 @@ describe("RpcWebSocketTransport", () => {
     await socket.setup();
     binaryAck(socket, 1, ServerService.method.getReadiness, { result: readinessResult() });
     expect(readiness).resolves.toMatchObject({
-      outcome: { case: "success", value: { readiness: { serverId: "server-1" } } },
+      outcome: { case: "success", value: { readiness: { ready: true } } },
     });
 
     const concurrentReadiness = callReadiness(transport);
@@ -783,7 +782,6 @@ describe("RpcWebSocketTransport", () => {
               value: {
                 sessionId: "223e4567-e89b-42d3-a456-426614174000",
                 category: SessionCategory.MAIN,
-                conversationFreshness: ConversationFreshness.FRESH,
               },
             },
           },
@@ -803,7 +801,6 @@ describe("RpcWebSocketTransport", () => {
               value: {
                 category: SessionCategory.MAIN,
                 sessionId: sessionID,
-                conversationFreshness: ConversationFreshness.FRESH,
               },
             },
           },
@@ -855,7 +852,6 @@ describe("RpcWebSocketTransport", () => {
               value: {
                 sessionId: sessionID,
                 category: SessionCategory.MAIN,
-                conversationFreshness: ConversationFreshness.FRESH,
               },
             },
           },
@@ -1090,10 +1086,7 @@ function readinessResult() {
       value: {
         readiness: {
           ready: true,
-          serverId: "server-1",
-          serverVersion: "test",
           protocolVersion: "126",
-          endpoint: "ws://127.0.0.1:53082/rpc",
         },
       },
     },

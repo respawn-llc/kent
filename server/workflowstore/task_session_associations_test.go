@@ -2,6 +2,7 @@ package workflowstore
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -70,18 +71,29 @@ func TestContinueSessionUsesRetainedSessionThinkingContract(t *testing.T) {
 			},
 		},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			requireRetainedSessionThinkingContract(t, test.source)
-		})
+		for _, automatic := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/automatic=%v", test.name, automatic), func(t *testing.T) {
+				requireRetainedSessionThinkingContract(t, test.source, automatic)
+			})
+		}
 	}
 }
 
 func requireRetainedSessionThinkingContract(
 	t *testing.T,
 	contextSource workflow.ContextSource,
+	automatic bool,
 ) {
 	t.Helper()
 	ctx, store, binding, cfg := newTestStoreWithConfigContext(t)
+	targetLevels := []string{"low"}
+	retainedLevels := []string{"high", "xhigh"}
+	submittedThinking := "high"
+	if automatic {
+		targetLevels = []string{"low", "medium"}
+		retainedLevels = []string{"high"}
+		submittedThinking = "ignored"
+	}
 	store.roleResolver = completionTargetCatalog{
 		roles: map[string]workflow.TargetAgentRole{
 			"coder": {
@@ -90,7 +102,7 @@ func requireRetainedSessionThinkingContract(
 				Thinking: workflow.ThinkingCapability{
 					ReasoningCapable: true,
 					Finite:           true,
-					Levels:           []string{"low"},
+					Levels:           targetLevels,
 				},
 			},
 			"reviewer": {
@@ -99,7 +111,7 @@ func requireRetainedSessionThinkingContract(
 				Thinking: workflow.ThinkingCapability{
 					ReasoningCapable: true,
 					Finite:           true,
-					Levels:           []string{"high", "xhigh"},
+					Levels:           retainedLevels,
 				},
 			},
 		},
@@ -139,8 +151,8 @@ func requireRetainedSessionThinkingContract(
 				parameter.Key == "thinking"
 		}
 	}
-	if !thinkingParameterPresent {
-		t.Fatalf("retained Session thinking parameter omitted: %+v", startContext.TransitionOptions)
+	if thinkingParameterPresent == automatic {
+		t.Fatalf("retained Session thinking visibility = %v, automatic = %v: %+v", thinkingParameterPresent, automatic, startContext.TransitionOptions)
 	}
 
 	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
@@ -148,13 +160,23 @@ func requireRetainedSessionThinkingContract(
 		TransitionID: "review",
 		OutputValues: map[string]string{
 			"summary":  "plan complete",
-			"thinking": "high",
+			"thinking": submittedThinking,
 		},
 	})
 	if err != nil {
 		t.Fatalf("CompleteCurrentNode with retained Session thinking: %v", err)
 	}
 	target := completed.Mutation.Created[0]
+	if automatic {
+		if value, exists := target.CurrentInputValues["thinking"]; exists {
+			t.Errorf("ignored saved-Session thinking leaked into current inputs: %q", value)
+		}
+		if value, exists := target.PriorValues.TransitionParameter("review", "thinking"); exists {
+			t.Errorf("ignored saved-Session thinking leaked into prior Parameters: %q", value)
+		}
+	} else if value := target.CurrentInputValues["thinking"]; value != "high" {
+		t.Errorf("required saved-Session thinking input = %q, want high", value)
+	}
 	if target.SessionID == nil || *target.SessionID != sessionID {
 		t.Fatalf("target Session = %v, want retained %q", target.SessionID, sessionID)
 	}

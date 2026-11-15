@@ -92,7 +92,7 @@ export async function createAndLinkWorkflowToProject(
       }),
     ),
   );
-  return { workflow: workflowRecord(success.workflow), link: projectWorkflowLink(success.link) };
+  return { workflow: workflowRecord(success.workflow) };
 }
 
 export async function linkWorkflowToProject(transport: RpcTransport, input: WorkflowProjectLinkInput) {

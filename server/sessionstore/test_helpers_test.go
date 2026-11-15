@@ -118,7 +118,7 @@ func cloneTestMeta(meta *Meta) *Meta {
 }
 
 func storeTestMeta(store *Store) Meta {
-	return store.metaSnapshot().meta
+	return store.Meta()
 }
 
 func (p *testSessionMetadata) options() []StoreOption {

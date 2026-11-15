@@ -28,7 +28,6 @@ const board: SelectedWorkflowBoard = {
   selectedWorkflow: workflow,
   workflows: [workflow],
   groups: [],
-  generatedAt: 1,
   columns: [
     {
       id: "node-1",
@@ -76,7 +75,6 @@ it("resumes another Board card while the first Resume remains pending", async ()
     nodeID: "node-1",
     cards,
     nextOffset: null,
-    generatedAt: 1,
   });
   vi.spyOn(services.api, "subscribeProject").mockReturnValue(Stream.never);
   const a = deferred<TaskResumeResponse>();

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 )
 
 const currentEventLogHeaderMaxBytes = 4096
@@ -29,7 +28,6 @@ type currentEventLog struct {
 	boundaryIncomplete bool
 	committedBoundary  bool
 	mode               currentEventLogMode
-	durabilityObserver DurabilityObserver
 }
 
 type EventRecordWindow struct {
@@ -188,16 +186,6 @@ func (l *currentEventLog) appendRecords(records []EventRecord) (endOffset int64,
 		}
 		return info.Size(), nil
 	}
-	appendStarted := time.Now()
-	defer func() {
-		if l.durabilityObserver != nil {
-			l.durabilityObserver.ObserveEventLogAppend(EventLogAppendObservation{
-				RecordCount: len(records),
-				Latency:     time.Since(appendStarted),
-				Succeeded:   resultErr == nil,
-			})
-		}
-	}()
 	expectedSequence := l.lastSequence + 1
 	for index, record := range records {
 		if record.Seq() != expectedSequence {
@@ -286,25 +274,12 @@ func (l *currentEventLog) appendRecords(records []EventRecord) (endOffset int64,
 	if err != nil {
 		return endOffset, err
 	}
-	if err := l.syncAppend(fp); err != nil {
+	if err := fp.Sync(); err != nil {
 		return endOffset, fmt.Errorf("fsync current event log: %w", err)
 	}
 	l.lastSequence = records[len(records)-1].Seq()
 	l.lastCompleteOffset = endOffset
 	return endOffset, nil
-}
-
-func (l *currentEventLog) syncAppend(fp *os.File) (resultErr error) {
-	started := time.Now()
-	defer func() {
-		if l.durabilityObserver != nil {
-			l.durabilityObserver.ObserveEventLogSync(EventLogSyncObservation{
-				Latency:   time.Since(started),
-				Succeeded: resultErr == nil,
-			})
-		}
-	}()
-	return fp.Sync()
 }
 
 func (l *currentEventLog) readSegmentForward(

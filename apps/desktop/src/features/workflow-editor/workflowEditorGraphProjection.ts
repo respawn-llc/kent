@@ -54,20 +54,15 @@ export function resolveGraphValidation(
 
 export function resolveProjectedGraph({
   draftDefinition,
-  graphDirty,
   graphValidation,
   layout,
-  snapshotLayout,
 }: Readonly<{
   draftDefinition: WorkflowDefinition | undefined;
-  graphDirty: boolean;
   graphValidation: WorkflowValidation;
   layout: WorkflowGraphLayout | undefined;
-  snapshotLayout: WorkflowGraphLayout | undefined;
 }>): WorkflowGraphLayout | undefined {
-  const resolvedLayout = layout ?? (graphDirty ? snapshotLayout : undefined);
-  if (resolvedLayout === undefined || draftDefinition === undefined) return resolvedLayout;
-  return workflowGraphLayoutWithDraftProjection(resolvedLayout, draftDefinition, graphValidation);
+  if (layout === undefined || draftDefinition === undefined) return layout;
+  return workflowGraphLayoutWithDraftProjection(layout, draftDefinition, graphValidation);
 }
 
 export function isTopologyDirty(

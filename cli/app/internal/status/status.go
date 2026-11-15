@@ -61,7 +61,6 @@ type Request struct {
 }
 
 type Snapshot struct {
-	CollectedAt               time.Time
 	Workdir                   string
 	SessionName               *string
 	SessionID                 string

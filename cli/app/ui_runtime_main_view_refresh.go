@@ -28,11 +28,6 @@ func (m *uiModel) startRuntimeMainViewRefresh() tea.Cmd {
 	token := m.runtimeMainViewToken
 	client := m.runtimeClient()
 	m.runtimeMainViewBusy = true
-	var metadataBaselineRevision *uint64
-	if sessionClient, ok := client.(*sessionRuntimeClient); ok {
-		revision := sessionClient.mainViewMetadataRevision()
-		metadataBaselineRevision = &revision
-	}
 	return func() tea.Msg {
 		var (
 			view *runtimepb.MainView
@@ -44,10 +39,9 @@ func (m *uiModel) startRuntimeMainViewRefresh() tea.Cmd {
 			view, err = client.RefreshMainView()
 		}
 		return runtimeMainViewRefreshedMsg{
-			token:                    token,
-			metadataBaselineRevision: metadataBaselineRevision,
-			view:                     view,
-			err:                      err,
+			token: token,
+			view:  view,
+			err:   err,
 		}
 	}
 }
@@ -87,7 +81,6 @@ func (m *uiModel) handleRuntimeMainViewRefreshed(msg runtimeMainViewRefreshedMsg
 		canonical = client.mergeMainViewCandidate(
 			msg.view,
 			runtimeTupleIngressAuthoritativeSnapshot,
-			msg.metadataBaselineRevision,
 		).view
 	}
 	applyCmd := m.applyRuntimeMainViewState(canonical)
@@ -104,7 +97,6 @@ func (m *uiModel) applyRuntimeSessionMetadata(session *runtimepb.SessionView) te
 		m.setKnownSessionTarget(nextSessionID)
 	}
 	m.sessionName = session.SessionName
-	m.conversationFreshness = session.ConversationFreshness
 	if previousSessionID == "" || previousSessionID == nextSessionID {
 		return nil
 	}

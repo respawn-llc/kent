@@ -200,18 +200,21 @@ describe("task lifecycle client", () => {
     const previews = [
       {
         response: create(lifecycle.MovePreviewSuccessSchema, { outcome: { case: "direct", value: {} } }),
-        expected: "direct",
+        expected: { outcome: "direct" },
       },
       {
         response: create(lifecycle.MovePreviewSuccessSchema, {
           outcome: { case: "blocked", value: { reason: lifecycle.MovePreviewBlocker.LIFECYCLE_CONFLICT } },
         }),
-        expected: "blocked",
+        expected: {
+          outcome: "blocked",
+          blocked: { reason: lifecycle.MovePreviewBlocker.LIFECYCLE_CONFLICT },
+        },
       },
     ] as const;
     for (const { response, expected } of previews) {
       const result = await previewClient(response).previewMoveTask("task-1", "node-2");
-      expect(result.outcome).toBe(expected);
+      expect(result).toMatchObject(expected);
     }
   });
 

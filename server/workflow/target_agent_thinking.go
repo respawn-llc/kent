@@ -6,20 +6,6 @@ import (
 	"strings"
 )
 
-type TargetAgentThinkingSelectionRequest struct {
-	OverrideEnabled     bool
-	TargetRole          TargetAgentRole
-	EligibleRoles       []TargetAgentRole
-	SubmittedValue      string
-	AuthoredDescription string
-}
-
-type TargetAgentThinkingSelection struct {
-	Value                 string
-	Exposed               bool
-	SubmittedValueIgnored bool
-}
-
 func (c ThinkingCapability) Canonical() ThinkingCapability {
 	c.Levels = canonicalThinkingLevels(c.Levels)
 	return c
@@ -61,61 +47,35 @@ func DefaultTargetAgentThinkingDescription(capability ThinkingCapability) string
 	return "Override the thinking level for the next node, available levels: " + strings.Join(capability.Levels, ", ")
 }
 
-func PlanTargetAgentThinkingSelection(request TargetAgentThinkingSelectionRequest) (TargetAgentThinkingSelection, error) {
-	if !request.OverrideEnabled {
-		return TargetAgentThinkingSelection{Value: strings.TrimSpace(request.TargetRole.ConfiguredThinking)}, nil
+func (p thinkingSelectionPolicy) selectThinking(role TargetAgentRole, enabled bool, submittedValue, authoredDescription string) (*ThinkingValue, error) {
+	if !enabled || !p.applicability.Available {
+		return materializeThinkingValue(role.ConfiguredThinking)
 	}
-	roles := request.EligibleRoles
-	if len(roles) == 0 {
-		roles = []TargetAgentRole{request.TargetRole}
-	}
-	capability := UnionTargetAgentThinkingCapabilities(roles)
-	if !capability.ReasoningCapable {
-		return TargetAgentThinkingSelection{Value: strings.TrimSpace(request.TargetRole.ConfiguredThinking)}, nil
-	}
-	targetCapability := request.TargetRole.Thinking.Canonical()
-	if !capability.Finite {
-		value := strings.TrimSpace(request.SubmittedValue)
-		if value == "" {
-			return TargetAgentThinkingSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorThinkingRequired}
-		}
-		if strings.TrimSpace(request.AuthoredDescription) == "" {
-			return TargetAgentThinkingSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorThinkingDescriptionRequired}
-		}
-		if targetCapability.Finite && !containsThinkingLevel(targetCapability.Levels, value) {
-			return TargetAgentThinkingSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnsupportedThinking, Role: value}
-		}
-		return TargetAgentThinkingSelection{Value: value, Exposed: true}, nil
-	}
-	switch len(capability.Levels) {
-	case 0:
-		return TargetAgentThinkingSelection{
-			Value:                 strings.TrimSpace(request.TargetRole.ConfiguredThinking),
-			SubmittedValueIgnored: strings.TrimSpace(request.SubmittedValue) != "",
-		}, nil
-	case 1:
+	capability := p.capability
+	targetCapability := role.Thinking.Canonical()
+	switch p.applicability.Reason {
+	case SelectorApplicabilityNoThinkingLevels:
+		return materializeThinkingValue(role.ConfiguredThinking)
+	case SelectorApplicabilitySoleThinkingLevel:
 		if targetCapability.Finite && !containsThinkingLevel(targetCapability.Levels, capability.Levels[0]) {
-			return TargetAgentThinkingSelection{
-				Value:                 strings.TrimSpace(request.TargetRole.ConfiguredThinking),
-				SubmittedValueIgnored: strings.TrimSpace(request.SubmittedValue) != "",
-			}, nil
+			return materializeThinkingValue(role.ConfiguredThinking)
 		}
-		return TargetAgentThinkingSelection{
-			Value:                 capability.Levels[0],
-			SubmittedValueIgnored: strings.TrimSpace(request.SubmittedValue) != "",
-		}, nil
+		return materializeThinkingValue(capability.Levels[0])
 	}
-	value := strings.TrimSpace(request.SubmittedValue)
+	value := strings.TrimSpace(submittedValue)
 	if value == "" {
-		return TargetAgentThinkingSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorThinkingRequired}
+		return nil, TargetAgentSelectionError{Code: TargetAgentSelectionErrorThinkingRequired}
 	}
-	if !containsThinkingLevel(capability.Levels, value) {
-		return TargetAgentThinkingSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnsupportedThinking, Role: value}
+	if !capability.Finite && strings.TrimSpace(authoredDescription) == "" {
+		return nil, TargetAgentSelectionError{Code: TargetAgentSelectionErrorThinkingDescriptionRequired}
+	}
+	if capability.Finite && !containsThinkingLevel(capability.Levels, value) {
+		return nil, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnsupportedThinking, Role: value}
 	}
 	if targetCapability.Finite && !containsThinkingLevel(targetCapability.Levels, value) {
-		return TargetAgentThinkingSelection{}, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnsupportedThinking, Role: value}
+		return nil, TargetAgentSelectionError{Code: TargetAgentSelectionErrorUnsupportedThinking, Role: value}
 	}
-	return TargetAgentThinkingSelection{Value: value, Exposed: true}, nil
+	return materializeThinkingValue(value)
 }
 
 func canonicalThinkingLevels(levels []string) []string {

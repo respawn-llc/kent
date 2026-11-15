@@ -16,21 +16,6 @@ import "kent/api/shared/validation.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/session_launch;sessionlaunchpb";
 
-message SessionRuntimePreparationOptions {
-  ConnectionScope connection_scope = 11 [(buf.validate.field).required = true];
-  kent.api.configuration.Settings active_settings = 3 [(buf.validate.field).required = true];
-  repeated kent.api.configuration.ToolID enabled_tool_ids = 4 [(buf.validate.field).repeated.items.enum = {
-    defined_only: true
-    not_in: [0]
-  }];
-  optional bool questions_enabled = 5 [(buf.validate.field).required = true];
-  optional bool auto_compaction_enabled = 6 [(buf.validate.field).required = true];
-  bool thinking_override_explicit = 7;
-  kent.api.configuration.SourceReport source = 8 [(buf.validate.field).required = true];
-  optional SessionRuntimeAgentSelection agent_selection = 9;
-  kent.api.configuration.ToolSelection explicit_tool_selection = 10;
-}
-
 enum SessionLaunchMode {
   SESSION_LAUNCH_MODE_UNSPECIFIED = 0;
   SESSION_LAUNCH_MODE_INTERACTIVE = 1;
@@ -115,48 +100,13 @@ message SessionPlanRequest {
   };
 }
 
-message SessionRuntimeChatSettings {
-  string supervisor = 1 [(buf.validate.field).string.min_len = 1];
-  string thinking = 2 [(buf.validate.field).string.min_len = 1];
-  bool fast = 3;
-  bool questions = 4;
-  bool auto_compaction = 5;
-}
-
-message SessionRuntimeAgentSelection {
-  optional string agent_role = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "kent.session_launch.runtime_agent_selection_nonblank"
-      message: "agent_role must be non-blank when present"
-      expression: "this.trim() != ''"
-    }
-  ];
-  SessionRuntimeChatSettings baseline = 2 [(buf.validate.field).required = true];
-}
-
-message ConnectionScope {
-  option (buf.validate.message).cel = {
-    id: "kent.session_launch.connection_scope"
-    message: "an unavailable role cannot also supply a connection selection"
-    expression: "!has(this.selection) || !has(this.unavailable_role)"
-  };
-  kent.api.auth.ConnectionSelection selection = 1;
-  optional string unavailable_role = 2 [(buf.validate.field).string.min_len = 1];
-}
-
 message SessionPlan {
-  ConnectionScope connection_scope = 15 [(buf.validate.field).required = true];
   optional int64 short_id = 14 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   string session_id = 1 [
     (buf.validate.field).string.uuid = true,
     (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true
   ];
   kent.api.configuration.Settings active_settings = 2 [(buf.validate.field).required = true];
-  repeated kent.api.configuration.ToolID enabled_tool_ids = 3 [(buf.validate.field).repeated.items.enum = {
-    defined_only: true
-    not_in: [0]
-  }];
   optional string configured_model_name = 4 [(buf.validate.field).string.min_len = 1];
   optional string session_name = 5 [
     (buf.validate.field).string.min_len = 1,
@@ -167,12 +117,7 @@ message SessionPlan {
     }
   ];
   bool model_contract_locked = 7;
-  bool questions_enabled = 8;
-  bool auto_compaction_enabled = 9;
-  bool thinking_override_explicit = 10;
   kent.api.configuration.SourceReport source = 11 [(buf.validate.field).required = true];
-  SessionRuntimeAgentSelection activation_agent_selection = 12;
-  kent.api.configuration.ToolSelection explicit_tool_selection = 13;
 }
 
 message SessionPlanSuccess {

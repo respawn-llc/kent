@@ -14,10 +14,9 @@ func registerBuiltinPromptCommands(r *Registry) {
 		}, func(args string) Result {
 			prompt := runtimeinput.NewBuiltinPromptCommand(command, args)
 			return Result{
-				Handled:           true,
-				Action:            ActionNone,
-				PromptCommand:     &prompt,
-				FreshConversation: true,
+				Handled:       true,
+				Action:        ActionNone,
+				PromptCommand: &prompt,
 			}
 		})
 	}
