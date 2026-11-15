@@ -9,6 +9,10 @@ enum {
     KentSpectrumBinCount = 56,
 };
 
+static const float KentSpectrumMinimumDecibels = -100.0f;
+static const float KentSpectrumMaximumDecibels = -30.0f;
+static const float KentSpectrumMinimumMagnitude = 0.00001f;
+
 @interface KentMicrophone : NSObject <AVCaptureAudioDataOutputSampleBufferDelegate, AVAssetWriterDelegate>
 {
     vDSP_DFT_Setup _spectrumSetup;
@@ -134,8 +138,10 @@ enum {
     for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
         NSUInteger frequency = index + 1;
         float magnitude = hypotf(_outputReal[frequency], _outputImaginary[frequency]) / _windowSum;
-        float decibels = 20.0f * log10f(MAX(magnitude, 0.00025118864f));
-        float scaled = (decibels + 72.0f) * (255.0f / 54.0f);
+        float decibels = 20.0f * log10f(MAX(magnitude, KentSpectrumMinimumMagnitude));
+        float scaled =
+            (decibels - KentSpectrumMinimumDecibels) *
+            (255.0f / (KentSpectrumMaximumDecibels - KentSpectrumMinimumDecibels));
         _frequencyBins[index] = (uint8_t)lrintf(MIN(255.0f, MAX(0.0f, scaled)));
     }
     _sampleCount = 0;
