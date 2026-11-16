@@ -1,7 +1,9 @@
 package taskimport
 
 import (
+	"core/shared/protoapi"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
+	"google.golang.org/protobuf/proto"
 	"testing"
 )
 
@@ -18,6 +20,32 @@ func TestIssueURL(t *testing.T) {
 	}
 }
 
+func TestImportNumericBounds(t *testing.T) {
+	const maximum = 9007199254740991
+	for _, test := range []struct {
+		name    string
+		message proto.Message
+		valid   bool
+	}{
+		{"number maximum", &taskimportpb.Reference{Value: &taskimportpb.Reference_Number{Number: maximum}}, true},
+		{"number overflow", &taskimportpb.Reference{Value: &taskimportpb.Reference_Number{Number: maximum + 1}}, false},
+		{"range maximum", &taskimportpb.NumberRange{First: maximum, Last: maximum}, true},
+		{"range first overflow", &taskimportpb.NumberRange{First: maximum + 1, Last: maximum + 1}, false},
+		{"range last overflow", &taskimportpb.NumberRange{First: 1, Last: maximum + 1}, false},
+		{"zero counts", &taskimportpb.Success{}, true},
+		{"maximum counts", &taskimportpb.Success{Created: maximum, Skipped: maximum, Failed: maximum}, true},
+		{"created overflow", &taskimportpb.Success{Created: maximum + 1}, false},
+		{"skipped overflow", &taskimportpb.Success{Skipped: maximum + 1}, false},
+		{"failed overflow", &taskimportpb.Success{Failed: maximum + 1}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := protoapi.Validate(test.message); (err == nil) != test.valid {
+				t.Fatalf("valid=%v error=%v", test.valid, err)
+			}
+		})
+	}
+}
+
 func TestReferencesExpandIncrementally(t *testing.T) {
 	references := []*taskimportpb.Reference{
 		{Value: &taskimportpb.Reference_Number{Number: 2}},
@@ -30,7 +58,7 @@ func TestReferencesExpandIncrementally(t *testing.T) {
 	if len(numbers) != 4 || numbers[0] != 2 || numbers[1] != 4 || numbers[3] != 6 {
 		t.Fatalf("unexpected references: %v", numbers)
 	}
-	for ref := range individualReferences([]*taskimportpb.Reference{{Value: &taskimportpb.Reference_Range{Range: &taskimportpb.NumberRange{First: 1, Last: 1 << 62}}}}) {
+	for ref := range individualReferences([]*taskimportpb.Reference{{Value: &taskimportpb.Reference_Range{Range: &taskimportpb.NumberRange{First: 1, Last: 9007199254740991}}}}) {
 		if ref.GetNumber() != 1 {
 			t.Fatal(ref)
 		}

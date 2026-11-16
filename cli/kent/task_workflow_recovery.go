@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"core/shared/config"
+	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
 )
@@ -41,6 +43,11 @@ type taskCreateCommandContext struct {
 	JSON               bool
 }
 
+type taskImportCommandContext struct {
+	Request   *taskimportpb.Request
+	SourceURL string
+}
+
 type taskWorkflowRecoveryKind uint8
 
 const (
@@ -60,6 +67,7 @@ const (
 	taskWorkflowRecoveryCommandListProjectWorkflows taskWorkflowRecoveryCommandKind = "list_project_workflows"
 	taskWorkflowRecoveryCommandRetryTaskList        taskWorkflowRecoveryCommandKind = "retry_task_list"
 	taskWorkflowRecoveryCommandRetryTaskCreate      taskWorkflowRecoveryCommandKind = "retry_task_create"
+	taskWorkflowRecoveryCommandRetryTaskImport      taskWorkflowRecoveryCommandKind = "retry_task_import"
 	taskWorkflowRecoveryCommandLinkSelectedWorkflow taskWorkflowRecoveryCommandKind = "link_selected_workflow"
 	taskWorkflowRecoveryCommandSetDefaultWorkflow   taskWorkflowRecoveryCommandKind = "set_default_workflow"
 )
@@ -88,6 +96,7 @@ type taskWorkflowRecoveryContext struct {
 	selectedWorkflowID *runtimeids.WorkflowID
 	list               *taskListCommandContext
 	create             *taskCreateCommandContext
+	importTask         *taskImportCommandContext
 }
 
 func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, commandContext taskListCommandContext) (taskWorkflowRecovery, error) {
@@ -117,25 +126,46 @@ func taskListRecoveryForScopeError(scopeErr *taskpb.ListScopeErrorDetails, comma
 }
 
 func taskCreateRecoveryForSelectionError(createErr *taskpb.CreateSelectionDetails, commandContext taskCreateCommandContext) (taskWorkflowRecovery, error) {
-	kind, err := taskCreateRecoveryKind(createErr.Reason)
+	failure, err := taskWorkflowSelectionFailure(createErr)
 	if err != nil {
 		return taskWorkflowRecovery{}, err
 	}
-	var workflowID *runtimeids.WorkflowID
-	if createErr.WorkflowId != nil {
-		value, err := runtimeids.WorkflowIDFromProto(*createErr.WorkflowId)
-		if err != nil {
-			return taskWorkflowRecovery{}, err
-		}
-		workflowID = &value
-	}
-	failure := taskWorkflowRecoveryFailure{kind: kind, projectID: createErr.ProjectId, workflowID: workflowID}
 	return taskWorkflowRecoveryForFailure(failure, taskWorkflowRecoveryContext{
 		projectRef:         commandContext.ProjectRef,
 		resolvedProjectID:  commandContext.ResolvedProjectID,
 		selectedWorkflowID: commandContext.SelectedWorkflowID,
 		create:             &commandContext,
 	})
+}
+
+func taskImportRecoveryForSelectionError(selection *taskpb.CreateSelectionDetails, commandContext taskImportCommandContext) (taskWorkflowRecovery, error) {
+	if commandContext.Request == nil || commandContext.SourceURL == "" {
+		return taskWorkflowRecovery{}, errors.New("import recovery requires its request and resolved source URL")
+	}
+	failure, err := taskWorkflowSelectionFailure(selection)
+	if err != nil {
+		return taskWorkflowRecovery{}, err
+	}
+	return taskWorkflowRecoveryForFailure(failure, taskWorkflowRecoveryContext{
+		projectRef: failure.projectID, resolvedProjectID: failure.projectID,
+		selectedWorkflowID: failure.workflowID, importTask: &commandContext,
+	})
+}
+
+func taskWorkflowSelectionFailure(createErr *taskpb.CreateSelectionDetails) (taskWorkflowRecoveryFailure, error) {
+	kind, err := taskCreateRecoveryKind(createErr.Reason)
+	if err != nil {
+		return taskWorkflowRecoveryFailure{}, err
+	}
+	var workflowID *runtimeids.WorkflowID
+	if createErr.WorkflowId != nil {
+		value, err := runtimeids.WorkflowIDFromProto(*createErr.WorkflowId)
+		if err != nil {
+			return taskWorkflowRecoveryFailure{}, err
+		}
+		workflowID = &value
+	}
+	return taskWorkflowRecoveryFailure{kind: kind, projectID: createErr.ProjectId, workflowID: workflowID}, nil
 }
 
 func taskListRecoveryKind(reason taskpb.ListScopeErrorReason) (taskWorkflowRecoveryKind, error) {
@@ -168,7 +198,13 @@ func taskWorkflowRecoveryForFailure(failure taskWorkflowRecoveryFailure, command
 	if strings.TrimSpace(commandContext.projectRef) == "" || strings.TrimSpace(commandContext.resolvedProjectID) == "" {
 		return taskWorkflowRecovery{}, errors.New("task workflow recovery requires project context")
 	}
-	if (commandContext.list == nil) == (commandContext.create == nil) {
+	contextCount := 0
+	for _, present := range []bool{commandContext.list != nil, commandContext.create != nil, commandContext.importTask != nil} {
+		if present {
+			contextCount++
+		}
+	}
+	if contextCount != 1 {
 		return taskWorkflowRecovery{}, errors.New("task workflow recovery requires exactly one command context")
 	}
 	if failure.projectID != commandContext.resolvedProjectID {
@@ -215,7 +251,7 @@ func taskWorkflowRecoveryForFailure(failure taskWorkflowRecoveryFailure, command
 			commandContext.retryCommandForWorkflowPlaceholder(),
 		}
 	case taskWorkflowRecoveryAmbiguousWithoutDefault:
-		if commandContext.create == nil || selectedWorkflowID != nil {
+		if (commandContext.create == nil && commandContext.importTask == nil) || selectedWorkflowID != nil {
 			return taskWorkflowRecovery{}, errors.New("ambiguous recovery requires task create context without a selected workflow")
 		}
 		recovery.Commands = []taskWorkflowRecoveryCommand{
@@ -269,9 +305,45 @@ func (c taskWorkflowRecoveryContext) retryCommandForWorkflowSelector(selector ta
 			Args: taskListRetryCommandArgsForSelector(*c.list, selector),
 		}
 	}
+	if c.importTask != nil {
+		args := []string{config.Command, "task", "import", c.importTask.SourceURL, "--project", c.projectRef}
+		if selector != nil {
+			args = selector.appendCLIArgs(args)
+		}
+		request := c.importTask.Request
+		if request.SourceWorkspace != nil {
+			args = append(args, "--source-workspace", *request.SourceWorkspace)
+		}
+		if request.CreateLabels {
+			args = append(args, "--labels")
+		}
+		if request.Mode == taskimportpb.ImportMode_IMPORT_MODE_FORCE_CREATE {
+			args = append(args, "--force")
+		}
+		return taskWorkflowRecoveryCommand{Kind: taskWorkflowRecoveryCommandRetryTaskImport, Args: args}
+	}
 	return taskWorkflowRecoveryCommand{
 		Kind: taskWorkflowRecoveryCommandRetryTaskCreate,
 		Args: taskCreateRetryCommandArgsForSelector(*c.create, selector),
+	}
+}
+
+func writeTaskWorkflowSelectionRecovery(stderr io.Writer, recovery taskWorkflowRecovery) {
+	switch recovery.Kind {
+	case taskWorkflowRecoveryNoLinkedWorkflows:
+		fmt.Fprintln(stderr, "This project doesn't have any linked workflows yet. First, create a workflow or link an existing one, then retry.")
+	case taskWorkflowRecoveryWorkflowNotLinked:
+		fmt.Fprintln(stderr, "The selected workflow isn't linked to this project.")
+	case taskWorkflowRecoveryAmbiguousWithoutDefault:
+		fmt.Fprintf(
+			stderr,
+			"Tasks need both a project and a workflow binding, but your input leaves workflow choice ambiguous. Run `%s`, then retry with `--workflow <uuid>` or set a default with `%s`.\n",
+			commandString(recovery.Commands[0].Args),
+			commandString(recovery.Commands[2].Args),
+		)
+	}
+	for _, command := range recovery.Commands {
+		fmt.Fprintf(stderr, "  %s\n", commandString(command.Args))
 	}
 }
 

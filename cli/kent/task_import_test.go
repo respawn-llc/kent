@@ -3,13 +3,85 @@ package main
 import (
 	"bytes"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"encoding/json"
 	"errors"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"testing"
 )
+
+func TestImportJSONPreservesWorkflowSelection(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	output := importOutput{stdout: &stdout, stderr: &stderr, json: true}
+	expected := &taskpb.CreateSelectionDetails{
+		ProjectId: "project", Reason: taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_AMBIGUOUS_WITHOUT_DEFAULT,
+	}
+	output.PublishTaskImportProgress(&taskimportpb.ProgressEvent{Payload: &taskimportpb.ProgressEvent_Item{Item: &taskimportpb.Item{
+		Outcome: &taskimportpb.Item_Failed{Failed: &taskimportpb.Failure{
+			Code:  taskimportpb.FailureCode_FAILURE_CODE_WORKFLOW_SELECTION,
+			Phase: taskimportpb.FailurePhase_FAILURE_PHASE_CREATION, Diagnostic: "selection failed", WorkflowSelection: expected,
+		}},
+	}}})
+	if output.finish(&taskimportpb.Success{Failed: 1}, nil) != 1 {
+		t.Fatal("selection failure succeeded")
+	}
+	var document struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Results) != 1 {
+		t.Fatalf("%+v", document)
+	}
+	item := &taskimportpb.Item{}
+	if err := protojson.Unmarshal(document.Results[0], item); err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(item.GetFailed().GetWorkflowSelection(), expected) {
+		t.Fatalf("%+v", item)
+	}
+}
+
+func TestImportWorkflowSelectionRecovery(t *testing.T) {
+	for _, reason := range []taskpb.CreateSelectionReason{
+		taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS,
+		taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_WORKFLOW_NOT_LINKED,
+		taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_AMBIGUOUS_WITHOUT_DEFAULT,
+	} {
+		details := &taskpb.CreateSelectionDetails{Reason: reason, ProjectId: "project"}
+		if reason == taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_WORKFLOW_NOT_LINKED {
+			details.WorkflowId = proto.String("2049d357-432c-4a59-b128-24e732458b74")
+		}
+		request := &taskimportpb.Request{Mode: taskimportpb.ImportMode_IMPORT_MODE_FORCE_CREATE, CreateLabels: true, SourceWorkspace: proto.String("workspace")}
+		recovery, err := taskImportRecoveryForSelectionError(details, taskImportCommandContext{
+			Request: request, SourceURL: "https://github.com/owner/repo/issues/1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		commands := map[taskWorkflowRecoveryCommandKind]bool{}
+		for _, command := range recovery.Commands {
+			commands[command.Kind] = true
+			if command.Kind == taskWorkflowRecoveryCommandRetryTaskImport && (len(command.Args) < 4 || command.Args[2] != "import" || command.Args[3] != "https://github.com/owner/repo/issues/1") {
+				t.Fatalf("incorrect import retry: %+v", command)
+			}
+		}
+		if !commands[taskWorkflowRecoveryCommandRetryTaskImport] {
+			t.Fatalf("missing import guidance: %+v", recovery)
+		}
+		if reason == taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS {
+			if !commands[taskWorkflowRecoveryCommandCreateWorkflow] || !commands[taskWorkflowRecoveryCommandLinkExistingWorkflow] {
+				t.Fatalf("%+v", recovery)
+			}
+		} else if !commands[taskWorkflowRecoveryCommandListProjectWorkflows] {
+			t.Fatalf("%+v", recovery)
+		}
+	}
+}
 
 func TestImportJSONReportsKnownFailure(t *testing.T) {
 	var stdout, stderr bytes.Buffer

@@ -8,6 +8,7 @@ import "kent/api/auth/auth.proto";
 import "kent/api/server/server.proto";
 import "kent/api/shared/foundation.proto";
 import "kent/api/shared/validation.proto";
+import "kent/api/workflow_task/lifecycle.proto";
 
 option go_package = "core/shared/protoapi/gen/kent/api/task_import;taskimportpb";
 
@@ -18,8 +19,8 @@ enum ImportMode {
 }
 
 message NumberRange {
-  int64 first = 1 [(buf.validate.field).int64.gt = 0];
-  int64 last = 2 [(buf.validate.field).int64.gt = 0];
+  int64 first = 1 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
+  int64 last = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
   option (buf.validate.message).cel = {
     id: "kent.task_import.ascending_range"
     message: "range end must not precede its start"
@@ -31,7 +32,7 @@ message Reference {
   oneof value {
     option (buf.validate.oneof).required = true;
     string issue_url = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
-    int64 number = 2 [(buf.validate.field).int64.gt = 0];
+    int64 number = 2 [(buf.validate.field).int64 = {gt: 0 lte: 9007199254740991}];
     NumberRange range = 3;
   }
 }
@@ -84,6 +85,7 @@ enum FailureCode {
   FAILURE_CODE_RATE_LIMIT = 5;
   FAILURE_CODE_INTERNAL = 6;
   FAILURE_CODE_PULL_REQUEST = 7;
+  FAILURE_CODE_WORKFLOW_SELECTION = 8;
 }
 
 message Failure {
@@ -91,6 +93,12 @@ message Failure {
   FailureCode code = 2 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
   string diagnostic = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
   optional int32 http_status = 4 [(buf.validate.field).int32 = {gte: 100 lte: 599}];
+  kent.api.workflow_task.CreateSelectionDetails workflow_selection = 5;
+  option (buf.validate.message).cel = {
+    id: "kent.task_import.workflow_selection_detail"
+    message: "workflow-selection failures require their typed selection detail"
+    expression: "(this.code == 8) == has(this.workflow_selection)"
+  };
 }
 
 message Item {
@@ -116,9 +124,9 @@ message ProgressEvent {
 }
 
 message Success {
-  uint64 created = 1;
-  uint64 skipped = 2;
-  uint64 failed = 3;
+  uint64 created = 1 [(buf.validate.field).uint64.lte = 9007199254740991];
+  uint64 skipped = 2 [(buf.validate.field).uint64.lte = 9007199254740991];
+  uint64 failed = 3 [(buf.validate.field).uint64.lte = 9007199254740991];
 }
 
 message Error {

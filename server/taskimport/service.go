@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"core/server/metadata"
+	"core/server/workflowstore"
+	"core/server/workflowview"
 	worktree "core/server/worktreeservice"
 	"core/shared/apicontract"
 	"core/shared/labelcontract"
@@ -37,6 +39,17 @@ func failureDetail(err error, phase taskimportpb.FailurePhase) *taskimportpb.Fai
 		return failure.Detail
 	}
 	code := taskimportpb.FailureCode_FAILURE_CODE_INTERNAL
+	var selection workflowstore.TaskWorkflowSelectionError
+	if errors.As(err, &selection) {
+		detail, projectionErr := workflowview.TaskCreateSelectionFailure(selection)
+		if projectionErr == nil {
+			return &taskimportpb.Failure{
+				Code:  taskimportpb.FailureCode_FAILURE_CODE_WORKFLOW_SELECTION,
+				Phase: phase, Diagnostic: err.Error(), WorkflowSelection: detail,
+			}
+		}
+		err = errors.Join(err, projectionErr)
+	}
 	var ambiguous serverapi.WorkspaceBindingAmbiguousError
 	if errors.As(err, &ambiguous) {
 		code = taskimportpb.FailureCode_FAILURE_CODE_AMBIGUOUS
@@ -96,6 +109,9 @@ func (s *Service) ImportTasks(ctx context.Context, request *taskimportpb.Request
 	}
 	result := &taskimportpb.Success{}
 	for ref := range individualReferences(request.References) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		item := &taskimportpb.Item{Reference: ref, ProjectId: &projectID, Warnings: warnings}
 		resolved, err := s.resolveReference(ctx, request, projectID, ref, explicit)
 		if err != nil {

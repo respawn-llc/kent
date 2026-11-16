@@ -6,6 +6,7 @@ import (
 
 	"core/server/workflow"
 	"core/server/workflowstore"
+	"core/server/workflowview"
 	"core/shared/apicontract"
 	"core/shared/protoapi"
 	definitionpb "core/shared/protoapi/gen/kent/api/workflow_definition"
@@ -242,21 +243,9 @@ func binaryTaskCreateFailure(request *taskpb.CreateRequest, err error) proto.Mes
 	var dependency workflow.TaskDependencyPolicyError
 	switch {
 	case errors.As(err, &selection):
-		var reason taskpb.CreateSelectionReason
-		switch selection.Reason {
-		case workflowstore.TaskWorkflowSelectionNoLinkedWorkflows:
-			reason = taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS
-		case workflowstore.TaskWorkflowSelectionWorkflowNotLinked:
-			reason = taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_WORKFLOW_NOT_LINKED
-		case workflowstore.TaskWorkflowSelectionAmbiguousWithoutDefault:
-			reason = taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_AMBIGUOUS_WITHOUT_DEFAULT
-		default:
-			return binaryInternalFailure(err)
-		}
-		detail := &taskpb.CreateSelectionDetails{Reason: reason, ProjectId: selection.ProjectID}
-		if selection.WorkflowID != nil {
-			value := selection.WorkflowID.String()
-			detail.WorkflowId = &value
+		detail, projectionErr := workflowview.TaskCreateSelectionFailure(selection)
+		if projectionErr != nil {
+			return binaryInternalFailure(errors.Join(err, projectionErr))
 		}
 		return detail
 	case errors.As(err, &conflict) && conflict.Reason == workflowstore.TaskCreateConflictSerialization:

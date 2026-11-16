@@ -1,12 +1,15 @@
 package taskimport
 
 import (
+	"compress/gzip"
 	"core/internal/testharness/httpclient"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
 	"core/shared/serverapi"
 	"encoding/json"
 	"errors"
+	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/proto"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,15 +56,38 @@ func TestCommentsArePaged(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		var encoded io.WriteCloser
+		if r.URL.Query().Get("page") == "1" {
+			w.Header().Set("Content-Encoding", "gzip")
+			encoded = gzip.NewWriter(w)
+		} else {
+			w.Header().Set("Content-Encoding", "zstd")
+			var err error
+			encoded, err = zstd.NewWriter(w)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+		defer func() {
+			if err := encoded.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
 		if r.URL.Query().Get("page") == "1" {
 			values := make([]githubComment, 100)
 			for i := range values {
 				values[i].Body = "    code"
 				values[i].User.Login = "author"
 			}
-			json.NewEncoder(w).Encode(values)
+			if err := json.NewEncoder(encoded).Encode(values); err != nil {
+				t.Error(err)
+			}
 		} else {
-			json.NewEncoder(w).Encode([]githubComment{{Body: "last"}})
+			if err := json.NewEncoder(encoded).Encode([]githubComment{{Body: "last"}}); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()

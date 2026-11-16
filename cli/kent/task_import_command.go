@@ -110,7 +110,7 @@ func taskImportSubcommand(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		request.Credentials = candidates
-		output := &importOutput{stdout: stdout, stderr: stderr, json: *jsonOutput}
+		output := &importOutput{stdout: stdout, stderr: stderr, json: *jsonOutput, request: request}
 		result, err := remote.ImportTasks(context.Background(), request, output)
 		return output.finish(result, err)
 	})

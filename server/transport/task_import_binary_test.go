@@ -5,6 +5,7 @@ import (
 	"core/shared/apicontract"
 	remoteclient "core/shared/client"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
+	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/rpcwire"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -28,7 +29,15 @@ func (importOutcomeFixture) ImportTasks(_ context.Context, request *taskimportpb
 		Task:      &taskimportpb.TaskIdentity{TaskId: "task-2049d357-432c-4a59-b128-24e732458b74", ShortId: "IMP-1", ProjectId: "project"},
 		Outcome:   &taskimportpb.Item_Created{Created: &emptypb.Empty{}},
 	}}})
-	return &taskimportpb.Success{Created: 1}, nil
+	sink.PublishTaskImportProgress(&taskimportpb.ProgressEvent{Payload: &taskimportpb.ProgressEvent_Item{Item: &taskimportpb.Item{
+		Reference: request.References[0],
+		Outcome: &taskimportpb.Item_Failed{Failed: &taskimportpb.Failure{
+			Code:  taskimportpb.FailureCode_FAILURE_CODE_WORKFLOW_SELECTION,
+			Phase: taskimportpb.FailurePhase_FAILURE_PHASE_CREATION, Diagnostic: "selection failed",
+			WorkflowSelection: &taskpb.CreateSelectionDetails{Reason: taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS, ProjectId: "project"},
+		}},
+	}}})
+	return &taskimportpb.Success{Created: 1, Failed: 1}, nil
 }
 func TestImportBinaryStructuredProgress(t *testing.T) {
 	appCore, _ := newGatewayTestCore(t, true, true)
@@ -49,7 +58,11 @@ func TestImportBinaryStructuredProgress(t *testing.T) {
 		Cwd: t.TempDir(), Mode: taskimportpb.ImportMode_IMPORT_MODE_SKIP_EXISTING,
 		References: []*taskimportpb.Reference{{Value: &taskimportpb.Reference_Number{Number: 1}}},
 	}, serverapi.TaskImportProgressFunc(func(event *taskimportpb.ProgressEvent) { events = append(events, event) }))
-	if err != nil || result.Created != 1 || len(events) != 2 || events[0].GetAccount().Login != "account" || events[1].GetItem().GetCreated() == nil || events[1].GetItem().Task.TaskId != "task-2049d357-432c-4a59-b128-24e732458b74" {
+	if err != nil || result.Created != 1 || result.Failed != 1 || len(events) != 3 || events[0].GetAccount().Login != "account" || events[1].GetItem().GetCreated() == nil || events[1].GetItem().Task.TaskId != "task-2049d357-432c-4a59-b128-24e732458b74" {
 		t.Fatalf("%+v %+v %v", result, events, err)
+	}
+	selection := events[2].GetItem().GetFailed().GetWorkflowSelection()
+	if selection == nil || selection.Reason != taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS || selection.ProjectId != "project" {
+		t.Fatalf("lost Workflow selection: %+v", events[2])
 	}
 }

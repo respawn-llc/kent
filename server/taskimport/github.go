@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"core/server/httpcompression"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
 	"core/shared/serverapi"
 )
@@ -44,12 +45,12 @@ type githubReader struct {
 }
 
 func newGitHubReader(client *http.Client, token *string) *githubReader {
-	configured := *client
+	configured := httpcompression.NewClient(client)
 	configured.Timeout = 30 * time.Second
 	configured.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &githubReader{client: &configured, token: token}
+	return &githubReader{client: configured, token: token}
 }
 
 func (g *githubReader) get(ctx context.Context, path string, phase taskimportpb.FailurePhase, target any) error {

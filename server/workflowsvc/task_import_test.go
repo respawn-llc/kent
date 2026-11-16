@@ -170,6 +170,61 @@ type failOnceImportDetail struct {
 	failed bool
 }
 
+func TestImportPreservesWorkflowSelection(t *testing.T) {
+	for _, reason := range []taskpb.CreateSelectionReason{
+		taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_NO_LINKED_WORKFLOWS,
+		taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_WORKFLOW_NOT_LINKED,
+		taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_AMBIGUOUS_WITHOUT_DEFAULT,
+	} {
+		t.Run(reason.String(), func(t *testing.T) {
+			ctx, service, binding, store := newWorkflowServiceTestContextWithMetadata(t)
+			request := &taskimportpb.Request{
+				Cwd: binding.CanonicalRoot, Project: proto.String(binding.ProjectID),
+				Mode:       taskimportpb.ImportMode_IMPORT_MODE_SKIP_EXISTING,
+				References: []*taskimportpb.Reference{{Value: &taskimportpb.Reference_IssueUrl{IssueUrl: "https://github.com/owner/repo/issues/1"}}},
+			}
+			switch reason {
+			case taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_WORKFLOW_NOT_LINKED:
+				request.WorkflowId = proto.String(createWorkflowServiceValidWorkflow(t, ctx, service).String())
+			case taskpb.CreateSelectionReason_CREATE_SELECTION_REASON_AMBIGUOUS_WITHOUT_DEFAULT:
+				for range 2 {
+					id := createWorkflowServiceValidWorkflow(t, ctx, service)
+					linkWorkflowServiceProject(t, ctx, service, &workflowpb.LinkProjectRequest{
+						ProjectId: binding.ProjectID, WorkflowId: id.String(),
+						DefaultPolicy: workflowpb.ProjectLinkDefaultMode_WORKFLOW_PROJECT_LINK_DEFAULT_MODE_NEVER.Enum(),
+					})
+				}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/owner/repo/issues/1":
+					json.NewEncoder(w).Encode(map[string]any{"title": "Issue", "user": map[string]string{"login": "author"}})
+				case "/repos/owner/repo/issues/1/issue-field-values":
+					w.Write([]byte("[]"))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			target, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			importer := taskimport.New(store, service, worktree.NewGitInspector(nil), &http.Client{Transport: httpclient.NewURLRewriteTransport(target, http.DefaultTransport, "")}, func(string) (string, bool) { return "", false })
+			t.Setenv("PATH", t.TempDir())
+			var item *taskimportpb.Item
+			result, err := importer.ImportTasks(ctx, request, serverapi.TaskImportProgressFunc(func(event *taskimportpb.ProgressEvent) { item = event.GetItem() }))
+			if err != nil || result.Failed != 1 || item.Task != nil {
+				t.Fatalf("%+v %+v %v", result, item, err)
+			}
+			selection := item.GetFailed().GetWorkflowSelection()
+			if selection == nil || selection.Reason != reason || selection.ProjectId != binding.ProjectID || !proto.Equal(&taskpb.CreateSelectionDetails{WorkflowId: selection.WorkflowId}, &taskpb.CreateSelectionDetails{WorkflowId: request.WorkflowId}) {
+				t.Fatalf("lost selection facts: %+v", item)
+			}
+		})
+	}
+}
+
 func (d *failOnceImportDetail) GetTask(ctx context.Context, id string) (*taskpb.TaskDetail, error) {
 	if !d.failed {
 		d.failed = true

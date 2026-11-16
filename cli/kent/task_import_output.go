@@ -20,6 +20,7 @@ type importOutput struct {
 	started  bool
 	hasItem  bool
 	writeErr error
+	request  *taskimportpb.Request
 }
 
 func (o *importOutput) write(value string) {
@@ -83,7 +84,17 @@ func (o *importOutput) PublishTaskImportProgress(event *taskimportpb.ProgressEve
 	case *taskimportpb.Item_Skipped:
 		o.write(fmt.Sprintf("Skipped%s ← %s\n", task, source))
 	case *taskimportpb.Item_Failed:
-		o.write(fmt.Sprintf("Failed%s ← %s [%s]: %s\n", task, source, importPhaseLabel(outcome.Failed.Phase), outcome.Failed.Diagnostic))
+		if selection := outcome.Failed.GetWorkflowSelection(); selection != nil {
+			o.write(fmt.Sprintf("Failed%s ← %s [%s]\n", task, source, importPhaseLabel(outcome.Failed.Phase)))
+			recovery, err := taskImportRecoveryForSelectionError(selection, taskImportCommandContext{Request: o.request, SourceURL: item.GetSourceUrl()})
+			if err != nil {
+				fmt.Fprintln(o.stderr, err)
+			} else {
+				writeTaskWorkflowSelectionRecovery(o.stderr, recovery)
+			}
+		} else {
+			o.write(fmt.Sprintf("Failed%s ← %s [%s]: %s\n", task, source, importPhaseLabel(outcome.Failed.Phase), outcome.Failed.Diagnostic))
+		}
 	}
 	for _, warning := range item.Warnings {
 		fmt.Fprintln(o.stderr, warning)
