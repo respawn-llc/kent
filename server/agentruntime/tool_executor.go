@@ -290,9 +290,6 @@ func (e *Engine) executePreparedToolCall(
 		ctx,
 		toolCall,
 	)
-	if toolID != toolspec.ToolAskQuestion && approvalLifecycle.CountsAsToolActivity() {
-		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
-	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) &&
 			ctx.Err() != nil &&
@@ -302,6 +299,9 @@ func (e *Engine) executePreparedToolCall(
 		if !toolResultHasCompletedOutcome(result) {
 			result = toolErrorResult(toolCall, err.Error())
 		}
+	}
+	if toolID != toolspec.ToolAskQuestion && approvalLifecycle.CountsAsToolActivity() {
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 	}
 	result.CallID = call.ID
 	result.Name = toolID

@@ -57,6 +57,39 @@ func TestOrdinaryToolCompletionRecordsActivity(t *testing.T) {
 	}
 }
 
+func TestInterruptedToolWithoutCompletedOutcomeDoesNotRecordActivity(t *testing.T) {
+	store := mustCreateTestSession(t)
+	prior := time.Now().Add(-2 * time.Hour)
+	if err := store.RecordAgentActivity(prior); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{}, 1)
+	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t, tools.HandlerRegistration{
+		ID: toolspec.ToolPatch, Handler: &orderedCancellationTool{started: started},
+	}), Config{Model: "gpt-6-sol"})
+	stepID := runtimeTestStepID("interrupted activity")
+	restore := setTestActiveStep(engine, stepID)
+	defer restore()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := engine.executeToolCalls(ctx, stepID, []llm.ToolCall{{
+			ID: "interrupted", Name: string(toolspec.ToolPatch),
+			Custom: true, CustomInput: textutil.Value("pending"),
+		}})
+		done <- err
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("interrupted execution error = %v", err)
+	}
+	if activity := store.ContextFacts().LastAgentActivityAt; activity == nil || !activity.Equal(prior) {
+		t.Fatalf("interrupted activity = %v, want unchanged %v", activity, prior)
+	}
+}
+
 func TestModelActivityIncludesSilentResponsesAndExcludesFailures(t *testing.T) {
 	for _, test := range []struct {
 		name     string
