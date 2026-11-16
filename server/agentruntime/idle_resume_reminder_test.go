@@ -306,6 +306,56 @@ func TestWorkflowResumeChecksIdleWithoutHumanInput(t *testing.T) {
 	}
 }
 
+func TestFreshGoalStartExcludesIdleReminder(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{finalTextResponse("done")}}
+	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{
+		Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
+		IdleResumeReminderSeconds: textutil.Value(3600),
+	})
+	if _, err := engine.SetGoal(t.Context(), "finish the work", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(2 * time.Hour)
+	engine.transcriptRuntimeState().now = func() time.Time { return now }
+	if _, err := engine.runGoalTurn(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model requests = %d", len(client.calls))
+	}
+	if got := idleReminderCount(client.calls[0]); got != 0 {
+		t.Fatalf("fresh Goal reminders = %d", got)
+	}
+}
+
+func TestFreshWorkflowPromptExcludesIdleReminder(t *testing.T) {
+	store := mustCreateTestSession(t)
+	client := &fakeClient{responses: []llm.Response{
+		commentaryResponse("complete", completeNodeCall("complete", json.RawMessage(`{"commentary":"complete","summary":"done"}`))),
+	}}
+	engine := mustNewWorkflowTestEngine(t, store, client, testWorkflowConfig(&fakeWorkflowController{}, config.WorkflowCompletionModeTool),
+		Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}, IdleResumeReminderSeconds: textutil.Value(3600)})
+	steer, err := engine.SteerWorkflowAssignment(workflowAssignmentForCompactionTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := steer.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(2 * time.Hour)
+	engine.transcriptRuntimeState().now = func() time.Time { return now }
+	if _, err := engine.SubmitWorkflowTurn(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.calls) != 1 {
+		t.Fatalf("model requests = %d", len(client.calls))
+	}
+	if got := idleReminderCount(client.calls[0]); got != 0 {
+		t.Fatalf("fresh Workflow reminders = %d", got)
+	}
+}
+
 func TestReopenedSessionRetainsIdleEligibility(t *testing.T) {
 	store := mustCreateTestSession(t)
 	client := &fakeClient{responses: []llm.Response{{Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("first")}}}}
