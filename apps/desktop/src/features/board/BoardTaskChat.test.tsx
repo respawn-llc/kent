@@ -103,9 +103,13 @@ it("does not mark the card busy while opening Task Detail reads the shared Task"
   });
   const article = await screen.findByRole("article", { name: card.title });
   fireEvent.click(article);
-  await waitFor(() => { expect(client.isFetching({ queryKey: queryKeys.task(card.id) })).toBe(1); });
+  await waitFor(() => {
+    expect(client.isFetching({ queryKey: queryKeys.task(card.id) })).toBe(1);
+  });
   expect(article).toHaveAttribute("aria-busy", "false");
-  await act(async () => { result.resolve(base); });
+  await act(async () => {
+    result.resolve(base);
+  });
 });
 
 it.each([0, 1, 2])("opens only an existing selected Session with %s choices", async (count) => {
