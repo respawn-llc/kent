@@ -41,6 +41,7 @@ const available: SpeechAvailable = {
   maxBytes: 25_000_000,
   maxDurationSeconds: 600,
 };
+const silentFrequencyBins = Array.from({ length: 56 }, () => 0);
 
 it("releases a microphone permission result that arrives after destination disposal", async () => {
   const permission = deferred<{ getTracks(): readonly { stop(): void }[] }>();
@@ -195,7 +196,7 @@ it("keeps native capture preparing until a real silent audio buffer arrives with
   expect(f.startRequested).not.toHaveBeenCalled();
   act(() => {
     f.emit({ kind: "ready" });
-    f.emit({ kind: "meter", power: 0 });
+    f.emit({ kind: "meter", power: 0, frequencyBins: silentFrequencyBins });
   });
   await waitFor(() => {
     expect(f.view.result.current.state.phase).toBe("recording");
@@ -204,7 +205,7 @@ it("keeps native capture preparing until a real silent audio buffer arrives with
   f.client.clear();
 });
 
-it("preserves the native normalized level across the recording meter range", async () => {
+it("smooths distinct native frequency bins in the recording meter", async () => {
   const f = nativeRecordingFixture();
   act(() => {
     f.view.result.current.actions.start();
@@ -221,19 +222,22 @@ it("preserves the native normalized level across the recording meter range", asy
   const analyser = f.view.result.current.state.recording?.analyser;
   if (analyser === undefined) throw new Error("Recording meter unavailable");
   const values = new Uint8Array(analyser.frequencyBinCount);
-  for (const [power, expected] of [
-    [0, 0],
-    [0.01, 3],
-    [0.1, 26],
-    [0.5, 128],
-    [1, 255],
-  ] as const) {
-    act(() => {
-      f.emit({ kind: "meter", power });
-    });
-    analyser.getByteFrequencyData(values);
-    expect(values[0]).toBe(expected);
-  }
+  const frequencyBins = Array.from({ length: 56 }, (_, index) => (index + 1) * 4);
+  const lastFrequencyBin = frequencyBins[frequencyBins.length - 1] ?? 0;
+  act(() => {
+    f.emit({ kind: "meter", power: 0.4, frequencyBins });
+  });
+  analyser.getByteFrequencyData(values);
+  expect(analyser.frequencyBinCount).toBe(frequencyBins.length);
+  const initialFirstValue = values[0] ?? 0;
+  const initialLastValue = values[values.length - 1] ?? 0;
+  expect(initialFirstValue).toBeGreaterThan(0);
+  expect(initialLastValue).toBeGreaterThan(initialFirstValue);
+  expect(initialLastValue).toBeLessThan(lastFrequencyBin);
+  const firstValues = values.slice();
+  for (let sample = 0; sample < 10; sample++) analyser.getByteFrequencyData(values);
+  expect(values[values.length - 1] ?? 0).toBeGreaterThan(firstValues[firstValues.length - 1] ?? 0);
+  expect(values[values.length - 1] ?? 0).toBeLessThanOrEqual(lastFrequencyBin);
   f.view.unmount();
   f.client.clear();
 });
@@ -292,7 +296,7 @@ it.each([0, 0.4])(
     });
     act(() => {
       f.emit({ kind: "ready" });
-      f.emit({ kind: "meter", power });
+      f.emit({ kind: "meter", power, frequencyBins: silentFrequencyBins });
       f.emit({ kind: "finished", error: "encoder failed" });
     });
     await waitFor(() => {

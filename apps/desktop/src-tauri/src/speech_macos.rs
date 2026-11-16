@@ -7,15 +7,21 @@ use tauri::{ipc::Channel, AppHandle, Manager, State, WebviewWindow};
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Event {
     Ready,
-    Meter { power: f64 },
+    Meter {
+        power: f64,
+        #[serde(rename = "frequencyBins")]
+        frequency_bins: Vec<u8>,
+    },
     Limit,
-    Finished { error: Option<String> },
+    Finished {
+        error: Option<String>,
+    },
 }
 
 #[repr(C)]
 struct Callbacks {
     ready: extern "C" fn(*mut c_void),
-    meter: extern "C" fn(*mut c_void, f64),
+    meter: extern "C" fn(*mut c_void, f64, *const u8, usize),
     segment: extern "C" fn(*mut c_void, *const u8, usize),
     finished: extern "C" fn(*mut c_void, *const c_char),
 }
@@ -60,8 +66,12 @@ extern "C" fn ready(pointer: *mut c_void) {
     context(pointer).emit(Event::Ready);
 }
 
-extern "C" fn meter(pointer: *mut c_void, power: f64) {
-    context(pointer).emit(Event::Meter { power });
+extern "C" fn meter(pointer: *mut c_void, power: f64, bins: *const u8, count: usize) {
+    let frequency_bins = unsafe { std::slice::from_raw_parts(bins, count) }.to_vec();
+    context(pointer).emit(Event::Meter {
+        power,
+        frequency_bins,
+    });
 }
 
 extern "C" fn segment(pointer: *mut c_void, bytes: *const u8, count: usize) {
