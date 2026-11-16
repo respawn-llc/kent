@@ -78,7 +78,7 @@ export function useBoardTaskChat(taskID: string) {
     pickerOpen,
     setPickerOpen,
     sessions: detail.data?.liveSessions ?? [],
-    pending: detail.isFetching || requestState.waiting || selectState.waiting,
+    pending: requestState.waiting || selectState.waiting,
     open: () => {
       request({
         navigation,
