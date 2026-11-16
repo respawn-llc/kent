@@ -559,14 +559,20 @@ export function taskUpdateRoute(
 }
 
 export function taskAttentionRoute(
-  load: () => taskAttention.TaskAttentionListSuccess | Promise<taskAttention.TaskAttentionListSuccess>,
+  load: (
+    taskID: string,
+    callIndex: number,
+  ) => taskAttention.TaskAttentionListSuccess | Promise<taskAttention.TaskAttentionListSuccess>,
 ): FakeRoute {
+  const descriptor = taskAttention.AttentionReadService.method.listTask;
   return {
-    descriptor: taskAttention.AttentionReadService.method.listTask,
-    resultFactory: async () =>
-      create(taskAttention.TaskAttentionListResultSchema, {
-        outcome: { case: "success", value: await load() },
-      }),
+    descriptor,
+    resultFactory: async (request, callIndex) => {
+      const params = decode(descriptor.input, encode<DescMessage>(descriptor.input, request));
+      return create(taskAttention.TaskAttentionListResultSchema, {
+        outcome: { case: "success", value: await load(params.taskId, callIndex) },
+      });
+    },
   };
 }
 

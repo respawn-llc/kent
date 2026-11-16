@@ -374,6 +374,12 @@
 
 ## Tasks
 
+- Ordinary navigation that opens or reopens Task Detail must start at the top, regardless of the Task's attention state or Comment scroll position.
+- Back and Forward that reopen Task Detail must start at the top without replaying an earlier focus request.
+- Clicking an already-open Task without an explicit target must be a no-op.
+- An explicit attention, Approval, or “view dependencies” action must jump to its requested target, including when the Task is already open or the operator has scrolled away from that target.
+- An explicit focus request must not affect later ordinary openings.
+
 - Task Detail must identify Current Nodes by their workflow display names in effective Agent and thinking labels and their tooltips, not by Node IDs.
 
 - New Task requires title and accepts optional body, Project Labels, hidden source information, and source workspace. Workflow selection is outside the form.
