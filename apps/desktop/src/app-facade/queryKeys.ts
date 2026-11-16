@@ -199,7 +199,14 @@ export const queryKeys = {
       : ["processes", scope.kind, scope.projectID, scope.sessionID],
   worktreeStatus: (sessionID: string) => ["worktree", worktreeFact(sessionID), "status"] as const,
   worktreeList: (scope: WorktreeScope, owner: WorktreeListReadOwner = "sidebar") =>
-    ["worktree", scope, "list", owner] as const,
+    [
+      "worktree",
+      scope.kind === "session"
+        ? { kind: scope.kind, sessionID: scope.sessionID }
+        : { kind: scope.kind, projectID: scope.projectID, workspaceID: scope.workspaceID },
+      "list",
+      owner,
+    ] as const,
   worktreeSelectorResolution: (sessionID: string, selector: string) =>
     worktreeOperationKey(sessionID, "selector-resolution", selector),
 };

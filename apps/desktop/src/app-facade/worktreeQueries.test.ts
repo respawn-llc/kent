@@ -30,7 +30,11 @@ describe("Worktree query ownership", () => {
     await disposeWorktreeCreateTargetResolution(queryClient, request);
     expect(queryClient.getQueryState(key)).toBeUndefined();
     const status = queryKeys.worktreeStatus("33333333-3333-4333-8333-333333333333");
-    const scope = { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" } as const;
+    const scope = {
+      kind: "session",
+      sessionID: "33333333-3333-4333-8333-333333333333",
+      projectID: "55555555-5555-4555-8555-555555555555",
+    } as const;
     const list = queryKeys.worktreeList(scope);
     const transient = worktreeDeletePreviewQueryOptions(services.api, {
       scope,
