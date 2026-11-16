@@ -5,6 +5,7 @@ import (
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"encoding/json"
 	"errors"
@@ -208,7 +209,7 @@ func outsideNonTempDir(t *testing.T) string {
 func callPatch(t *testing.T, tool *Tool, id, patchText string) tools.Result {
 	t.Helper()
 	input, _ := json.Marshal(map[string]any{"patch": patchText})
-	result, err := tool.Call(context.Background(), tools.Call{ID: id, Name: toolspec.ToolPatch, Input: input})
+	result, err := tool.Call(context.Background(), tools.Call{ID: runtimeids.ToolCallID(id), Name: toolspec.ToolPatch, Input: input})
 	if err != nil {
 		t.Fatalf("patch call error: %v", err)
 	}

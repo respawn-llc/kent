@@ -36,7 +36,7 @@ type ChatEntry struct {
 	CompactLabel           string
 	ToolResultSummary      string
 	ViewedImageKind        *transcript.ViewedImageKind
-	ToolCallID             string
+	ToolCallID             runtimeids.ToolCallID
 	QuestionAnswer         *tools.AskQuestionAnswer
 	AnsweredBySessionID    *runtimeids.SessionID
 	WebSearch              *transcript.WebSearchDetail
@@ -89,7 +89,7 @@ type AssistantStreamSnapshot struct {
 }
 
 type storedToolCompletion struct {
-	CallID              string                   `json:"call_id"`
+	CallID              runtimeids.ToolCallID    `json:"call_id"`
 	Name                string                   `json:"name"`
 	IsError             bool                     `json:"is_error"`
 	ProviderItemOnly    bool                     `json:"provider_item_only,omitempty"`
@@ -108,12 +108,12 @@ type chatStore struct {
 	providerItems []llm.ResponseItem
 	compact       *compactionCheckpoint
 
-	toolCompletions                   map[string]tools.Result
-	toolCompletionProviderItems       map[string][]llm.ResponseItem
-	assistantToolCalls                map[string]struct{}
-	assistantToolCallStepIDs          map[string]string
-	materializedToolResults           map[string]struct{}
-	synthesizedToolResults            map[string]struct{}
+	toolCompletions                   map[runtimeids.ToolCallID]tools.Result
+	toolCompletionProviderItems       map[runtimeids.ToolCallID][]llm.ResponseItem
+	assistantToolCalls                map[runtimeids.ToolCallID]struct{}
+	assistantToolCallStepIDs          map[runtimeids.ToolCallID]string
+	materializedToolResults           map[runtimeids.ToolCallID]struct{}
+	synthesizedToolResults            map[runtimeids.ToolCallID]struct{}
 	streaming                         []AssistantStreamSnapshot
 	streamingError                    string
 	cwd                               string
@@ -165,12 +165,12 @@ func newChatStore() *chatStore {
 
 func newChatStoreWithCWD(cwd string) *chatStore {
 	return &chatStore{
-		toolCompletions:             make(map[string]tools.Result, 16),
-		toolCompletionProviderItems: make(map[string][]llm.ResponseItem, 16),
-		assistantToolCalls:          make(map[string]struct{}, 16),
-		assistantToolCallStepIDs:    make(map[string]string, 16),
-		materializedToolResults:     make(map[string]struct{}, 16),
-		synthesizedToolResults:      make(map[string]struct{}, 16),
+		toolCompletions:             make(map[runtimeids.ToolCallID]tools.Result, 16),
+		toolCompletionProviderItems: make(map[runtimeids.ToolCallID][]llm.ResponseItem, 16),
+		assistantToolCalls:          make(map[runtimeids.ToolCallID]struct{}, 16),
+		assistantToolCallStepIDs:    make(map[runtimeids.ToolCallID]string, 16),
+		materializedToolResults:     make(map[runtimeids.ToolCallID]struct{}, 16),
+		synthesizedToolResults:      make(map[runtimeids.ToolCallID]struct{}, 16),
 		cwd:                         strings.TrimSpace(cwd),
 		providerTokenEstimateDirty:  true,
 		tokenEstimator:              llm.DefaultTokenEstimator{},
@@ -268,13 +268,13 @@ func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 		len(s.synthesizedToolResults) == 0 {
 		return
 	}
-	referenced := make(map[string]struct{}, len(s.toolCompletions))
+	referenced := make(map[runtimeids.ToolCallID]struct{}, len(s.toolCompletions))
 	for _, item := range s.providerItemsSourceLocked() {
 		if !isToolCallItem(item.Type) {
 			continue
 		}
 		if callID, present := textutil.FirstOptionalTrimmed(item.CallID, item.ID); present {
-			referenced[callID] = struct{}{}
+			referenced[runtimeids.ToolCallID(callID)] = struct{}{}
 		}
 	}
 	pruneCallIDMapToReferenced(s.toolCompletions, referenced)
@@ -285,7 +285,7 @@ func (s *chatStore) pruneToolCompletionsToWorkingSetLocked() {
 	pruneCallIDMapToReferenced(s.synthesizedToolResults, referenced)
 }
 
-func pruneCallIDMapToReferenced[V any](m map[string]V, referenced map[string]struct{}) {
+func pruneCallIDMapToReferenced[V any](m map[runtimeids.ToolCallID]V, referenced map[runtimeids.ToolCallID]struct{}) {
 	for callID := range m {
 		if _, ok := referenced[callID]; !ok {
 			delete(m, callID)
@@ -323,8 +323,7 @@ func (s *chatStore) snapshotItems() []llm.ResponseItem {
 	return items
 }
 
-func (s *chatStore) toolCallSnapshot(callID string) (llm.ToolCall, bool) {
-	callID = strings.TrimSpace(callID)
+func (s *chatStore) toolCallSnapshot(callID runtimeids.ToolCallID) (llm.ToolCall, bool) {
 	if callID == "" {
 		return llm.ToolCall{}, false
 	}
@@ -333,7 +332,7 @@ func (s *chatStore) toolCallSnapshot(callID string) (llm.ToolCall, bool) {
 	return toolCallSnapshotFromItems(s.providerItemsSourceLocked(), callID)
 }
 
-func toolCallSnapshotFromItems(items []llm.ResponseItem, callID string) (llm.ToolCall, bool) {
+func toolCallSnapshotFromItems(items []llm.ResponseItem, callID runtimeids.ToolCallID) (llm.ToolCall, bool) {
 	for index := len(items) - 1; index >= 0; index-- {
 		item := items[index]
 		if !isToolCallItem(item.Type) {
@@ -343,12 +342,12 @@ func toolCallSnapshotFromItems(items []llm.ResponseItem, callID string) (llm.Too
 		if !present {
 			continue
 		}
-		if itemCallID != callID {
+		if runtimeids.ToolCallID(itemCallID) != callID {
 			continue
 		}
 		name, _ := textutil.OptionalTrimmed(item.Name)
 		call := llm.ToolCall{
-			ID:           itemCallID,
+			ID:           runtimeids.ToolCallID(itemCallID),
 			Name:         name,
 			Presentation: append(json.RawMessage(nil), item.ToolPresentation...),
 		}
@@ -387,7 +386,7 @@ func (s *chatStore) restoreToolCompletionRecord(record session.ToolCompletionRec
 }
 
 func (s *chatStore) recordToolCompletionWithProviderItems(res tools.Result, providerItems []llm.ResponseItem) {
-	callID := strings.TrimSpace(res.CallID)
+	callID := res.CallID
 	if callID == "" {
 		return
 	}
@@ -630,14 +629,14 @@ func (s *chatStore) snapshotProviderItemsLocked() ([]llm.ResponseItem, *int) {
 		if !present {
 			continue
 		}
-		if _, ok := materializedToolResults[callID]; ok {
+		if _, ok := materializedToolResults[runtimeids.ToolCallID(callID)]; ok {
 			continue
 		}
-		completion, ok := s.toolCompletions[callID]
+		completion, ok := s.toolCompletions[runtimeids.ToolCallID(callID)]
 		if !ok {
 			continue
 		}
-		providerItems := s.toolCompletionProviderItems[callID]
+		providerItems := s.toolCompletionProviderItems[runtimeids.ToolCallID(callID)]
 		if len(providerItems) > 0 {
 			pendingOutputs = append(pendingOutputs, llm.CloneResponseItems(providerItems)...)
 			continue
@@ -670,7 +669,7 @@ func (s *chatStore) danglingToolCalls() []danglingToolCall {
 	defer s.mu.RUnlock()
 	items := s.providerItemsSourceLocked()
 	materialized := collectMaterializedToolCalls(items)
-	seen := make(map[string]struct{})
+	seen := make(map[runtimeids.ToolCallID]struct{})
 	out := make([]danglingToolCall, 0)
 	for _, item := range items {
 		if !isToolCallItem(item.Type) {
@@ -680,23 +679,23 @@ func (s *chatStore) danglingToolCalls() []danglingToolCall {
 		if !present {
 			continue
 		}
-		if _, ok := seen[callID]; ok {
+		if _, ok := seen[runtimeids.ToolCallID(callID)]; ok {
 			continue
 		}
-		if _, ok := materialized[callID]; ok {
+		if _, ok := materialized[runtimeids.ToolCallID(callID)]; ok {
 			continue
 		}
-		if _, ok := s.toolCompletions[callID]; ok {
+		if _, ok := s.toolCompletions[runtimeids.ToolCallID(callID)]; ok {
 			continue
 		}
 		name, _ := textutil.OptionalTrimmed(item.Name)
-		stepID, hasStepID := s.assistantToolCallStepIDs[callID]
+		stepID, hasStepID := s.assistantToolCallStepIDs[runtimeids.ToolCallID(callID)]
 		var ownedStepID *string
 		if hasStepID {
 			ownedStepID = textutil.Value(stepID)
 		}
-		seen[callID] = struct{}{}
-		out = append(out, danglingToolCall{callID: callID, name: name, stepID: ownedStepID})
+		seen[runtimeids.ToolCallID(callID)] = struct{}{}
+		out = append(out, danglingToolCall{callID: runtimeids.ToolCallID(callID), name: name, stepID: ownedStepID})
 	}
 	return out
 }
@@ -736,7 +735,7 @@ func (s *chatStore) validateMessageLocked(stepID *string, msg llm.Message) error
 	}
 	exactStepID := strings.TrimSpace(*stepID)
 	for _, call := range msg.ToolCalls {
-		callID := strings.TrimSpace(call.ID)
+		callID := call.ID
 		if callID == "" {
 			continue
 		}
@@ -758,7 +757,7 @@ func (s *chatStore) applyMessageStatsLocked(stepID *string, msg llm.Message) {
 	switch msg.Role {
 	case llm.RoleAssistant:
 		for _, call := range msg.ToolCalls {
-			callID := strings.TrimSpace(call.ID)
+			callID := call.ID
 			if callID == "" {
 				continue
 			}
@@ -778,7 +777,7 @@ func (s *chatStore) applyMessageStatsLocked(stepID *string, msg llm.Message) {
 			}
 		}
 	case llm.RoleTool:
-		if callID, present := textutil.OptionalTrimmed(msg.ToolCallID); present {
+		if callID, present := textutil.OptionalValue(msg.ToolCallID); present {
 			s.materializedToolResults[callID] = struct{}{}
 			if _, synthesized := s.synthesizedToolResults[callID]; synthesized {
 				delete(s.synthesizedToolResults, callID)
@@ -808,7 +807,7 @@ func (s *chatStore) recordReplacementToolCallStepIDsLocked(stepID *string, items
 		// Replacement items are born at the compaction boundary, which is also
 		// the only ownership fact available when the active segment is restored.
 		// Rebase live ownership to the same Step so restart cannot change it.
-		s.assistantToolCallStepIDs[callID] = exactStepID
+		s.assistantToolCallStepIDs[runtimeids.ToolCallID(callID)] = exactStepID
 	}
 }
 

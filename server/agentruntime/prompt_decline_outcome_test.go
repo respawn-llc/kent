@@ -78,7 +78,7 @@ func TestDeclinedQuestionAllowsPreparedSuccessorToMaterialize(t *testing.T) {
 	var materialized []string
 	broker.SetLifecycleAskHandler(func(_ context.Context, req tools.AskQuestionRequest) (tools.AskQuestionResolution, error) {
 		mu.Lock()
-		materialized = append(materialized, req.ToolCallID)
+		materialized = append(materialized, string(req.ToolCallID))
 		mu.Unlock()
 		if req.ToolCallID == "question-1" {
 			return nil, context.Canceled

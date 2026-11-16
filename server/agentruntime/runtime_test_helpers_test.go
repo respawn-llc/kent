@@ -722,7 +722,7 @@ func appendTestEvent(
 		if len(completion.ProviderItems) == 0 {
 			completion.ProviderItems = []llm.ResponseItem{{
 				Type:   llm.ResponseItemTypeFunctionCallOutput,
-				CallID: textutil.Value(completion.CallID),
+				CallID: (*string)(textutil.Value(completion.CallID)),
 				Name:   textutil.Value(completion.Name),
 				Output: completion.Output,
 			}}

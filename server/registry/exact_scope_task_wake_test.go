@@ -185,10 +185,10 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 		event.PrimaryEntityID != string(workflowRef.CurrentNode.TaskID) ||
 		len(event.RelatedIDs) != 2 ||
 		event.RelatedIDs[0] != sessionID.String() ||
-		event.RelatedIDs[1] != request.ToolCallID {
+		event.RelatedIDs[1] != string(request.ToolCallID) {
 		t.Fatalf("workflow wake event = %+v", event)
 	}
-	if err := registry.PromptResolvedScope(workflowHandle.Scope(), request.ToolCallID); err != nil {
+	if err := registry.PromptResolvedScope(workflowHandle.Scope(), string(request.ToolCallID)); err != nil {
 		t.Fatalf("resolve workflow prompt projection: %v", err)
 	}
 	projected = events.snapshot()
@@ -203,7 +203,7 @@ func TestPromptPendingScopePublishesTaskWakeOnlyFromWorkflowScope(t *testing.T) 
 		cleared.PrimaryEntityID != string(workflowRef.CurrentNode.TaskID) ||
 		len(cleared.RelatedIDs) != 2 ||
 		cleared.RelatedIDs[0] != sessionID.String() ||
-		cleared.RelatedIDs[1] != request.ToolCallID {
+		cleared.RelatedIDs[1] != string(request.ToolCallID) {
 		t.Fatalf("workflow cleared event = %+v", cleared)
 	}
 	if err := workflowHandle.Stop(t.Context()); err != nil {

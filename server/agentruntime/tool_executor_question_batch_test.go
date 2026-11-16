@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"fmt"
 	"sync/atomic"
@@ -114,7 +115,7 @@ func TestExecuteToolCallsMaterializesEveryQuestionBeforeAnyAnswer(t *testing.T) 
 	defer restore()
 	calls := make([]llm.ToolCall, 5)
 	for index := range calls {
-		calls[index] = llm.ToolCall{ID: fmt.Sprintf("ask-%d", index), Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Proceed?"}`)}
+		calls[index] = llm.ToolCall{ID: runtimeids.ToolCallID(fmt.Sprintf("ask-%d", index)), Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Proceed?"}`)}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -130,7 +131,7 @@ func TestExecuteToolCallsMaterializesEveryQuestionBeforeAnyAnswer(t *testing.T) 
 	for range calls {
 		select {
 		case request := <-pending:
-			seen[request.ToolCallID] = true
+			seen[string(request.ToolCallID)] = true
 			if request.QuestionBatch == nil || request.QuestionBatch.PreparedPromptCount != len(calls) {
 				t.Fatalf("Question has no original batch metadata: %+v", request)
 			}
@@ -330,7 +331,7 @@ func TestPrepareExecutorToolCallsAssignsQuestionBatchOutsideWorkflow(t *testing.
 			len(call.askQuestionBatch.BatchToolCallIDs) != 2 {
 			t.Fatalf("prepared call %d batch = %+v", index, call.askQuestionBatch)
 		}
-		if call.askQuestionBatch.BatchToolCallIDs[index] != call.call.ID {
+		if call.askQuestionBatch.BatchToolCallIDs[index] != string(call.call.ID) {
 			t.Fatalf("prepared call %d prompt order = %v", index, call.askQuestionBatch.BatchToolCallIDs)
 		}
 	}

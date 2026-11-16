@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"testing"
 
 	"core/server/llm"
@@ -178,7 +179,7 @@ func TestCustomToolCallOutputProjectsAsCommittedToolRowFact(t *testing.T) {
 	msg := llm.Message{
 		Role:        llm.RoleTool,
 		MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput),
-		ToolCallID:  textutil.Value("call-patch-1"),
+		ToolCallID:  (*runtimeids.ToolCallID)(textutil.Value("call-patch-1")),
 		Name:        textutil.Value(string(toolspec.ToolPatch)),
 		Content:     textutil.Value(`"patched"`),
 	}

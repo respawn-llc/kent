@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -88,7 +87,7 @@ func resolveWatchedPrompt(t *testing.T, store *executionPromptStore, stepID runt
 		t.Fatalf("ResolvePromptBatch: %v", err)
 	}
 }
-func subscribePromptFollowUpForTest(t *testing.T, store *executionPromptStore, stepID runtimeids.StepID, toolCallID clientui.ToolCallID) serverapi.PromptFollowUpSubscription {
+func subscribePromptFollowUpForTest(t *testing.T, store *executionPromptStore, stepID runtimeids.StepID, toolCallID runtimeids.ToolCallID) serverapi.PromptFollowUpSubscription {
 	t.Helper()
 	subscription, err := store.subscribePromptFollowUp(stepID, toolCallID)
 	if err != nil {

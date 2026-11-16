@@ -13,7 +13,6 @@ import (
 	askquestion "core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 
 	"github.com/google/uuid"
@@ -52,7 +51,7 @@ func TestCurrentNodeControllerTaskInterruptClosesWaitingQuestionAndRunningScope(
 		Question:   "Keep waiting?",
 	}
 	pending := fixture.startPendingPrompt(t, question, request)
-	fixture.waitForPendingPrompt(t, question.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, question.TaskID, string(request.ToolCallID))
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
 		_ = pending.handle.Wait(context.Background())
@@ -103,7 +102,7 @@ func TestCurrentNodeControllerTaskInterruptClosesDurablyInterruptedWaitingQuesti
 		Question:   "Keep waiting?",
 	}
 	pending := fixture.startPendingPrompt(t, reference, request)
-	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
 		_ = pending.handle.Wait(context.Background())
@@ -148,7 +147,7 @@ func TestCurrentNodeControllerTaskInterruptClosesDurablyInterruptedPendingApprov
 		Approval:   true,
 	}
 	pending := fixture.startPendingPrompt(t, reference, request)
-	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
 		_ = pending.handle.Wait(context.Background())
@@ -199,7 +198,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 			fixture := newCurrentNodeQuestionFixtureWithPromptFeed(t, feed)
 			reference := currentNodeReferenceForControllerTest(t, test.id, "node-approval")
 			request := askquestion.AskQuestionRequest{
-				ToolCallID: "approval-" + test.id, StepID: uuid.NewString(), Question: "Allow access?", Approval: true,
+				ToolCallID: runtimeids.ToolCallID("approval-" + test.id), StepID: uuid.NewString(), Question: "Allow access?", Approval: true,
 				ApprovalOptions: []askquestion.AskQuestionApprovalOption{{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}},
 			}
 			stepID, err := runtimeids.ParseStepID(request.StepID)
@@ -207,7 +206,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 				t.Fatalf("ParseStepID: %v", err)
 			}
 			pending := fixture.startPendingPrompt(t, reference, request)
-			fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+			fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 			t.Cleanup(func() { _ = pending.handle.Stop(context.Background()) })
 
 			var sibling sessionruntime.ExecutionHandle
@@ -227,7 +226,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 			answerDone := make(chan currentNodeApprovalAnswerResult, 1)
 			submitAnswer := func() {
 				results, answerErr := fixture.authority.ResolvePromptBatch(context.Background(), pending.sessionID, stepID, []sessionruntime.PromptAnswerCommand{{
-					ToolCallID: clientui.ToolCallID(request.ToolCallID),
+					ToolCallID: runtimeids.ToolCallID(request.ToolCallID),
 					Payload:    sessionruntime.PromptApprovalAnswerCommand{Answer: askquestion.AskQuestionApproval{Decision: askquestion.AskQuestionApprovalDecisionAllowOnce}},
 				}})
 				answerDone <- currentNodeApprovalAnswerResult{results: results, err: answerErr}
@@ -242,7 +241,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 
 			if test.approvalFirst {
 				go submitAnswer()
-				feed.waitForResolution(t, request.ToolCallID)
+				feed.waitForResolution(t, string(request.ToolCallID))
 				go func() { operationDone <- operation() }()
 				select {
 				case err := <-operationDone:
@@ -251,7 +250,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 				}
 			} else {
 				go func() { operationDone <- operation() }()
-				feed.waitForResolution(t, request.ToolCallID)
+				feed.waitForResolution(t, string(request.ToolCallID))
 				go submitAnswer()
 				select {
 				case answer := <-answerDone:
@@ -286,7 +285,7 @@ func TestCurrentNodeControllerArbitratesPendingApproval(t *testing.T) {
 			if test.approvalFirst {
 				wantOutcome = sessionruntime.PromptAnswerOutcomeResolved
 			}
-			if answer.err != nil || len(answer.results) != 1 || answer.results[0].ToolCallID != clientui.ToolCallID(request.ToolCallID) || answer.results[0].Outcome != wantOutcome {
+			if answer.err != nil || len(answer.results) != 1 || answer.results[0].ToolCallID != runtimeids.ToolCallID(request.ToolCallID) || answer.results[0].Outcome != wantOutcome {
 				t.Fatalf("Approval answer = (%+v, %v), want %s", answer.results, answer.err, wantOutcome)
 			}
 			select {
@@ -362,7 +361,7 @@ func TestCurrentNodeControllerManualMoveCancelsWaitingQuestionAndStopsSibling(t 
 		Question:   "Keep waiting?",
 	}
 	pending := fixture.startPendingPrompt(t, question, request)
-	fixture.waitForPendingPrompt(t, question.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, question.TaskID, string(request.ToolCallID))
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
 		_ = pending.handle.Wait(context.Background())
@@ -417,7 +416,7 @@ func TestCurrentNodeControllerManualMoveCleansUpAfterQuestionResolutionPublicati
 		Question:   "Keep waiting?",
 	}
 	pending := fixture.startPendingPrompt(t, reference, request)
-	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 	t.Cleanup(func() {
 		pending.handle.RequestStop()
 		_ = pending.handle.Wait(context.Background())
@@ -454,12 +453,12 @@ func TestCurrentNodeControllerAnswersOnlyDurablyBoundExactPromptScope(t *testing
 	fixture := newCurrentNodeQuestionFixture(t)
 	reference := currentNodeReferenceForControllerTest(t, "task-question", "node-question")
 	request := askquestion.AskQuestionRequest{
-		ToolCallID: uuid.NewString(),
+		ToolCallID: runtimeids.ToolCallID(uuid.NewString()),
 		StepID:     uuid.NewString(),
 		Question:   "Proceed?",
 	}
 	pending := fixture.startPendingPrompt(t, reference, request)
-	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 
 	outcome, err := fixture.answerPromptBatch(
 		context.Background(),
@@ -475,7 +474,7 @@ func TestCurrentNodeControllerAnswersOnlyDurablyBoundExactPromptScope(t *testing
 		context.Background(),
 		pending,
 		request.StepID,
-		request.ToolCallID,
+		string(request.ToolCallID),
 		currentNodeQuestionAnswer("yes"),
 	)
 	if err != nil || outcome != sessionruntime.PromptAnswerOutcomeResolved {
@@ -504,26 +503,26 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 	secondID := uuid.NewString()
 	stepID := uuid.NewString()
 	first := askquestion.AskQuestionRequest{
-		ToolCallID: firstID,
+		ToolCallID: runtimeids.ToolCallID(firstID),
 		StepID:     stepID,
 		Origin:     askquestion.AskQuestionOriginModelTool,
 		Question:   "First?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
 			StepID:              stepID,
-			ToolCallID:          firstID,
+			ToolCallID:          runtimeids.ToolCallID(firstID),
 			BatchToolCallIDs:    []string{firstID, secondID},
 			CandidateOrdinal:    0,
 			PreparedPromptCount: 2,
 		},
 	}
 	second := first
-	second.ToolCallID = secondID
+	second.ToolCallID = runtimeids.ToolCallID(secondID)
 	second.Question = "Second?"
 	second.QuestionBatch = &askquestion.AskQuestionBatchMetadata{
 		Origin:              first.QuestionBatch.Origin,
 		StepID:              stepID,
-		ToolCallID:          secondID,
+		ToolCallID:          runtimeids.ToolCallID(secondID),
 		BatchToolCallIDs:    []string{firstID, secondID},
 		CandidateOrdinal:    1,
 		PreparedPromptCount: 2,
@@ -551,12 +550,12 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 	fixture.waitForPendingPrompt(t, reference.TaskID, firstID)
 	independentReference := currentNodeReferenceForControllerTest(t, "task-question-independent", "node-question")
 	independentRequest := askquestion.AskQuestionRequest{
-		ToolCallID: uuid.NewString(),
+		ToolCallID: runtimeids.ToolCallID(uuid.NewString()),
 		StepID:     uuid.NewString(),
 		Question:   "Independent?",
 	}
 	independent := fixture.startPendingPrompt(t, independentReference, independentRequest)
-	fixture.waitForPendingPrompt(t, independentReference.TaskID, independentRequest.ToolCallID)
+	fixture.waitForPendingPrompt(t, independentReference.TaskID, string(independentRequest.ToolCallID))
 
 	answerDone := make(chan error, 1)
 	go func() {
@@ -584,7 +583,7 @@ func TestCurrentNodeControllerReleasesTaskMutationLaneAfterAcceptingAnswer(t *te
 			context.Background(),
 			independent,
 			independentRequest.StepID,
-			independentRequest.ToolCallID,
+			string(independentRequest.ToolCallID),
 			currentNodeQuestionAnswer("independent"),
 		)
 		independentDone <- err
@@ -646,27 +645,27 @@ func TestCurrentNodeControllerMalformedPreparedBatchResolvesAwaiterWithInvariant
 	fixture := newCurrentNodeQuestionFixture(t)
 	reference := currentNodeReferenceForControllerTest(t, "task-question-invalid-batch", "node-question")
 	request := askquestion.AskQuestionRequest{
-		ToolCallID: uuid.NewString(),
+		ToolCallID: runtimeids.ToolCallID(uuid.NewString()),
 		StepID:     uuid.NewString(),
 		Origin:     askquestion.AskQuestionOriginModelTool,
 		Question:   "Proceed?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
 			StepID:              uuid.NewString(),
-			ToolCallID:          uuid.NewString(),
+			ToolCallID:          runtimeids.ToolCallID(uuid.NewString()),
 			BatchToolCallIDs:    []string{uuid.NewString()},
 			CandidateOrdinal:    0,
 			PreparedPromptCount: 1,
 		},
 	}
 	pending := fixture.startPendingPrompt(t, reference, request)
-	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 
 	_, err := fixture.answerPromptBatch(
 		context.Background(),
 		pending,
 		request.StepID,
-		request.ToolCallID,
+		string(request.ToolCallID),
 		currentNodeQuestionAnswer("yes"),
 	)
 	var invariantErr sessionruntime.PromptBatchInvariantError
@@ -678,7 +677,7 @@ func TestCurrentNodeControllerMalformedPreparedBatchResolvesAwaiterWithInvariant
 		t.Fatalf("malformed batch mutated pending prompt: %+v", result)
 	default:
 	}
-	if count := fixture.pendingPromptCount(reference.TaskID, request.ToolCallID); count != 1 {
+	if count := fixture.pendingPromptCount(reference.TaskID, string(request.ToolCallID)); count != 1 {
 		t.Fatalf("malformed batch retained %d pending prompts, want 1", count)
 	}
 	if err := pending.handle.Stop(context.Background()); err != nil {
@@ -698,19 +697,19 @@ func TestCurrentNodeControllerRejectsOwnershipMismatchWithoutPromptDelivery(t *t
 	fixture := newCurrentNodeQuestionFixture(t)
 	reference := currentNodeReferenceForControllerTest(t, "task-question-mismatch", "node-question")
 	request := askquestion.AskQuestionRequest{
-		ToolCallID: uuid.NewString(),
+		ToolCallID: runtimeids.ToolCallID(uuid.NewString()),
 		StepID:     uuid.NewString(),
 		Question:   "Proceed?",
 	}
 	pending := fixture.startPendingPrompt(t, reference, request)
-	fixture.waitForPendingPrompt(t, reference.TaskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, reference.TaskID, string(request.ToolCallID))
 	fixture.store.setBindingError(workflowstore.ErrSessionNotCurrentWorkflowNode)
 
 	outcome, err := fixture.answerPromptBatch(
 		context.Background(),
 		pending,
 		request.StepID,
-		request.ToolCallID,
+		string(request.ToolCallID),
 		currentNodeQuestionAnswer("yes"),
 	)
 	if err != nil || outcome != sessionruntime.PromptAnswerOutcomeResolved {
@@ -736,16 +735,16 @@ func TestCurrentNodeControllerRejectsAmbiguousPromptScope(t *testing.T) {
 	fixture := newCurrentNodeQuestionFixture(t)
 	taskID := workflow.TaskID("task-question-ambiguous")
 	request := askquestion.AskQuestionRequest{
-		ToolCallID: uuid.NewString(),
+		ToolCallID: runtimeids.ToolCallID(uuid.NewString()),
 		StepID:     uuid.NewString(),
 		Question:   "Proceed?",
 	}
 	first := fixture.startPendingPrompt(t, currentNodeReferenceForControllerTest(t, string(taskID), "node-question-a"), request)
-	fixture.waitForPendingPrompt(t, taskID, request.ToolCallID)
+	fixture.waitForPendingPrompt(t, taskID, string(request.ToolCallID))
 	second := fixture.startPendingPrompt(t, currentNodeReferenceForControllerTest(t, string(taskID), "node-question-b"), request)
-	fixture.waitForAmbiguousPendingPrompt(t, taskID, request.ToolCallID)
+	fixture.waitForAmbiguousPendingPrompt(t, taskID, string(request.ToolCallID))
 
-	if count := fixture.pendingPromptCount(taskID, request.ToolCallID); count != 2 {
+	if count := fixture.pendingPromptCount(taskID, string(request.ToolCallID)); count != 2 {
 		t.Fatalf("matching pending prompts = %d, want 2 exact executions", count)
 	}
 	if calls := fixture.store.bindingCalls(); len(calls) != 0 {

@@ -55,7 +55,7 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 		Content:              textutil.Pointer(message.Content),
 		CompactContent:       textutil.Pointer(message.CompactContent),
 		Name:                 textutil.Pointer(message.Name),
-		ToolCallID:           textutil.Pointer(message.ToolCallID),
+		ToolCallID:           (*string)(textutil.Pointer(message.ToolCallID)),
 		Phase:                convertOptionalString[llm.MessagePhase, session.MessagePhase](message.Phase),
 		BackgroundActivityID: textutil.Pointer(message.BackgroundActivityID),
 		BackgroundExitCode:   textutil.Pointer(message.BackgroundExitCode),
@@ -67,7 +67,7 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 				if record.NativeToolPresentation == nil {
 					record.NativeToolPresentation = make(map[string]json.RawMessage)
 				}
-				record.NativeToolPresentation[call.ID] = call.Presentation
+				record.NativeToolPresentation[string(call.ID)] = call.Presentation
 			}
 		}
 	}
@@ -88,7 +88,7 @@ func sessionMessageRecordFromLLM(message llm.Message) (session.MessageRecord, er
 				kind = session.ToolCallKindCustom
 			}
 			record.ToolCalls = append(record.ToolCalls, session.MessageToolCallRecord{
-				CallID:       call.ID,
+				CallID:       string(call.ID),
 				Name:         call.Name,
 				Kind:         kind,
 				Presentation: append(json.RawMessage(nil), call.Presentation...),
@@ -132,7 +132,7 @@ func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, err
 		Content:              textutil.Pointer(record.Content),
 		CompactContent:       textutil.Pointer(record.CompactContent),
 		Name:                 textutil.Pointer(record.Name),
-		ToolCallID:           textutil.Pointer(record.ToolCallID),
+		ToolCallID:           (*runtimeids.ToolCallID)(textutil.Pointer(record.ToolCallID)),
 		Phase:                convertOptionalString[session.MessagePhase, llm.MessagePhase](record.Phase),
 		BackgroundActivityID: textutil.Pointer(record.BackgroundActivityID),
 		BackgroundExitCode:   textutil.Pointer(record.BackgroundExitCode),
@@ -152,7 +152,7 @@ func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, err
 		for callID, presentation := range record.NativeToolPresentation {
 			found := false
 			for i := range message.ToolCalls {
-				if message.ToolCalls[i].ID == callID {
+				if message.ToolCalls[i].ID == runtimeids.ToolCallID(callID) {
 					message.ToolCalls[i].Presentation = append(json.RawMessage(nil), presentation...)
 					found = true
 					break
@@ -167,7 +167,7 @@ func llmMessageFromSessionRecord(record session.MessageRecord) (llm.Message, err
 		message.ToolCalls = make([]llm.ToolCall, 0, len(record.ToolCalls))
 		for _, call := range record.ToolCalls {
 			message.ToolCalls = append(message.ToolCalls, llm.ToolCall{
-				ID:           call.CallID,
+				ID:           runtimeids.ToolCallID(call.CallID),
 				Name:         call.Name,
 				Presentation: append(json.RawMessage(nil), call.Presentation...),
 				Input:        append(json.RawMessage(nil), call.Input...),
@@ -205,7 +205,7 @@ func sessionToolCompletionRecordFromRuntime(
 		return session.ToolCompletionRecord{}, errors.New("provider-hosted completion cannot contain tool output items")
 	}
 	record := session.ToolCompletionRecord{
-		CallID:              result.CallID,
+		CallID:              string(result.CallID),
 		Name:                string(result.Name),
 		OutputKind:          outputKind,
 		IsError:             result.IsError,
@@ -300,7 +300,7 @@ func storedToolCompletionFromSessionRecord(
 		providerItems = append(providerItems, providerItem)
 	}
 	return storedToolCompletion{
-		CallID:              record.CallID,
+		CallID:              runtimeids.ToolCallID(record.CallID),
 		Name:                record.Name,
 		IsError:             record.IsError,
 		ProviderItemOnly:    record.OutputKind == session.ToolOutputKindProviderItemOnly,
@@ -361,7 +361,7 @@ func sessionLocalEntryRecordFromRuntime(
 		CondensedText:          textutil.Pointer(entry.CondensedText),
 		DiagnosticKey:          textutil.Pointer(entry.DiagnosticKey),
 		NoticeID:               textutil.Pointer(entry.NoticeID),
-		AfterToolCallID:        textutil.Pointer(entry.AfterToolCallID),
+		AfterToolCallID:        convertOptionalString[runtimeids.ToolCallID, string](entry.AfterToolCallID),
 		ToolOutputRepair:       textutil.Pointer(entry.ToolOutputRepair),
 		ProviderModelMismatch:  textutil.Pointer(entry.ProviderModelMismatch),
 		ReasoningOmission:      textutil.Pointer(entry.ReasoningOmission),
@@ -433,7 +433,7 @@ func storedLocalEntryFromSessionRecord(
 		CondensedText:          textutil.Pointer(record.CondensedText),
 		DiagnosticKey:          textutil.Pointer(record.DiagnosticKey),
 		NoticeID:               textutil.Pointer(record.NoticeID),
-		AfterToolCallID:        textutil.Pointer(record.AfterToolCallID),
+		AfterToolCallID:        convertOptionalString[string, runtimeids.ToolCallID](record.AfterToolCallID),
 		ToolOutputRepair:       textutil.Pointer(record.ToolOutputRepair),
 		ProviderModelMismatch:  textutil.Pointer(record.ProviderModelMismatch),
 		ReasoningOmission:      textutil.Pointer(record.ReasoningOmission),

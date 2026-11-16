@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"sync/atomic"
@@ -159,7 +160,7 @@ func TestCompleteNodeValidatesBeforeEffectBarrier(t *testing.T) {
 		t.Fatalf("invalid complete_node results = %+v, want one semantic error", results)
 	}
 	for _, callID := range []string{"hosted", "complete-node"} {
-		if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot(callID); !found {
+		if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot(runtimeids.ToolCallID(callID)); !found {
 			t.Fatalf("%s result did not commit at Step Boundary", callID)
 		}
 	}

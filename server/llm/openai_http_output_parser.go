@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 
 	"github.com/openai/openai-go/v3/responses"
@@ -277,7 +278,7 @@ func (functionCallOutputItemParser) Parse(item responses.ResponseOutputItemUnion
 			Raw:       raw,
 		}},
 		ToolCalls: []ToolCall{{
-			ID:    callID,
+			ID:    runtimeids.ToolCallID(callID),
 			Name:  call.Name,
 			Input: arguments,
 		}},
@@ -306,7 +307,7 @@ func (customToolCallOutputItemParser) Parse(item responses.ResponseOutputItemUni
 			Raw:         raw,
 		}},
 		ToolCalls: []ToolCall{{
-			ID:          callID,
+			ID:          runtimeids.ToolCallID(callID),
 			Name:        call.Name,
 			Input:       normalizeToolInput(call.Input),
 			Custom:      true,

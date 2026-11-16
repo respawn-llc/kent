@@ -6,6 +6,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/jsoncontract"
 	"core/shared/modelcontract"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/transcriptmodel"
 	"encoding/json"
@@ -77,7 +78,7 @@ type Message struct {
 	Content              *string                  `json:"content,omitempty"`
 	CompactContent       *string                  `json:"compact_content,omitempty"`
 	Name                 *string                  `json:"name,omitempty"`
-	ToolCallID           *string                  `json:"tool_call_id,omitempty"`
+	ToolCallID           *runtimeids.ToolCallID   `json:"tool_call_id,omitempty"`
 	Phase                *MessagePhase            `json:"phase,omitempty"`
 	BackgroundActivityID *string                  `json:"background_activity_id,omitempty"`
 	BackgroundExitCode   *int                     `json:"background_exit_code,omitempty"`
@@ -224,7 +225,7 @@ func ItemsFromMessages(messages []Message) []ResponseItem {
 				})
 			}
 			for _, tc := range msg.ToolCalls {
-				callID := strings.TrimSpace(tc.ID)
+				callID := strings.TrimSpace(string(tc.ID))
 				if callID == "" && strings.TrimSpace(tc.Name) == "" {
 					continue
 				}
@@ -348,7 +349,7 @@ func MessagesFromItems(items []ResponseItem) []Message {
 			}
 			name, _ := textutil.OptionalExact(item.Name)
 			out[lastAssistantIdx].ToolCalls = append(out[lastAssistantIdx].ToolCalls, ToolCall{
-				ID:           callID,
+				ID:           runtimeids.ToolCallID(callID),
 				Name:         name,
 				Presentation: append(json.RawMessage(nil), item.ToolPresentation...),
 				Input:        normalizeToolInput(string(item.Arguments)),
@@ -364,7 +365,7 @@ func MessagesFromItems(items []ResponseItem) []Message {
 			name, _ := textutil.OptionalExact(item.Name)
 			customInput, _ := textutil.OptionalExact(item.CustomInput)
 			out[lastAssistantIdx].ToolCalls = append(out[lastAssistantIdx].ToolCalls, ToolCall{
-				ID:           callID,
+				ID:           runtimeids.ToolCallID(callID),
 				Name:         name,
 				Presentation: append(json.RawMessage(nil), item.ToolPresentation...),
 				Input:        normalizeToolInput(customInput),
@@ -378,7 +379,7 @@ func MessagesFromItems(items []ResponseItem) []Message {
 			}
 			out = append(out, Message{
 				Role:       RoleTool,
-				ToolCallID: textutil.Value(callID),
+				ToolCallID: textutil.Value(runtimeids.ToolCallID(callID)),
 				Name:       textutil.Pointer(item.Name),
 				Content:    textutil.OptionalTrimmedString(stringFromJSONRaw(item.Output)),
 			})
@@ -390,7 +391,7 @@ func MessagesFromItems(items []ResponseItem) []Message {
 			}
 			out = append(out, Message{
 				Role: RoleTool, MessageType: textutil.Value(MessageTypeCustomToolCallOutput),
-				ToolCallID: textutil.Value(callID), Name: textutil.Pointer(item.Name),
+				ToolCallID: textutil.Value(runtimeids.ToolCallID(callID)), Name: textutil.Pointer(item.Name),
 				Content: textutil.OptionalTrimmedString(stringFromJSONRaw(item.Output)),
 			})
 			lastAssistantIdx = -1
@@ -468,21 +469,21 @@ eof_line: "*** End of File" LF
 `
 
 type ToolCall struct {
-	OutputIndex  *int64          `json:"-"`
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Presentation json.RawMessage `json:"presentation,omitempty"`
-	Input        json.RawMessage `json:"input"`
-	Custom       bool            `json:"custom,omitempty"`
-	CustomInput  *string         `json:"custom_input,omitempty"`
-	ProviderItem json.RawMessage `json:"provider_item,omitempty"`
+	OutputIndex  *int64                `json:"-"`
+	ID           runtimeids.ToolCallID `json:"id"`
+	Name         string                `json:"name"`
+	Presentation json.RawMessage       `json:"presentation,omitempty"`
+	Input        json.RawMessage       `json:"input"`
+	Custom       bool                  `json:"custom,omitempty"`
+	CustomInput  *string               `json:"custom_input,omitempty"`
+	ProviderItem json.RawMessage       `json:"provider_item,omitempty"`
 }
 
 type ToolResult struct {
-	CallID  string          `json:"call_id"`
-	Name    string          `json:"name"`
-	Output  json.RawMessage `json:"output"`
-	IsError bool            `json:"is_error"`
+	CallID  runtimeids.ToolCallID `json:"call_id"`
+	Name    string                `json:"name"`
+	Output  json.RawMessage       `json:"output"`
+	IsError bool                  `json:"is_error"`
 }
 
 type StructuredOutput struct {

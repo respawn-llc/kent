@@ -3,6 +3,7 @@ package runtime
 import (
 	"core/server/llm"
 	"core/server/tools"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"core/shared/transcriptmodel"
@@ -40,7 +41,7 @@ func (e *Engine) steerProviderOutputItem(stepID string, item llm.ResponseItem) e
 }
 
 func nativeResponseMessages(message llm.Message) []nativeResponseMessage {
-	calls := make(map[string]llm.ToolCall, len(message.ToolCalls))
+	calls := make(map[runtimeids.ToolCallID]llm.ToolCall, len(message.ToolCalls))
 	for _, call := range message.ToolCalls {
 		calls[call.ID] = call
 	}
@@ -84,7 +85,7 @@ func nativeResponseMessages(message llm.Message) []nativeResponseMessage {
 			id = item.ID
 		}
 		if id != nil {
-			if call, exists := calls[*id]; exists {
+			if call, exists := calls[runtimeids.ToolCallID(*id)]; exists {
 				projected = append(projected, nativeResponseMessage{OutputIndex: item.OutputIndex, Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call}, Phase: textutil.Pointer(message.Phase)}})
 			}
 		}

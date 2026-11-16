@@ -41,7 +41,7 @@ func TestUnavailableShellToolsReturnPlaintextToTheModel(t *testing.T) {
 			found := false
 			for _, request := range client.calls {
 				for _, item := range request.Items {
-					if item.Type != llm.ResponseItemTypeFunctionCallOutput || item.CallID == nil || *item.CallID != call.ID {
+					if item.Type != llm.ResponseItemTypeFunctionCallOutput || item.CallID == nil || *item.CallID != string(call.ID) {
 						continue
 					}
 					found = true

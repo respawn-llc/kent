@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -356,7 +357,7 @@ func TestVisibleToolMessageMutationPublishesCommittedEventBeforeLocalEntry(t *te
 
 	toolMessage := llm.Message{
 		Role:       llm.RoleTool,
-		ToolCallID: textutil.Value("orphan-call"),
+		ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("orphan-call")),
 		Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 		Content:    textutil.Value(string(mustJSON(map[string]any{"output": "done", "exit_code": 0, "truncated": false}))),
 	}

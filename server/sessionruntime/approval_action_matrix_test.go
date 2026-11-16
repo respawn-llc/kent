@@ -18,7 +18,6 @@ import (
 	"core/server/sessionstore"
 	"core/server/sessionstore/sessiontest"
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -73,7 +72,7 @@ func (f *approvalActionFeed) PromptPendingScope(scope ExecutionScope, request to
 		return err
 	}
 	resource, _ := scope.Resource()
-	f.pending <- authorityPromptEvent{resource: resource, scopeID: scope.ID(), stepID: stepID, requestID: request.ToolCallID}
+	f.pending <- authorityPromptEvent{resource: resource, scopeID: scope.ID(), stepID: stepID, requestID: string(request.ToolCallID)}
 	if f.pendingGate != nil {
 		<-f.pendingGate
 	}
@@ -211,7 +210,7 @@ func approvalPatchResponse(callID string, paths []string) llm.Response {
 	patch += "*** End Patch\n"
 	return llm.Response{
 		Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
-		ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolspec.ToolPatch), Custom: true, CustomInput: &patch}},
+		ToolCalls: []llm.ToolCall{{ID: runtimeids.ToolCallID(callID), Name: string(toolspec.ToolPatch), Custom: true, CustomInput: &patch}},
 		Usage:     llm.Usage{WindowTokens: 200000},
 	}
 }
@@ -222,7 +221,7 @@ func (h *approvalActionHarness) release() {
 }
 func (h *approvalActionHarness) resolve(ctx context.Context, payload PromptAnswerPayload) promptBatchCallResult {
 	results, err := h.authority.ResolvePromptBatch(ctx, h.sessionID, h.pending.stepID, []PromptAnswerCommand{{
-		ToolCallID: clientui.ToolCallID(h.pending.requestID), Payload: payload,
+		ToolCallID: runtimeids.ToolCallID(h.pending.requestID), Payload: payload,
 	}})
 	return promptBatchCallResult{results: results, err: err}
 }
@@ -302,7 +301,7 @@ func approvalActionRows(t *testing.T, h *approvalActionHarness, commentary strin
 		if row.User != nil && row.User.Text == commentary {
 			users++
 		}
-		if row.Tool != nil && strings.HasPrefix(row.Tool.ToolCallID, "approval-action") {
+		if row.Tool != nil && strings.HasPrefix(string(row.Tool.ToolCallID), "approval-action") {
 			toolRows = append(toolRows, *row.Tool)
 		}
 	}

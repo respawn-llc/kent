@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -394,8 +395,8 @@ func TestMixedAcceptedCallsPersistInProviderOutputOrder(t *testing.T) {
 				OutputItems: []llm.ResponseItem{
 					{
 						Type:   llm.ResponseItemTypeFunctionCall,
-						ID:     textutil.Value(localOne.ID),
-						CallID: textutil.Value(localOne.ID),
+						ID:     (*string)(textutil.Value(localOne.ID)),
+						CallID: (*string)(textutil.Value(localOne.ID)),
 					},
 					{
 						Type: llm.ResponseItemTypeOther,
@@ -404,8 +405,8 @@ func TestMixedAcceptedCallsPersistInProviderOutputOrder(t *testing.T) {
 					},
 					{
 						Type:   llm.ResponseItemTypeFunctionCall,
-						ID:     textutil.Value(localTwo.ID),
-						CallID: textutil.Value(localTwo.ID),
+						ID:     (*string)(textutil.Value(localTwo.ID)),
+						CallID: (*string)(textutil.Value(localTwo.ID)),
 					},
 				},
 				Usage: llm.Usage{WindowTokens: 200000},
@@ -434,7 +435,7 @@ func TestMixedAcceptedCallsPersistInProviderOutputOrder(t *testing.T) {
 			EnabledTools:  []toolspec.ID{toolspec.ToolExecCommand, toolspec.ToolWebSearch},
 			OnEvent: func(event Event) {
 				if event.Kind == EventToolCallStarted && event.ToolCall != nil {
-					startedCallIDs = append(startedCallIDs, event.ToolCall.ID)
+					startedCallIDs = append(startedCallIDs, string(event.ToolCall.ID))
 				}
 			},
 		},
@@ -462,13 +463,13 @@ func TestMixedAcceptedCallsPersistInProviderOutputOrder(t *testing.T) {
 		}
 		if message.Role != llm.RoleAssistant || len(message.ToolCalls) != len(want) {
 			if message.Role == llm.RoleTool && message.ToolCallID != nil {
-				persistedResults = append(persistedResults, *message.ToolCallID)
+				persistedResults = append(persistedResults, string(*message.ToolCallID))
 			}
 			continue
 		}
 		got := make([]string, len(message.ToolCalls))
 		for index, call := range message.ToolCalls {
-			got[index] = call.ID
+			got[index] = string(call.ID)
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("mixed-tool persisted order = %v, want %v", got, want)
@@ -556,7 +557,7 @@ func TestInvalidMixedAcceptedCallPositionsFailBeforeToolEffects(t *testing.T) {
 						Phase:   textutil.Value(llm.MessagePhaseCommentary),
 					},
 					ToolCalls: []llm.ToolCall{{
-						ID:    test.localCallID,
+						ID:    runtimeids.ToolCallID(test.localCallID),
 						Name:  string(toolspec.ToolExecCommand),
 						Input: json.RawMessage(`{"cmd":"true"}`),
 					}},
@@ -671,11 +672,11 @@ func TestHostedOnlyAcceptedCallsPersistInOutputOrder(t *testing.T) {
 		}
 		if message.Role != llm.RoleAssistant || len(message.ToolCalls) != len(want) {
 			if message.Role == llm.RoleTool && message.ToolCallID != nil {
-				persistedResults = append(persistedResults, *message.ToolCallID)
+				persistedResults = append(persistedResults, string(*message.ToolCallID))
 			}
 			continue
 		}
-		got := []string{message.ToolCalls[0].ID, message.ToolCalls[1].ID}
+		got := []string{string(message.ToolCalls[0].ID), string(message.ToolCalls[1].ID)}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("hosted-only persisted order = %v, want %v", got, want)
 		}

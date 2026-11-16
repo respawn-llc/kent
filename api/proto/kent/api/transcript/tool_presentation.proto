@@ -11,6 +11,7 @@ enum ToolPresentationKind {
   TOOL_PRESENTATION_KIND_DEFAULT = 1;
   TOOL_PRESENTATION_KIND_SHELL = 2;
   TOOL_PRESENTATION_KIND_ASK_QUESTION = 3;
+  TOOL_PRESENTATION_KIND_WEB_SEARCH = 4;
 }
 
 enum ToolRenderKind {
@@ -42,7 +43,7 @@ message ToolRenderHint {
 
 message ToolPresentation {
   ToolPresentationKind presentation = 1 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
-  ToolPresentationKind render_behavior = 2 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  ToolPresentationKind render_behavior = 2 [(buf.validate.field).enum = {defined_only: true in: [1, 2, 3]}];
   bool is_shell = 3;
   bool user_initiated = 4;
   optional string command = 5;

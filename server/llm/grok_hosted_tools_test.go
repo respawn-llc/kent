@@ -24,7 +24,7 @@ func TestOpenAICustomCallsDoNotUseGrokOwnershipNamespaces(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != callID {
+			if len(response.ToolCalls) != 1 || string(response.ToolCalls[0].ID) != callID {
 				t.Fatalf("local custom calls = %+v", response.ToolCalls)
 			}
 		})

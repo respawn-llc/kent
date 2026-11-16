@@ -100,7 +100,7 @@ func TestNativeMessageBoundaryPromotesNextSourceBeforeAcceptance(t *testing.T) {
 			switch event.Kind {
 			case EventToolCallStarted:
 				apply(&transcriptpb.Event{Payload: &transcriptpb.Event_ToolStart{ToolStart: &transcriptpb.ToolStart{
-					StepId: *event.StepID, ToolCallId: event.ToolCall.ID, ToolName: event.ToolCall.Name,
+					StepId: *event.StepID, ToolCallId: string(event.ToolCall.ID), ToolName: event.ToolCall.Name,
 				}}})
 			case EventAssistantDelta:
 				phase := transcriptpb.AssistantPhase_ASSISTANT_PHASE_COMMENTARY
@@ -830,7 +830,7 @@ func TestNativeOutputPresentationKeepsInterleavedHostedCalls(t *testing.T) {
 			} else if entry.Role == "reasoning" {
 				actual = append(actual, "reasoning")
 			} else if entry.ToolCallID == "search_native" && entry.Role == "tool_call" {
-				actual = append(actual, entry.ToolCallID)
+				actual = append(actual, string(entry.ToolCallID))
 			}
 		}
 		if !reflect.DeepEqual(actual, []string{"before", "reasoning", "search_native", "after", "final"}) {
@@ -841,7 +841,7 @@ func TestNativeOutputPresentationKeepsInterleavedHostedCalls(t *testing.T) {
 			if row.Assistant != nil {
 				committedOrder = append(committedOrder, row.Assistant.Text)
 			} else if row.Tool != nil {
-				committedOrder = append(committedOrder, row.Tool.ToolCallID)
+				committedOrder = append(committedOrder, string(row.Tool.ToolCallID))
 			} else if row.ReasoningTrace != nil {
 				committedOrder = append(committedOrder, "reasoning")
 			}

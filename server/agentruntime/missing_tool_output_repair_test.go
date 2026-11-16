@@ -106,7 +106,7 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 	}
 	originalStepID := runtimeTestStepID("normal-live-original-step")
 	steerDanglingToolCall(t, eng, originalStepID, call)
-	eng.rememberPendingToolCallStarts(map[string]int{call.ID: 1})
+	eng.rememberPendingToolCallStarts(map[runtimeids.ToolCallID]int{call.ID: 1})
 
 	if _, err := eng.SubmitUserMessage(context.Background(), "blocked repair"); !llm.HasHTTPStatus(err, 400) {
 		t.Fatalf("generation with matching live start error = %v, want HTTP 400", err)
@@ -114,7 +114,7 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 	if len(client.calls) != 1 {
 		t.Fatalf("generation calls with matching live start = %d, want one and no retry", len(client.calls))
 	}
-	if repairRequestHasToolOutput(eng.transcriptRuntimeState().SnapshotItems(), call.ID) {
+	if repairRequestHasToolOutput(eng.transcriptRuntimeState().SnapshotItems(), string(call.ID)) {
 		t.Fatal("normal generation repaired while the matching live start remained")
 	}
 	if warnings := typedLiveRepairWarnings(t, store); len(warnings) != 0 {
@@ -141,15 +141,15 @@ func TestNormalGenerationLive400RepairWaitsForMatchingStartThenRetriesOnce(t *te
 			retryMetadata,
 		)
 	}
-	if !repairRequestHasToolCall(firstRepairAttempt.Items, call.ID) ||
-		repairRequestHasToolOutput(firstRepairAttempt.Items, call.ID) {
+	if !repairRequestHasToolCall(firstRepairAttempt.Items, string(call.ID)) ||
+		repairRequestHasToolOutput(firstRepairAttempt.Items, string(call.ID)) {
 		t.Fatal("normal generation first repair attempt did not retain the dangling custom call")
 	}
-	if !repairRequestHasToolCall(retry.Items, call.ID) ||
-		!repairRequestHasToolOutputType(retry.Items, call.ID, llm.ResponseItemTypeCustomToolOutput) {
+	if !repairRequestHasToolCall(retry.Items, string(call.ID)) ||
+		!repairRequestHasToolOutputType(retry.Items, string(call.ID), llm.ResponseItemTypeCustomToolOutput) {
 		t.Fatal("normal generation retry did not rebuild with the original custom call and custom output")
 	}
-	stepID, outputKind, completion := repairCompletionTypedFacts(t, store, call.ID)
+	stepID, outputKind, completion := repairCompletionTypedFacts(t, store, string(call.ID))
 	if stepID == nil || *stepID != originalStepID {
 		t.Fatalf("normal generation repair step = %v, want original %q", stepID, originalStepID)
 	}
@@ -325,7 +325,7 @@ func repairCompletionRecord(
 		if err != nil {
 			t.Fatalf("restore completion: %v", err)
 		}
-		if stored.CallID == callID {
+		if stored.CallID == runtimeids.ToolCallID(callID) {
 			return record, stored
 		}
 	}
@@ -548,7 +548,7 @@ func TestCompactionMissingOutputAfterCollapsePanics(t *testing.T) {
 	}
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role:       llm.RoleTool,
-		ToolCallID: textutil.Value("call-shell"),
+		ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-shell")),
 		Name:       textutil.Value("exec_command"),
 		Content:    textutil.Value(`{"output":"` + strings.Repeat("x", 120_000) + `"}`),
 	}})); err != nil {

@@ -429,7 +429,7 @@ func newBlockingToolCall() *blockingToolCall {
 }
 
 func (h *controlledToolHandler) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
-	control := h.calls[call.ID]
+	control := h.calls[string(call.ID)]
 	if control == nil {
 		control = h.fallback
 	}

@@ -13,6 +13,7 @@ import (
 	"core/shared/config"
 	processpb "core/shared/protoapi/gen/kent/api/process"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"strings"
 	"testing"
@@ -53,12 +54,12 @@ func TestStartSessionServerListsPendingPromptSnapshotOverRemoteReads(t *testing.
 				t.Fatalf("unexpected question prompt: %+v", prompt)
 			}
 			answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, prompt, clientui.PromptAnswer{
-				ToolCallID:     clientui.ToolCallID(transcriptPromptToolCallID(prompt)),
+				ToolCallID:     runtimeids.ToolCallID(transcriptPromptToolCallID(prompt)),
 				FreeformAnswer: "done",
 			})
 		case *transcriptpb.Prompt_Approval:
 			answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, prompt, clientui.PromptAnswer{
-				ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(prompt)),
+				ToolCallID: runtimeids.ToolCallID(transcriptPromptToolCallID(prompt)),
 				Approval:   &clientui.ApprovalPromptAnswer{Decision: clientui.ApprovalDecisionAllowOnce},
 			})
 		default:

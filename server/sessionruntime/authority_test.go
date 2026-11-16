@@ -24,7 +24,6 @@ import (
 	shelltool "core/server/tools/shell"
 	"core/server/workflow"
 	"core/server/workflowruntime"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
@@ -584,7 +583,7 @@ func (f authorityPromptFeed) PromptPendingScope(scope ExecutionScope, req tools.
 	if err != nil {
 		return err
 	}
-	f <- authorityPromptEvent{resource: resource, scopeID: scope.ID(), stepID: stepID, requestID: req.ToolCallID}
+	f <- authorityPromptEvent{resource: resource, scopeID: scope.ID(), stepID: stepID, requestID: string(req.ToolCallID)}
 	return nil
 }
 
@@ -1573,7 +1572,7 @@ func TestAgentExecutionBindsAndClearsShellCorrelation(t *testing.T) {
 		return llm.Response{
 			Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("scoped"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 			ToolCalls: []llm.ToolCall{{
-				ID:    callID,
+				ID:    runtimeids.ToolCallID(callID),
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"sleep 5","shell":"/bin/sh","login":false,"yield_time_ms":20}`),
 			}},
@@ -2487,7 +2486,7 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 
 	askID := uuid.NewString()
 	request := tools.AskQuestionRequest{
-		ToolCallID: askID, StepID: uuid.NewString(), Question: "Proceed?",
+		ToolCallID: runtimeids.ToolCallID(askID), StepID: uuid.NewString(), Question: "Proceed?",
 	}
 	workflowRef := workflowExecutionRefForTest(t, "task-pending-question", "node-pending-question", nil)
 	responseDone := make(chan promptAwaitTestResult, 1)
@@ -2575,7 +2574,7 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 	if err := <-waitingDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled waiting mutation error = %v, want context canceled", err)
 	}
-	second := tools.AskQuestionRequest{ToolCallID: uuid.NewString(), StepID: uuid.NewString(), Question: "Again?"}
+	second := tools.AskQuestionRequest{ToolCallID: runtimeids.ToolCallID(uuid.NewString()), StepID: uuid.NewString(), Question: "Again?"}
 	err = authority.WithInterruptibleAgentTurn(context.Background(), sessionID, nil, func(context.Context, *runtime.Engine) error {
 		started := make(chan struct{})
 		go func() {
@@ -2593,7 +2592,7 @@ func TestPromptResponseResolvesCurrentExactExecutionScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("interruptible Agent Turn mutation: %v", err)
 	}
-	if pending := <-feed; pending.requestID != second.ToolCallID || pending.resolved {
+	if pending := <-feed; pending.requestID != string(second.ToolCallID) || pending.resolved {
 		t.Fatalf("second pending prompt = %+v", pending)
 	}
 	close(releaseExecution)
@@ -2631,7 +2630,7 @@ func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t
 			})
 			plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 			request := tools.AskQuestionRequest{
-				ToolCallID: uuid.NewString(), StepID: uuid.NewString(), Question: "Proceed?",
+				ToolCallID: runtimeids.ToolCallID(uuid.NewString()), StepID: uuid.NewString(), Question: "Proceed?",
 			}
 			awaitDone := make(chan error, 1)
 			handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{
@@ -2648,7 +2647,7 @@ func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t
 			if err != nil {
 				t.Fatalf("start agent execution: %v", err)
 			}
-			if pending := <-feed; pending.scopeID != handle.Scope().ID() || pending.requestID != request.ToolCallID || pending.resolved {
+			if pending := <-feed; pending.scopeID != handle.Scope().ID() || pending.requestID != string(request.ToolCallID) || pending.resolved {
 				t.Fatalf("pending prompt = %+v", pending)
 			}
 			var engine *runtime.Engine
@@ -2666,7 +2665,7 @@ func TestPendingPromptKeepsExactExecutionInterruptibleWithoutActiveRuntimeStep(t
 			if err := <-awaitDone; !errors.Is(err, context.Canceled) {
 				t.Fatalf("pending prompt result = %v, want context canceled", err)
 			}
-			if resolved := <-feed; resolved.requestID != request.ToolCallID || !resolved.resolved {
+			if resolved := <-feed; resolved.requestID != string(request.ToolCallID) || !resolved.resolved {
 				t.Fatalf("resolved prompt = %+v", resolved)
 			}
 			page, err := engine.TranscriptNewestSegmentPage()
@@ -2703,7 +2702,7 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 	feed := make(authorityPromptFeed, 2)
 	store := newExecutionPromptStore(authority, scope, feed)
 	request := tools.AskQuestionRequest{
-		ToolCallID: uuid.NewString(), StepID: uuid.NewString(), Question: "Proceed?",
+		ToolCallID: runtimeids.ToolCallID(uuid.NewString()), StepID: uuid.NewString(), Question: "Proceed?",
 	}
 	resolution := testQuestionResolution("yes")
 
@@ -2722,7 +2721,7 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 	}()
 	select {
 	case pending := <-feed:
-		if pending.requestID != request.ToolCallID || pending.resolved {
+		if pending.requestID != string(request.ToolCallID) || pending.resolved {
 			t.Fatalf("pending prompt event = %+v, want pending request %q", pending, request.ToolCallID)
 		}
 	case <-time.After(time.Second):
@@ -2737,7 +2736,7 @@ func TestPromptStoreMutationsDoNotRequireAuthorityLock(t *testing.T) {
 			return
 		}
 		_, resolveErr := store.ResolvePromptBatch(context.Background(), stepID, []PromptAnswerCommand{{
-			ToolCallID: clientui.ToolCallID(request.ToolCallID),
+			ToolCallID: runtimeids.ToolCallID(request.ToolCallID),
 			Payload:    PromptQuestionAnswerCommand{Answer: resolution},
 		}})
 		submitDone <- resolveErr
@@ -2934,7 +2933,7 @@ func TestAuthorityResolvePromptBatchUsesExactFullKey(t *testing.T) {
 	})
 
 	askID := uuid.NewString()
-	request := tools.AskQuestionRequest{ToolCallID: askID, StepID: uuid.NewString(), Question: "Proceed?"}
+	request := tools.AskQuestionRequest{ToolCallID: runtimeids.ToolCallID(askID), StepID: uuid.NewString(), Question: "Proceed?"}
 	workflowRef := workflowExecutionRefForTest(t, "task-exact-prompt", "node-exact-prompt", nil)
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	responseDone := make(chan promptAwaitTestResult, 1)
@@ -2972,7 +2971,7 @@ func TestAuthorityResolvePromptBatchUsesExactFullKey(t *testing.T) {
 		t.Fatalf("wait agent execution: %v", err)
 	}
 	results, err := authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []PromptAnswerCommand{{
-		ToolCallID: clientui.ToolCallID(askID),
+		ToolCallID: runtimeids.ToolCallID(askID),
 		Payload:    PromptQuestionAnswerCommand{Answer: testQuestionResolution("late")},
 	}})
 	if err != nil || len(results) != 1 || results[0].Outcome != PromptAnswerOutcomeSkipped {
@@ -2994,7 +2993,7 @@ func TestQuestionCompletionReplacesRetainedRuntimeAfterDrain(t *testing.T) {
 	plan := authorityTestRuntimePlan(t, fixture, &sessionRuntimeTestLLMClient{})
 	askID := uuid.NewString()
 	request := tools.AskQuestionRequest{
-		ToolCallID: askID, StepID: uuid.NewString(), Question: "Proceed?",
+		ToolCallID: runtimeids.ToolCallID(askID), StepID: uuid.NewString(), Question: "Proceed?",
 	}
 	workflowRef := workflowExecutionRefForTest(t, "task-question-replacement", "node-question-replacement", nil)
 	handle, err := startWorkflowAgentExecutionForTest(t, authority, workflowAgentExecutionRequest{

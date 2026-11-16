@@ -37,6 +37,8 @@ func ToolPresentationFromProto(toolName string, presentation *transcriptpb.ToolP
 		out.Presentation = transcript.ToolPresentationShell
 	case transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_ASK_QUESTION:
 		out.Presentation = transcript.ToolPresentationAskQuestion
+	case transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH:
+		out.Presentation = transcript.ToolPresentationWebSearch
 	}
 	switch presentation.RenderBehavior {
 	case transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT:
