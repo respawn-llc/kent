@@ -253,7 +253,7 @@ it("retains a silent native recording after a successful local no-op", async () 
   });
   act(() => {
     f.emit({ kind: "ready" });
-    f.emit({ kind: "meter", power: 0 });
+    f.emit({ kind: "meter", power: 0, frequencyBins: silentFrequencyBins });
   });
   await waitFor(() => {
     expect(f.view.result.current.state.phase).toBe("recording");

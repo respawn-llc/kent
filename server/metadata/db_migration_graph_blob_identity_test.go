@@ -14,7 +14,7 @@ import (
 func TestGraphBlobIdentityMigrationPreservesGraphReferences(t *testing.T) {
 	for _, format := range []string{"canonical-v4", "uuid-v5", "legacy"} {
 		t.Run(format, func(t *testing.T) {
-			db, err := openDatabaseAtVersionForTest(t, 101)
+			db, err := openDatabaseAtVersionForTest(t, 102)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -50,7 +50,7 @@ func TestGraphBlobIdentityMigrationPreservesGraphReferences(t *testing.T) {
 				before[i] = optionalNodeLabelMigrationRows(t, db, query)
 			}
 			if err := runMigrations(db); err != nil {
-				t.Fatalf("upgrade 101 graph: %v", err)
+				t.Fatalf("upgrade 102 graph: %v", err)
 			}
 			for i, query := range contentQueries {
 				if after := optionalNodeLabelMigrationRows(t, db, query); !reflect.DeepEqual(before[i], after) {
@@ -185,7 +185,7 @@ func seedGraphBlobIdentityMigration(t *testing.T, db *sql.DB, ids map[string]str
 func TestGraphBlobIdentityMigrationFailurePreservesExistingData(t *testing.T) {
 	for _, invalid := range []string{"", "   ", uuid.Nil.String()} {
 		t.Run("invalid-"+invalid, func(t *testing.T) {
-			db, err := openDatabaseAtVersionForTest(t, 101)
+			db, err := openDatabaseAtVersionForTest(t, 102)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -199,7 +199,7 @@ func TestGraphBlobIdentityMigrationFailurePreservesExistingData(t *testing.T) {
 				t.Fatalf("failed migration changed original data: %v -> %v", before, after)
 			}
 			var version int64
-			if err := db.QueryRow(`SELECT max(version_id) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil || version != 101 {
+			if err := db.QueryRow(`SELECT max(version_id) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil || version != 102 {
 				t.Fatalf("failed migration advanced version: %d, %v", version, err)
 			}
 			// A corrected identity can be migrated again on the same connection.
