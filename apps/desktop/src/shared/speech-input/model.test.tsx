@@ -205,7 +205,7 @@ it("keeps native capture preparing until a real silent audio buffer arrives with
   f.client.clear();
 });
 
-it("passes distinct native frequency bins through the recording meter", async () => {
+it("smooths distinct native frequency bins in the recording meter", async () => {
   const f = nativeRecordingFixture();
   act(() => {
     f.view.result.current.actions.start();
@@ -223,12 +223,21 @@ it("passes distinct native frequency bins through the recording meter", async ()
   if (analyser === undefined) throw new Error("Recording meter unavailable");
   const values = new Uint8Array(analyser.frequencyBinCount);
   const frequencyBins = Array.from({ length: 56 }, (_, index) => (index + 1) * 4);
+  const lastFrequencyBin = frequencyBins[frequencyBins.length - 1] ?? 0;
   act(() => {
     f.emit({ kind: "meter", power: 0.4, frequencyBins });
   });
   analyser.getByteFrequencyData(values);
   expect(analyser.frequencyBinCount).toBe(frequencyBins.length);
-  expect(values).toEqual(Uint8Array.from(frequencyBins));
+  const initialFirstValue = values[0] ?? 0;
+  const initialLastValue = values[values.length - 1] ?? 0;
+  expect(initialFirstValue).toBeGreaterThan(0);
+  expect(initialLastValue).toBeGreaterThan(initialFirstValue);
+  expect(initialLastValue).toBeLessThan(lastFrequencyBin);
+  const firstValues = values.slice();
+  for (let sample = 0; sample < 10; sample++) analyser.getByteFrequencyData(values);
+  expect(values[values.length - 1] ?? 0).toBeGreaterThan(firstValues[firstValues.length - 1] ?? 0);
+  expect(values[values.length - 1] ?? 0).toBeLessThanOrEqual(lastFrequencyBin);
   f.view.unmount();
   f.client.clear();
 });

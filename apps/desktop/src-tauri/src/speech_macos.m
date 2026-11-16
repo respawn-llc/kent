@@ -12,6 +12,7 @@ enum {
 static const float KentSpectrumMinimumDecibels = -100.0f;
 static const float KentSpectrumMaximumDecibels = -30.0f;
 static const float KentSpectrumMinimumMagnitude = 0.00001f;
+static const float KentSpectrumSilenceRms = 0.001f;
 
 @interface KentMicrophone : NSObject <AVCaptureAudioDataOutputSampleBufferDelegate, AVAssetWriterDelegate>
 {
@@ -23,6 +24,7 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
     float _outputReal[KentSpectrumSampleCount / 2];
     float _outputImaginary[KentSpectrumSampleCount / 2];
     float _window[KentSpectrumSampleCount];
+    float _frequencyMagnitudes[KentSpectrumBinCount];
     float _windowSum;
     NSUInteger _sampleCount;
     uint8_t _frequencyBins[KentSpectrumBinCount];
@@ -145,10 +147,23 @@ static const float KentSpectrumMinimumMagnitude = 0.00001f;
     }
     vDSP_DFT_Execute(
         _spectrumSetup, _inputReal, _inputImaginary, _outputReal, _outputImaginary);
+    float squaredMagnitudeSum = 0;
     for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
         NSUInteger frequency = index + 1;
-        float magnitude = hypotf(_outputReal[frequency], _outputImaginary[frequency]) / _windowSum;
-        float decibels = 20.0f * log10f(MAX(magnitude, KentSpectrumMinimumMagnitude));
+        _frequencyMagnitudes[index] =
+            hypotf(_outputReal[frequency], _outputImaginary[frequency]) / _windowSum;
+        squaredMagnitudeSum += _frequencyMagnitudes[index] * _frequencyMagnitudes[index];
+    }
+    float spectrumRms = sqrtf(squaredMagnitudeSum / KentSpectrumBinCount);
+    if (spectrumRms < KentSpectrumSilenceRms) {
+        for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
+            _frequencyBins[index] = 0;
+        }
+        _sampleCount = 0;
+        return;
+    }
+    for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
+        float decibels = 20.0f * log10f(MAX(_frequencyMagnitudes[index], KentSpectrumMinimumMagnitude));
         float scaled =
             (decibels - KentSpectrumMinimumDecibels) *
             (255.0f / (KentSpectrumMaximumDecibels - KentSpectrumMinimumDecibels));

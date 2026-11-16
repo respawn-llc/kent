@@ -8,6 +8,7 @@ type RecorderEvent =
   | Readonly<{ kind: "chunk"; chunk: Blob }>
   | Readonly<{ kind: "stop" }>
   | Readonly<{ kind: "error"; error: Error }>;
+const frequencySmoothingTimeConstant = 0.8;
 
 export class SpeechActionError extends Error {
   readonly _tag = "SpeechActionError";
@@ -62,6 +63,7 @@ export const captureMicrophone = Effect.fn("captureMicrophone")(function* (
   );
   const analyser = audio.createAnalyser();
   analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = frequencySmoothingTimeConstant;
   audio.createMediaStreamSource(stream).connect(analyser);
   yield* speechAttempt(async () => audio.resume());
   const recorder = yield* speechSync(
@@ -247,6 +249,7 @@ const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
   let startedAt: number | null = null;
   let stoppedAt: number | null = null;
   let frequencyBins: ArrayLike<number> = new Uint8Array(56);
+  const smoothedFrequencyBins = new Float32Array(56);
   let hasSignal = false;
   let limitTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveReady!: (time: number) => void;
@@ -278,7 +281,13 @@ const captureNativeMicrophone = Effect.fn("captureNativeMicrophone")(function* (
       return frequencyBins.length;
     },
     getByteFrequencyData: (data: Uint8Array) => {
-      data.set(frequencyBins);
+      for (let index = 0; index < frequencyBins.length; index++) {
+        const smoothedValue =
+          (smoothedFrequencyBins[index] ?? 0) * frequencySmoothingTimeConstant +
+          (frequencyBins[index] ?? 0) * (1 - frequencySmoothingTimeConstant);
+        smoothedFrequencyBins[index] = smoothedValue;
+        data[index] = Math.round(smoothedValue);
+      }
     },
   };
   yield* Effect.acquireRelease(
