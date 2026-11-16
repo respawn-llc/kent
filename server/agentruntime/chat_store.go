@@ -134,6 +134,30 @@ type compactionCheckpoint struct {
 	Items []llm.ResponseItem
 }
 
+func (s *chatStore) idleResumeEvidence() (hasConversation, unansweredReminder bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, item := range s.providerItems {
+		if item.Type != llm.ResponseItemTypeConfigurationUpdate {
+			hasConversation = true
+			break
+		}
+	}
+	for index := len(s.providerItems) - 1; index >= 0; index-- {
+		item := s.providerItems[index]
+		if item.Role != nil && *item.Role == llm.RoleAssistant ||
+			item.Type == llm.ResponseItemTypeReasoning || isToolCallItem(item.Type) ||
+			item.Type == llm.ResponseItemTypeOther {
+			break
+		}
+		if item.MessageType != nil && *item.MessageType == llm.MessageTypeIdleResumeReminder {
+			unansweredReminder = true
+			break
+		}
+	}
+	return hasConversation, unansweredReminder
+}
+
 func newChatStore() *chatStore {
 	cwd, _ := os.Getwd()
 	return newChatStoreWithCWD(cwd)

@@ -60,6 +60,7 @@ function messageType(value: T.NoticeMessageType): string {
     [T.NoticeMessageType.INTERRUPTION]: "interruption",
     [T.NoticeMessageType.ERROR_FEEDBACK]: "error_feedback",
     [T.NoticeMessageType.COMPACTION_SOON_REMINDER]: "compaction_soon_reminder",
+    [T.NoticeMessageType.IDLE_RESUME_REMINDER]: "idle_resume_reminder",
     [T.NoticeMessageType.HANDOFF_FUTURE_MESSAGE]: "handoff_future_message",
     [T.NoticeMessageType.REVIEWER_FEEDBACK]: "reviewer_feedback",
     [T.NoticeMessageType.BACKGROUND_NOTICE]: "background_notice",

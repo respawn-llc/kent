@@ -119,11 +119,25 @@ func validateShellOutputMaxChars(state settingsState, _ map[string]Origin) error
 	return nil
 }
 
-func validateConnectionUsageFallbackSeconds(state settingsState, _ map[string]Origin) error {
-	if state.Settings.ConnectionUsageFallbackSeconds < 0 {
-		return fmt.Errorf("connection_usage_fallback_seconds must be >= 0")
+func numericRange(key string, value func(settingsState) int, minimum int, maximum *int) settingsValidator {
+	return func(state settingsState, _ map[string]Origin) error {
+		number := value(state)
+		if maximum != nil && (number < minimum || number > *maximum) {
+			return fmt.Errorf("%s must be between %d and %d", key, minimum, *maximum)
+		}
+		if number < minimum {
+			return fmt.Errorf("%s must be >= %d", key, minimum)
+		}
+		return nil
 	}
-	return nil
+}
+
+func ResolveIdleResumeReminderSeconds(settings Settings) *int {
+	if settings.IdleResumeReminderSeconds == 0 {
+		return nil
+	}
+	seconds := settings.IdleResumeReminderSeconds
+	return &seconds
 }
 
 func validateMinimumExecToBgSeconds(state settingsState, _ map[string]Origin) error {

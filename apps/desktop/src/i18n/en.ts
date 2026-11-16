@@ -132,6 +132,7 @@ export const englishResources = {
       reviewerSuggestions_one: "Supervisor made {{count}} suggestion",
       reviewerSuggestions_other: "Supervisor made {{count}} suggestions",
       notice: {
+        idleResumeReminder: "Resumed session reminder",
         thinkingSet: "Thinking set: {{effort}}",
         cacheMiss: "Cache miss: {{reason}}",
         cacheMissWithTokens: "Cache miss: {{reason}}, -{{tokens}} tokens",

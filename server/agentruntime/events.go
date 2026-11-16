@@ -223,6 +223,7 @@ type RunState struct {
 }
 
 type BackgroundShellEvent struct {
+	FinishedAt        *time.Time
 	Type              BackgroundShellEventType
 	ID                string
 	ActivityID        uuid.UUID

@@ -100,6 +100,7 @@ type Config struct {
 	EffectiveContextWindowPercent   int
 	LocalCompactionCarryoverLimit   int
 	CompactionMode                  string
+	IdleResumeReminderSeconds       *int
 	CacheWarningMode                config.CacheWarningMode
 	AutoCompactionEnabled           *bool
 	QuestionsEnabled                *bool
@@ -1209,7 +1210,7 @@ func (e *Engine) generateWithRetryPolicy(ctx context.Context, stepID string, cli
 
 func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, client *observedModelClient, observed cacheObservedRequest, retryPolicy modelRequestRetryPolicy, callbacks llm.StreamCallbacks, onAttemptReset func()) (llm.Response, error) {
 	publishedProviderDiagnostics := make(map[llm.CodexTurnStateDiagnosticCategory]struct{}, 2)
-	return generateWithRetryClient(
+	response, err := generateWithRetryClient(
 		ctx,
 		client,
 		observed,
@@ -1220,6 +1221,10 @@ func (e *Engine) generateObservedWithRetry(ctx context.Context, stepID string, c
 			e.publishProviderTurnStateDiagnostics(stepID, observed.request.CodexDispatch, publishedProviderDiagnostics)
 		},
 	)
+	if err == nil && ctx.Err() == nil {
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
+	}
+	return response, err
 }
 
 func generateWithRetryClient(
@@ -1343,6 +1348,7 @@ func (e *Engine) executeAcceptedToolCallsCoordinated(
 			)
 		}
 		var outcome *resultGroupReportOutcome
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 		if err := e.steer(stepID, steerResultGroupReportIntent(
 			collector,
 			hosted.Call.ID,

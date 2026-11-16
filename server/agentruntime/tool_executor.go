@@ -260,7 +260,8 @@ func (e *Engine) executePreparedToolCall(
 		StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
 		SessionShortID: e.store.Identity().ShortID,
 	})
-	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
+	approvalLifecycle := tools.NewApprovalLifecycle()
+	ctx = tools.WithApprovalLifecycle(ctx, approvalLifecycle)
 	toolCall := tools.Call{
 		ID: call.ID, Name: toolID, Input: call.Input, StepID: stepID,
 		AskQuestionBatch: askBatch, OnAskQuestionBatchSkipped: e.cfg.AskQuestionBatchSkipped,
@@ -270,6 +271,7 @@ func (e *Engine) executePreparedToolCall(
 	}
 	if toolID == toolspec.ToolCompleteNode {
 		result, err := e.executeCompleteNodeTool(ctx, stepID, call)
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 		return result, true, err
 	}
 	if inputErr != nil {
@@ -297,6 +299,9 @@ func (e *Engine) executePreparedToolCall(
 		if !toolResultHasCompletedOutcome(result) {
 			result = toolErrorResult(toolCall, err.Error())
 		}
+	}
+	if toolID != toolspec.ToolAskQuestion && approvalLifecycle.CountsAsToolActivity() {
+		e.recordAgentActivity(stepID, e.transcriptRuntimeState().now())
 	}
 	result.CallID = call.ID
 	result.Name = toolID

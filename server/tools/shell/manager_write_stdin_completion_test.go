@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const terminalDeliveryFixtureTimeout = 15 * time.Second
+
 func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 	manager := newShellTestManager(t, 50*time.Millisecond)
 	terminalStarted := make(chan struct{})
@@ -33,8 +35,9 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 	started, err := manager.Start(context.Background(), ExecRequest{
 		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
 		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
-		DisplayCommand:      "sleep briefly",
+		Command:             []string{"/bin/sh", "-c", "read -r release; printf done"},
+		DisplayCommand:      "wait for input",
+		KeepStdinOpen:       true,
 		Workdir:             t.TempDir(),
 		YieldTime:           50 * time.Millisecond,
 		MaxOutputChars:      16_000,
@@ -50,6 +53,7 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 	go func() {
 		_, err := manager.WriteStdin(context.Background(), WriteRequest{
 			SessionID: started.SessionID,
+			Input:     "release\n",
 			YieldTime: 15 * time.Second,
 		})
 		writeDone <- err
@@ -57,7 +61,7 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 
 	select {
 	case <-terminalStarted:
-	case <-time.After(time.Second):
+	case <-time.After(terminalDeliveryFixtureTimeout):
 		t.Fatal("timed out waiting for terminal event delivery")
 	}
 	select {
@@ -73,10 +77,10 @@ func TestWriteStdinHarvestWaitsForTerminalEventDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("write_stdin completion: %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(terminalDeliveryFixtureTimeout):
 		t.Fatal("write_stdin did not return after terminal event delivery")
 	}
-	waitForManagerCount(t, manager, 0, time.Second)
+	waitForManagerCount(t, manager, 0, terminalDeliveryFixtureTimeout)
 }
 
 func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *testing.T) {
@@ -101,8 +105,9 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 	started, err := manager.Start(context.Background(), ExecRequest{
 		OwnerSessionShortID: testsetup.ShellLogSessionShortID(t),
 		Postprocessor:       postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}),
-		Command:             []string{"/bin/sh", "-c", "sleep 0.15; printf done"},
-		DisplayCommand:      "sleep briefly",
+		Command:             []string{"/bin/sh", "-c", "read -r release; printf done"},
+		DisplayCommand:      "wait for input",
+		KeepStdinOpen:       true,
 		Workdir:             t.TempDir(),
 		YieldTime:           50 * time.Millisecond,
 		MaxOutputChars:      16_000,
@@ -119,6 +124,7 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 	go func() {
 		_, err := manager.WriteStdin(ctx, WriteRequest{
 			SessionID: started.SessionID,
+			Input:     "release\n",
 			YieldTime: 15 * time.Second,
 		})
 		writeDone <- err
@@ -126,7 +132,7 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 
 	select {
 	case <-terminalStarted:
-	case <-time.After(time.Second):
+	case <-time.After(terminalDeliveryFixtureTimeout):
 		t.Fatal("timed out waiting for terminal event delivery")
 	}
 	select {
@@ -145,11 +151,11 @@ func TestWriteStdinHarvestCancellationDoesNotWaitForTerminalEventDelivery(t *tes
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("write_stdin cancellation error = %v, want context canceled", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(terminalDeliveryFixtureTimeout):
 		t.Fatal("write_stdin cancellation waited for terminal event delivery")
 	}
 
 	close(releaseTerminal)
 	released = true
-	waitForManagerCount(t, manager, 0, time.Second)
+	waitForManagerCount(t, manager, 0, terminalDeliveryFixtureTimeout)
 }

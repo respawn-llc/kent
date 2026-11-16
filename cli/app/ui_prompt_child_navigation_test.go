@@ -7,6 +7,7 @@ import (
 	"core/server/sessionstore"
 	"core/shared/apicontract"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 )
 
@@ -22,16 +23,16 @@ func (c *countingPromptMutationClient) Steer(ctx context.Context, request *chatp
 
 func TestPromptCommandFollowsServerSelectedSession(t *testing.T) {
 	for _, test := range []struct {
-		name        string
-		command     string
-		established bool
-		deleteChild bool
+		name         string
+		command      string
+		established  bool
+		missingChild bool
 	}{
 		{name: "review established", command: "/review", established: true},
 		{name: "init established", command: "/init", established: true},
 		{name: "review empty", command: "/review"},
 		{name: "init empty", command: "/init"},
-		{name: "missing child", command: "/review", established: true, deleteChild: true},
+		{name: "missing child", command: "/review", established: true, missingChild: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("REMOTE_TEST_KEY", "ready-key")
@@ -79,10 +80,10 @@ func TestPromptCommandFollowsServerSelectedSession(t *testing.T) {
 				t.Fatalf("selected child lost parent provenance: %+v", child.Meta)
 			}
 			t.Logf("accepted prompt: parent=%s child=%s", parent.Meta().SessionID, childID)
-			if test.deleteChild {
-				if err := owner.DeleteSession(t.Context(), childID); err != nil {
-					t.Fatalf("delete selected child before navigation: %v", err)
-				}
+			if test.missingChild {
+				// Exercise an unavailable destination without deleting a Session
+				// whose accepted prompt may still be executing.
+				transition.TargetSessionID = runtimeids.NewSessionID().String()
 			}
 			released := false
 			observation := &runtimeLaunchPlan{stopEventStreams: func() { released = true }}
@@ -93,7 +94,7 @@ func TestPromptCommandFollowsServerSelectedSession(t *testing.T) {
 			if client.submissions != 1 {
 				t.Fatalf("prompt submitted %d times, want once", client.submissions)
 			}
-			if test.deleteChild {
+			if test.missingChild {
 				if err == nil {
 					t.Fatal("missing selected child unexpectedly opened")
 				}
