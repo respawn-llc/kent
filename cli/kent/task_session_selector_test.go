@@ -156,7 +156,11 @@ func TestWorkflowCommandsSubmitNormalizedSessionSelectors(t *testing.T) {
 	if _, err := fixture.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE sessions SET task_id = ? WHERE id = ?", task.Task.Id, fixture.sessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE task_current_nodes SET node_id = ?, effective_assignee = ?, assignee_origin = 'configured_fallback' WHERE task_id = ?", agentID, config.DefaultSubagentRole, task.Task.Id); err != nil {
+	agentBlob, err := runtimeids.GraphEntityIDBlob(agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.core.MetadataStore().DB().ExecContext(t.Context(), "UPDATE task_current_nodes SET node_id = ?, effective_assignee = ?, assignee_origin = 'configured_fallback' WHERE task_id = ?", agentBlob, config.DefaultSubagentRole, task.Task.Id); err != nil {
 		t.Fatal(err)
 	}
 	for _, selectorArgs := range [][]string{
