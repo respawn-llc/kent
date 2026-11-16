@@ -338,6 +338,33 @@ func agentPickerSessionModel() (*uiModel, *agentPickerSettingsClient) {
 	return model, client
 }
 
+func TestAgentPickerNavigationWraps(t *testing.T) {
+	for _, keys := range [][2]tea.KeyMsg{
+		{{Type: tea.KeyUp}, {Type: tea.KeyDown}},
+		{{Type: tea.KeyRunes, Runes: []rune{'k'}}, {Type: tea.KeyRunes, Runes: []rune{'j'}}},
+	} {
+		key := keys[0]
+		t.Run(key.String(), func(t *testing.T) {
+			model, _ := agentPickerSessionModel()
+			model.openAgentPicker()
+			choices := model.agentChoices()
+			model.Update(key)
+			if got := *model.agentPicker.selectedRole; got != choices[len(choices)-1].Role {
+				t.Fatalf("up from first selected %q, want last choice", got)
+			}
+			model.Update(keys[1])
+			if got := *model.agentPicker.selectedRole; got != choices[0].Role {
+				t.Fatalf("down from last selected %q, want first choice", got)
+			}
+			model.Update(tea.KeyMsg{Type: tea.KeyHome})
+			model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+			if got := *model.agentPicker.selectedRole; got != choices[0].Role {
+				t.Fatalf("page up from first selected %q, want first choice", got)
+			}
+		})
+	}
+}
+
 func TestAgentPickerEnterAppliesOnce(t *testing.T) {
 	model, client := agentPickerSessionModel()
 	testSetMainInput(model, "/agent")

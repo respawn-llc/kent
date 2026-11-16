@@ -150,38 +150,33 @@ it.each([
     { kind: "internal_failure", operation: "fork", cause: "Store unavailable" },
   ),
   new TransportError("Binary transport rejected the request."),
-])(
-  "reports recovery guidance and diagnostics without a child handoff and allows another Edit: %s",
-  async (failure) => {
-    const view = setup();
-    const input = { item: userItem(), draft: "unchanged parent", onSuccess: view.onSuccess };
-    await act(async () => {
-      view.result.current.activate(input);
-    });
-    await act(async () => {
-      view.response.reject(failure);
-      await view.response.promise.catch(() => undefined);
-    });
-    expect(view.result.current.request.error).toBe(failure);
-    expect(view.onSuccess).not.toHaveBeenCalled();
-    expect(view.push).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tone: "danger",
-        body: appI18n.t("chatTranscript.editFailureRecovery", {
-          diagnostic: chatOperationFailureMessage(appI18n.t, failure, "edit"),
-        }),
-      }),
-    );
-    expect(input.draft).toBe("unchanged parent");
-    view.fork.mockResolvedValue("retried-child");
-    await act(async () => {
-      view.result.current.activate(input);
-    });
-    expect(view.fork).toHaveBeenCalledTimes(2);
-    expect(view.onSuccess).toHaveBeenCalledTimes(1);
-    expect(view.onSuccess).toHaveBeenCalledWith({
-      sessionID: "retried-child",
-      draft: "**Original**\n\n\nunchanged parent",
-    });
-  },
-);
+])("reports diagnostics without a child handoff and allows another Edit: %s", async (failure) => {
+  const view = setup();
+  const input = { item: userItem(), draft: "unchanged parent", onSuccess: view.onSuccess };
+  await act(async () => {
+    view.result.current.activate(input);
+  });
+  await act(async () => {
+    view.response.reject(failure);
+    await view.response.promise.catch(() => undefined);
+  });
+  expect(view.result.current.request.error).toBe(failure);
+  expect(view.onSuccess).not.toHaveBeenCalled();
+  expect(view.push).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tone: "danger",
+      body: chatOperationFailureMessage(appI18n.t, failure, "edit"),
+    }),
+  );
+  expect(input.draft).toBe("unchanged parent");
+  view.fork.mockResolvedValue("retried-child");
+  await act(async () => {
+    view.result.current.activate(input);
+  });
+  expect(view.fork).toHaveBeenCalledTimes(2);
+  expect(view.onSuccess).toHaveBeenCalledTimes(1);
+  expect(view.onSuccess).toHaveBeenCalledWith({
+    sessionID: "retried-child",
+    draft: "**Original**\n\n\nunchanged parent",
+  });
+});

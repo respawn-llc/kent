@@ -3,12 +3,12 @@
 - A Workflow is a top-level reusable definition. Projects use Workflows through Project Workflow Links without owning copied Workflow definitions.
 - Daily work is project-first: operators open a Project and choose one of its linked Workflows. Projects own a Task's namespace, workspaces, source-workspace defaults, and Project Workflow Link context.
 - Home presents Projects as the primary destination and the global Inbox as a secondary destination.
-- Workflow Library manages reusable Workflow definitions and their Project Workflow Links. It can list, open, create, copy, link, unlink, and delete Workflows, but it neither creates Tasks nor acts as a Task board.
+- Workflow Library manages reusable Workflow files and their Project Workflow Links. It can list, open, create, copy, link, unlink, and remove Recent entries. It neither creates Tasks nor acts as a Task board.
 - Tasks are created from a Project because Task creation requires Project, workspace, and Project Workflow Link context.
 - Project/Workflow pairing is visible wherever it affects work. A Task's Project Workflow Link is its authoritative Project/Workflow pairing.
 - The editor changes Workflow definitions, not live Task execution. Kanban and Task detail show live work and Task state.
 - The editor uses **transition** and **transition branch** for user-facing graph connections.
-- Workflows are linked and unlinked from Projects. There is no transfer-to-Project behavior.
+- Projects must link and unlink Workflows by file location under the [declarative Workflow contract](declarative-workflows.md#discovery-and-project-links). There is no transfer-to-Project behavior.
 - An editor opened from a Project is available only for a Workflow linked to that Project. An unlinked Workflow in that context is blocked rather than shown.
 
 ## Workflow canvas
@@ -33,8 +33,8 @@
 
 ## Drafts and editing
 
-- Edits stay in a Workflow Draft until Save. Discard abandons them. Saving changes the Workflow definition as one operation.
-- The saved Workflow definition is authoritative for validation, Project Workflow Links, change notices, Task impact, Workflow Version, and deletion.
+- Edits stay in a Workflow Draft until Save and Apply. Discard abandons them.
+- File authoring and applied definitions must follow the [declarative Workflow contract](declarative-workflows.md).
 - Workflow details include name, description, and Execution Target Policy.
 - The available Execution Target Policies are: no managed worktree, source `HEAD`, repository default branch, custom Git ref, and asking when executable work first starts.
 - The policy selector explains each choice. Selecting custom Git ref exposes its value. Selecting any other policy clears the custom-ref value.
@@ -62,6 +62,7 @@
 - Fan-Out Transition branch Parameters form one Parameter Requirements set. Branches using the same Parameter Key share one produced value only when their descriptions match after ignoring leading and trailing whitespace. The shared description omits that whitespace. Different descriptions for the same key are validation errors.
 - Prompt editing offers insertable chips for direct Parameters. Selecting one inserts `.Params.<parameter_key>` at the cursor, or at the end if the prompt is not focused. The chip for `{{.Params.<transition_key>.<parameter>}}` explains previous-transition references and must not insert text.
 - Built-in Transition Prompt fields are exactly `.TaskId`, `.TaskShortId`, `.TaskTitle`, `.TaskBody`, `.NodeId`, `.NodeKey`, `.NodeDisplayName`, and `.SessionId`. `.Params.commentary` renders the source Transition Result commentary, or an empty string when none exists. Other top-level fields are validation errors.
+- `.NodeId` must follow the permanent [Node-key alias contract](declarative-workflows.md#transition-prompts).
 - A prompt can reference a previous Transition Parameter as `.Params.<transition_key>.<parameter_key>`, such as `{{.Params.planning.plan_file_location}}`. The referenced Transition must be guaranteed-prior: every path from Start to the prompt-owning transition branch source passes through it. Within parallel work, lookup stays within the same batch. Built-in Session references follow [Session references](#session-references).
 - `.Nodes.<node_key>.<field>` is not an authorable prompt reference.
 - Transitions into agent Nodes require a prompt for Task start or execution, though a Workflow Draft may save with an empty agent prompt. Transitions into non-agent Nodes cannot have prompts.
@@ -119,18 +120,19 @@
 
 ## Save, validation, and conflicts
 
-- Save and Discard share one bottom-right editor status area. It also shows unsaved state, validation issues, Save blockers, remote conflicts, and Save errors.
+- Save and Apply and Discard share one bottom-right editor status area. It also shows unsaved state, validation issues, Apply blockers, remote conflicts, and errors.
 - Draft validation and execution validation are separate. Blocking draft-validation errors prevent graph-changing saves. Execution-validation errors must be visible but must not prevent a save limited to Workflow details.
 - Draft validation blocks prompts into non-agent targets, duplicate Transition Keys, invalid or duplicate Fan-Out Transition Branch Keys, invalid Parameter Keys or descriptions, invalid previous-Parameter references, and Join aggregate key collisions.
 - Execution validation blocks starting or executing an agent-target transition without a prompt.
 - Node-owned prompt and contract data outside the authored Transition contract is read-only in the editor. The editor never writes or round-trips it. A runnable definition must author Transition Prompts and Parameters.
-- A save limited to Workflow details, and a no-op save, bypass graph-edit policy.
-- Graph-changing saves show a preview with draft validation, execution validation, destructive or removal impact, and any required confirmation.
-- Destructive graph-save confirmation appears in the editor status area, not in a separate blocking surface.
-- Save recalculates validation and impact together. It rejects a stale Workflow Version, an unconfirmed destructive change, or a changed destructive impact. Otherwise it applies every change together, increments Workflow Version once, and reports the saved definition and validations to linked Projects.
-- The editor refuses an incompatible Workflow graph format.
-- Workflow Version advances once for any definition edit, whether it changes only Workflow details, only the graph, or both. No-op saves do not advance it.
-- If the same Workflow changes remotely while its local Workflow Draft is unsaved, the editor must not discard the Draft. A conflict banner offers **Reload remote** and **Keep editing**. Saving uses the expected Workflow Version and clearly rejects stale saves.
+- Apply validation must evaluate the complete candidate against the applied definition, including when the editor changed only Workflow details or made no local changes.
+- Draft validation must run before the editor writes the file. After writing, Apply must evaluate current Task impact and show destructive or removal impact with any required confirmation.
+- Save confirmation and file conflicts must follow the [editing contract](declarative-workflows.md#editing-and-external-changes).
+- Apply must recalculate validation and impact together. An unconfirmed destructive change or changed destructive impact must require confirmation before Apply.
+- A successful Apply must report the applied definition and validations to linked Projects.
+- The editor must apply the [Workflow file schema compatibility contract](declarative-workflows.md#file-schema-compatibility) when opening and saving Workflow files.
+- Save must follow the [definition-revision contract](declarative-workflows.md#definition-revisions), independently of file schema versioning.
+- If the file changes while its local Workflow Draft is unsaved, the editor must keep the Draft until the user chooses a conflict action.
 - The same remote-conflict behavior applies whether the editor was opened from Workflow Library or from a linked Project.
 
 ## Workflow library and project links
@@ -142,11 +144,12 @@
 - An accepted link request must complete even after its row leaves the displayed list. Completion must change navigation only when the original destination accepts it.
 - Project Workflow management uses **Link workflow** language.
 - Link workflow opens a global side panel listing reusable Workflows and offering **New workflow**.
-- Creating a Workflow from a Project's Link workflow flow creates a reusable Workflow, links it to that Project, and opens the editor. It becomes the Project default only when that Project has no default Workflow. It must not change an existing default.
-- Creating a Workflow from Workflow Library creates an unlinked reusable Workflow until an operator explicitly links it.
+- Workflow creation, location selection, and copying must follow the [creation contract](declarative-workflows.md#creation-and-copying).
+- Project-originated creation must open the editor after saving and linking the file.
+- Workflow Library creation must leave the file unlinked until the operator explicitly links it.
 - Workflow Library and the editor can open a global Workflow definition. Project-originated boards and Task flows are Project-scoped.
 - The editor may provide settings and deletion for its selected Workflow. Workflow Library and the side panel provide creation, copying, and linking.
-- Whole-Workflow deletion uses one in-app confirmation dialog from Workflow Library, Link workflow, and editor settings. Deletion confirmation stays in the app.
+- Project-context Workflow deletion must use the [deletion choices](declarative-workflows.md#deletion) in one in-app confirmation dialog.
 - Preview, blocker, and failure details stay visible and retryable while that dialog is open. After deletion succeeds, the dialog closes before surrounding views update or navigate. If the surrounding view cannot complete after deletion, it shows a warning and never repeats deletion.
 - Workflow settings include name, description, and linking or unlinking Projects.
 - Project selection for settings and linking uses bounded Infinite Scroll inside the side panel and never materializes the complete Project collection.
@@ -162,19 +165,18 @@
 ## Editing constraints
 
 - A linked Workflow can be edited while its Project has Tasks.
-- A graph-changing save is blocked when it would remove a Node or Transition Branch required by a Task's Current Nodes, live execution, unresolved parallel work, or pending approval.
+- Graph changes affecting existing Tasks must follow the [Apply contract](declarative-workflows.md#applying-definitions).
 - A Task is active for these rules when it has a non-terminal Current Node, pending Approval, unresolved parallel branch, or Exact Execution Scope.
 - Start deletion is unavailable. Start is hidden from add and kind-change controls. An existing Start may be renamed where safe, but its kind is fixed. A blocked graph delete reports feedback.
 - A Start Node's outgoing Transitions may be edited in a Draft. Execution validation must enforce the [Task Start contract](workflow-orchestration.md#nodes-transitions-and-validation).
 - Start may source a Fan-Out Transition into a Node Group. When adding a branch to a Start-backed Node Group, the editor must use the same automatic connection inference and ambiguous-wiring warning behavior as for other Node Groups.
 - A terminal Node may be deleted only when at least one other terminal Node exists. Otherwise deletion is blocked with feedback.
 - A saved Node Group must have enough branch Nodes and exactly one owned Join to be execution-shaped. Otherwise Save is blocked.
-- Save must evaluate destructive impact. Draft edits must not evaluate that impact.
-- Save blocks a graph change that removes a Node, Transition, or graph connection required by a Task's Current Nodes, pending approval, live Exact Execution Scope, or unresolved parallel branch.
+- Apply must evaluate destructive impact. Draft edits must not evaluate that impact.
+- Apply must block changes that invalidate existing Task references under the [Apply contract](declarative-workflows.md#applying-definitions).
 - Changing the kind of a current Node is blocked. A Node without current Task references has no completed-work restriction on its kind.
-- Transition routing, Parameters, and display details may change while Tasks exist. Pending Approvals and unresolved parallel work keep their captured data. A live Exact Execution Scope keeps its model-visible completion requirements. If an incompatible edit makes its completion invalid, completion fails without Task mutation. Start and Resume use the latest valid requirements.
-- Moving a graph connection to a different Transition is blocked only while current Task state depends on it.
-- Completed Tasks must not block removing or retargeting their former incoming Transition Branches. These edits must not change their results, Parameter values, comments, or Session associations, and must not move the Tasks. References required by active work or pending Approvals must be protected.
+- Transition routing, Parameters, and display details may change while Tasks exist. A live Exact Execution Scope keeps its model-visible completion requirements. If an incompatible applied edit makes its completion invalid, completion fails without Task mutation. Start and Resume use requirements from the applied Workflow definition. Pending Approvals follow the [applied-definition Approval contract](declarative-workflows.md#pending-approvals).
+- Completed Tasks must not block removing or retargeting their former incoming Transition Branches. These edits must not change their results, Parameter values, comments, or Session associations, and must not move the Tasks.
 - Backlog and terminal Tasks do not require confirmation before otherwise unreferenced Nodes or transitions are removed.
 - Manual Task moves are blocked when they would violate a selected prior-Node continuation Context Source. Previous-target continuation uses the context resolved for that transition.
-- Saving a Workflow graph never deletes or moves Tasks. Whole-Workflow deletion is the Task-deleting operation.
+- Saving a Workflow graph must not delete or move Tasks between Nodes. GUI Node-key renaming must update their references under the [file identity contract](declarative-workflows.md#file-identity).

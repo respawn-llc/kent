@@ -10,9 +10,54 @@ import (
 	"time"
 
 	"core/server/sessionstore"
+	"core/shared/invariant"
+	"core/shared/serverapi"
 	"core/shared/sessioncontract"
 	"core/shared/textutil"
 )
+
+func TestSessionCreationRequiresProjectWhenWorkspaceIsShared(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		name := "production"
+		if debug {
+			name = "debug"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, cfg, binding := newMetadataTestStore(t)
+			other, err := store.RegisterWorkspaceBinding(t.Context(), t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.AttachWorkspaceToProject(t.Context(), other.ProjectID, cfg.WorkspaceRoot); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("KENT_INVARIANT_MODE", "")
+			debugValue := "0"
+			if debug {
+				debugValue = "1"
+			}
+			t.Setenv("KENT_DEBUG", debugValue)
+			defer func() {
+				recovered := recover()
+				if debug {
+					diagnostic, ok := recovered.(invariant.Diagnostic)
+					if !ok || diagnostic.Scope != invariant.ScopeSessionPersistence {
+						t.Fatalf("panic=%v, want Session persistence invariant", recovered)
+					}
+				} else if recovered != nil {
+					t.Fatalf("production panic: %v", recovered)
+				}
+			}()
+			_, err = session.Create(filepath.Join(cfg.PersistenceRoot, "projects", binding.ProjectID, "sessions"), "sessions", cfg.WorkspaceRoot, sessioncontract.SessionCategoryMain, store.AuthoritativeSessionStoreOptions()...)
+			if debug {
+				t.Fatal("missing debug panic")
+			}
+			if !errors.Is(err, session.ErrMutationDefinitelyUncommitted) || !errors.Is(err, serverapi.ErrWorkspaceBindingAmbiguous) {
+				t.Fatalf("unscoped Session creation: %v", err)
+			}
+		})
+	}
+}
 
 type blockingOrderedSessionObserver struct {
 	store     *Store

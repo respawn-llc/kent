@@ -582,7 +582,7 @@ func TestTaskResumeRejectsReplacedSessionAfterPreparation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE task_current_nodes SET session_id = ? WHERE task_id = ? AND node_id = ?`, replacement.String(), string(current.Reference.TaskID), string(current.Reference.NodeID)); err != nil {
+	if _, err := store.db.ExecContext(ctx, `UPDATE task_current_nodes SET session_id = ? WHERE task_id = ? AND node_id = ?`, replacement.String(), string(current.Reference.TaskID), testGraphEntityIDBlob(t, string(current.Reference.NodeID))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.CommitTaskResume(ctx, plan, plannedSessionsForStoreTest(t, ctx, store, plan.StartContexts())); err == nil {

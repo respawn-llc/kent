@@ -294,7 +294,8 @@ func TestUnlinkProjectWorkspaceBlocksReferencedWorkspaceDependencies(t *testing.
 VALUES ('session-executable-workspace', ?, ?, 'projects/project/sessions/session-executable-workspace', ?, ?)`,
 			binding.ProjectID, attached.WorkspaceID, now, now)
 		execSeed(t, store.db, "current node", `INSERT INTO task_current_nodes (task_id, node_id, current_input_values_json, prior_node_values_json, session_id)
-VALUES ('task-executable-workspace', 'node-agent', '{}', '{"transition_parameters":{}}', 'session-executable-workspace')`)
+VALUES ('task-executable-workspace', ?, '{}', '{"transition_parameters":{}}', 'session-executable-workspace')`,
+			workflowGraphSeedID(t, store.db, "node-agent"))
 
 		blockers, err := store.UnlinkProjectWorkspaceWithRuntimeBlockers(ctx, binding.ProjectID, attached.WorkspaceID, nil, nil)
 		if err != nil {

@@ -26,14 +26,9 @@ func (e *Engine) ensureMetaContextForRequest(ctx context.Context, stepID string)
 	case pendingGenerationContext:
 		return nil
 	case freshGenerationContext:
-		pendingRebind := e.store.Meta().RebindReminder != nil
-		if err := e.steerFreshMetaContext(ctx, stepID); err != nil {
-			return err
-		}
-		if pendingRebind {
-			return e.store.SetSessionRebindReminder(nil)
-		}
-		return nil
+		return e.initializeFreshMetaContext(ctx, func(result metaContextBuildResult) (session.CommitReceipt, error) {
+			return e.steerMetaContextBuildResult(stepID, result)
+		})
 	case preparedGenerationContext:
 	default:
 		return errors.New("generation context is uninitialized")
@@ -58,7 +53,16 @@ func (e *Engine) materializePendingExecutionTargetReminders(stepID string) error
 	return e.materializePendingSessionRebindReminder(stepID)
 }
 
-func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error {
+func (e *Engine) initializeFreshMetaContext(
+	ctx context.Context,
+	apply func(metaContextBuildResult) (session.CommitReceipt, error),
+) (resultErr error) {
+	pendingRebind := e.store.Meta().RebindReminder != nil
+	defer func() {
+		if resultErr == nil && pendingRebind {
+			resultErr = e.store.SetSessionRebindReminder(nil)
+		}
+	}()
 	projectWorkspaces, err := loadProjectWorkspacesContext(
 		ctx,
 		e.cfg.ProjectWorkspaceContextReader,
@@ -77,7 +81,7 @@ func (e *Engine) steerFreshMetaContext(ctx context.Context, stepID string) error
 		if err != nil {
 			return session.CommitReceipt{}, err
 		}
-		return e.steerMetaContextBuildResult(stepID, metaResult)
+		return apply(metaResult)
 	}
 	if e.workflowPromptActive() {
 		var committedErr error
@@ -437,7 +441,7 @@ func (e *Engine) steerDormantBaseMetaContext(
 	if err != nil {
 		return err
 	}
-	_, err = e.steerDormantMetaContextBuildResult(metaResult)
+	_, err = e.steerSessionMetaContextBuildResult(metaResult)
 	return err
 }
 
@@ -473,7 +477,7 @@ func (e *Engine) steerMetaContextBuildResult(stepID string, metaResult metaConte
 	)
 }
 
-func (e *Engine) steerDormantMetaContextBuildResult(metaResult metaContextBuildResult) (session.CommitReceipt, error) {
+func (e *Engine) steerSessionMetaContextBuildResult(metaResult metaContextBuildResult) (session.CommitReceipt, error) {
 	if e == nil || e.closed.Load() {
 		return session.CommitReceipt{}, ErrEngineClosed
 	}

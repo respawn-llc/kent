@@ -204,7 +204,7 @@ type SessionShortIDSequence struct {
 
 type SessionWorkflowNodeAssociation struct {
 	SessionID           string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey sql.NullString
 	AssociatedAtUnixMs  int64
 }
@@ -260,7 +260,7 @@ type TaskComment struct {
 
 type TaskCurrentNode struct {
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    sql.NullString
 	CurrentInputValuesJson string
 	PriorNodeValuesJson    string
@@ -269,7 +269,7 @@ type TaskCurrentNode struct {
 	InterruptionReason     sql.NullString
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
-	EnteredByEdgeID        sql.NullString
+	EnteredByEdgeID        []byte
 	EffectiveAssignee      sql.NullString
 	EffectiveThinking      sql.NullString
 	AssigneeOrigin         sql.NullString
@@ -288,7 +288,7 @@ type TaskLabelAssignment struct {
 type TaskPendingApproval struct {
 	ID                        string
 	SourceTaskID              string
-	SourceNodeID              string
+	SourceNodeID              []byte
 	SourceTransitionBranchKey sql.NullString
 	SourceSessionID           sql.NullString
 	WorkflowVersion           int64
@@ -368,10 +368,10 @@ type Workflow struct {
 }
 
 type WorkflowEdge struct {
-	ID                     string
-	TransitionGroupID      string
+	ID                     []byte
+	TransitionGroupID      []byte
 	EdgeKey                string
-	TargetNodeID           string
+	TargetNodeID           []byte
 	RequiresApproval       int64
 	ContextMode            string
 	InputBindingsJson      string
@@ -386,13 +386,13 @@ type WorkflowEdge struct {
 }
 
 type WorkflowNode struct {
-	ID                     string
+	ID                     []byte
 	WorkflowID             runtimeids.WorkflowID
 	NodeKey                string
 	Kind                   string
 	DisplayName            string
 	SubagentRole           string
-	GroupID                sql.NullString
+	GroupID                []byte
 	SortOrder              int64
 	JoinInputProvidersJson string
 	CompletionMode         string
@@ -400,7 +400,7 @@ type WorkflowNode struct {
 }
 
 type WorkflowNodeGroup struct {
-	ID          string
+	ID          []byte
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
 	DisplayName sql.NullString
@@ -417,8 +417,8 @@ type WorkflowTaskStatusRecord struct {
 }
 
 type WorkflowTransitionGroup struct {
-	ID           string
-	SourceNodeID string
+	ID           []byte
+	SourceNodeID []byte
 	TransitionID string
 	DisplayName  string
 	SortOrder    int64

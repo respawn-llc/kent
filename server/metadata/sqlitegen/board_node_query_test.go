@@ -51,7 +51,7 @@ CREATE INDEX task_label_assignments_label_task_idx
 	ON task_label_assignments(label_id, task_id);
 CREATE TABLE task_current_nodes (
 	task_id TEXT NOT NULL,
-	node_id TEXT NOT NULL
+	node_id BLOB NOT NULL
 );
 CREATE TABLE task_dependencies (
 	blocker_task_id TEXT NOT NULL,
@@ -70,6 +70,10 @@ CREATE VIEW task_records AS SELECT * FROM tasks;
 	}
 
 	workflowID := runtimeids.NewWorkflowID()
+	nodeID, err := runtimeids.GraphEntityIDBlob(boardQueryNodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	workflowValue, err := workflowID.Value()
 	if err != nil {
 		t.Fatalf("workflow id value: %v", err)
@@ -112,7 +116,7 @@ INSERT INTO tasks (
 		); err != nil {
 			t.Fatalf("insert task %s: %v", task.id, err)
 		}
-		if _, err := db.Exec(`INSERT INTO task_current_nodes (task_id, node_id) VALUES (?, ?)`, task.id, boardQueryNodeID); err != nil {
+		if _, err := db.Exec(`INSERT INTO task_current_nodes (task_id, node_id) VALUES (?, ?)`, task.id, nodeID); err != nil {
 			t.Fatalf("insert current node %s: %v", task.id, err)
 		}
 		for _, labelID := range task.labelIDs {
@@ -152,7 +156,7 @@ VALUES (?, ?), (?, ?)`,
 		{field: "labels", direction: "desc", want: []string{"task-3", "task-5", "task-1", "task-6", "task-2", "task-4"}},
 	} {
 		t.Run(testCase.field+"_"+testCase.direction, func(t *testing.T) {
-			rows, err := queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(
+			rows, err := queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(t,
 				workflowID,
 				testCase.field,
 				testCase.direction,
@@ -173,7 +177,7 @@ VALUES (?, ?), (?, ?)`,
 		})
 	}
 
-	rows, err := queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(
+	rows, err := queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(t,
 		workflowID,
 		"updated",
 		"desc",
@@ -194,7 +198,7 @@ VALUES (?, ?), (?, ?)`,
 			rows[0].DependencyTotalCount.Int64,
 		)
 	}
-	rows, err = queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(
+	rows, err = queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(t,
 		workflowID,
 		"updated",
 		"desc",
@@ -210,7 +214,7 @@ VALUES (?, ?), (?, ?)`,
 	}
 
 	unblocked := sql.NullInt64{Int64: 1, Valid: true}
-	rows, err = queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(
+	rows, err = queries.ListBoardNodeTasks(context.Background(), boardNodeTasksQueryParams(t,
 		workflowID,
 		"labels",
 		"asc",
@@ -225,7 +229,7 @@ VALUES (?, ?), (?, ?)`,
 		t.Fatalf("unblocked page = %v, want [task-2 task-6 task-5 task-3 task-4]", got)
 	}
 
-	params := boardNodeTasksQueryParams(workflowID, "labels", "asc", 0, 100, unblocked)
+	params := boardNodeTasksQueryParams(t, workflowID, "labels", "asc", 0, 100, unblocked)
 	params.LabelFilterKind = "named"
 	params.LabelFilterMode = "all"
 	params.LabelIdsJson = `["label-1"]`
@@ -247,6 +251,7 @@ func boardTaskIDs(rows []ListBoardNodeTasksRow) []string {
 }
 
 func boardNodeTasksQueryParams(
+	t *testing.T,
 	workflowID runtimeids.WorkflowID,
 	sortField string,
 	sortDirection string,
@@ -254,6 +259,11 @@ func boardNodeTasksQueryParams(
 	limit int,
 	dependencyFilter sql.NullInt64,
 ) ListBoardNodeTasksParams {
+	t.Helper()
+	nodeID, err := runtimeids.GraphEntityIDBlob(boardQueryNodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return ListBoardNodeTasksParams{
 		ProjectID:            "project-1",
 		WorkflowID:           workflowID,
@@ -262,7 +272,7 @@ func boardNodeTasksQueryParams(
 		LabelIdsJson:         "[]",
 		ExcludedLabelIdsJson: "[]",
 		DependencyFilter:     dependencyFilter,
-		NodeID:               boardQueryNodeID,
+		NodeID:               nodeID,
 		SortField:            sortField,
 		SortDirection:        sortDirection,
 		OffsetRows:           int64(offset),

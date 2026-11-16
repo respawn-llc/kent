@@ -242,6 +242,7 @@ func chatAgentCatalogEntry(selector string, target PreparedBaseTarget, capabilit
 			Role:     selector,
 			Model:    textutil.OptionalTrimmedString(target.Settings.Model),
 			Thinking: textutil.Value(settings.Baseline.Thinking),
+			Fast:     textutil.Value(settings.Baseline.Fast),
 		},
 		Settings: &settings,
 	}

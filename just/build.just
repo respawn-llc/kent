@@ -1,45 +1,51 @@
 set working-directory := ".."
+set default-list
 
 [parallel]
 [private]
 _default: go docs desktop
 
+# Build Go, docs, and Desktop.
 default:
     @bash scripts/quiet-on-success.sh --success done just build _default
 
+# Build the Go CLI and server.
 go *args:
-    @bash scripts/quiet-on-success.sh --success done just build _go {{args}}
+    @bash scripts/quiet-on-success.sh --success done just build _go {{ args }}
 
+# Build the active Go terminal UI.
 tui *args:
-    @bash scripts/quiet-on-success.sh --success done just build go {{args}}
+    @bash scripts/quiet-on-success.sh --success done just build go {{ args }}
 
 # Frozen Rust is explicit-only while tui-rs/ remains frozen.
 rust *args:
-    @bash scripts/quiet-on-success.sh --success done cargo build --manifest-path tui-rs/Cargo.toml --workspace --locked {{args}}
+    @bash scripts/quiet-on-success.sh --success done cargo build --manifest-path tui-rs/Cargo.toml --workspace --locked {{ args }}
 
+# Build the native Desktop application.
 desktop *args:
-    @bash scripts/quiet-on-success.sh --success done just build _desktop {{args}}
+    @bash scripts/quiet-on-success.sh --success done just build _desktop {{ args }}
 
 [private]
 _desktop *args:
-    bash scripts/build-desktop.sh --skip-install {{args}}
+    bash scripts/build-desktop.sh --skip-install {{ args }}
 
+# Build the documentation site.
 docs *args:
-    @bash scripts/quiet-on-success.sh --success done just build _docs {{args}}
+    @bash scripts/quiet-on-success.sh --success done just build _docs {{ args }}
 
 [private]
 _docs *args:
-    bun run --bun --cwd docs astro build {{args}}
+    bun run --bun --cwd docs astro build {{ args }}
     bun docs/scripts/emit-deployment-files.mjs
 
 [private]
 _go *args:
-    @bash scripts/quiet-on-success.sh --success done just build _go-implementation {{args}}
+    @bash scripts/quiet-on-success.sh --success done just build _go-implementation {{ args }}
 
 [private]
 _go-implementation *args:
     just _gen-go
-    bash scripts/build.sh server {{args}}
+    bash scripts/build.sh server {{ args }}
 
 [private]
 _desktop-web:
@@ -60,14 +66,14 @@ _desktop-compiler:
 
 [private]
 _desktop-smoke-macos bundle_dir:
-    @bash scripts/quiet-on-success.sh --success done just build _desktop-smoke-macos-implementation {{bundle_dir}}
+    @bash scripts/quiet-on-success.sh --success done just build _desktop-smoke-macos-implementation {{ bundle_dir }}
 
 [private]
 _desktop-smoke-macos-implementation bundle_dir:
     #!/usr/bin/env bash
     set -euo pipefail
     shopt -s nullglob
-    dmgs=({{bundle_dir}}/*.dmg)
+    dmgs=({{ bundle_dir }}/*.dmg)
     [ "${#dmgs[@]}" -eq 1 ] || { echo "Expected exactly one macOS DMG, found ${#dmgs[@]}." >&2; exit 1; }
     mount_dir="$(mktemp -d)"
     printf 'Y\n' | hdiutil attach "${dmgs[0]}" -nobrowse -readonly -mountpoint "$mount_dir"
@@ -96,9 +102,9 @@ _desktop-smoke-macos-implementation bundle_dir:
 
 [private]
 _desktop-ci-debug key:
-    @bash scripts/quiet-on-success.sh --success done just build _desktop-ci-debug-implementation {{key}}
+    @bash scripts/quiet-on-success.sh --success done just build _desktop-ci-debug-implementation {{ key }}
 
 [private]
 _desktop-ci-debug-implementation key:
-    bun run --bun --cwd apps/desktop tauri signer generate -f -w {{key}} -p ""
-    TAURI_SIGNING_PRIVATE_KEY="$(cat {{key}})" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bash scripts/build-desktop.sh --skip-install -- --debug
+    bun run --bun --cwd apps/desktop tauri signer generate -f -w {{ key }} -p ""
+    TAURI_SIGNING_PRIVATE_KEY="$(cat {{ key }})" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" bash scripts/build-desktop.sh --skip-install -- --debug

@@ -86,10 +86,14 @@ func interruptCurrentNodeQuery(
 	detailJSON string,
 	now int64,
 ) (int64, error) {
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
+		return 0, err
+	}
 	if branchKey, branchScoped := reference.TransitionBranchKey(); branchScoped {
 		return q.InterruptBranchCurrentNode(ctx, sqlitegen.InterruptBranchCurrentNodeParams{
 			TaskID:                 string(reference.TaskID),
-			NodeID:                 string(reference.NodeID),
+			NodeID:                 nodeID,
 			TransitionBranchKey:    sql.NullString{String: string(branchKey), Valid: true},
 			InterruptionReason:     sql.NullString{String: string(reason), Valid: true},
 			InterruptionDetailJson: sql.NullString{String: detailJSON, Valid: true},
@@ -98,7 +102,7 @@ func interruptCurrentNodeQuery(
 	}
 	return q.InterruptSerialCurrentNode(ctx, sqlitegen.InterruptSerialCurrentNodeParams{
 		TaskID:                 string(reference.TaskID),
-		NodeID:                 string(reference.NodeID),
+		NodeID:                 nodeID,
 		InterruptionReason:     sql.NullString{String: string(reason), Valid: true},
 		InterruptionDetailJson: sql.NullString{String: detailJSON, Valid: true},
 		InterruptedAtUnixMs:    sql.NullInt64{Int64: now, Valid: true},
@@ -212,7 +216,11 @@ func (s *Store) currentNodeFromRow(row sqlitegen.ListTaskCurrentNodesRow) (workf
 		value := workflow.EdgeID(*enteredByEdge)
 		enteredByEdgeID = &value
 	}
-	reference, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.TaskID), workflow.NodeID(row.NodeID), branchKey)
+	nodeID, err := runtimeids.GraphEntityIDText(row.NodeID)
+	if err != nil {
+		return workflow.CurrentNode{}, fmt.Errorf("decode current node identity: %w", err)
+	}
+	reference, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.TaskID), workflow.NodeID(nodeID), branchKey)
 	if err != nil {
 		return workflow.CurrentNode{}, fmt.Errorf("decode current node reference: %w", err)
 	}
@@ -350,7 +358,11 @@ func insertTaskCurrentNode(
 	currentNode workflow.CurrentNode,
 	associatedAt time.Time,
 ) error {
-	node, err := q.GetWorkflowNode(ctx, string(currentNode.Reference.NodeID))
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(currentNode.Reference.NodeID))
+	if err != nil {
+		return err
+	}
+	node, err := q.GetWorkflowNode(ctx, nodeID)
 	if err != nil {
 		return fmt.Errorf("resolve current node kind: %w", err)
 	}
@@ -381,7 +393,7 @@ func insertTaskCurrentNodeWithKind(
 		return err
 	}
 	if nodeKind == workflow.NodeKindTerminal {
-		params.EnteredByEdgeID = sql.NullString{}
+		params.EnteredByEdgeID = nil
 	}
 	if currentNode.SessionID != nil && nodeKind != workflow.NodeKindAgent {
 		return fmt.Errorf("%s current node cannot retain a Session", nodeKind)
@@ -410,13 +422,17 @@ func deleteTaskCurrentNode(ctx context.Context, q *sqlitegen.Queries, reference 
 	if err := reference.Validate(); err != nil {
 		return 0, err
 	}
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
+		return 0, err
+	}
 	branchKey := sql.NullString{}
 	if value, present := reference.TransitionBranchKey(); present {
 		branchKey = sql.NullString{String: string(value), Valid: true}
 	}
 	return q.DeleteTaskCurrentNode(ctx, sqlitegen.DeleteTaskCurrentNodeParams{
 		TaskID:              string(reference.TaskID),
-		NodeID:              string(reference.NodeID),
+		NodeID:              nodeID,
 		TransitionBranchKey: branchKey,
 	})
 }
@@ -426,6 +442,10 @@ func deleteTaskCurrentNode(ctx context.Context, q *sqlitegen.Queries, reference 
 // process-local Exact Execution Scope.
 func (s *Store) AdmitCurrentNode(ctx context.Context, reference workflow.CurrentNodeReference) (session.CommitReceipt, error) {
 	if err := reference.Validate(); err != nil {
+		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(err)
+	}
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
 		return session.CommitReceipt{}, session.DefinitelyUncommittedMutation(err)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -438,13 +458,13 @@ func (s *Store) AdmitCurrentNode(ctx context.Context, reference workflow.Current
 	if branchKey, branchScoped := reference.TransitionBranchKey(); branchScoped {
 		admitted, err = q.AdmitBranchCurrentNode(ctx, sqlitegen.AdmitBranchCurrentNodeParams{
 			TaskID:              string(reference.TaskID),
-			NodeID:              string(reference.NodeID),
+			NodeID:              nodeID,
 			TransitionBranchKey: sql.NullString{String: string(branchKey), Valid: true},
 		})
 	} else {
 		admitted, err = q.AdmitSerialCurrentNode(ctx, sqlitegen.AdmitSerialCurrentNodeParams{
 			TaskID: string(reference.TaskID),
-			NodeID: string(reference.NodeID),
+			NodeID: nodeID,
 		})
 	}
 	if err != nil {
@@ -490,6 +510,10 @@ func (s *Store) InterruptAdmittedCurrentNode(
 	if err := reference.Validate(); err != nil {
 		return err
 	}
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(string(reason)) == "" {
 		return errors.New("current node interruption reason is required")
 	}
@@ -502,7 +526,7 @@ func (s *Store) InterruptAdmittedCurrentNode(
 	if branchKey, branchScoped := reference.TransitionBranchKey(); branchScoped {
 		interrupted, err = s.queries.InterruptBranchAdmittedCurrentNode(ctx, sqlitegen.InterruptBranchAdmittedCurrentNodeParams{
 			TaskID:                 string(reference.TaskID),
-			NodeID:                 string(reference.NodeID),
+			NodeID:                 nodeID,
 			TransitionBranchKey:    sql.NullString{String: string(branchKey), Valid: true},
 			InterruptionReason:     sql.NullString{String: string(reason), Valid: true},
 			InterruptionDetailJson: sql.NullString{String: string(detailJSON), Valid: true},
@@ -511,7 +535,7 @@ func (s *Store) InterruptAdmittedCurrentNode(
 	} else {
 		interrupted, err = s.queries.InterruptSerialAdmittedCurrentNode(ctx, sqlitegen.InterruptSerialAdmittedCurrentNodeParams{
 			TaskID:                 string(reference.TaskID),
-			NodeID:                 string(reference.NodeID),
+			NodeID:                 nodeID,
 			InterruptionReason:     sql.NullString{String: string(reason), Valid: true},
 			InterruptionDetailJson: sql.NullString{String: string(detailJSON), Valid: true},
 			InterruptedAtUnixMs:    sql.NullInt64{Int64: now, Valid: true},
@@ -571,6 +595,10 @@ func (s *Store) ReplaceUserInterruptionWithAssignmentFailure(
 	if err := reference.Validate(); err != nil {
 		return err
 	}
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
+		return err
+	}
 	detailJSON, err := json.Marshal(detail)
 	if err != nil {
 		return fmt.Errorf("encode current node interruption detail: %w", err)
@@ -583,7 +611,7 @@ func (s *Store) ReplaceUserInterruptionWithAssignmentFailure(
 			InterruptionDetailJson: sql.NullString{String: string(detailJSON), Valid: true},
 			InterruptedAtUnixMs:    sql.NullInt64{Int64: now, Valid: true},
 			TaskID:                 string(reference.TaskID),
-			NodeID:                 string(reference.NodeID),
+			NodeID:                 nodeID,
 			TransitionBranchKey:    sql.NullString{String: string(branchKey), Valid: branchScoped},
 		},
 	)
@@ -627,6 +655,10 @@ func (s *Store) ReconcileTaskResume(ctx context.Context, taskID workflow.TaskID)
 }
 
 func taskCurrentNodeInsertParams(currentNode workflow.CurrentNode) (sqlitegen.InsertTaskCurrentNodeParams, error) {
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(currentNode.Reference.NodeID))
+	if err != nil {
+		return sqlitegen.InsertTaskCurrentNodeParams{}, err
+	}
 	currentInputValuesJSON, err := json.Marshal(currentNode.CurrentInputValues)
 	if err != nil {
 		return sqlitegen.InsertTaskCurrentNodeParams{}, fmt.Errorf("encode current node input values: %w", err)
@@ -637,9 +669,9 @@ func taskCurrentNodeInsertParams(currentNode workflow.CurrentNode) (sqlitegen.In
 	}
 	params := sqlitegen.InsertTaskCurrentNodeParams{
 		TaskID:                 string(currentNode.Reference.TaskID),
-		NodeID:                 string(currentNode.Reference.NodeID),
+		NodeID:                 nodeID,
 		TransitionBranchKey:    sql.NullString{},
-		EnteredByEdgeID:        sql.NullString{},
+		EnteredByEdgeID:        nil,
 		CurrentInputValuesJson: string(currentInputValuesJSON),
 		PriorNodeValuesJson:    string(priorValuesJSON),
 		SessionID:              sql.NullString{},
@@ -655,7 +687,10 @@ func taskCurrentNodeInsertParams(currentNode workflow.CurrentNode) (sqlitegen.In
 		params.TransitionBranchKey = sql.NullString{String: string(branchKey), Valid: true}
 	}
 	if currentNode.EnteredByEdgeID != nil {
-		params.EnteredByEdgeID = sql.NullString{String: string(*currentNode.EnteredByEdgeID), Valid: true}
+		params.EnteredByEdgeID, err = runtimeids.GraphEntityIDBlob(string(*currentNode.EnteredByEdgeID))
+		if err != nil {
+			return sqlitegen.InsertTaskCurrentNodeParams{}, err
+		}
 	}
 	if currentNode.SessionID != nil {
 		params.SessionID = sql.NullString{String: currentNode.SessionID.String(), Valid: true}

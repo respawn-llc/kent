@@ -127,8 +127,6 @@ export const englishResources = {
       edit: "Edit in a new Session",
       editFailed: "Could not create an edited Session.",
       editUnknownFailure: "Could not create an edited Session ({{code}}).",
-      editFailureRecovery:
-        "Your draft is unchanged. Try Edit again. If it keeps failing, report these details:\n\n{{diagnostic}}",
       reviewerSuggestions_one: "Supervisor made {{count}} suggestion",
       reviewerSuggestions_other: "Supervisor made {{count}} suggestions",
       notice: {
@@ -570,6 +568,7 @@ export const englishResources = {
       submitAnswer: "Submit",
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
+      selectOptionShortcut: "Select option ({{shortcut}})",
       recommended: "Recommended",
       recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",

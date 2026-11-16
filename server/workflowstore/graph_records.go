@@ -2,8 +2,6 @@ package workflowstore
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 
 	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
@@ -11,22 +9,22 @@ import (
 	"core/shared/runtimeids"
 )
 
-func nullableGraphIdentity(value any) (*string, error) {
-	switch typed := value.(type) {
-	case nil:
+func nullableGraphIdentity(value []byte) (*string, error) {
+	if value == nil {
 		return nil, nil
-	case string:
-		copy := typed
-		return &copy, nil
-	case sql.NullString:
-		if !typed.Valid {
-			return nil, nil
-		}
-		copy := typed.String
-		return &copy, nil
-	default:
-		return nil, fmt.Errorf("graph identity has unexpected SQLite type %T", value)
 	}
+	text, err := runtimeids.GraphEntityIDText(value)
+	if err != nil {
+		return nil, err
+	}
+	return &text, nil
+}
+
+func nullableGraphIdentityArgument(value *string) ([]byte, error) {
+	if value == nil {
+		return nil, nil
+	}
+	return runtimeids.GraphEntityIDBlob(*value)
 }
 
 func workflowDefinitionFromPreparedGraph(
@@ -96,9 +94,17 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		edges:            make([]EdgeRecord, 0, len(edges)),
 	}
 	for _, group := range nodeGroups {
-		prepared.nodeGroups = append(prepared.nodeGroups, NodeGroupRecord{ID: group.ID, WorkflowID: group.WorkflowID, Key: workflow.ModelKey(group.GroupKey), DisplayName: metadata.OptionalString(group.DisplayName), SortOrder: group.SortOrder})
+		id, err := runtimeids.GraphEntityIDText(group.ID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		prepared.nodeGroups = append(prepared.nodeGroups, NodeGroupRecord{ID: id, WorkflowID: group.WorkflowID, Key: workflow.ModelKey(group.GroupKey), DisplayName: metadata.OptionalString(group.DisplayName), SortOrder: group.SortOrder})
 	}
 	for _, node := range nodes {
+		id, err := runtimeids.GraphEntityIDText(node.ID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
 		joinProviders := []workflow.JoinInputProvider{}
 		if err := workflow.UnmarshalString(node.JoinInputProvidersJson, &joinProviders); err != nil {
 			return preparedWorkflowGraphSave{}, err
@@ -111,12 +117,32 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		if node.ScriptPath.Valid {
 			scriptPath = node.ScriptPath.String
 		}
-		prepared.nodes = append(prepared.nodes, NodeRecord{ID: workflow.NodeID(node.ID), WorkflowID: node.WorkflowID, Key: workflow.ModelKey(node.NodeKey), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: groupID, SubagentRole: node.SubagentRole, CompletionMode: node.CompletionMode, ScriptPath: scriptPath, JoinInputProviders: joinProviders, SortOrder: node.SortOrder})
+		prepared.nodes = append(prepared.nodes, NodeRecord{ID: workflow.NodeID(id), WorkflowID: node.WorkflowID, Key: workflow.ModelKey(node.NodeKey), Kind: workflow.NodeKind(node.Kind), DisplayName: node.DisplayName, GroupID: groupID, SubagentRole: node.SubagentRole, CompletionMode: node.CompletionMode, ScriptPath: scriptPath, JoinInputProviders: joinProviders, SortOrder: node.SortOrder})
 	}
 	for _, group := range transitionGroups {
-		prepared.transitionGroups = append(prepared.transitionGroups, TransitionGroupRecord{ID: workflow.TransitionGroupID(group.ID), WorkflowID: workflowID, SourceNodeID: workflow.NodeID(group.SourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName, Description: group.Description, SortOrder: group.SortOrder})
+		id, err := runtimeids.GraphEntityIDText(group.ID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		sourceNodeID, err := runtimeids.GraphEntityIDText(group.SourceNodeID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		prepared.transitionGroups = append(prepared.transitionGroups, TransitionGroupRecord{ID: workflow.TransitionGroupID(id), WorkflowID: workflowID, SourceNodeID: workflow.NodeID(sourceNodeID), TransitionID: workflow.TransitionID(group.TransitionID), DisplayName: group.DisplayName, Description: group.Description, SortOrder: group.SortOrder})
 	}
 	for _, edge := range edges {
+		id, err := runtimeids.GraphEntityIDText(edge.ID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		groupID, err := runtimeids.GraphEntityIDText(edge.TransitionGroupID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		targetNodeID, err := runtimeids.GraphEntityIDText(edge.TargetNodeID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
 		parameters := []workflow.Parameter{}
 		inputs := []workflow.InputBinding{}
 		if err := workflow.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
@@ -130,11 +156,11 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 			return preparedWorkflowGraphSave{}, err
 		}
 		prepared.edges = append(prepared.edges, EdgeRecord{
-			ID:                 workflow.EdgeID(edge.ID),
+			ID:                 workflow.EdgeID(id),
 			WorkflowID:         edge.WorkflowID,
-			TransitionGroupID:  workflow.TransitionGroupID(edge.TransitionGroupID),
+			TransitionGroupID:  workflow.TransitionGroupID(groupID),
 			Key:                workflow.ModelKey(edge.EdgeKey),
-			TargetNodeID:       workflow.NodeID(edge.TargetNodeID),
+			TargetNodeID:       workflow.NodeID(targetNodeID),
 			AssigneeSelection:  workflow.AssigneeSelection(edge.AssigneeSelection),
 			ThinkingSelection:  workflow.ThinkingSelection(edge.ThinkingSelection),
 			RequiresApproval:   edge.RequiresApproval != 0,

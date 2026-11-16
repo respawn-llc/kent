@@ -780,6 +780,12 @@ func (i *GitInspector) List(ctx context.Context, workspaceRoot string) ([]GitWor
 	case config.GitNotRepository:
 		return nil, &GitWorktreeListError{Kind: GitWorktreeListErrorNotRepository}
 	case config.GitRepositoryInspectionFailed:
+		if errors.Is(inspection.Cause, os.ErrNotExist) {
+			return nil, &GitWorktreeListError{
+				Kind:  GitWorktreeListErrorNotRepository,
+				Cause: inspection.Cause,
+			}
+		}
 		return nil, &GitWorktreeListError{
 			Kind:  GitWorktreeListErrorInspectionFailed,
 			Cause: inspection.Cause,

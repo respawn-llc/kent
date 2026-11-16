@@ -4,16 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"core/server/metadata"
 )
 
-type projectWorkspacesContext struct {
-	ProjectName    string
-	WorkspaceCount int64
-	Workspaces     []metadata.ProjectWorkspaceCatalogRow
-}
+type projectWorkspacesContext = metadata.SessionProjectWorkspaceContext
 
 func loadProjectWorkspacesContext(
 	ctx context.Context,
@@ -27,20 +22,5 @@ func loadProjectWorkspacesContext(
 	if err != nil {
 		return projectWorkspacesContext{}, fmt.Errorf("read Project Workspace context: %w", err)
 	}
-	result := projectWorkspacesContext{
-		ProjectName:    facts.ProjectName,
-		WorkspaceCount: facts.WorkspaceCount,
-	}
-	if facts.WorkspaceCount <= 1 {
-		return result, nil
-	}
-	result.Workspaces = make([]metadata.ProjectWorkspaceCatalogRow, 0, len(facts.Workspaces))
-	for _, workspace := range facts.Workspaces {
-		info, err := os.Stat(workspace.CanonicalRoot)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		result.Workspaces = append(result.Workspaces, workspace)
-	}
-	return result, nil
+	return facts, nil
 }

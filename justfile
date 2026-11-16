@@ -1,4 +1,3 @@
-set default-list
 set lists
 set positional-arguments
 set unstable
@@ -15,6 +14,16 @@ mod install 'just/install.just'
 mod _lint 'just/lint.just'
 mod release 'just/release.just'
 mod update 'just/update.just'
+
+# List all commands, or show usage for a module or command: just help build go.
+[default]
+help *path:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$#" -eq 0 ]; then
+        exec just --list --list-submodules
+    fi
+    exec just --usage "$@"
 
 # Prepare this checkout for development. Pass --apply to make changes.
 setup *args: _node

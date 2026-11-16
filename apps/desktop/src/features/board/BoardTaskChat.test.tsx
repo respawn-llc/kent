@@ -1,4 +1,5 @@
 import { expect, it, vi } from "bun:test";
+import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { TaskDetail } from "@/api";
 import { TestAppProviders } from "@/test-support/app-services";
@@ -10,7 +11,7 @@ import { KanbanColumn } from "./BoardColumns";
 import type { KanbanCardVM } from "./BoardColumnViewModel";
 import { Popover, PopoverAnchor } from "@/ui";
 import { TaskSessionPicker } from "@/shared/task-session-chat";
-import { ChatPromptPresenceProvider } from "@/app-facade";
+import { ChatPromptPresenceProvider, queryKeys } from "@/app-facade";
 import { BoardTaskChatContext, useBoardTaskChat } from "./BoardTaskChat";
 
 function ChatEntry() {
@@ -49,12 +50,13 @@ const card: KanbanCardVM = {
 };
 
 function mount(boardCard?: KanbanCardVM) {
+  const client = new QueryClient();
   const services = createTaskDetailTestServices(taskDetailResponse);
   const openSession = vi.fn<(sessionID: string) => Promise<void>>(async () => undefined);
   const report = vi.fn();
   const openDetail = vi.fn();
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders services={services} queryClient={client}>
       <ChatPromptPresenceProvider>
         <TestSidebar>
           <BoardTaskChatContext.Provider value={{ openSession, report }}>
@@ -85,8 +87,30 @@ function mount(boardCard?: KanbanCardVM) {
       </ChatPromptPresenceProvider>
     </TestAppProviders>,
   );
-  return { services, openSession, openDetail, report };
+  return { services, openSession, openDetail, report, client };
 }
+
+it("does not mark the card busy while opening Task Detail reads the shared Task", async () => {
+  const { services, openDetail, client } = mount(card);
+  const base = await services.api.getTask(card.id);
+  const result = deferred<TaskDetail>();
+  vi.spyOn(services.api, "getTask").mockReturnValue(result.promise);
+  openDetail.mockImplementation(() => {
+    void client.fetchQuery({
+      queryKey: queryKeys.task(card.id),
+      queryFn: async () => services.api.getTask(card.id),
+    });
+  });
+  const article = await screen.findByRole("article", { name: card.title });
+  fireEvent.click(article);
+  await waitFor(() => {
+    expect(client.isFetching({ queryKey: queryKeys.task(card.id) })).toBe(1);
+  });
+  expect(article).toHaveAttribute("aria-busy", "false");
+  await act(async () => {
+    result.resolve(base);
+  });
+});
 
 it.each([0, 1, 2])("opens only an existing selected Session with %s choices", async (count) => {
   const { services, openSession } = mount();

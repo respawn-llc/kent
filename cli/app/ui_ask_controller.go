@@ -139,6 +139,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if c.handleDedicatedNavigation(msg) {
 		return m, nil
 	}
+	if c.handleChoiceShortcut(msg) {
+		return m, nil
+	}
 	if m.askEditorAcceptsInput() && isClipboardPasteKey(msg) {
 		m.focusDedicatedAskEditor()
 		return m, m.pasteClipboardCmd(uiClipboardPasteTargetAsk)
@@ -441,7 +444,7 @@ func (c uiAskController) renderPriorityPromptLines() []askPromptLine {
 			if selected {
 				prefix = "✔︎ "
 			}
-			lines = append(lines, askPromptLine{Text: fmt.Sprintf("%s%d. %s", prefix, idx, askFreeformSelectionOptionText), Kind: askPromptLineKindOption, Selected: selected, Option: textutil.Value(idx - 1)})
+			lines = append(lines, askPromptLine{Text: fmt.Sprintf("%s0. %s", prefix, askFreeformSelectionOptionText), Kind: askPromptLineKindOption, Selected: selected, Option: textutil.Value(idx - 1)})
 		}
 		if (askSupportsDraftRoundTrip(req) ||
 			(approvalSupportsCommentary(req) && m.ask.freeformMode == askFreeformModeApprovalCommentary)) &&

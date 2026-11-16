@@ -131,24 +131,22 @@ function RecoveryControls({
             {t(native ? "speech.saveCopy" : "speech.download")}
           </Button>
         </ControlTooltip>
-        {state.entry?.delivery?.kind !== "cleanup-failed" && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Button
-                  disabled={busy}
-                  loading={state.work === "retrying"}
-                  onClick={() => {
-                    actions.retry();
-                  }}
-                >
-                  {t("speech.retry")}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t("speech.retry")}</TooltipContent>
-          </Tooltip>
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button
+                disabled={busy}
+                loading={state.work === "retrying"}
+                onClick={() => {
+                  actions.retry();
+                }}
+              >
+                {t("speech.retry")}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{t("speech.retry")}</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <span>

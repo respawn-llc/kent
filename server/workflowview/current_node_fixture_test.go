@@ -374,7 +374,10 @@ func (f currentNodeViewFixture) setCurrentNodeInterruptedAt(
 ) {
 	t.Helper()
 	branchKey, branchScoped := reference.TransitionBranchKey()
-	var err error
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if branchScoped {
 		_, err = f.metadata.DB().ExecContext(
 			f.ctx,
@@ -383,7 +386,7 @@ SET interrupted_at_unix_ms = ?
 WHERE task_id = ? AND node_id = ? AND transition_branch_key = ?`,
 			unixMs,
 			string(reference.TaskID),
-			string(reference.NodeID),
+			nodeID,
 			string(branchKey),
 		)
 	} else {
@@ -394,7 +397,7 @@ SET interrupted_at_unix_ms = ?
 WHERE task_id = ? AND node_id = ? AND transition_branch_key IS NULL`,
 			unixMs,
 			string(reference.TaskID),
-			string(reference.NodeID),
+			nodeID,
 		)
 	}
 	if err != nil {

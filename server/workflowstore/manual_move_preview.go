@@ -10,6 +10,7 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
+	"core/shared/runtimeids"
 )
 
 type ManualMovePreviewOutcome string
@@ -172,7 +173,11 @@ func (s *Store) resolveManualMove(ctx context.Context, q *sqlitegen.Queries, req
 }
 
 func manualMoveDefinition(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord, targetID workflow.NodeID) (workflow.Definition, WorkflowRecord, error) {
-	target, err := q.GetWorkflowNode(ctx, string(targetID))
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(targetID))
+	if err != nil {
+		return workflow.Definition{}, WorkflowRecord{}, err
+	}
+	target, err := q.GetWorkflowNode(ctx, nodeID)
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}

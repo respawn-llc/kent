@@ -11,7 +11,6 @@ import (
 
 	"core/prompts"
 	"core/server/llm"
-	"core/server/metadata"
 	"core/server/sessionstore"
 	"core/server/skillcatalog"
 	"core/server/subagentpolicy"
@@ -785,9 +784,7 @@ func projectWorkspacesMetaMessage(
 			IsDefault: workspace.IsDefault,
 		})
 	}
-	if context.WorkspaceCount > metadata.ProjectWorkspaceContextLimit {
-		args.RemainingWorkspaceCount = context.WorkspaceCount - metadata.ProjectWorkspaceContextLimit
-	}
+	args.RemainingWorkspaceCount = context.WorkspaceCount - int64(len(context.Workspaces))
 	content, err := prompts.RenderProjectWorkspacesReminder(args)
 	if err != nil {
 		return llm.Message{}, false, err

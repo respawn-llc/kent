@@ -1,4 +1,12 @@
-import { type ReactNode, type RefCallback, useCallback, useEffect, useId, useRef } from "react";
+import {
+  type ReactNode,
+  type RefCallback,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { type ApprovalDecision, type FileAccessTarget, type QuestionAttentionItem } from "@/api";
@@ -6,6 +14,7 @@ import { usePathFormatter, useTextFieldSubmitShortcut } from "@/app-facade";
 import { Button, RadioGroup, PromptAccessTargets, TextArea, ControlTooltip } from "@/ui";
 import { StaticMarkdown, PromptOptionRow as QuestionOption } from "@/ui/markdown";
 import { useSpeechField } from "@/shared/speech-input";
+import { useQuestionNumberShortcuts } from "@/shared/question-shortcuts";
 import { useTaskSpeech } from "./TaskDetailSpeech";
 import { promptAnswerKey } from "./PromptAnswerState";
 import { taskDetailAttentionRowKey } from "./TaskDetailAttentionRowKey";
@@ -123,6 +132,14 @@ function OrdinaryQuestionForm({
       answerID={answerID}
       answerRef={suggestions.length === 0 ? primaryControlRef : undefined}
       canSubmit={canSubmit}
+      canSubmitAfterRecording
+      optionCount={suggestions.length === 0 ? 0 : suggestions.length + 1}
+      neitherIndex={suggestions.length === 0 ? undefined : suggestions.length}
+      onOptionSelect={(index) => {
+        onSelectionStateChange(
+          withOrdinaryQuestionOption(selection, index === suggestions.length ? null : index + 1),
+        );
+      }}
       onAnswerChange={(nextAnswer) => {
         onSelectionStateChange(withQuestionCommentary(selection, nextAnswer));
       }}
@@ -141,6 +158,7 @@ function OrdinaryQuestionForm({
                 key={`${optionIndex.toString()}:${suggestion}`}
                 primaryControlRef={optionIndex === 0 ? primaryControlRef : undefined}
                 recommended={recommendedOption === optionIndex + 1}
+                shortcutNumber={optionIndex + 1}
                 text={suggestion}
                 value={suggestionRadioValue(optionIndex + 1)}
               />
@@ -148,6 +166,8 @@ function OrdinaryQuestionForm({
             <QuestionOption
               disabled={false}
               recommended={false}
+              shortcutNumber={suggestions.length + 1}
+              neitherShortcut
               text={t("task.neitherOption")}
               value={neitherRadioValue}
             />
@@ -228,6 +248,13 @@ function ApprovalQuestionForm({
       answer={answer}
       answerID={answerID}
       canSubmit={canSubmit}
+      canSubmitAfterRecording={selectedDecision !== null}
+      optionCount={approvalDecisions.length}
+      onOptionSelect={(index) => {
+        const decision = approvalDecisions[index];
+        if (decision === undefined) throw new Error("Unknown approval option");
+        onSelectionStateChange(withApprovalQuestionDecision(selection, decision));
+      }}
       onAnswerChange={(nextAnswer) => {
         onSelectionStateChange(withQuestionCommentary(selection, nextAnswer));
       }}
@@ -243,6 +270,7 @@ function ApprovalQuestionForm({
           key={decision}
           primaryControlRef={decisionIndex === 0 ? primaryControlRef : undefined}
           recommended={false}
+          shortcutNumber={decisionIndex + 1}
           text={approvalDecisionLabel(decision, t)}
           value={decision}
         />
@@ -260,6 +288,10 @@ function QuestionFormFrame({
   answerID,
   answerRef,
   canSubmit,
+  canSubmitAfterRecording,
+  optionCount,
+  neitherIndex,
+  onOptionSelect,
   onAnswerChange,
   onRadioValueChange,
   onSubmit,
@@ -273,6 +305,10 @@ function QuestionFormFrame({
   answerID: string;
   answerRef?: RefCallback<HTMLTextAreaElement> | undefined;
   canSubmit: boolean;
+  canSubmitAfterRecording: boolean;
+  optionCount: number;
+  neitherIndex?: number | undefined;
+  onOptionSelect: (index: number) => void;
   onAnswerChange: (answer: string) => void;
   onRadioValueChange: (value: string) => void;
   onSubmit: () => void;
@@ -283,8 +319,18 @@ function QuestionFormFrame({
   const { t } = useTranslation();
   const taskSpeech = useTaskSpeech();
   const editor = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  useQuestionNumberShortcuts({
+    questionRef: formRef,
+    editorRef: editor,
+    optionCount,
+    neitherIndex,
+    enabled: true,
+    onSelect: onOptionSelect,
+  });
+  const identity = taskDetailAttentionRowKey(attention);
   const speech = useSpeechField({
-    identity: taskDetailAttentionRowKey(attention),
+    identity,
     value: answer,
     onChange: onAnswerChange,
     editorRef: editor,
@@ -293,7 +339,16 @@ function QuestionFormFrame({
       editor: () => editor.current,
     }),
   });
-  const submitEnabled = canSubmit && !speech.busy;
+  const submitEnabled = speech.phase === "recording" ? canSubmitAfterRecording : canSubmit && !speech.busy;
+  const submission = useRef<Readonly<{ identity: string; canSubmit: boolean; onSubmit(): void }> | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    submission.current = { identity, canSubmit, onSubmit };
+    return () => {
+      submission.current = null;
+    };
+  });
   const bindEditor = useCallback(
     (element: HTMLTextAreaElement | null) => {
       editor.current = element;
@@ -309,11 +364,31 @@ function QuestionFormFrame({
   });
   return (
     <form
+      ref={formRef}
+      data-question-number-shortcuts
       className="grid gap-[var(--space-2)]"
-      onKeyDown={formShortcut}
-      onSubmit={(event) => {
+      onKeyDown={(event) => {
+        formShortcut(event);
+        if (
+          !event.defaultPrevented &&
+          event.target === editor.current &&
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.nativeEvent.isComposing
+        ) {
+          event.preventDefault();
+          if (!event.repeat && submitEnabled) event.currentTarget.requestSubmit();
+        }
+      }}
+      onSubmit={async (event) => {
         event.preventDefault();
-        if (submitEnabled) onSubmit();
+        if (!submitEnabled) return;
+        if (speech.busy && !(await speech.finish())) return;
+        const current = submission.current;
+        if (current?.identity === identity && current.canSubmit) current.onSubmit();
       }}
     >
       {accessTargets === undefined ? null : (
@@ -349,7 +424,11 @@ function QuestionFormFrame({
         rows={3}
         value={answer}
       />
-      <ControlTooltip label={t(speech.busy ? "speech.finishBeforeSubmit" : "task.submitAnswer")}>
+      <ControlTooltip
+        label={t(
+          speech.busy && speech.phase !== "recording" ? "speech.finishBeforeSubmit" : "task.submitAnswer",
+        )}
+      >
         <Button disabled={!submitEnabled} type="submit" variant="primary">
           {t("task.submitAnswer")}
         </Button>

@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 type uiAgentPicker struct {
@@ -238,7 +239,12 @@ func (m *uiModel) closeAgentPicker() tea.Cmd {
 }
 
 func (m *uiModel) agentRowsPerPage() int {
-	return max(1, (m.layout().effectiveHeight()-4)/2)
+	return agentPickerVisibleChoices(m.layout().calcChatLines() - 3)
+}
+
+func agentPickerVisibleChoices(availableLines int) int {
+	// Each item has two content rows and a separator, except the last item.
+	return max(1, (availableLines+1)/3)
 }
 
 func (c uiInputController) handleAgentPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -272,8 +278,14 @@ func (c uiInputController) handleAgentPickerKey(msg tea.KeyMsg) (tea.Model, tea.
 		return m, m.applyAgentSelection()
 	case "up", "k":
 		selection--
+		if selection < 0 {
+			selection = len(choices) - 1
+		}
 	case "down", "j":
 		selection++
+		if selection == len(choices) {
+			selection = 0
+		}
 	case "pgup":
 		selection -= m.agentRowsPerPage()
 	case "pgdown":
@@ -294,7 +306,7 @@ func (l uiViewLayout) renderAgentPicker(width, height int, style uiStyles) []str
 	if m.agentPickerLoading() {
 		return l.renderCenteredSpinner(width, height, style)
 	}
-	lines := []string{style.brand.Render(truncateQueuedMessageLine("Agent", width))}
+	lines := []string{style.brand.Render(truncateQueuedMessageLine("Select an Agent", width))}
 	if height >= 5 || m.agentPickerError() != nil {
 		lines = append(lines, "")
 	}
@@ -309,12 +321,15 @@ func (l uiViewLayout) renderAgentPicker(width, height int, style uiStyles) []str
 		footerLines = 1
 	}
 	available := max(0, height-len(lines)-footerLines)
-	count := max(1, available/2)
+	count := agentPickerVisibleChoices(available)
 	selection := m.agentSelectionIndex()
 	start := max(0, min(selection-count+1, len(choices)-count))
 	selectedAgent := m.agentSettings().GetSelectedAgent()
 	palette := uiPalette(m.theme)
 	for index := start; index < min(len(choices), start+count); index++ {
+		if index > start {
+			lines = append(lines, "")
+		}
 		choice := choices[index]
 		row := lipgloss.NewStyle().Foreground(palette.foreground)
 		rail := sharedtheme.SelectionRailBlank
@@ -323,14 +338,19 @@ func (l uiViewLayout) renderAgentPicker(width, height int, style uiStyles) []str
 			rail = sharedtheme.SelectionRailGlyph
 		}
 		title := choice.Role
-		model, thinking := choice.GetModel(), choice.GetThinking()
+		model, thinking, fast := choice.GetModel(), choice.GetThinking(), choice.GetFast()
 		if choice.Role == selectedAgent.GetRole() {
 			title += " (current)"
 			model, thinking = selectedAgent.Model, selectedAgent.Thinking
+			fast = m.agentSettings().GetFast().GetValue()
+		}
+		detail := strings.TrimSpace(model + " " + thinking)
+		if fast {
+			detail = strings.TrimSpace(detail + " " + row.Foreground(sharedtheme.ResolvePalette(m.theme).Status.Warning.Lipgloss()).Bold(true).Render("fast"))
 		}
 		lines = append(lines,
 			row.Bold(true).Render(padANSIRight(truncateQueuedMessageLine(rail+" "+title, width), width)),
-			row.Foreground(palette.muted).Render(padANSIRight(truncateQueuedMessageLine("  "+strings.TrimSpace(model+" "+thinking), width), width)),
+			row.Foreground(palette.muted).Render(padANSIRight(xansi.Truncate(rail+" "+detail, width, "…"), width)),
 		)
 	}
 	for len(lines) < height-footerLines {

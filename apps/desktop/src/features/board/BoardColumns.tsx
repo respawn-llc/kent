@@ -409,7 +409,7 @@ const TaskCard = memo(function TaskCard({
       })),
     [card.labels],
   );
-  const footer = taskCardFooter(card, pendingStartMove);
+  const footer = taskCardFooter(card, pendingStartMove || chat.pending);
   return (
     <Popover open={chat.pickerOpen} onOpenChange={chat.setPickerOpen}>
       <ContextMenu>
@@ -453,7 +453,6 @@ const TaskCard = memo(function TaskCard({
                 >
                   {card.title}
                 </strong>
-                {chat.pending ? <Spinner size="sm" /> : null}
               </header>
               <AdaptiveLineClamp
                 className="mt-[var(--space-3)] text-sm leading-relaxed text-[var(--color-muted)]"
@@ -530,8 +529,8 @@ const TaskCard = memo(function TaskCard({
   );
 });
 
-function taskCardFooter(card: KanbanCardVM, pendingStartMove: boolean) {
-  const loading = pendingStartMove || card.statusKind === "running";
+function taskCardFooter(card: KanbanCardVM, pendingAction: boolean) {
+  const loading = pendingAction || card.statusKind === "running";
   return {
     loading,
     visible:

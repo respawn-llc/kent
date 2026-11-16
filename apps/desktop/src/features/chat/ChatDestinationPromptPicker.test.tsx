@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, onTestFinished } from "bun:test";
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "bun:test";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { appI18n } from "@/i18n";
@@ -16,6 +16,50 @@ afterEach(() => {
   restoreStorage?.();
   restoreStorage = undefined;
 });
+
+it.each(["question", "approval"] as const)(
+  "selects a numbered %s choice without sending, then Enter sends",
+  async (kind) => {
+    const view = sessionWithPrompts();
+    const prompt =
+      kind === "question"
+        ? question("numbered", { suggestions: ["one", "two", "three", "four", "five", "six"] })
+        : approval("numbered");
+    await waitFor(() => {
+      expect(view.handlers).toHaveLength(1);
+    });
+    await act(async () => {
+      view.handlers[0]?.onEvent({
+        sequence: 1,
+        kind: "hydration",
+        payload: { ...hydration(), PendingPrompts: [{ state: "pending", prompt }] },
+      });
+    });
+    await screen.findAllByRole("radio");
+    const geometry = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 20, 300, 100));
+    onTestFinished(() => {
+      geometry.mockRestore();
+    });
+    fireEvent.keyDown(document.body, { key: kind === "question" ? "6" : "2" });
+    const commentary = screen.getByRole("textbox", { name: appI18n.t("task.commentary") });
+    expect(commentary).toHaveFocus();
+    expect(view.answer).not.toHaveBeenCalled();
+    const user = userEvent.setup({ delay: null });
+    await user.keyboard("9");
+    expect(commentary).toHaveValue("9");
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(view.answer).toHaveBeenCalledTimes(1);
+    });
+    expect(view.answer.mock.calls[0]?.[0].entries).toEqual([
+      kind === "question"
+        ? { toolCallID: prompt.toolCallID, kind: "question", selectedOptionNumber: 6, freeform: "9" }
+        : { toolCallID: prompt.toolCallID, kind: "approval", decision: "allow_session", commentary: "9" },
+    ]);
+  },
+);
 
 it("keeps original positions and confirmation policy while Questions materialize and resolve elsewhere", async () => {
   const view = sessionWithPrompts();

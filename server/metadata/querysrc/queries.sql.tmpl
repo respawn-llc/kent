@@ -922,7 +922,7 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = sqlc.arg(node_id)
+    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(sqlc.arg(node_id))
 );
 
 -- name: CountCurrentTaskNodeAnchorReferences :one
@@ -938,7 +938,7 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = sqlc.arg(node_id)
+    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(sqlc.arg(node_id))
 );
 
 -- name: CountTaskEdgeReferences :one
@@ -946,11 +946,11 @@ SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (
     SELECT current_node.task_id
     FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = CAST(sqlc.arg(edge_id) AS TEXT)
+    WHERE current_node.entered_by_edge_id = sqlc.arg(edge_id)
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = sqlc.arg(edge_id)
+    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(sqlc.arg(edge_id))
 );
 
 -- name: CountAllTaskEdgeReferences :one
@@ -958,11 +958,11 @@ SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (
     SELECT current_node.task_id
     FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = CAST(sqlc.arg(edge_id) AS TEXT)
+    WHERE current_node.entered_by_edge_id = sqlc.arg(edge_id)
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = sqlc.arg(edge_id)
+    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(sqlc.arg(edge_id))
 );
 
 -- name: GetWorkflowEdgeParameterEditPolicyImpact :one
@@ -992,7 +992,7 @@ SELECT
         JOIN task_records task ON task.id = approval.source_task_id
         JOIN task_pending_approval_branches branch ON branch.approval_id = approval.id
         WHERE task.workflow_id = sqlc.arg(workflow_id)
-          AND json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = sqlc.arg(edge_id)
+          AND json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(sqlc.arg(edge_id))
     ) AS pending_approval_count;
 
 -- name: GetWorkflowGraphActiveWorkPolicyImpact :one
@@ -1251,7 +1251,7 @@ effective_current_nodes AS (
       AND t.workflow_id = sqlc.arg(workflow_id)
 )
 SELECT
-    node_id,
+    CAST(kent_graph_entity_id_text_v1(node_id) AS TEXT) AS node_id,
     CAST(COUNT(DISTINCT task_id) AS INTEGER) AS task_count
 FROM effective_current_nodes
 JOIN label_filter_args
@@ -1328,7 +1328,7 @@ args AS (
 ),
 visible_columns AS (
     SELECT
-        CAST(json_extract(value, '$.node_id') AS TEXT) AS node_id,
+        kent_graph_entity_id_blob_v1(json_extract(value, '$.node_id')) AS node_id,
         CAST(json_extract(value, '$.node_key') AS TEXT) AS node_key,
         CAST(json_extract(value, '$.node_kind') AS TEXT) AS node_kind,
         CAST(json_extract(value, '$.status_order') AS INTEGER) AS column_rank
@@ -2627,7 +2627,7 @@ WITH durable_attention (
         'interrupted' AS kind,
         CAST('interrupted:' || json_object(
             'task_id', current_node.task_id,
-            'node_id', current_node.node_id,
+            'node_id', kent_graph_entity_id_text_v1(current_node.node_id),
             'transition_branch_key', current_node.transition_branch_key
         ) AS TEXT) AS id,
         task.project_id,
@@ -2636,7 +2636,7 @@ WITH durable_attention (
         task.short_id,
         task.title,
         CAST(NULL AS TEXT) AS approval_id,
-        CAST(current_node.node_id AS TEXT) AS node_id,
+        CAST(kent_graph_entity_id_text_v1(current_node.node_id) AS TEXT) AS node_id,
         CAST(current_node.transition_branch_key AS TEXT) AS transition_branch_key,
         current_node.session_id,
         CAST(current_node.interruption_reason AS TEXT) AS interruption_reason,
@@ -2658,7 +2658,7 @@ WITH durable_attention (
               AND (
                   'interrupted:' || json_object(
                       'task_id', current_node.task_id,
-                      'node_id', current_node.node_id,
+                      'node_id', kent_graph_entity_id_text_v1(current_node.node_id),
                       'transition_branch_key', current_node.transition_branch_key
                   )
               ) < sqlc.arg(cursor_item_id)

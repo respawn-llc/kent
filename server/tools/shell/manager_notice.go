@@ -246,7 +246,7 @@ func projectBackgroundNoticeOutput(evt Event, maxChars int, mode BackgroundOutpu
 		output.inlinePreview = &backgroundInlinePreview{text: strings.TrimSpace(command)}
 		return output, nil
 	}
-	preview, truncated, _ := truncateWithTemplate(strings.TrimSpace(command), maxChars, backgroundTruncationBannerTemplate)
+	preview, truncated, _ := truncateWithTemplate(strings.TrimSpace(command), maxChars, truncationBannerTemplate)
 	output.inlinePreview = &backgroundInlinePreview{text: preview}
 	output.truncated = output.truncated || truncated
 	if truncated && output.previewRemoved == 0 {
@@ -440,7 +440,7 @@ func (b *backgroundPreviewBuilder) Preview() string {
 	removed := b.totalBytes - headLen - tailLen
 	head := string(b.head[:headLen])
 	tail := string(b.tail[len(b.tail)-tailLen:])
-	return fmt.Sprintf("%s%s%s", head, fmt.Sprintf(backgroundTruncationBannerTemplate, removed), tail)
+	return fmt.Sprintf("%s%s%s", head, fmt.Sprintf(truncationBannerTemplate, removed), tail)
 }
 
 func (b *backgroundPreviewBuilder) Truncated() bool {

@@ -152,7 +152,9 @@ export function useSpeechField(binding: FieldBinding) {
         return;
       event.preventDefault();
       event.stopPropagation();
-      if (!event.repeat && !state.busy) actions.start();
+      if (event.repeat) return;
+      if (phase === "recording") actions.stop();
+      else if (!state.busy) actions.start();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => {

@@ -41,7 +41,7 @@ func TestCurrentNodeSelectionRoundTripsForAgentAndRejectsNonAgentAssignment(t *t
 	}
 	if _, err := store.queries.DeleteSerialTaskCurrentNode(ctx, sqlitegen.DeleteSerialTaskCurrentNodeParams{
 		TaskID: string(task.ID),
-		NodeID: string(workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindStart))),
+		NodeID: testGraphEntityIDBlob(t, string(workflow.NodeIDOf(nodeByKind(t, definition, workflow.NodeKindStart)))),
 	}); err != nil {
 		t.Fatalf("delete initial current node: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestCurrentNodeSelectionRoundTripsForAgentAndRejectsNonAgentAssignment(t *t
 	}
 	if _, err := store.queries.DeleteSerialTaskCurrentNode(ctx, sqlitegen.DeleteSerialTaskCurrentNodeParams{
 		TaskID: string(task.ID),
-		NodeID: string(workflow.NodeIDOf(agent)),
+		NodeID: testGraphEntityIDBlob(t, string(workflow.NodeIDOf(agent))),
 	}); err != nil {
 		t.Fatalf("delete agent current node: %v", err)
 	}

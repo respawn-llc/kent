@@ -4,15 +4,126 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"core/shared/config"
 	"core/shared/textutil"
 )
+
+func TestAssistantConflictDiagnosticsBoundContentAndPreserveFailure(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		for _, test := range []struct {
+			name              string
+			prefix            string
+			streamed          string
+			completed         string
+			commonPrefixBytes int
+		}{
+			{name: "early", streamed: "s", completed: "c"},
+			{name: "late", prefix: strings.Repeat("p", 2048), streamed: "s", completed: "c", commonPrefixBytes: 2048},
+			{name: "split UTF-8", streamed: "é", completed: "ê", commonPrefixBytes: 1},
+			{name: "completed empty", streamed: "s"},
+			{name: "completed shorter", prefix: strings.Repeat("p", 2048), streamed: "s", commonPrefixBytes: 2048},
+		} {
+			t.Run(fmt.Sprintf("debug=%t/%s", debug, test.name), func(t *testing.T) {
+				streamed := test.prefix + test.streamed + strings.Repeat("s", 2048)
+				completed := test.prefix + test.completed
+				if test.completed != "" {
+					completed += strings.Repeat("c", 2048)
+				}
+				var logs bytes.Buffer
+				previous := slog.Default()
+				slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+				t.Cleanup(func() { slog.SetDefault(previous) })
+				event := func(value any) string {
+					raw, err := json.Marshal(value)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return string(raw)
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					serveResponsesTestWebsocket(t, w, r, func(json.RawMessage) []string {
+						return []string{
+							`{"type":"response.created","response":{"id":"diagnostic-response","output":[]}}`,
+							event(map[string]any{"type": "response.output_text.delta", "output_index": 1, "delta": streamed}),
+							event(map[string]any{"type": "response.output_item.done", "output_index": 1, "item": map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": completed}}}}),
+						}
+					})
+				}))
+				t.Cleanup(server.Close)
+				transport := newCanonicalOAuthTestTransport(t, server)
+				transport.Debug = debug
+				var delivered string
+				_, err := transport.Generate(t.Context(), testCodexResponsesRequest(newTestCodexDispatch(t)), StreamCallbacks{
+					OnAssistantDelta:          func(delta AssistantDelta) { delivered += delta.Text },
+					OnAssistantSourceComplete: func(AssistantSource) { t.Error("conflicting source completed") },
+				})
+				var providerErr *ProviderAPIError
+				if !errors.As(err, &providerErr) || providerErr.Code != UnifiedErrorCodeProviderContract {
+					t.Fatalf("conflict failure changed: %v", err)
+				}
+				if delivered != streamed {
+					t.Fatal("diagnostics changed streamed content")
+				}
+				decoder := json.NewDecoder(&logs)
+				found := 0
+				for decoder.More() {
+					var record struct {
+						Kind              string `json:"kind"`
+						SessionID         string `json:"session_id"`
+						ResponseID        string `json:"response_id"`
+						OutputIndex       int64  `json:"output_index"`
+						StreamedBytes     int    `json:"streamed_bytes"`
+						CompletedBytes    int    `json:"completed_bytes"`
+						CommonPrefixBytes int    `json:"common_prefix_bytes"`
+						ExcerptOffset     int    `json:"excerpt_offset"`
+						StreamedExcerpt   []byte `json:"streamed_excerpt"`
+						CompletedExcerpt  []byte `json:"completed_excerpt"`
+					}
+					if err := decoder.Decode(&record); err != nil {
+						t.Fatal(err)
+					}
+					if record.Kind != "assistant_text_conflict" {
+						continue
+					}
+					found++
+					if record.SessionID != "session-1" || record.ResponseID != "diagnostic-response" || record.OutputIndex != 1 {
+						t.Fatalf("lost source identity: %+v", record)
+					}
+					if record.StreamedBytes != len(streamed) || record.CompletedBytes != len(completed) || record.CommonPrefixBytes != test.commonPrefixBytes {
+						t.Fatalf("incorrect conflict coordinates: %+v", record)
+					}
+					if len(record.StreamedExcerpt) > 256 || len(record.CompletedExcerpt) > 256 {
+						t.Fatal("unbounded private text logged")
+					}
+					if !bytes.Equal(record.StreamedExcerpt, []byte(streamed[record.ExcerptOffset:record.ExcerptOffset+len(record.StreamedExcerpt)])) || !bytes.Equal(record.CompletedExcerpt, []byte(completed[record.ExcerptOffset:record.ExcerptOffset+len(record.CompletedExcerpt)])) {
+						t.Fatal("excerpt bytes changed")
+					}
+					if record.ExcerptOffset > record.CommonPrefixBytes || record.ExcerptOffset+len(record.StreamedExcerpt) <= record.CommonPrefixBytes {
+						t.Fatal("excerpt omits mismatch")
+					}
+				}
+				want := 0
+				if debug {
+					want = 1
+				}
+				if found != want {
+					t.Fatalf("conflict diagnostics = %d, want %d", found, want)
+				}
+				if !debug && logs.Len() != 0 {
+					t.Fatal("debug-disabled content logging")
+				}
+			})
+		}
+	}
+}
 
 type providerAttemptLog struct {
 	Kind          string  `json:"kind"`

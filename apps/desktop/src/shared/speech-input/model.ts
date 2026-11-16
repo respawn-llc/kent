@@ -102,8 +102,8 @@ export function createSpeechDestination({
                   await session.transfer.cancel().catch((cause: unknown) => {
                     report(new SpeechActionError(cause));
                   });
-                  if (discardable(clip)) await services.speech.discard(clip.source);
-                  else recover(clip.source, clip.error ?? new SpeechOperationError("closed"), target);
+                  if (!discardable(clip))
+                    recover(clip.source, clip.error ?? new SpeechOperationError("closed"), target);
                 }
               }).pipe(
                 Effect.catch((error) =>
@@ -120,7 +120,6 @@ export function createSpeechDestination({
             yield* Atom.set(phase, { kind: "transcribing", field, session: activeSession });
             if (discardable(clip)) {
               yield* speechAttempt(session.transfer.cancel);
-              yield* speechAttempt(async () => services.speech.discard(clip.source));
               if (clip.error !== null) report(clip.error);
               return clip.error === null;
             }

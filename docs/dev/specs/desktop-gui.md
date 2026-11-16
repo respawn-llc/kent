@@ -11,7 +11,8 @@
 
 - Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error without a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
 
-- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
+- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must insert into the sole visible editable text input. With no visible editable input or several visible editable inputs and none focused, Desktop must ignore the drop.
+- Dropped URLs must use the same input-target selection as file paths and insert as plain text without navigating away.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops and support internal board dragging.
 
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
@@ -23,7 +24,7 @@
 - Every Desktop request or observation must make one independent attempt and complete or fail. Desktop must not automatically retry, replace a failed observation, replay an operation, or issue a repair read after failure.
 - Desktop must permit otherwise valid subsequent actions and destination/input-driven reads without a global connectivity gate. Desktop must not pause operations for online status or resume them when connectivity changes. Desktop must support internal transport reuse and required authentication.
 - After failure, Desktop must not discard available content or required drafts and must show the failure in the owning operation or destination. Read failures must offer Retry in their failure state, which may be shared by the screen. Retrying a write must use its ordinary action path. Desktop must not show a global recovery banner.
-- Desktop must not refresh reads because of generic window-focus, online, or reconnection changes. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
+- Desktop must not refresh reads because of generic window-focus changes, except for the selected Workflow source focus checks defined in [Declarative workflows](declarative-workflows.md#editing-and-external-changes). Online or reconnection changes must not refresh reads. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
 - Processes observation and its failure presentation must follow the [Desktop Chat Processes contract](desktop-chat.md#tools-and-processes).
 - When the operator leaves a destination, Desktop must stop its observations and dispose of its pending local action handling. Submitted mutations must use their ordinary completion behavior, including feedback and content refresh after navigation. Local disposal must not cancel accepted server work or discard navigation-owned drafts.
 - After a failed Script-path validation check, the Workflow editor must run checks on its five-second schedule. Each check must make one attempt. This scheduled observation must not enable generic focus, online, or reconnection-driven recovery.
@@ -47,6 +48,7 @@
 - A plain click or tap with no text selection enters editing. Dragging selects rendered Markdown without editing. Links and task-list checkboxes perform their own actions. Keyboard focus keeps the rendered presentation, and Enter or Space enters editing.
 - In disabled mode, the field renders read-only rich Markdown or its empty placeholder. It offers no editing focus or task-list interaction, and it must not change destination-owned presentation state.
 - Leaving the active editor returns the field to rendered Markdown without discarding its Draft.
+- Pressing a floating field action must keep the editor in place until the pointer click completes, including when the button does not take focus. Keyboard activation of the action must remain available.
 - When focus is in a Desktop text field outside the Workflow editor, Command+Enter on macOS and Ctrl+Enter on Windows or Linux must invoke that field's configured submit, save, or selection action. The shortcut must follow the same validation, disabled state, and confirmation behavior as that action.
 - The shortcut must do nothing when the focused text field has no submission action.
 - The shortcut must not change the field's ordinary Enter behavior.
@@ -54,7 +56,7 @@
 - Dialogs, popups, confirmation flows, and dropdowns only collect an operator result, except for read-only subscription-usage inspection. Result-collecting surfaces close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
 - Project creation and Project and Task deletion use in-window dialogs. Confirmation results that are inapplicable do nothing.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
-- Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
+- Workflow browsing rows must show available name, description, and revision from remembered or applied metadata and an Edit action. Directory discovery rows must follow the [file-listing contract](declarative-workflows.md#listing-and-opening). Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
 - Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Loading buttons must crossfade between their action label and a replacing spinner without changing width. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
 
@@ -106,6 +108,7 @@
 - The Project workspace Workflow strip uses infinite scroll. The visible content of each Workflow chip is its name. Selecting one opens that Project's Workflow board.
 - `Manage workflows` is available from `Link workflow` for reusable Workflows, including those not linked to the selected Project. Project Task and board destinations are Project-scoped.
 - Board actions belong in board chrome. Workflow selection uses a click-controlled non-modal popover that closes after selection or outside activation. Desktop has no default browser-style hover effects beyond explicitly designed interaction feedback.
+- Each Workflow row in the board's Workflow selection popover must offer a small pen action on the right. The action must close the popover and open that Workflow's editor in the current Project context without changing the board's selected Workflow.
 - An empty Inbox says `All caught up` without showing recent Projects or choosing a Project automatically.
 - Project navigation rows show Project identity and editing. Project name and default-workspace path use at most two lines. Selection is communicated accessibly as well as visually.
 
@@ -218,6 +221,8 @@
 
 ## Workflow boards
 
+- Workflow attachment, file opening, and deletion must follow [Declarative workflows](declarative-workflows.md).
+- Workflow definition updates must follow the [Apply contract](declarative-workflows.md#applying-definitions).
 - A board is scoped to one Project and one Workflow, and shows Tasks from all attached workspaces. Workspace supplies context without restricting the board scope.
 - Workflow selection orders the Project default first, then Workflows by last use, then display name. Backlog is fixed left, Workflow Nodes follow their defined order, and Done is fixed right. Join Nodes are not columns. Groups follow their Workflow grouping.
 - Every board column must offer an expand/collapse button, including Backlog, the first Active column, and columns containing Tasks.
@@ -241,6 +246,7 @@
 - Board cards use infinite scroll in both directions, 25 cards per page, and hold at most three nearby pages per active column. Cards outside the nearby area release their loaded pages. Returning starts at that column's first page in the selected order without changing its expanded state.
 - Card bodies show previews with outer whitespace removed, content limited to 512 Unicode code points, and explicit truncation. They must not show full bodies. Only visible cards render Markdown previews. An ellipsis indicates either truncated content or insufficient card space.
 - Questions and Approvals have distinct semantic card emphasis. Card selection opens Task Detail.
+- Opening Task Detail must not show a loading spinner on its board card. Board card action loading must use the existing footer action area, not the card header.
 - Resume appears only when the server says it is available. For a Task queued by the automatic Agent concurrency limit, Resume promotes its queued Current Nodes into explicit admission and starts them immediately despite the limit. The board card renders that queued Resume action as a warning-colored stop sign with the tooltip `Waiting due to concurrency limits`. Task Detail uses the ordinary Resume button. Interrupt appears in the same action position only for exactly one interruptible live agent Session and acts immediately. Several live agent Sessions use Task Detail for per-Session control. Scripts use the Task-wide action.
 - Board states include Backlog, idle, queued, running, interrupted, Approval-blocked, Question-blocked, and done.
 - Dragging a Backlog Task to its first executable Node starts it immediately without confirmation. That target says `Drag here to start automation`. A drop onto Done performs a manual archive move without normal Workflow completion.
@@ -511,6 +517,7 @@
 - Questions support suggestions, freeform commentary, recommendations, pointer or keyboard selection, and ordinary focus navigation. An option Question selects its valid recommended option by default and otherwise selects option 1. Malformed recommendation metadata follows the same option-1 fallback. Live refresh must not change the user's selection or draft. Selection and recommendation are distinct states. A Question with no suggestions has only freeform response and must not offer `Neither`.
 - Runtime Approvals use the actual prompt and approval-specific choices. They select the one-time allow choice when offered and otherwise the first offered choice. They must not offer `Neither`. Deny requires commentary. A consolidated outside-workspace Approval begins with `Agent wants to access a batch of files, but <count> are outside workspace dir:`, shows every unique model-provided path and any different real resolved path as an ordered bullet, and ends with `Allow this access?` before its choices. Workflow transition approval offers only Approve and shows source Node, Transition Key and label, target Nodes, required values, commentary, Workflow Version, and stale warning.
 - Task Detail sends each `Submit answer` independently and must not collect responses across Questions or runtime Approvals.
+- In Chat and Task Detail, unmodified number keys `1`–`9` select the corresponding choice of the first Question or runtime Approval whose top is visible, then focus its commentary field. `0` always selects `Neither` when offered, including when its numbered choice also has a `1`–`9` shortcut. Each radio button must be followed by the choice number and a dot before the option text; `Neither` must show only `0.` as its number. Hovering the radio button must show its available shortcuts in a tooltip. Number shortcuts must not intercept typing in editable fields. Enter sends the selected answer; Shift+Enter inserts a newline.
 - Selecting `Submit answer` removes that prompt from local attention before Kent reports the result.
 - Task Detail moves focus to the next unresolved prompt's first answer control.
 - The next prompt accepts edits and submission while earlier answer deliveries are in progress. Answer deliveries may finish in a different order.
@@ -526,14 +533,14 @@
 - Interrupt acts immediately without confirmation.
 - Task Detail opened from Inbox must not close after resolution while Inbox updates in the background.
 - Desktop attention includes workflow Questions, workflow Approvals, ordinary Session Questions and Approvals with a Desktop response surface, and executable Nodes interrupted by errors. It excludes user interruptions.
-- Notifications must offer Automatic, Native, and In-app and default to Automatic. This setting must not change ordinary action and error feedback.
+- Notifications must offer Automatic, Native, and In-app and default to Automatic. This setting must govern all attention alerts, including Task attention, Session prompts, Session turn-end alerts, and Session naming failures. This setting must not change ordinary action and error feedback.
 - In Automatic mode, a focused window must show a persistent in-app attention notification. An ordinary Session prompt must not show a duplicate notification while its owning Session Chat and picker are already the focused destination. An unfocused window must attempt a system notification when available.
 - Native mode must send native-capable attention alerts to the OS even when focused, without duplicate Sonners. In-app mode must deliver attention alerts as Sonners even when unfocused.
 - Selecting an in-app attention notification must open Task Detail or Session Chat at the relevant attention item. Every notification can be closed regardless of duration. System notification activation must focus the main window and open the matching Task Detail or Session Chat target. Question notifications must select the first unresolved Question in their batch. Approval and error-interruption notifications must select their matching item.
 - Notification batches are server-authoritative. Resolved notifications dismiss matching persistent in-app notifications. Notification delivery never changes Workflow state. Development failures fail immediately with diagnostics, while production proceeds without delivery.
 - Notification messages are optional structured context. Desktop owns and localizes fallback copy when a message is absent. The server never supplies fallback UI copy.
 - Desktop must receive global Session turn-end attention through the [Runtime Steering And Model Loop](runtime-steering-loop.md#turn-end-attention) contract, including for Sessions without an open Chat.
-- A focused Desktop must show a turn-end notification through the existing in-app notification surface. An unfocused Desktop must attempt a system notification through its existing notification handling.
+- Desktop must deliver turn-end notifications according to the Notifications setting.
 - Selecting a turn-end notification must open its Session through ordinary Desktop Session navigation.
 - Turn-end system notifications must identify Kent as the app, use `Session ended: <name>` as the title, and show a plain-text preview of the turn-ending assistant final message as the body. Desktop must localize the copy and ellipsize the title and preview independently to at most 80 Unicode code points each.
 - Desktop must not run TUI client lifecycle hooks.

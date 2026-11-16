@@ -173,14 +173,27 @@ it.each([
   { modifier: "ctrlKey", prompt: undefined },
   { modifier: "altKey", prompt: question() },
   { modifier: "ctrlKey", prompt: question() },
-] as const)("starts dictation in the visible Chat field without focus: %j", async ({ modifier, prompt }) => {
-  await setupSpeech("draft", prompt);
-  await screen.findByRole("button", { name: appI18n.t("speech.record") });
-  screen.getByRole<HTMLTextAreaElement>("textbox").blur();
-  fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
-  await screen.findByRole("button", { name: appI18n.t("speech.stop") });
-  expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
-});
+] as const)(
+  "toggles dictation in the visible Chat field without submitting: %j",
+  async ({ modifier, prompt }) => {
+    const { transcript, steer, queue, answer } = await setupSpeech("draft", prompt);
+    await screen.findByRole("button", { name: appI18n.t("speech.record") });
+    screen.getByRole<HTMLTextAreaElement>("textbox").blur();
+    fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
+    await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+    expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
+    await act(async () => {
+      transcript.resolve({ kind: "transcript", text: "dictated" });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLTextAreaElement>("textbox").value).toContain("dictated");
+    });
+    expect(steer).not.toHaveBeenCalled();
+    expect(queue).not.toHaveBeenCalled();
+    expect(answer).not.toHaveBeenCalled();
+  },
+);
 
 it.each([question(), approval()])(
   "inserts into the visible prompt when it arrives while the ordinary composer is recording: %s",

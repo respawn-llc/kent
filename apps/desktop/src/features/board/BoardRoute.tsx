@@ -286,6 +286,7 @@ function BoardContent({
     openSession,
     openDependencies: openTaskDependencies,
     selectWorkflow,
+    editWorkflow,
     openTasks: openProjectTasks,
     openNewTask,
     openLinkWorkflow,
@@ -391,6 +392,7 @@ function BoardContent({
       <div className="flex shrink-0 items-center gap-[var(--space-2)] px-[var(--space-2)] pt-[var(--space-2)]">
         <BoardFilterRow
           activeWorkflow={board.selectedWorkflow}
+          onEditWorkflow={editWorkflow}
           onLinkWorkflow={openLinkWorkflow}
           onNewTask={openNewTask}
           onOpenTask={openTask}

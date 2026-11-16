@@ -106,12 +106,16 @@ func evaluateWorkflowGraphSaveDynamicDecision(ctx context.Context, q *sqlitegen.
 	evaluation := workflowGraphSaveDynamicImpact{}
 	impact := workflowGraphSaveRemovedImpact(structural.Removed)
 	for _, nodeID := range structural.Removed.nodes {
-		count, err := q.CountTaskNodeReferences(ctx, string(nodeID))
+		id, err := runtimeids.GraphEntityIDBlob(string(nodeID))
+		if err != nil {
+			return workflowGraphSaveDynamicImpact{}, err
+		}
+		count, err := q.CountTaskNodeReferences(ctx, id)
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}
 		impact.NodeTaskReferenceCount += count
-		currentCount, err := q.CountCurrentTaskNodeAnchorReferences(ctx, string(nodeID))
+		currentCount, err := q.CountCurrentTaskNodeAnchorReferences(ctx, id)
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}
@@ -124,7 +128,11 @@ func evaluateWorkflowGraphSaveDynamicDecision(ctx context.Context, q *sqlitegen.
 		}
 	}
 	for _, edgeID := range structural.Removed.edges {
-		count, err := q.CountTaskEdgeReferences(ctx, string(edgeID))
+		id, err := runtimeids.GraphEntityIDBlob(string(edgeID))
+		if err != nil {
+			return workflowGraphSaveDynamicImpact{}, err
+		}
+		count, err := q.CountTaskEdgeReferences(ctx, id)
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}
@@ -143,7 +151,11 @@ func evaluateWorkflowGraphSaveDynamicDecision(ctx context.Context, q *sqlitegen.
 	}
 	nodeKindChangeEntities := []WorkflowGraphEntityReference{}
 	for _, nodeID := range structural.EditPolicy.NodeKindChanges {
-		refCount, err := q.CountTaskNodeReferences(ctx, string(nodeID))
+		id, err := runtimeids.GraphEntityIDBlob(string(nodeID))
+		if err != nil {
+			return workflowGraphSaveDynamicImpact{}, err
+		}
+		refCount, err := q.CountTaskNodeReferences(ctx, id)
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}
@@ -158,7 +170,11 @@ func evaluateWorkflowGraphSaveDynamicDecision(ctx context.Context, q *sqlitegen.
 	}
 	historyEdgeChangeEntities := []WorkflowGraphEntityReference{}
 	for _, edgeID := range structural.EditPolicy.HistoryEdgeChanges {
-		refCount, err := q.CountAllTaskEdgeReferences(ctx, string(edgeID))
+		id, err := runtimeids.GraphEntityIDBlob(string(edgeID))
+		if err != nil {
+			return workflowGraphSaveDynamicImpact{}, err
+		}
+		refCount, err := q.CountAllTaskEdgeReferences(ctx, id)
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}

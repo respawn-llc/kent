@@ -152,7 +152,7 @@ type Snapshot struct {
 }
 
 type ExecRequest struct {
-	OwnerSessionShortID  runtimeids.SessionShortID
+	OwnerSessionShortID  *runtimeids.SessionShortID
 	Command              []string
 	DisplayCommand       string
 	OwnerSessionID       string

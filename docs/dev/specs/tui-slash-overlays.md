@@ -13,6 +13,9 @@
 - `/agent` must open a scrollable Alternate Screen Agent Role picker before or after Session creation. `/model` must be an alias for `/agent`.
 - Both commands must work immediately while the Agent is working, like `/new` and `/back`.
 - Each choice must show the role on its first line and available model and thinking information below it, matching the desktop Agent picker. The picker must initially focus the current Agent and distinguish the current Agent from keyboard selection.
+- The picker heading must read “Select an Agent”. Choices must have one blank line between them. The selection ribbon must span both content rows without extending into the blank separator.
+- Each choice's detail row must include `fast` when fast mode is enabled. The current Agent must show its effective Session setting.
+- `Up` and `Down`, including `k` and `j`, must wrap between the first and last choices. Page navigation must stop at the ends.
 - The picker must use the shared list keys without a search field. `Esc` or `q` must close the picker without applying a choice.
 - `Enter` must confirm and apply the selected Agent. It must not show a replacement warning or a second confirmation dialog, including while the Session is busy. Replacement must follow the Agent replacement contract in [Core Runtime Tools](core-runtime-tools.md).
 - Selecting the current Agent must close the picker without changing its settings.
