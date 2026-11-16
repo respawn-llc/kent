@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"io"
+	"net/http"
 	"strconv"
 )
 
@@ -93,7 +94,7 @@ func (o *importOutput) PublishTaskImportProgress(event *taskimportpb.ProgressEve
 				writeTaskWorkflowSelectionRecovery(o.stderr, recovery)
 			}
 		} else {
-			o.write(fmt.Sprintf("Failed%s ← %s [%s]: %s\n", task, source, importPhaseLabel(outcome.Failed.Phase), outcome.Failed.Diagnostic))
+			o.write(fmt.Sprintf("Failed%s ← %s [%s]: %s\n", task, source, importPhaseLabel(outcome.Failed.Phase), importFailureMessage(outcome.Failed)))
 		}
 	}
 	for _, warning := range item.Warnings {
@@ -124,7 +125,7 @@ func (o *importOutput) finish(summary *taskimportpb.Success, observationErr erro
 		}
 		o.write("}\n")
 	} else if knownFailure {
-		fmt.Fprintf(o.stderr, "Import failed [%s]: %s\n", importPhaseLabel(rejected.Detail.Phase), rejected.Detail.Diagnostic)
+		fmt.Fprintf(o.stderr, "Import failed [%s]: %s\n", importPhaseLabel(rejected.Detail.Phase), importFailureMessage(rejected.Detail))
 	} else if observationErr != nil {
 		fmt.Fprintf(o.stderr, "Import observation failed; admitted work may still be running. Do not assume resubmitting is safe: %v\n", observationErr)
 	} else if summary != nil {
@@ -138,6 +139,24 @@ func (o *importOutput) finish(summary *taskimportpb.Success, observationErr erro
 		return 1
 	}
 	return 0
+}
+
+func importFailureMessage(failure *taskimportpb.Failure) string {
+	switch failure.Code {
+	case taskimportpb.FailureCode_FAILURE_CODE_AUTHENTICATION:
+		return "GitHub rejected access. Check the selected GH_TOKEN or GITHUB_TOKEN, or your gh login, and confirm that account has access to the repository."
+	case taskimportpb.FailureCode_FAILURE_CODE_RATE_LIMIT:
+		return "GitHub's request limit was reached. Wait before trying again; for anonymous imports, configure GH_TOKEN or sign in with gh for a higher limit."
+	}
+	if failure.HttpStatus != nil {
+		switch failure.GetHttpStatus() {
+		case http.StatusNotFound:
+			return "GitHub could not find or provide access to this resource. Confirm the issue and repository exist and that the selected account can access them."
+		default:
+			return "GitHub could not complete the request. Check GitHub's service status and your repository access before trying again."
+		}
+	}
+	return failure.Diagnostic
 }
 
 func importReferenceLabel(reference *taskimportpb.Reference) string {
