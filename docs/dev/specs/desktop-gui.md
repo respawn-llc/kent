@@ -11,7 +11,8 @@
 
 - Desktop must buffer at most 1,000 pending events per discrete shell observation: notification activation, file drops, attention events, and navigation history. When an observation reaches this limit, production Desktop must drop each incoming overflow event, log it, and continue observing. Debug Desktop must surface a fatal UI error without a retryable status. The native process and browser may stay open after this error. Desktop must not replay dropped events. Overflow must not change server-owned work.
 
-- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must ignore the drop.
+- On macOS and Linux, dropping local files into a Desktop window must insert their absolute paths as plain text at the focused editable text input's selection. Multiple paths must be separated by spaces. If no editable text input is focused, Desktop must insert into the sole visible editable text input. With no visible editable input or several visible editable inputs and none focused, Desktop must ignore the drop.
+- Dropped URLs must use the same input-target selection as file paths and insert as plain text without navigating away.
 - File drops must never replace the application with the dropped file or create attachments. Windows and browser presentation must ignore file drops and support internal board dragging.
 
 - Desktop is a thin remote-control client of an already-running Kent server. The server is authoritative for Projects, workspaces, Workflows, Tasks, runtime, Workflow Execution live state, validation, Approvals, Questions, comments, worktrees, and durable state.
