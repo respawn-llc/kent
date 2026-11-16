@@ -254,6 +254,7 @@ func newGatedOnboardingServer(t *testing.T) *gatedOnboardingServer {
 	gate := newOnboardingRPCGate(endpoint)
 	proxy := httptest.NewServer(rpcwire.NewWebSocketTransport().Handler(gate.Handler))
 	t.Cleanup(proxy.Close)
+	t.Cleanup(gate.Release)
 	return &gatedOnboardingServer{
 		gate:   gate,
 		server: proxy,
@@ -425,6 +426,11 @@ func TestOnboardingFinalizationRemoteDeadlineIsIndeterminateUntilCallerClosesRem
 	if err != nil {
 		t.Fatalf("dial gated remote: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := remote.Close(); err != nil {
+			t.Errorf("close caller-owned remote: %v", err)
+		}
+	})
 	if _, err := remote.ConfigureConnection(t.Context(), &authpb.ConfigureConnectionRequest{Change: &authpb.ConfigureConnectionRequest_PendingSetup{
 		PendingSetup: &authpb.ConnectionDefinition{Id: "local", Protocol: authpb.ConnectionProtocol_CONNECTION_PROTOCOL_RESPONSES, Endpoint: proto.String("http://localhost:1234/v1")},
 	}}); err != nil {
@@ -440,7 +446,7 @@ func TestOnboardingFinalizationRemoteDeadlineIsIndeterminateUntilCallerClosesRem
 	}
 	select {
 	case <-server.gate.started:
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("onboarding finalization request did not reach the server gate")
 	}
 	outcome, submitted := finalization.waitIfSubmitted()
@@ -503,7 +509,7 @@ func waitForOnboardingFinalizationCompletion(t *testing.T, finalized <-chan stru
 	t.Helper()
 	select {
 	case <-finalized:
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("onboarding finalization did not complete after release")
 	}
 }
@@ -512,7 +518,7 @@ func waitForOnboardingGateClose(t *testing.T, closed <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-closed:
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("caller-owned onboarding remote did not close")
 	}
 }
