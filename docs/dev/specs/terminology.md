@@ -48,11 +48,19 @@ A short, human-facing, uppercase project prefix applied to new task short IDs. U
 
 ### Workflow Version
 
-A monotonic counter for changes to a Workflow definition. A save that changes metadata, the graph, or both increments the counter once. A save that changes nothing leaves the counter unchanged. Kent uses the value to identify the current definition and warn when a pending Approval refers to an older definition.
+A monotonic definition revision stored in a Workflow file. Its edit behavior follows [Definition revisions](declarative-workflows.md#definition-revisions). It is separate from the Workflow file schema version.
+
+### Workflow schema version
+
+The version of the public Workflow file format. Supported versions and migration behavior follow [File schema compatibility](declarative-workflows.md#file-schema-compatibility).
 
 ### Workflow
 
 A durable directed graph that describes how tasks move through work. Workflows are top-level reusable definitions linked into projects.
+
+### Applied Workflow definition
+
+The complete Workflow definition accepted through Apply and used for Task operations. Editing its source file leaves this definition unchanged until a successful Apply.
 
 ### Execution Target Policy
 
@@ -96,7 +104,7 @@ The operation for which Kent validates a Workflow, such as editing a draft, crea
 
 ### Project Workflow Link
 
-An active association that lets a Project use a reusable Workflow without copying it. Each Task belongs to one Project Workflow Link.
+An active association from a Project to a Workflow file location. Each Task belongs to one Project Workflow Link. Location resolution follows [Linked locations](declarative-workflows.md#linked-locations).
 
 ### Label
 
@@ -112,7 +120,7 @@ A state in a Workflow. Start, Agent, Script, and Terminal Nodes can appear as wo
 
 ### Current Nodes
 
-The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition stores that Transition Branch so Kent can resolve its live prompt and context policy from the latest Workflow definition. A Terminal Current Node must have no incoming Transition Branch reference. Pending Approvals must store their captured branch dependencies until applied, including branches targeting Terminal Nodes. Leaving a Node removes its current execution state.
+The Node or Nodes that contain a Task at this moment. A Task usually has one Current Node. It can have several Current Nodes only while parallel branches are active. Current Nodes belong to the Task and have no independent identity. A non-Terminal Current Node entered through a Transition stores that Transition Branch so Kent can resolve its live prompt and context policy from the applied Workflow definition. A Terminal Current Node must have no incoming Transition Branch reference. Pending Approvals follow the [applied-definition Approval contract](declarative-workflows.md#pending-approvals). Leaving a Node removes its current execution state.
 
 ### Node Group
 
@@ -232,7 +240,7 @@ The Session-owned snapshot of effective Workflow completion mode. Its refresh bo
 
 ### Runtime Parameter Contract
 
-The possible and required Transition Parameters for an executable Current Node. Kent derives this contract from the latest Workflow definition when work starts or resumes. Kent stores no obsolete contract as execution history.
+The possible and required Transition Parameters for an executable Current Node. Kent derives this contract from the applied Workflow definition when work starts or resumes. Kent stores no obsolete contract as execution history.
 
 ### Session
 

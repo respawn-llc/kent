@@ -138,16 +138,15 @@
 ## Workflow Definitions
 
 - Workflow definitions are globally reusable and linked to projects. Projects do not copy graph definitions.
+- Project Workflow Links must follow the [file-location contract](declarative-workflows.md#discovery-and-project-links). Task execution must use the [applied definition](declarative-workflows.md#applying-definitions).
 - Workflow validation uses Project context because available subagent roles and workspace configuration can differ by Project.
-- The CLI emits and applies complete graph editing JSON bound to one Workflow and Workflow Version.
-- Graph editing JSON contains Workflow identity, expected Workflow Version, and the authored graph.
-- Product surfaces and the CLI can create and edit Workflow definitions.
+- Workflow file authoring and CLI inspection must follow [Declarative workflows](declarative-workflows.md).
 - Workflow definitions may be saved, linked, and made project default while semantic validation fails.
 - A saved Workflow Draft must have valid identifiers, valid references, supported values, unique keys, and exactly one Start Node.
 - Workflow graph entity IDs and their relational references must use UUIDv4 values stored as 16-byte SQLite BLOBs. Graph mutations must reject malformed identity input before changing persisted state.
 - Upgrading text graph identities must preserve canonical UUIDv4 identities and consistently replace malformed nonblank, nonzero identities and their stored references with new UUIDv4 values.
 - Users can create Backlog Tasks for an invalid linked or default Workflow while they fix it.
-- Task Start, Resume, and automatic scheduling of executable work validate the Workflow in Project context and report all safe, actionable issues. The `ask_question` rule for an Assignee is checked when executable work starts.
+- Task Start, Resume, and automatic scheduling of executable work validate the applied Workflow definition in Project context and report all safe, actionable issues. The `ask_question` rule for an Assignee is checked when executable work starts.
 - A project can link multiple workflows and has one default workflow for task creation.
 - Invalid default workflows are allowed. Task creation against an invalid default creates Backlog tasks, while starting/running those tasks fails with accumulated validation errors until the workflow is fixed.
 - Every workflow has exactly one execution target policy: no managed worktree, source `HEAD`, repository default branch, custom Git ref, or operator selection when execution first begins.
@@ -156,9 +155,9 @@
 - Custom-ref policy accepts one Git revision. Other policies clear and ignore that value.
 - A draft may save custom-ref policy without a value and reports a semantic validation issue. Saving validates presence only. Git resolution is authoritative against the task's source workspace when execution first begins.
 - Workflow creation auto-creates ordinary editable `backlog` and `done` nodes.
-- Each changed save increments the Workflow Version once. A save that changes both details and graph structure also increments it once. A save that changes nothing leaves the Workflow Version unchanged.
-- Pending Approvals store the Workflow Version and branch snapshots the operator is approving.
-- Executable Current Nodes resolve the latest Workflow definition and Runtime Parameter Contract when they start or resume. Kent stores no completed execution contracts as history.
+- Definition edits must follow the [definition-revision contract](declarative-workflows.md#definition-revisions). File compatibility must follow the separate [schema-version contract](declarative-workflows.md#file-schema-compatibility).
+- Pending Approvals must follow the [applied-definition Approval contract](declarative-workflows.md#pending-approvals).
+- Executable Current Nodes resolve the applied Workflow definition and Runtime Parameter Contract when they start or resume. Kent stores no completed execution contracts as history.
 - When an already-started Agent Current Node resumes after a Workflow edit, Kent must use its saved Agent, model, and thinking selection while executable. When no prior selection exists, Kent must use available saved Session settings and otherwise the current Node's configured fallback Assignee and ordinary defaults. Missing thinking selection is valid. Invalid saved selections must produce errors.
 - If a saved Agent role or its settings are unavailable, Resume must use the saved model and available Session settings with current defaults for missing Agent settings.
 - Script Nodes use the current script path and completion requirements each time they execute.
@@ -171,7 +170,7 @@
 - Workflow definitions select configured subagent role identities. They do not directly override model, provider, authentication, or tools. The sole tool exception is the Transition-selected Assignee path, where Kent force-enables Questions. Every other tool follows the selected role or reused Session contract.
 - Role configuration must follow [Configuration Resolution](core-runtime-tools.md#configuration-resolution), including Main Workspace private settings for managed Workflow worktrees. Connection selection, saved Session bindings, and incompatible context must follow [Provider Connections](provider-connections.md).
 - Agent Nodes do not own invocation prompts. Each incoming Transition Branch owns its Transition Prompt. Kent provides no Node-level prompt fallback.
-- Every Agent Node's configured fallback Assignee, including default and built-in roles, must have `ask_question` enabled. A Transition-selected Assignee is exempt because Kent force-enables Questions only for that execution path. Validation reports affected fallback Nodes without changing role configuration. Workflow Drafts and Backlog Tasks are allowed. Task Start, Resume, and manual movement to an executable target validate the latest Workflow before target selection, Task movement, or execution. Pending Approval creation validates before freezing its target. Approval must not repeat that graph or configuration validation.
+- Every Agent Node's configured fallback Assignee, including default and built-in roles, must have `ask_question` enabled. A Transition-selected Assignee is exempt because Kent force-enables Questions only for that execution path. Validation reports affected fallback Nodes without changing role configuration. Workflow Drafts and Backlog Tasks are allowed. Task Start, Resume, and manual movement to an executable target validate the applied Workflow definition before target selection, Task movement, or execution. Pending Approval creation validates its selected Transition in the applied definition. Approval must validate that Transition in the applied definition before executing it.
 - Resume must validate an already-started Agent Current Node against its saved or recovered effective selection. Changes to its incoming Assignee or thinking selector, or to an unused configured fallback Assignee, must not by themselves prevent otherwise executable work from resuming. Resume must validate structure, provider and Session ownership, and current outgoing completion requirements.
 - Every Agent Node has a required configured Assignee.
 - Each eligible incoming serial Transition Branch independently may override that fallback by selecting the effective Assignee through a protected required Transition Parameter.
@@ -196,7 +195,7 @@
 - Assignee and thinking selectors own Protected Parameters with the lifecycle and edit behavior defined in the terminology specification.
 - Ordinary and protected Parameter Keys must be unique across one Transition contract even while a protected Parameter is dormant.
 - A supplied protected value is ignored only for saved-Session Assignee reuse, sole-role automation, or finite zero/one thinking automation. A value for a selector that is disabled, unavailable, or topology-inapplicable is an unknown Transition Result output.
-- An ignored protected value must not affect the effective selection or enter target inputs, prior Parameter values, prompts, Join requirements, or frozen Approval targets. Manual Move must apply the same rule. Kent must not rewrite existing history.
+- An ignored protected value must not affect the effective selection or enter target inputs, prior Parameter values, prompts, Join requirements, or Approval targets. Manual Move must apply the same rule. Kent must not rewrite existing history.
 - A blank protected Assignee description derives `Override the subagent role for the next node, available roles: <CSV of roles in config.toml that have agent_callable=true>` when Workflow completion instructions are prepared.
 - The derived Assignee list uses the server's loaded configuration and deterministic alphabetical order.
 - A nonblank authored Assignee description takes precedence over the derived description.
@@ -225,7 +224,7 @@
 - Task creation and execution validation accumulate all safe actionable errors and reject invalid graph, role, and Parameter configurations.
 - Execution-valid graphs reject detached islands: every node reachable from start, every non-terminal can reach terminal, terminal cannot auto-run.
 - Cycles/self-loops are allowed outside restricted fan-out branch paths.
-- New draft Nodes, Node Groups, Transitions, and Transition Branches receive UUID v4 identifiers. Preview and Save must not change those identifiers. Product-facing keys are stable semantic references.
+- Workflow graph identity must follow the [key-based file contract](declarative-workflows.md#file-identity).
 - `node_key`, `transition_id`, `edge_key`, Parameter Keys, and binding names match `^[a-z][a-z0-9_]{0,63}$`.
 - Workflow display names are trimmed non-empty labels capped at 120 chars. They cannot serve as references.
 - Node display labels may be empty. They must be trimmed and capped at 120 characters.
@@ -246,7 +245,7 @@
 - Manual, automatic, handoff, and Workflow Pre-Compaction must leave the Workflow Snapshot unchanged. A later `continue_session` must use that snapshot even when pre-compaction ran speculatively before the target Node was known.
 - A new Session ID establishes fresh settings and snapshots, including when fan-out copies context under `continue_session`. Explicit `compact_and_continue_session` expires the target Session's Workflow Snapshot and creates a new Session Contract generation. Ordinary reuse of the same Session ID must not select a different effective completion mode.
 - Explicit `compact_and_continue_session` must apply that refresh boundary even when Workflow Pre-Compaction already produced the summary. It must not create a second summary solely to refresh the Workflow Snapshot.
-- Resume resolves the latest Runtime Parameter Contract from the current Workflow definition. A live Exact Execution Scope keeps the completion contract already advertised for that scope until it stops.
+- Resume resolves the latest Runtime Parameter Contract from the applied Workflow definition. A live Exact Execution Scope keeps the completion contract already advertised for that scope until it stops.
 - Forced `structured_output` fails fast with an actionable error when unsupported. Forced `tool` always uses dynamic tool mode. Forced `shell_command` fails execution start when the resolved runtime shell tool is unavailable.
 - `[workflow].use_required_tool_calls` defaults to `true`. When enabled, each model response in `shell_command` and `tool` modes must call at least one available tool. This requirement must not add, remove, or reorder tools.
 - When `[workflow].use_required_tool_calls` is `false`, model requests in `shell_command` and `tool` modes use automatic tool selection. The selected completion mode rejects ordinary assistant final answers.
@@ -378,14 +377,8 @@
 - A pending Workflow Transition Approval belongs to the current Task and survives restart.
 - Approval is a Transition Branch property.
 - If any branch of a selected Transition requires Approval, the complete Transition waits for one Approval before any target becomes current or begins work.
-- A pending Approval freezes the selected Transition, its branches, Workflow Version, source and target Nodes, effective branch configuration, display details, and Context Source.
-- A pending Approval also freezes the selected target Assignee and thinking values.
-- Kent validates and materializes the selected target Assignee and thinking before it creates the pending Approval.
-- Approval must use the frozen target configuration. It must not reselect that configuration from the current Workflow graph or role/thinking configuration.
-- If an older saved Approval references an incoming Transition that is absent from the Workflow, Kent must leave the Approval and saved content intact, explain that explicit Move is required, and reject acceptance without starting target work.
-- If later configuration cannot instantiate the already approved Assignee or thinking value, the resulting Current Node reports an ordinary start failure. That failure must not change Approval semantics.
+- Approval resolution and mismatched Parameters must follow the [applied-definition Approval contract](declarative-workflows.md#pending-approvals).
 - After completion has selected an Approval, the Workflow owner finishes, skips, or surfaces any source Workflow Pre-Compaction before it applies that Approval. Workflow-owner sequencing governs this order without a Runtime gate or completion fence.
-- Later graph edits do not change what the approving caller approves.
 - Kent stores no applied or rejected Transitions as workflow movement history. Pending Approval state is removed when the Approval applies or a manual move supersedes it.
 - A Task awaiting Approval is at the source current Node and exposes `waiting_approval` status. Target Nodes are not current.
 - Pending Approvals occur only after a Task has reached an executable Node and therefore always reuse the Task's locked Execution Target.
@@ -412,7 +405,7 @@
 ## Manual Movement
 
 - Manual movement acts on the Task, never on one Current Node. A successful move must replace every origin Current Node.
-- `kent task move <task> <target-node-id>` must allow movement between Workflows linked to the same Project only when the Task's sole Current Node and the destination are Start or Terminal Nodes. Kent must reject cross-Workflow movement for in-progress Tasks and executable destinations. Migration must not start executable work.
+- CLI destination selection must follow the [Task move contract](cli-commands.md#workflow-and-task-mutation). Movement between Workflows linked to the same Project must be allowed only when the Task's sole Current Node and the destination are Start or Terminal Nodes. Kent must reject cross-Workflow movement for in-progress Tasks and executable destinations. Migration must not start executable work.
 - Cross-Workflow movement must not change the Task's identity, Short ID, content, comments, labels, dependencies, associated Sessions, source Workspace, or execution target. After all Tasks leave a Workflow, those Tasks and their Sessions must survive unlinking or deleting that Workflow.
 - Moving a Backlog Task through its Start Node's outgoing Transition uses Task Start. It cannot serve as a manual override.
 - Dropping a Task onto any Node that is already Current is a no-op, including a drop from one parallel card copy onto another Current Node in the same parallel group.
@@ -456,7 +449,7 @@
 - Reaching a Join ends active branch flow without removing saved branch-scoped Session associations. A later legal fan-out cycle may select the prior association for the same Transition Branch Key through `previous_target` or `previous_target_or_new`.
 - Manual movement supports every Context Source. An incoming Transition is usable only when every selected branch can resolve any Session required by its Context Source.
 - Manual movement never infers one origin branch from a parallel Task or from the dragged card. During parallel work it must not carry branch-scoped Session context into the target. When the selected Transition source is not the Task's sole unscoped Current Node, required saved-Session context resolves only from serial associations. Branch-scoped-only context makes the Transition unusable. A selected Fan-Out Transition resolves context before its targets receive their new Transition Branch Keys.
-- Pending Approvals freeze context-source resolution before Approval. A fallback-to-new result must use `new_session` even if another matching Session appears before Approval. A newer matching Session must not change the selected Session.
+- Pending Approvals must resolve continuation against the applied Workflow definition when approved.
 - If startup binds a fresh Session but fails before creating its conversation files, a later explicit Resume must finish creating that same Session from its saved identity and context source. This recovery must use the selected branch bindings and must not infer a different source from later Workflow edits.
 - Creation recovery is allowed only before the Session has persisted conversation events, established a conversation, or begun a model request. Missing conversation files after that point must produce an explicit error. Existing conversation files must follow ordinary Session opening and must not be replaced by creation recovery.
 - `continue_session` may reuse only a Session whose persisted Assignee identity matches the target Current Node's materialized Assignee.
@@ -482,7 +475,7 @@
 - Prompt placeholders validate against the prompt-owning Transition Branch's Parameters through `.Params.<parameter_key>`.
 - Applying a Transition materializes each branch's declared Parameters for its target. Prompt rendering uses those values and never searches discarded execution history.
 - Built-in [Session references](workflow-editor.md#session-references) resolve the Task's existing Session associations when the prompt is rendered.
-- If the latest Workflow definition requires an already-current executable Node to have an ordinary Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. A protected Assignee or thinking Parameter required by a Workflow edit must not by itself prevent Resume. Kent must not reconstruct discarded Workflow history. Another selected parallel Current Node is independently admissible.
+- If the applied Workflow definition requires an already-current executable Node to have an ordinary Transition-owned Parameter that was not materialized when the Node was entered, that Current Node cannot Resume and reports a typed validation error. A protected Assignee or thinking Parameter required by a Workflow edit must not by itself prevent Resume. Kent must not reconstruct discarded Workflow history. Another selected parallel Current Node is independently admissible.
 - For Resume, Kent must derive missing exposed protected prompt inputs from the saved or recovered effective selection without changing historical Transition values or prior Parameters. Hidden automatic selections must stay hidden. If effective thinking has no named value, Kent must render `model default` only when a thinking placeholder added by a Workflow edit requires a value.
 - The Start Node's outgoing Transition cannot declare Parameters and should use task fields such as `.TaskTitle` and `.TaskBody`.
 - Kent derives Parameter flow and completion requirements from Transition Branch declarations, Workflow structure, and Join sources.
@@ -557,7 +550,7 @@
 - A Task with executable Current Nodes and no live or queued execution must offer Resume unless a pending Transition Approval owns its next action. The explicit action must include required Execution Target selection.
 - When the operator explicitly resumes a Task, Workflow Execution must reconcile only saved executable Current Nodes without live or queued execution to interrupted state and continue Resume for eligible Nodes independently of already-running siblings. Reconciliation must leave pending Transition Approvals intact and must not emit interruption notifications.
 - Opening or reconnecting a client must not reconstruct or replay attention notifications from saved Workflow state or pending prompts. Notification subscriptions must deliver live events only and must not store notifications for disconnected clients.
-- A pending Transition Approval survives restart with the exact frozen Transition that the operator saw.
+- A pending Transition Approval survives restart and must resolve against the applied Workflow definition when approved.
 - Resume must not replay answers or apply a Workflow effect blocked by a prior durability failure.
 - Kent never retries an interrupted Current Node automatically.
 - Task Interrupt can target one Session or every live Agent and Script execution on the Task, including an Agent waiting for a Question or live Approval.
@@ -739,7 +732,7 @@
 - Every Agent Current Node materializes and persists its effective Assignee and thinking when it is created.
 - The Session resolved as continuation context cannot by itself determine the target Assignee.
 - An unstarted target that will establish a fresh or compacted Session contract materializes the required target Agent Node fallback. An unstarted continuation reusing a saved Session must use that Session's Assignee, treating an absent saved role as Kent's canonical default role.
-- A target execution already bound to a Session must use that Session's Assignee. A pending Approval target has not started and therefore derives its Assignee only from its frozen Context-Preservation Mode and Context Source resolution.
+- A target execution already bound to a Session must use that Session's Assignee. A pending Approval target must use the [applied-definition Approval contract](declarative-workflows.md#pending-approvals).
 - An Agent Current Node without persisted thinking uses absent/no-thinking. Kent validates its saved role's availability when the Current Node starts. An unavailable role produces an ordinary start failure.
 - Later Workflow edits do not change an admitted Agent Current Node's materialized Assignee or thinking.
 - Current Node read models expose the materialized Assignee and thinking.
@@ -747,7 +740,7 @@
 - An executable Current Node stores only the state needed to execute or resume. A Script Node has no Session.
 - Applying a Transition must replace the source Current Nodes, supply target inputs, and add target Current Nodes as one atomic change.
 - Kent stores no applied or rejected Transition history, completed Current Nodes, or execution-attempt records.
-- A pending Approval is the only saved frozen Transition. Kent removes it after approval or a superseding manual move. Kent has no public Transition Approval Reject action.
+- Kent removes a pending Approval after it applies or a superseding manual move. Kent has no public Transition Approval Reject action.
 - A saved Session identifies its Workflow Node and, during parallel work, its Transition Branch Key.
 - Project Workflow Links represent active membership only. Unlinking removes an unused link completely.
 - A Project cannot unlink a Workflow while Tasks use that link. The error reports blockers with counts and references.
@@ -757,16 +750,17 @@
 - Kent derives workspace and worktree display facts from their authoritative roots and Project choices. It must not maintain duplicate editable copies.
 - After reconnect or a live-update error, Desktop must follow [Desktop's independent-operation contract](desktop-gui.md#authority-connection-and-shared-behavior). Other clients reissue Workflow and Task reads and subscriptions. The resulting projections must follow the stale-tolerant read contract.
 - A Workflow deletion preview reports counts only.
-- Workflow deletion requires Quiescence across every affected Task. It also requires a replacement when deleting the Project's default Workflow would leave an invalid default state.
-- Confirmed Workflow deletion removes the Workflow, its Project Workflow Links, its Tasks, and its graph as one atomic change.
+- Workflow deletion requires Quiescence across every affected Task.
+- Unlinking a Project's default Workflow must require a replacement when other linked Workflows would otherwise have no default.
+- Workflow deletion scope, file handling, and partial failure must follow the [declarative Workflow deletion contract](declarative-workflows.md#deletion).
 - Workflow deletion must leave Sessions, worktrees, and other external artifacts intact. It must not perform individual Task Delete cleanup.
 - Task Delete requires Quiescence. It safely removes reconstructible managed artifacts, leaves Session artifacts intact, and removes the Task only after cleanup succeeds.
 - Task Delete removes Task Dependencies according to the Task Dependencies contract.
 - Repeating Task cleanup for an artifact that is already absent succeeds.
-- Saving a Workflow checks the expected Workflow Version, validates the Workflow Draft, reports active blockers, and requires confirmation for destructive removals.
-- A successful Workflow save applies details and graph changes as one atomic change.
-- Saving a Workflow graph never deletes or moves Tasks.
-- Executable context uses the Task, the latest Workflow definition, current inputs, Execution Target, and selected Context Source Session. It must not search discarded execution history.
+- Saving a Workflow must validate the Workflow Draft and follow the [file conflict and destructive confirmation contract](declarative-workflows.md#editing-and-external-changes).
+- Applying a Workflow must follow the [whole-definition Apply contract](declarative-workflows.md#applying-definitions).
+- Saving a Workflow graph must not delete or move Tasks between Nodes. GUI Node-key renaming must update their references under the [file identity contract](declarative-workflows.md#file-identity).
+- Executable context uses the Task, the applied Workflow definition, current inputs, Execution Target, and selected Context Source Session. It must not search discarded execution history.
 ## Compatibility Data
 
 - A persisted Task whose managed Worktree root equals its source Workspace root is normalized to a locked no-managed-worktree Execution Target. Kent clears the obsolete managed Worktree relation and selected Git revision facts, leaves the Task's Workflow state and Sessions unchanged, and uses the source Workspace as its Execution Root.
@@ -777,7 +771,7 @@
 - `source_url` is an optional structured Task field.
 - Task Short ID is durable product data.
 - Context Source selection uses saved Sessions independently of discarded execution records.
-- Pending Approval stores the exact Transition facts that the operator is approving. Ordinary work uses current inputs and the latest Workflow definition.
+- Pending Approval and ordinary work must use current inputs and the applied Workflow definition when applying a Transition.
 - When legacy serial state contains a persisted pending Approval and a conflicting serial current position, Kent uses the Approval source as the Task's only Current Node.
 - When legacy serial state has no pending Approval and contains several active Start or Terminal Nodes, Kent uses the placement with the latest update time, then latest creation time, then greatest identifier.
 - Task Comments store their author identity when available.

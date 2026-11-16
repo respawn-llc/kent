@@ -24,7 +24,7 @@
 - Every Desktop request or observation must make one independent attempt and complete or fail. Desktop must not automatically retry, replace a failed observation, replay an operation, or issue a repair read after failure.
 - Desktop must permit otherwise valid subsequent actions and destination/input-driven reads without a global connectivity gate. Desktop must not pause operations for online status or resume them when connectivity changes. Desktop must support internal transport reuse and required authentication.
 - After failure, Desktop must not discard available content or required drafts and must show the failure in the owning operation or destination. Read failures must offer Retry in their failure state, which may be shared by the screen. Retrying a write must use its ordinary action path. Desktop must not show a global recovery banner.
-- Desktop must not refresh reads because of generic window-focus, online, or reconnection changes. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
+- Desktop must not refresh reads because of generic window-focus changes, except for the selected Workflow source focus checks defined in [Declarative workflows](declarative-workflows.md#editing-and-external-changes). Online or reconnection changes must not refresh reads. Ordinary domain events, successful actions, destination/input changes, and explicit actions may start their normal independent reads.
 - Processes observation and its failure presentation must follow the [Desktop Chat Processes contract](desktop-chat.md#tools-and-processes).
 - When the operator leaves a destination, Desktop must stop its observations and dispose of its pending local action handling. Submitted mutations must use their ordinary completion behavior, including feedback and content refresh after navigation. Local disposal must not cancel accepted server work or discard navigation-owned drafts.
 - After a failed Script-path validation check, the Workflow editor must run checks on its five-second schedule. Each check must make one attempt. This scheduled observation must not enable generic focus, online, or reconnection-driven recovery.
@@ -56,7 +56,7 @@
 - Dialogs, popups, confirmation flows, and dropdowns only collect an operator result, except for read-only subscription-usage inspection. Result-collecting surfaces close before returning that result to their parent destination. The parent destination owns navigation, server requests, pending state, failures, and retries through its action paths.
 - Project creation and Project and Task deletion use in-window dialogs. Confirmation results that are inapplicable do nothing.
 - Cards are reserved for board Task cards. Navigation, browsing, and selection collections use list rows.
-- Workflow browsing rows show the Workflow name, description, version, and an Edit action. Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
+- Workflow browsing rows must show available name, description, and revision from remembered or applied metadata and an Edit action. Directory discovery rows must follow the [file-listing contract](declarative-workflows.md#listing-and-opening). Selecting the row opens the Workflow editor. Edit opens Workflow settings without loading the Workflow graph.
 
 - Loading and busy presentation throughout Desktop must use spinners or skeletons without transient loading or busy copy. Loading buttons must crossfade between their action label and a replacing spinner without changing width. Numeric progress, error and empty explanations, and Session, Task, and tool states must not change.
 
@@ -221,6 +221,8 @@
 
 ## Workflow boards
 
+- Workflow attachment, file opening, and deletion must follow [Declarative workflows](declarative-workflows.md).
+- Workflow definition updates must follow the [Apply contract](declarative-workflows.md#applying-definitions).
 - A board is scoped to one Project and one Workflow, and shows Tasks from all attached workspaces. Workspace supplies context without restricting the board scope.
 - Workflow selection orders the Project default first, then Workflows by last use, then display name. Backlog is fixed left, Workflow Nodes follow their defined order, and Done is fixed right. Join Nodes are not columns. Groups follow their Workflow grouping.
 - Every board column must offer an expand/collapse button, including Backlog, the first Active column, and columns containing Tasks.

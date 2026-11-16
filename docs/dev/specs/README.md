@@ -22,6 +22,7 @@ Area specs:
 - `workflow-orchestration.md`: Workflow behavior, Task lifecycle, execution, concurrency, and worktrees.
 - `desktop-gui.md`: desktop navigation, projects, workflow boards, task detail, connection loss, and native capabilities.
 - `workflow-editor.md`: workflow editor, draft editing, library/linking, sidebar, and save/conflict decisions.
+- `declarative-workflows.md`: Workflow files, discovery, Project attachment, schema compatibility, editing, and explicit Apply.
 - `release-distribution.md`: supported releases, installers, update channels, and compatibility behavior.
 - `server-api-contract.md`: Protobuf API authority, transport framing, operation identity, validation, errors, and protocol compatibility.
 - `terminology.md`: domain terms used consistently across specs, product surfaces, and public contracts.
