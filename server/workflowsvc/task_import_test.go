@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -26,6 +27,9 @@ func TestImportCreatesSourceLinkedTask(t *testing.T) {
 	linkDefaultWorkflowServiceProject(t, ctx, service, binding.ProjectID, workflowID)
 	existingLabel, err := service.CreateWorkflowProjectLabel(ctx, &workflowpb.ProjectLabelCreateRequest{ProjectId: binding.ProjectID, Name: "P1"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateWorkflowProjectLabel(ctx, &workflowpb.ProjectLabelCreateRequest{ProjectId: binding.ProjectID, Name: "Type: Custom type"}); err != nil {
 		t.Fatal(err)
 	}
 	var accountCalls atomic.Int32
@@ -98,7 +102,7 @@ func TestImportCreatesSourceLinkedTask(t *testing.T) {
 		t.Fatalf("%+v %v", labels, err)
 	}
 	catalog, err := service.ListWorkflowProjectLabels(ctx, &workflowpb.ProjectLabelCatalogRequest{ProjectId: binding.ProjectID})
-	if err != nil || len(catalog.Catalog.Labels) != 1 {
+	if err != nil || len(catalog.Catalog.Labels) != 2 {
 		t.Fatalf("%+v %v", catalog, err)
 	}
 	originalID := items[0].Task.TaskId
@@ -124,8 +128,18 @@ func TestImportCreatesSourceLinkedTask(t *testing.T) {
 		t.Fatalf("original changed: %v", err)
 	}
 	catalog, err = service.ListWorkflowProjectLabels(ctx, &workflowpb.ProjectLabelCatalogRequest{ProjectId: binding.ProjectID})
-	if err != nil || len(catalog.Catalog.Labels) != 3 {
+	if err != nil || len(catalog.Catalog.Labels) != 4 {
 		t.Fatalf("%+v %v", catalog, err)
+	}
+	var typeLabelID *string
+	for _, label := range catalog.Catalog.Labels {
+		if label.Name == "Custom type" {
+			typeLabelID = proto.String(label.Id)
+		}
+	}
+	labels, err = service.GetWorkflowTaskLabels(ctx, &taskpb.LabelsGetRequest{TaskId: items[0].Task.TaskId})
+	if err != nil || typeLabelID == nil || !slices.Contains(labels.Assignment.LabelIds, *typeLabelID) {
+		t.Fatalf("literal issue type not assigned: %+v %v", labels, err)
 	}
 
 	readModel := service.readModels.TaskDetail

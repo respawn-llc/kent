@@ -185,7 +185,7 @@ func (s *Service) importItem(ctx context.Context, request *taskimportpb.Request,
 		}
 	}
 	if issue.Type != nil {
-		if err := addLabel(categoricalLabel("Type", issue.Type.Name)); err != nil {
+		if err := addLabel(literalLabel(issue.Type.Name)); err != nil {
 			fail(err, taskimportpb.FailurePhase_FAILURE_PHASE_LABELS)
 			return
 		}

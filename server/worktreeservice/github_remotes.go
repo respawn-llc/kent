@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"core/shared/config"
 	giturls "github.com/whilp/git-urls"
 )
 
@@ -15,6 +16,12 @@ type GitHubRepository struct {
 }
 
 func (i *GitInspector) GitHubRepositories(ctx context.Context, root string) ([]GitHubRepository, error) {
+	switch inspection := config.InspectGitRepository(root).(type) {
+	case config.GitNotRepository:
+		return nil, nil
+	case config.GitRepositoryInspectionFailed:
+		return nil, inspection.Cause
+	}
 	output, exit, err := i.runner.Run(ctx, root, "remote")
 	if err != nil {
 		return nil, formatGitRunError(exit, err, output, "remote")

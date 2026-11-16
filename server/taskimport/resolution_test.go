@@ -53,7 +53,6 @@ func TestRepositorySelection(t *testing.T) {
 	}
 	git(main, "init")
 	git(main, "remote", "add", "origin", "https://github.com/main/repo.git")
-	git(cwd, "init")
 	binding, err := store.CreateProjectForWorkspaceWithKey(t.Context(), main, "Main", "MAIN")
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +66,8 @@ func TestRepositorySelection(t *testing.T) {
 			t.Fatalf("%+v %v", repo, err)
 		}
 	}
+	check("main")
+	git(cwd, "init")
 	check("main")
 	git(cwd, "remote", "add", "origin", "git@github.com:cwd/repo.git")
 	check("cwd")
