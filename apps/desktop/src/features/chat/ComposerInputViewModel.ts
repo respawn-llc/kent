@@ -88,6 +88,7 @@ export function createComposerInputViewModel({
     mutationFn: async (input: Request) =>
       dispatchComposerCommand(services.api.chat, input.target, input.command, input.intent),
     onSuccess: async (result, input) => {
+      reportChatRejection(services.logger, result);
       if (input.command.kind === "input" && !("kind" in result)) {
         if (result.outcome.kind === "accepted" && !("disposition" in result.outcome))
           throw new Error("Ordinary input acceptance requires an admission disposition.");
@@ -96,7 +97,7 @@ export function createComposerInputViewModel({
       }
       if (input.command.kind === "input" && !("kind" in result) && result.outcome.kind === "not_accepted")
         input.rejected?.(input.command.queueItemID);
-      if (observer.hasListeners()) await complete(result, input, t, services.logger);
+      if (observer.hasListeners()) await complete(result, input, t);
     },
     onError: (error, input) => {
       if (input.resolveOutgoing(null)) return;
@@ -254,7 +255,7 @@ function mutationTarget(
   return submission.target;
 }
 
-async function complete(result: ComposerCommandResult, input: Request, t: TFunction, logger: AppLogger) {
+async function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
   if ("kind" in result) return;
   const delivers =
     input.target.kind === "new_chat" ||
@@ -273,7 +274,6 @@ async function complete(result: ComposerCommandResult, input: Request, t: TFunct
           .join("\n"),
       });
   } else {
-    reportChatRejection(logger, result.outcome.reason);
     if (input.command.kind !== "input" && input.original !== null)
       input.restore({ text: input.original, direction: "append" });
     if (delivers) await input.delivered?.(result, input.target);
@@ -288,7 +288,9 @@ async function complete(result: ComposerCommandResult, input: Request, t: TFunct
     });
   }
 }
-function reportChatRejection(logger: AppLogger, reason: ChatNotAcceptedReason): void {
+function reportChatRejection(logger: AppLogger, result: ComposerCommandResult): void {
+  if ("kind" in result || result.outcome.kind !== "not_accepted") return;
+  const reason = result.outcome.reason;
   if (reason.kind !== "internal_failure") return;
   void logger.append("error", "Chat action rejected", {
     ...(reason.operation === null ? {} : { operation: reason.operation }),

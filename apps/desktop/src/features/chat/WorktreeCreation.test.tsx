@@ -1,6 +1,6 @@
 import { expect, it, vi } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { RegistryProvider, useAtomValue } from "@effect/atom-react";
+import { RegistryProvider, useAtomValue, useAtomSet } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import { QueryClient } from "@tanstack/react-query";
 import { createTestServices } from "@/test-support/app-services";
@@ -9,6 +9,7 @@ import { target } from "@/test-support/chat-runtime";
 import { appI18n } from "@/i18n";
 import { createWorktreeCreate, useWorktreeCreate } from "./WorktreeCreate";
 import { resolvedCreateTarget } from "./worktreeCreateTestFixture";
+import type { WorktreeScope } from "@/api";
 
 it.each(["plan", "worktree"] as const)(
   "retains the delivered identity boundary on %s failure",
@@ -88,3 +89,60 @@ it.each(["plan", "worktree"] as const)(
     }
   },
 );
+
+it("does not carry a queued Create confirmation into another Workspace", async () => {
+  const services = createTestServices([]);
+  const resolve = vi
+    .spyOn(services.api, "resolveWorktreeCreateTarget")
+    .mockResolvedValue(resolvedCreateTarget);
+  const planned = vi.spyOn(services.api.chat, "planNewChat").mockResolvedValue(target.sessionID);
+  const create = vi.spyOn(services.api, "createWorktree").mockRejectedValue(new Error("unexpected creation"));
+  const scope = Atom.make<WorktreeScope>({
+    kind: "workspace",
+    projectID: target.projectID,
+    workspaceID: "a",
+  });
+  const model = createWorktreeCreate({
+    client: new QueryClient(),
+    api: services.api,
+    logger: services.logger,
+    projectID: target.projectID,
+    chat: {
+      scope,
+      selector: Atom.make(null),
+      workspaceName: Atom.make("Workspace"),
+      creationTarget: Atom.make({ kind: "session", ...target }),
+      draft: Atom.make(""),
+      creationKey: ["scope-change"],
+      select: vi.fn(),
+      delivered: vi.fn(async () => undefined),
+    },
+    openSession: vi.fn(),
+    suggestion: "topic",
+    navigator: createTestSidebarNavigator(),
+    refreshOpenWorktreeList: vi.fn(),
+    submitSwitch: vi.fn(),
+    push: vi.fn(),
+    t: appI18n.t,
+  });
+  const { result } = renderHook(
+    () => ({
+      actions: useWorktreeCreate(model),
+      state: useAtomValue(model.state),
+      setScope: useAtomSet(scope),
+    }),
+    { wrapper: RegistryProvider },
+  );
+  await act(async () => {
+    result.current.actions.submit(undefined);
+  });
+  await act(async () => {
+    result.current.setScope({ kind: "workspace", projectID: target.projectID, workspaceID: "b" });
+  });
+  await waitFor(() => {
+    expect(resolve).toHaveBeenCalled();
+    expect(result.current.state.resolving).toBe(false);
+  });
+  expect(planned).not.toHaveBeenCalled();
+  expect(create).not.toHaveBeenCalled();
+});

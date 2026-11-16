@@ -61,7 +61,7 @@ export function createWorktreeCreate({
   const target = Atom.make(suggestion ?? "");
   const trimmedTarget = Atom.make((get) => get(target).trim());
   const base = Atom.make("HEAD");
-  const intent = Atom.make<string | null>(null);
+  const intent = Atom.make<Readonly<{ value: string; scope: WorktreeScope | null }> | null>(null);
   const resolver = Atom.make((get) => {
     const value = get(trimmedTarget);
     const selectedScope = get(managementScope);
@@ -157,7 +157,7 @@ export function createWorktreeCreate({
       Effect.gen(function* () {
         if (creator.getCurrentResult().isPending) return;
         const value = get(trimmedTarget);
-        get.set(intent, value);
+        get.set(intent, { value, scope: get(managementScope) });
         const result = get(resolver)?.observer.getCurrentResult();
         if (value.length === 0 || !result?.isSuccess) return;
         const authority = result.data.resolution;
@@ -200,7 +200,8 @@ export function createWorktreeCreate({
       );
       yield* Effect.sleep(150);
       yield* Effect.tryPromise(async () => freshFetchWorktreeCreateTargetResolution(client, api, request));
-      if (get.once(intent) === value) get.set(submit, undefined);
+      const queued = get.once(intent);
+      if (queued?.value === value && queued.scope === selectedScope) get.set(submit, undefined);
     }).pipe(Effect.ignore);
   });
   const retryResolution = Atom.fn<undefined>()(
@@ -242,7 +243,7 @@ export function createWorktreeCreate({
       authority?.kind === CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH;
     const errors = creationErrors(
       created.error,
-      get(intent) === "",
+      get(intent)?.value === "",
       get(intent) !== null && isNew && baseRef.trim().length === 0,
       t,
     );
