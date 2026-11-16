@@ -3472,7 +3472,7 @@ func newWorkflowServiceReadModels(
 	if err != nil {
 		t.Fatalf("workflowview.NewTaskList: %v", err)
 	}
-	board, err := workflowview.NewBoard(metadataStore, definitions, resolver, projection)
+	board, err := workflowview.NewBoard(metadataStore, definitions, projection)
 	if err != nil {
 		t.Fatalf("workflowview.NewBoard: %v", err)
 	}

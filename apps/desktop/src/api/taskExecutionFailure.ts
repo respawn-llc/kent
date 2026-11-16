@@ -13,6 +13,12 @@ export type ExecutionDetail = Extract<ExecutionOutcome, { case: "error" }>["valu
 
 export function throwTaskExecutionFailure(method: DescMethod, outcome: ExecutionOutcome): void {
   if (outcome.case !== "error") return;
+  if (outcome.value.detail.case === "internalFailure") {
+    if (outcome.value.detail.value.cause !== undefined) {
+      throw new TaskExecutionError(protobufRpcError(method, outcome.value), outcome.value.detail);
+    }
+    return;
+  }
   if (classifyResultFailure(method.output, outcome.value).kind === "generic") return;
   if (
     outcome.value.detail.case === "initialBranch" ||

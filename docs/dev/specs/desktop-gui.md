@@ -287,6 +287,7 @@
 - Board movement, Done permission, paging, status, Resume, and Interrupt follow server-authoritative live execution facts. The desktop never infers blockers from stored Task state.
 - Submitting a Manual Move revalidates it. If the Task or Workflow changed while its dialog was open, the desktop uses the ordinary move error and provides no dedicated stale-preflight recovery flow.
 - Invalid and default-Node-only Workflows must be visible with their Tasks. Invalid Workflows permit Backlog creation, editing where allowed, and comments, but disable drag, Start, Resume, manual move, and Done. Existing executable Nodes created under an earlier valid definition must offer their server-provided Resume and Interrupt actions.
+- The board must show Workflow execution-validation issues in a collapsible notice. Those issues must not add a warning or confirmation step to Backlog Task creation.
 - A non-startable Backlog Task must be visible.
 - Dragging near a board or hovered-column edge scrolls that surface with increasing speed. Horizontal and vertical scrolling can run together. Horizontal takes priority if both cannot be reliable.
 

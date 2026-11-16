@@ -83,6 +83,7 @@ func (*TaskProjector) ProjectTaskFacts(input TaskFactsInput) TaskFacts {
 	return TaskFacts{
 		Status: input.Status.Status,
 		Actions: taskActions(
+			!input.Definition.executionValidation.HasBlockingErrors(),
 			done,
 			input.Status.Status,
 			input.CurrentNodes,
@@ -219,6 +220,7 @@ func currentNodesContainTerminal(nodes []workflow.CurrentNode, nodeKinds map[str
 }
 
 func taskActions(
+	executionReady bool,
 	done bool,
 	status *taskpb.TaskStatus,
 	currentNodes []workflow.CurrentNode,
@@ -239,7 +241,7 @@ func taskActions(
 			})
 	})
 	actions := &taskpb.TaskActions{
-		CanStart:     !done && !hasLiveExecution && status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
+		CanStart:     executionReady && !done && !hasLiveExecution && status.Kind == taskpb.TaskStatusKind_TASK_STATUS_KIND_BACKLOG,
 		CanInterrupt: !done && hasInterruptibleExecution,
 		CanResume: !done &&
 			(hasResumableInterruptedNode || len(concurrencyQueued) != 0 ||

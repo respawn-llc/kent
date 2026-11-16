@@ -1,22 +1,28 @@
 import { expect, it, vi } from "bun:test";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import * as Stream from "effect/Stream";
 import { QueryClient } from "@tanstack/react-query";
-import type { BoardColumn, SelectedWorkflowBoard } from "@/api";
+import {
+  ValidationErrorCode,
+  type BoardColumn,
+  type SelectedWorkflowBoard,
+  type WorkflowPickerItem,
+} from "@/api";
 import { ChatPromptPresenceProvider, queryKeys } from "@/app-facade";
 import { appI18n } from "@/i18n";
 import { TestAppProviders, createTestServices, startupRoutes } from "@/test-support/app-services";
 import { TestSidebar } from "@/test-support/sidebar-rendering";
 import { BoardRoute } from "./BoardRoute";
 
-function workflow(id: string, name = id) {
+function workflow(id: string, name = id): WorkflowPickerItem {
   return {
     id,
     name,
     description: "",
     version: 1,
     isProjectDefault: true,
-    validForTaskCreation: true,
+    validForExecution: true,
     validationErrors: [],
   };
 }
@@ -94,6 +100,7 @@ function mountBoard(
   const view = render(renderRoute());
 
   return {
+    services,
     setResponse(next: SelectedWorkflowBoard) {
       response = next;
     },
@@ -134,6 +141,69 @@ it("lets a populated column be collapsed from its header", async () => {
         name: appI18n.t("board.expandColumn", { name: "Doing" }),
       }),
     ).toBeInTheDocument();
+  } finally {
+    harness.close();
+  }
+});
+
+it("creates a Backlog Task from a board with a non-ready Workflow", async () => {
+  const nonReadyWorkflow = {
+    ...workflow("workflow-1"),
+    validForExecution: false,
+    validationErrors: [
+      {
+        code: ValidationErrorCode.ASSIGNEE_SELECTION_INAPPLICABLE,
+        message: "fixture diagnostic",
+        workflowID: "workflow-1",
+        nodeID: null,
+        transitionGroupID: null,
+        edgeID: "edge-done",
+        details: {
+          fieldName: "role",
+          inputName: "role",
+          placeholder: ".Params.role",
+          providerEdgeID: null,
+          role: "coder",
+          requiredTool: null,
+        },
+        relatedIDs: [],
+        blocksContext: true,
+      },
+    ],
+  };
+  const harness = mountBoard(
+    selectedBoard(nonReadyWorkflow, [column("backlog", "Backlog", { isBacklog: true })]),
+  );
+  const createTask = vi.spyOn(harness.services.api, "createTask").mockResolvedValue({
+    id: "task-created",
+    shortID: "KNT-42",
+    title: "New task",
+    workflowID: "workflow-1",
+  });
+  vi.spyOn(harness.services.api, "listWorkspaces").mockResolvedValue({
+    projectID: "project-1",
+    offset: 0,
+    workspaces: [{ id: "workspace-1", name: "Main", rootPath: "/", isDefault: true }],
+    nextOffset: null,
+  });
+
+  try {
+    const user = userEvent.setup({ delay: null });
+    await user.click(await screen.findByRole("button", { name: appI18n.t("board.newTask") }));
+    const title = await screen.findByRole("textbox", { name: appI18n.t("task.name") });
+    await user.type(title, "Task from non-ready Workflow");
+    const submit = screen.getByRole("button", { name: appI18n.t("task.create") });
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectID: "project-1",
+          title: "Task from non-ready Workflow",
+          workflowID: "workflow-1",
+        }),
+      );
+    });
   } finally {
     harness.close();
   }

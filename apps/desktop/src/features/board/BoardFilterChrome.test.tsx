@@ -146,7 +146,7 @@ describe("BoardFilterChrome", () => {
           id: "workflow-1",
           isProjectDefault: true,
           name: "Main",
-          validForTaskCreation: true,
+          validForExecution: true,
           validationErrors: [],
           version: 1,
         }}

@@ -136,6 +136,7 @@ export {
   ContractError,
   ProtocolMismatchError,
   RpcError,
+  TaskExecutionError,
   executionTargetChoiceFailure,
   type ExecutionTargetChoiceFailure,
   WorkflowLabelError,

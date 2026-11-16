@@ -16,7 +16,7 @@ const workflow = {
   description: "",
   version: 1,
   isProjectDefault: true,
-  validForTaskCreation: true,
+  validForExecution: true,
   validationErrors: [],
 };
 const board: SelectedWorkflowBoard = {

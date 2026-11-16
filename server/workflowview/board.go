@@ -21,32 +21,27 @@ import (
 )
 
 type Board struct {
-	metadata     *metadata.Store
-	queries      *sqlitegen.Queries
-	definitions  *DefinitionProjection
-	roleResolver workflow.RoleResolver
-	projection   *TaskStatusProjection
+	metadata    *metadata.Store
+	queries     *sqlitegen.Queries
+	definitions *DefinitionProjection
+	projection  *TaskStatusProjection
 }
 
-func NewBoard(metadataStore *metadata.Store, definitions *DefinitionProjection, roleResolver workflow.RoleResolver, projection *TaskStatusProjection) (*Board, error) {
+func NewBoard(metadataStore *metadata.Store, definitions *DefinitionProjection, projection *TaskStatusProjection) (*Board, error) {
 	if metadataStore == nil || metadataStore.Queries() == nil {
 		return nil, errors.New("metadata store is required")
 	}
 	if definitions == nil {
 		return nil, errors.New("definition projection is required")
 	}
-	if roleResolver == nil {
-		return nil, errors.New("role resolver is required")
-	}
 	if projection == nil {
 		return nil, errors.New("task status projection is required")
 	}
 	return &Board{
-		metadata:     metadataStore,
-		queries:      metadataStore.Queries(),
-		definitions:  definitions,
-		roleResolver: roleResolver,
-		projection:   projection,
+		metadata:    metadataStore,
+		queries:     metadataStore.Queries(),
+		definitions: definitions,
+		projection:  projection,
 	}, nil
 }
 
@@ -333,8 +328,7 @@ func (b *Board) selectionInputs(ctx context.Context, projectID string) (map[runt
 		if !linked {
 			return nil, nil, fmt.Errorf("workflow selection invariant violated: active link missing for project_id=%q workflow_id=%q", projectID, workflowID)
 		}
-		validation := definitionExecutionValidation(snapshot.domain, b.roleResolver)
-		diagnostics, err := ValidationErrors(&workflowID, validation.Errors)
+		diagnostics, err := ValidationErrors(&workflowID, snapshot.executionValidation.Errors)
 		if err != nil {
 			return nil, nil, err
 		}
