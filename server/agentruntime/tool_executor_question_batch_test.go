@@ -160,10 +160,10 @@ func TestFiveSlowQuestionsEmitOneReminderOnlyWhenBatchResumes(t *testing.T) {
 	broker := tools.NewAskQuestionBroker()
 	pending := make(chan tools.AskQuestionRequest, 5)
 	finished := make(chan struct{}, 5)
-	releases := make(map[string]chan struct{}, 5)
+	releases := make(map[runtimeids.ToolCallID]chan struct{}, 5)
 	calls := make([]llm.ToolCall, 5)
 	for index := range calls {
-		id := fmt.Sprintf("ask-%d", index)
+		id := runtimeids.ToolCallID(fmt.Sprintf("ask-%d", index))
 		calls[index] = llm.ToolCall{ID: id, Name: string(toolspec.ToolAskQuestion), Input: json.RawMessage(`{"question":"Proceed?"}`)}
 		releases[id] = make(chan struct{})
 	}
