@@ -19,6 +19,15 @@ import (
 
 var testGraphEntityIDs sync.Map
 
+func testGraphEntityIDBlob(t *testing.T, id string) []byte {
+	t.Helper()
+	value, err := runtimeids.GraphEntityIDBlob(id)
+	if err != nil {
+		t.Fatalf("encode graph identity: %v", err)
+	}
+	return value
+}
+
 func testGraphEntityID(alias string) string {
 	if _, err := runtimeids.GraphEntityIDBlob(alias); err == nil {
 		return alias
@@ -552,7 +561,7 @@ func (f scriptExecutionFixture) requireLiveSummary(t *testing.T) {
 	}
 	// Intentional direct graph mutation: graph-edit policy is owned separately;
 	// these tests isolate the execution contract once the live graph has changed.
-	if _, err := f.store.db.ExecContext(f.ctx, `UPDATE workflow_edges SET parameters_json = ? WHERE id = ?`, parameters, "edge-done-"+f.workflowID.String()); err != nil {
+	if _, err := f.store.db.ExecContext(f.ctx, `UPDATE workflow_edges SET parameters_json = ? WHERE id = ?`, parameters, testGraphEntityIDBlob(t, testGraphEntityID("edge-done-"+f.workflowID.String()))); err != nil {
 		t.Fatalf("force live script output contract: %v", err)
 	}
 }

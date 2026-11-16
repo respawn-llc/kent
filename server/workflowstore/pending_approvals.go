@@ -75,7 +75,7 @@ type pendingApprovalContextSourceResolutionSnapshot struct {
 type pendingApprovalRecord struct {
 	ID                        string
 	SourceTaskID              string
-	SourceNodeID              string
+	SourceNodeID              []byte
 	SourceTransitionBranchKey sql.NullString
 	SourceSessionID           sql.NullString
 	WorkflowVersion           int64
@@ -115,7 +115,7 @@ func pendingApprovalRecordFromGetRow(row sqlitegen.TaskPendingApproval) pendingA
 func pendingApprovalRecordFromValues(
 	id string,
 	sourceTaskID string,
-	sourceNodeID string,
+	sourceNodeID []byte,
 	sourceTransitionBranchKey sql.NullString,
 	sourceSessionID sql.NullString,
 	workflowVersion int64,
@@ -343,6 +343,10 @@ func newPendingApprovalWithBranches(
 }
 
 func insertPendingApproval(ctx context.Context, q *sqlitegen.Queries, approval workflow.PendingApproval) error {
+	sourceNodeID, err := runtimeids.GraphEntityIDBlob(string(approval.Source.NodeID))
+	if err != nil {
+		return err
+	}
 	transitionSnapshotJSON, err := workflow.MarshalString(pendingApprovalTransitionSnapshot{
 		WorkflowID:        approval.Transition.Group.WorkflowID,
 		ID:                approval.Transition.Group.ID,
@@ -371,7 +375,7 @@ func insertPendingApproval(ctx context.Context, q *sqlitegen.Queries, approval w
 	if err := q.InsertTaskPendingApproval(ctx, sqlitegen.InsertTaskPendingApprovalParams{
 		ID:                        approval.ID.String(),
 		SourceTaskID:              string(approval.Source.TaskID),
-		SourceNodeID:              string(approval.Source.NodeID),
+		SourceNodeID:              sourceNodeID,
 		SourceTransitionBranchKey: sourceBranchKey,
 		SourceSessionID:           sourceSessionID,
 		WorkflowVersion:           approval.WorkflowVersion,
@@ -436,7 +440,11 @@ func pendingApprovalFromRow(ctx context.Context, q *sqlitegen.Queries, row pendi
 		value := workflow.TransitionBranchKey(row.SourceTransitionBranchKey.String)
 		sourceBranchKey = &value
 	}
-	source, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.SourceTaskID), workflow.NodeID(row.SourceNodeID), sourceBranchKey)
+	sourceNodeID, err := runtimeids.GraphEntityIDText(row.SourceNodeID)
+	if err != nil {
+		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval source node: %w", err)
+	}
+	source, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.SourceTaskID), workflow.NodeID(sourceNodeID), sourceBranchKey)
 	if err != nil {
 		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval source: %w", err)
 	}
@@ -856,13 +864,17 @@ func currentNodePendingApprovalID(ctx context.Context, q *sqlitegen.Queries, ref
 	if err := reference.Validate(); err != nil {
 		return "", false, err
 	}
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
+	if err != nil {
+		return "", false, err
+	}
 	branchKey := sql.NullString{}
 	if value, present := reference.TransitionBranchKey(); present {
 		branchKey = sql.NullString{String: string(value), Valid: true}
 	}
 	pending, err := q.HasTaskPendingApprovalForCurrentNode(ctx, sqlitegen.HasTaskPendingApprovalForCurrentNodeParams{
 		TaskID:              string(reference.TaskID),
-		NodeID:              string(reference.NodeID),
+		NodeID:              nodeID,
 		TransitionBranchKey: branchKey,
 	})
 	if err != nil {

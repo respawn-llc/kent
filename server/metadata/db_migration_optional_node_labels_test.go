@@ -10,7 +10,6 @@ import (
 )
 
 func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
-	root := t.TempDir()
 	db, err := openDatabaseAtVersionForTest(t, 94)
 	if err != nil {
 		t.Fatal(err)
@@ -19,12 +18,13 @@ func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 	seedWorkflowGraph(t, db, "label-project", 1000)
 	seedWorkflowGraphForProject(t, db, "label-project", 1000, "2")
 	execSeed(t, db, "node groups", `INSERT INTO workflow_node_groups (id, workflow_id, group_key, display_name) VALUES ('label-group', ?, 'group', 'Group'), ('other-label-group', ?, 'other', 'Other')`, workflowTestID(t, "1"), workflowTestID(t, "2"))
-	execSeed(t, db, "populated node facts", `UPDATE workflow_nodes SET display_name = '  Existing label  ', group_id = 'label-group', sort_order = 7, join_input_providers_json = '["agent"]', completion_mode = 'tool' WHERE id = ?`, workflowGraphSeedID(t, db, "node-agent"))
+	execSeed(t, db, "populated node facts", `UPDATE workflow_nodes SET display_name = '  Existing label  ', group_id = 'label-group', sort_order = 7, join_input_providers_json = json_array(json_object('input_name', 'summary', 'provider_edge_id', ?)), completion_mode = 'tool' WHERE id = ?`, workflowGraphSeedID(t, db, "edge-start-1"), workflowGraphSeedID(t, db, "node-agent"))
 	execSeed(t, db, "script node", `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, script_path) VALUES ('label-script', ?, 'script', 'script', 'Script', 'scripts/run.sh')`, workflowTestID(t, "1"))
 	execSeed(t, db, "task", workflowSeedTaskSQL, "label-task", "link-1", 1, "Task", 1000, 1000)
 	insertTaskCurrentNode(t, db, "label-task", "node-agent", nil)
 	insertTaskPendingApproval(t, db, "label-approval", "label-task", "node-agent", nil, 1000)
-	execSeed(t, db, "pending branch", `INSERT INTO task_pending_approval_branches (approval_id, transition_branch_key, target_snapshot_json, effective_edge_configuration_json, context_source_resolution_json) VALUES ('label-approval', 'branch', json_object('node_id', ?, 'prior_values', json('{"transition_parameters":{}}')), '{}', '{}')`, workflowGraphSeedID(t, db, "node-done"))
+	execSeed(t, db, "transition snapshot", `UPDATE task_pending_approvals SET transition_snapshot_json = json_object('id', ?, 'source_node_id', ?) WHERE id = 'label-approval'`, workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-agent"))
+	execSeed(t, db, "pending branch", `INSERT INTO task_pending_approval_branches (approval_id, transition_branch_key, target_snapshot_json, effective_edge_configuration_json, context_source_resolution_json) VALUES ('label-approval', 'branch', json_object('node_id', ?, 'prior_values', json('{"transition_parameters":{}}')), json_object('id', ?, 'transition_group_id', ?, 'target_node_id', ?), '{}')`, workflowGraphSeedID(t, db, "node-done"), workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-done"))
 
 	// Capture persisted values, including nullable columns and raw label whitespace.
 	queries := []string{
@@ -43,38 +43,44 @@ func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 	for i, query := range queries {
 		before[i] = optionalNodeLabelMigrationRows(t, db, query)
 	}
-	store := migrateMetadataTestStore(t, root, db)
+	provider, err := newMetadataMigrationProvider(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(t.Context(), 95); err != nil {
+		t.Fatal(err)
+	}
 	for i, query := range queries {
-		if after := optionalNodeLabelMigrationRows(t, store.DB(), query); !reflect.DeepEqual(before[i], after) {
+		if after := optionalNodeLabelMigrationRows(t, db, query); !reflect.DeepEqual(before[i], after) {
 			t.Fatalf("migration changed persisted facts for %s: before=%v after=%v", query, before[i], after)
 		}
 	}
-	if violations := optionalNodeLabelMigrationRows(t, store.DB(), `PRAGMA foreign_key_check`); len(violations) != 0 {
+	if violations := optionalNodeLabelMigrationRows(t, db, `PRAGMA foreign_key_check`); len(violations) != 0 {
 		t.Fatalf("foreign-key violations: %v", violations)
 	}
-	execSeed(t, store.DB(), "empty label insert", `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('empty-node', ?, 'empty', 'agent', '')`, workflowTestID(t, "1"))
-	execSeed(t, store.DB(), "empty label update", `UPDATE workflow_nodes SET display_name = '' WHERE id = ?`, workflowGraphSeedID(t, store.DB(), "node-agent"))
+	execSeed(t, db, "empty label insert", `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('empty-node', ?, 'empty', 'agent', '')`, workflowTestID(t, "1"))
+	execSeed(t, db, "empty label update", `UPDATE workflow_nodes SET display_name = '' WHERE id = ?`, workflowGraphSeedID(t, db, "node-agent"))
 
 	t.Run("label bounds", func(t *testing.T) {
 		for _, label := range []string{"", "   ", strings.Repeat("界", 120), "  " + strings.Repeat("x", 120) + "  "} {
-			execSeed(t, store.DB(), "valid label", `UPDATE workflow_nodes SET display_name = ? WHERE id = 'empty-node'`, label)
+			execSeed(t, db, "valid label", `UPDATE workflow_nodes SET display_name = ? WHERE id = 'empty-node'`, label)
 		}
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('long-label', ?, 'long', 'agent', ?)`, workflowTestID(t, "1"), strings.Repeat("x", 121))
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_CHECK, `UPDATE workflow_nodes SET display_name = ? WHERE id = 'empty-node'`, strings.Repeat("界", 121))
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_NOTNULL, `UPDATE workflow_nodes SET display_name = NULL WHERE id = 'empty-node'`)
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('long-label', ?, 'long', 'agent', ?)`, workflowTestID(t, "1"), strings.Repeat("x", 121))
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_CHECK, `UPDATE workflow_nodes SET display_name = ? WHERE id = 'empty-node'`, strings.Repeat("界", 121))
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_NOTNULL, `UPDATE workflow_nodes SET display_name = NULL WHERE id = 'empty-node'`)
 	})
 	t.Run("retained node invariants", func(t *testing.T) {
-		agentID := workflowGraphSeedID(t, store.DB(), "node-agent")
-		terminalID := workflowGraphSeedID(t, store.DB(), "node-done")
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_UNIQUE, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('second-start', ?, 'second-start', 'start', '')`, workflowTestID(t, "1"))
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, group_id) VALUES ('wrong-group', ?, 'wrong-group', 'agent', '', 'other-label-group')`, workflowTestID(t, "1"))
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET group_id = 'other-label-group' WHERE id = ?`, agentID)
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET kind = 'join', completion_mode = '' WHERE id = ?`, agentID)
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET kind = 'join' WHERE id = ?`, terminalID)
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `DELETE FROM workflow_nodes WHERE id = ?`, agentID)
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `DELETE FROM workflow_nodes WHERE id = ?`, terminalID)
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_edges SET target_node_id = 'missing-node' WHERE id = ?`, workflowGraphSeedID(t, store.DB(), "edge-start-1"))
-		assertSQLiteConstraint(t, store.DB(), sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('missing-workflow', x'550e8400e29b41d4a716446655440009', 'missing', 'agent', '')`)
+		agentID := workflowGraphSeedID(t, db, "node-agent")
+		terminalID := workflowGraphSeedID(t, db, "node-done")
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_UNIQUE, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('second-start', ?, 'second-start', 'start', '')`, workflowTestID(t, "1"))
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, group_id) VALUES ('wrong-group', ?, 'wrong-group', 'agent', '', 'other-label-group')`, workflowTestID(t, "1"))
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET group_id = 'other-label-group' WHERE id = ?`, agentID)
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET kind = 'join', completion_mode = '' WHERE id = ?`, agentID)
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET kind = 'join' WHERE id = ?`, terminalID)
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `DELETE FROM workflow_nodes WHERE id = ?`, agentID)
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `DELETE FROM workflow_nodes WHERE id = ?`, terminalID)
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_edges SET target_node_id = 'missing-node' WHERE id = ?`, workflowGraphSeedID(t, db, "edge-start-1"))
+		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('missing-workflow', x'550e8400e29b41d4a716446655440009', 'missing', 'agent', '')`)
 	})
 }
 

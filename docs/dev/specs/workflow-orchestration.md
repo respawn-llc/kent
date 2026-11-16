@@ -144,6 +144,8 @@
 - Product surfaces and the CLI can create and edit Workflow definitions.
 - Workflow definitions may be saved, linked, and made project default while semantic validation fails.
 - A saved Workflow Draft must have valid identifiers, valid references, supported values, unique keys, and exactly one Start Node.
+- Workflow graph entity IDs and their relational references must use UUIDv4 values stored as 16-byte SQLite BLOBs. Graph mutations must reject malformed identity input before changing persisted state.
+- Upgrading text graph identities must preserve canonical UUIDv4 identities and consistently replace malformed nonblank, nonzero identities and their stored references with new UUIDv4 values.
 - Users can create Backlog Tasks for an invalid linked or default Workflow while they fix it.
 - Task Start, Resume, and automatic scheduling of executable work validate the Workflow in Project context and report all safe, actionable issues. The `ask_question` rule for an Assignee is checked when executable work starts.
 - A project can link multiple workflows and has one default workflow for task creation.

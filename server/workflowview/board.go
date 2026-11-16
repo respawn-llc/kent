@@ -107,7 +107,11 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 	if err != nil {
 		return nil, err
 	}
-	nodeID := strings.TrimSpace(req.NodeId)
+	nodeID := req.NodeId
+	nodeIDBlob, err := runtimeids.GraphEntityIDBlob(nodeID)
+	if err != nil {
+		return nil, err
+	}
 	project, err := projectWorkspaceFacts(ctx, b.queries, projectID)
 	if err != nil {
 		return nil, err
@@ -140,7 +144,7 @@ func (b *Board) ListNodeCards(ctx context.Context, req *taskpb.BoardNodeCardsLis
 	rows, err := b.queries.ListBoardNodeTasks(ctx, sqlitegen.ListBoardNodeTasksParams{
 		ProjectID:            projectID,
 		WorkflowID:           workflowID,
-		NodeID:               nodeID,
+		NodeID:               nodeIDBlob,
 		LabelFilterKind:      labelFilterArgs.kind,
 		LabelFilterMode:      labelFilterArgs.mode,
 		LabelIdsJson:         labelFilterArgs.labelIDsJSON,

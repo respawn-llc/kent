@@ -59,7 +59,8 @@ CREATE TABLE session_short_id_sequence (
 
 CREATE TABLE "session_workflow_node_associations" (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    node_id TEXT NOT NULL,
+    node_id BLOB NOT NULL
+        CHECK (typeof(node_id) = 'blob' AND length(node_id) = 16 AND node_id != zeroblob(16)),
     transition_branch_key TEXT
         CHECK (transition_branch_key IS NULL OR length(trim(transition_branch_key)) BETWEEN 1 AND 64),
     associated_at_unix_ms INTEGER NOT NULL CHECK (associated_at_unix_ms > 0)
@@ -130,7 +131,8 @@ CREATE TABLE "task_comments" (
 
 CREATE TABLE "task_current_nodes" (
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    node_id TEXT NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE RESTRICT,
+    node_id BLOB NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE RESTRICT
+        CHECK (typeof(node_id) = 'blob' AND length(node_id) = 16 AND node_id != zeroblob(16)),
     transition_branch_key TEXT
         CHECK (transition_branch_key IS NULL OR length(trim(transition_branch_key)) BETWEEN 1 AND 64),
     current_input_values_json TEXT NOT NULL DEFAULT '{}'
@@ -149,7 +151,8 @@ CREATE TABLE "task_current_nodes" (
         ),
     interrupted_at_unix_ms INTEGER
         CHECK (interrupted_at_unix_ms IS NULL OR interrupted_at_unix_ms > 0),
-    entered_by_edge_id TEXT,
+    entered_by_edge_id BLOB
+        CHECK (entered_by_edge_id IS NULL OR (typeof(entered_by_edge_id) = 'blob' AND length(entered_by_edge_id) = 16 AND entered_by_edge_id != zeroblob(16))),
     effective_assignee TEXT
         CHECK (effective_assignee IS NULL OR length(trim(effective_assignee)) > 0),
     effective_thinking TEXT
@@ -206,7 +209,8 @@ CREATE TABLE "task_pending_approval_branches" (
 CREATE TABLE "task_pending_approvals" (
     id TEXT PRIMARY KEY,
     source_task_id TEXT NOT NULL,
-    source_node_id TEXT NOT NULL,
+    source_node_id BLOB NOT NULL
+        CHECK (typeof(source_node_id) = 'blob' AND length(source_node_id) = 16 AND source_node_id != zeroblob(16)),
     source_transition_branch_key TEXT
         CHECK (source_transition_branch_key IS NULL OR length(trim(source_transition_branch_key)) BETWEEN 1 AND 64),
     source_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
@@ -307,10 +311,13 @@ CREATE TABLE "tasks" (
 );
 
 CREATE TABLE "workflow_edges" (
-    id TEXT PRIMARY KEY,
-    transition_group_id TEXT NOT NULL REFERENCES "workflow_transition_groups"(id) ON DELETE CASCADE,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
+    transition_group_id BLOB NOT NULL REFERENCES "workflow_transition_groups"(id) ON DELETE CASCADE
+        CHECK (typeof(transition_group_id) = 'blob' AND length(transition_group_id) = 16 AND transition_group_id != zeroblob(16)),
     edge_key TEXT NOT NULL CHECK (length(edge_key) BETWEEN 1 AND 64),
-    target_node_id TEXT NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE,
+    target_node_id BLOB NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE
+        CHECK (typeof(target_node_id) = 'blob' AND length(target_node_id) = 16 AND target_node_id != zeroblob(16)),
     requires_approval INTEGER NOT NULL DEFAULT 0 CHECK (requires_approval IN (0, 1)),
     context_mode TEXT NOT NULL CHECK (context_mode IN ('new_session', 'continue_session', 'compact_and_continue_session')),
     input_bindings_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_bindings_json)),
@@ -337,7 +344,8 @@ CREATE TABLE "workflow_edges" (
 );
 
 CREATE TABLE "workflow_node_groups" (
-    id TEXT PRIMARY KEY,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
     workflow_id BLOB NOT NULL REFERENCES workflows(id) ON DELETE CASCADE
         CHECK (typeof(workflow_id) = 'blob' AND length(workflow_id) = 16),
     group_key TEXT NOT NULL CHECK (length(group_key) BETWEEN 1 AND 64),
@@ -348,14 +356,16 @@ CREATE TABLE "workflow_node_groups" (
 );
 
 CREATE TABLE "workflow_nodes" (
-    id TEXT PRIMARY KEY,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
     workflow_id BLOB NOT NULL REFERENCES workflows(id) ON DELETE CASCADE
         CHECK (typeof(workflow_id) = 'blob' AND length(workflow_id) = 16),
     node_key TEXT NOT NULL CHECK (length(node_key) BETWEEN 1 AND 64),
     kind TEXT NOT NULL CHECK (kind IN ('start', 'agent', 'script', 'join', 'terminal')),
     display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 0 AND 120),
     subagent_role TEXT NOT NULL DEFAULT '',
-    group_id TEXT REFERENCES "workflow_node_groups"(id) ON DELETE SET NULL,
+    group_id BLOB REFERENCES "workflow_node_groups"(id) ON DELETE SET NULL
+        CHECK (group_id IS NULL OR (typeof(group_id) = 'blob' AND length(group_id) = 16 AND group_id != zeroblob(16))),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
     join_input_providers_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(join_input_providers_json)),
     completion_mode TEXT NOT NULL DEFAULT ''
@@ -371,8 +381,10 @@ CREATE TABLE "workflow_nodes" (
 );
 
 CREATE TABLE "workflow_transition_groups" (
-    id TEXT PRIMARY KEY,
-    source_node_id TEXT NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
+    source_node_id BLOB NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE
+        CHECK (typeof(source_node_id) = 'blob' AND length(source_node_id) = 16 AND source_node_id != zeroblob(16)),
     transition_id TEXT NOT NULL CHECK (length(transition_id) BETWEEN 1 AND 64),
     display_name TEXT NOT NULL DEFAULT '' CHECK (length(display_name) <= 120),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
@@ -547,7 +559,7 @@ SELECT
         ELSE 8
     END AS primary_status_rank,
     COALESCE((
-        SELECT json_group_array(node_id)
+        SELECT json_group_array(kent_graph_entity_id_text_v1(node_id))
         FROM (
             SELECT position.node_id
             FROM current_positions position
@@ -1458,7 +1470,7 @@ WHEN EXISTS (
     WHERE approval.source_node_id = OLD.id
 ) OR EXISTS (
     SELECT 1 FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = OLD.id
+    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(OLD.id)
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node has current task references');
@@ -1505,7 +1517,7 @@ AND (
     )
     OR EXISTS (
         SELECT 1 FROM task_pending_approval_branches branch
-        WHERE json_extract(branch.target_snapshot_json, '$.node_id') = OLD.id
+        WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(OLD.id)
     )
 )
 BEGIN

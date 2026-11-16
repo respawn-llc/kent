@@ -55,7 +55,7 @@ func TestDeleteSessionUsesCurrentRetentionAuthorityAndPreservesHistory(t *testin
 					t.Context(),
 					sqlitegen.GetLatestSerialTaskSessionAssociationForNodeParams{
 						TaskID: sql.NullString{String: "task-1", Valid: true},
-						NodeID: workflowGraphSeedID(t, fixture.store.db, "node-agent").(string),
+						NodeID: workflowGraphSeedID(t, fixture.store.db, "node-agent").([]byte),
 					},
 				)
 				if !errors.Is(err, sql.ErrNoRows) {

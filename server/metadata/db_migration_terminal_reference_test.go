@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
@@ -40,24 +39,33 @@ VALUES (?, ?, ?, '{"result":"kept"}', '{"transition_parameters":{"done":{"result
 VALUES ('comment-terminal', 'task-done', 'retained comment', 'user', 'operator', ?, ?)`, now, now)
 	execSeed(t, db, "pending approval", `INSERT INTO task_pending_approvals
 (id, source_task_id, source_node_id, workflow_version, transition_snapshot_json, materialized_values_json, created_at_unix_ms)
-VALUES ('approval-terminal', 'task-active', ?, 1, '{}', '{}', ?)`,
-		workflowGraphSeedID(t, db, "node-agent"), now)
+VALUES ('approval-terminal', 'task-active', ?, 1, json_object('id', ?, 'source_node_id', ?), '{}', ?)`,
+		workflowGraphSeedID(t, db, "node-agent"), workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-agent"), now)
 	execSeed(t, db, "pending terminal target", `INSERT INTO task_pending_approval_branches
 (approval_id, transition_branch_key, target_snapshot_json, effective_edge_configuration_json, context_source_resolution_json)
 VALUES ('approval-terminal', 'done', json_object('entered_by_edge_id', ?, 'node_id', ?,
-'prior_values', json('{"transition_parameters":{}}')), '{}', '{}')`,
-		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "node-done"))
+'prior_values', json('{"transition_parameters":{}}')), json_object('id', ?, 'transition_group_id', ?, 'target_node_id', ?), '{}')`,
+		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "node-done"),
+		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-done"))
 	var pendingBefore string
-	if err := db.QueryRow(`SELECT target_snapshot_json FROM task_pending_approval_branches`).Scan(&pendingBefore); err != nil {
+	const pendingContentQuery = `SELECT json_remove(target_snapshot_json, '$.node_id', '$.entered_by_edge_id') FROM task_pending_approval_branches`
+	if err := db.QueryRow(pendingContentQuery).Scan(&pendingBefore); err != nil {
 		t.Fatal(err)
 	}
 	store := migrateMetadataTestStore(t, root, db)
 	var pendingAfter string
-	if err := store.db.QueryRow(`SELECT target_snapshot_json FROM task_pending_approval_branches`).Scan(&pendingAfter); err != nil {
+	if err := store.db.QueryRow(pendingContentQuery).Scan(&pendingAfter); err != nil {
 		t.Fatal(err)
 	}
 	if pendingAfter != pendingBefore {
 		t.Fatalf("pending target changed: %s -> %s", pendingBefore, pendingAfter)
+	}
+	var pendingNodeID, pendingEdgeID string
+	if err := store.db.QueryRow(`SELECT json_extract(target_snapshot_json, '$.node_id'), json_extract(target_snapshot_json, '$.entered_by_edge_id') FROM task_pending_approval_branches`).Scan(&pendingNodeID, &pendingEdgeID); err != nil {
+		t.Fatal(err)
+	}
+	if pendingNodeID != workflowGraphSeedIDText(t, store.db, "node-done") || pendingEdgeID != workflowGraphSeedIDText(t, store.db, "edge-done-1") {
+		t.Fatal("pending target lost its Node or incoming Branch reference")
 	}
 	var title, body, comment, sessionOwner string
 	if err := store.db.QueryRow(`SELECT title, body FROM tasks WHERE id = 'task-done'`).Scan(&title, &body); err != nil {
@@ -74,13 +82,13 @@ JOIN session_workflow_node_associations ON session_id = sessions.id WHERE sessio
 		t.Fatalf("completed content changed: %q %q %q %q", title, body, comment, sessionOwner)
 	}
 	for _, task := range []string{"task-done", "task-active"} {
-		var edge sql.NullString
+		var edge []byte
 		var input, prior string
 		if err := store.db.QueryRow(`SELECT entered_by_edge_id, current_input_values_json, prior_node_values_json
 FROM task_current_nodes WHERE task_id = ?`, task).Scan(&edge, &input, &prior); err != nil {
 			t.Fatal(err)
 		}
-		if edge.Valid != (task == "task-active") {
+		if (edge != nil) != (task == "task-active") {
 			t.Fatalf("%s incoming reference = %v", task, edge)
 		}
 		if input != `{"result":"kept"}` || prior != `{"transition_parameters":{"done":{"result":"kept"}}}` {
@@ -90,7 +98,10 @@ FROM task_current_nodes WHERE task_id = ?`, task).Scan(&edge, &input, &prior); e
 	queries := sqlitegen.New(store.db)
 	// The shared Branch remains protected by the frozen Approval, not the
 	// completed Task. Once it is resolved, both graph-edit guards see no reference.
-	edgeID := workflowGraphSeedID(t, store.db, "edge-done-1").(string)
+	var edgeID []byte
+	if err := store.db.QueryRow(`SELECT id FROM workflow_edges WHERE edge_key = 'done'`).Scan(&edgeID); err != nil {
+		t.Fatal(err)
+	}
 	if count, err := queries.CountTaskEdgeReferences(t.Context(), edgeID); err != nil || count != 1 {
 		t.Fatalf("pending removal references = %d: %v", count, err)
 	}

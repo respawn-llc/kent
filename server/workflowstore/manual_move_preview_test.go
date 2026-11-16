@@ -33,7 +33,7 @@ SET
     session_id = ?
 WHERE task_id = ?
   AND transition_branch_key IS NULL`,
-		string(nodeID),
+		testGraphEntityIDBlob(t, string(nodeID)),
 		persistedSessionID,
 		string(template.Reference.TaskID),
 	); err != nil {
@@ -947,7 +947,7 @@ UPDATE task_current_nodes
 SET entered_by_edge_id = ?
 WHERE task_id = ?
   AND transition_branch_key IS NULL`,
-		string(edgeByKey(t, definition, "audit").ID),
+		testGraphEntityIDBlob(t, string(edgeByKey(t, definition, "audit").ID)),
 		string(task.ID),
 	); err != nil {
 		t.Fatalf("set unbound Audit entering Edge: %v", err)
@@ -1153,7 +1153,7 @@ UPDATE task_current_nodes
 SET entered_by_edge_id = ?
 WHERE task_id = ?
   AND transition_branch_key IS NULL`,
-		string(edgeByKey(t, definition, "audit").ID),
+		testGraphEntityIDBlob(t, string(edgeByKey(t, definition, "audit").ID)),
 		string(task.ID),
 	); err != nil {
 		t.Fatalf("set unbound Audit entering Edge: %v", err)
@@ -1163,7 +1163,7 @@ DELETE FROM session_workflow_node_associations
 WHERE session_id = ?
   AND node_id = ?`,
 		retainedReviewSessionID.String(),
-		string(workflow.NodeIDOf(audit)),
+		testGraphEntityIDBlob(t, string(workflow.NodeIDOf(audit))),
 	); err != nil {
 		t.Fatalf("remove Audit current association: %v", err)
 	}
@@ -1231,7 +1231,7 @@ UPDATE task_current_nodes
 SET entered_by_edge_id = ?
 WHERE task_id = ?
   AND transition_branch_key IS NULL`,
-		string(edgeByKey(t, definition, "audit").ID),
+		testGraphEntityIDBlob(t, string(edgeByKey(t, definition, "audit").ID)),
 		string(task.ID),
 	); err != nil {
 		t.Fatalf("set unbound Audit entering Edge: %v", err)

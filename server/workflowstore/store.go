@@ -386,8 +386,14 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	name := strings.TrimSpace(req.Name)
 	description := strings.TrimSpace(req.Description)
 	workflowID := runtimeids.NewWorkflowID()
-	startID := runtimeids.NewGraphEntityID()
-	doneID := runtimeids.NewGraphEntityID()
+	startID, err := runtimeids.GraphEntityIDBlob(runtimeids.NewGraphEntityID())
+	if err != nil {
+		return WorkflowRecord{}, err
+	}
+	doneID, err := runtimeids.GraphEntityIDBlob(runtimeids.NewGraphEntityID())
+	if err != nil {
+		return WorkflowRecord{}, err
+	}
 	policy := workflow.DefaultExecutionTargetPolicy()
 	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{
 		ID:                    workflowID,

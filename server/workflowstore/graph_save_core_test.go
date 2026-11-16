@@ -2,7 +2,6 @@ package workflowstore
 
 import (
 	"context"
-	"database/sql"
 	"reflect"
 	"slices"
 	"sync"
@@ -321,15 +320,15 @@ WHERE approval_id = ?`,
 	}
 	assertNoEdgeReferences := func(label string) {
 		t.Helper()
-		if count, err := store.queries.CountTaskEdgeReferences(ctx, string(approvalEdge.ID)); err != nil || count != 0 {
+		if count, err := store.queries.CountTaskEdgeReferences(ctx, testGraphEntityIDBlob(t, string(approvalEdge.ID))); err != nil || count != 0 {
 			t.Fatalf("%s CountTaskEdgeReferences = %d, %v; want 0, nil", label, count, err)
 		}
-		if count, err := store.queries.CountAllTaskEdgeReferences(ctx, string(approvalEdge.ID)); err != nil || count != 0 {
+		if count, err := store.queries.CountAllTaskEdgeReferences(ctx, testGraphEntityIDBlob(t, string(approvalEdge.ID))); err != nil || count != 0 {
 			t.Fatalf("%s CountAllTaskEdgeReferences = %d, %v; want 0, nil", label, count, err)
 		}
 		policyImpact, err := store.queries.GetWorkflowEdgeParameterEditPolicyImpact(ctx, sqlitegen.GetWorkflowEdgeParameterEditPolicyImpactParams{
 			WorkflowID: workflowID,
-			EdgeID:     sql.NullString{String: string(approvalEdge.ID), Valid: true},
+			EdgeID:     testGraphEntityIDBlob(t, string(approvalEdge.ID)),
 		})
 		if err != nil {
 			t.Fatalf("%s GetWorkflowEdgeParameterEditPolicyImpact: %v", label, err)

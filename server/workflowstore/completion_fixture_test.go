@@ -61,7 +61,7 @@ func materializeSessionArtifactsForStoreTest(t *testing.T, ctx context.Context, 
 
 func removeRetainedSessionHistoryForTest(t *testing.T, ctx context.Context, store *Store, reference workflow.CurrentNodeReference) {
 	t.Helper()
-	if _, err := store.db.ExecContext(ctx, `DELETE FROM session_workflow_node_associations WHERE node_id = ? AND session_id IN (SELECT id FROM sessions WHERE task_id = ?)`, string(reference.NodeID), string(reference.TaskID)); err != nil {
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM session_workflow_node_associations WHERE node_id = ? AND session_id IN (SELECT id FROM sessions WHERE task_id = ?)`, testGraphEntityIDBlob(t, string(reference.NodeID)), string(reference.TaskID)); err != nil {
 		t.Fatal(err)
 	}
 }

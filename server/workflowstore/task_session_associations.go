@@ -68,17 +68,21 @@ func bindSessionToTask(ctx context.Context, q *sqlitegen.Queries, req TaskSessio
 }
 
 func upsertTaskSessionAssociation(ctx context.Context, q *sqlitegen.Queries, req TaskSessionAssociationRequest) error {
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(req.CurrentNode.NodeID))
+	if err != nil {
+		return err
+	}
 	if branchKey, branchScoped := req.CurrentNode.TransitionBranchKey(); branchScoped {
 		return q.UpsertBranchSessionWorkflowNodeAssociation(ctx, sqlitegen.UpsertBranchSessionWorkflowNodeAssociationParams{
 			SessionID:           req.SessionID.String(),
-			NodeID:              string(req.CurrentNode.NodeID),
+			NodeID:              nodeID,
 			TransitionBranchKey: sql.NullString{String: string(branchKey), Valid: true},
 			AssociatedAtUnixMs:  req.AssociatedAt.UnixMilli(),
 		})
 	}
 	return q.UpsertSerialSessionWorkflowNodeAssociation(ctx, sqlitegen.UpsertSerialSessionWorkflowNodeAssociationParams{
 		SessionID:          req.SessionID.String(),
-		NodeID:             string(req.CurrentNode.NodeID),
+		NodeID:             nodeID,
 		AssociatedAtUnixMs: req.AssociatedAt.UnixMilli(),
 	})
 }
@@ -579,12 +583,16 @@ func latestTaskSessionForNode(ctx context.Context, q *sqlitegen.Queries, current
 	if err := currentNode.Validate(); err != nil {
 		return TaskSessionAssociation{}, err
 	}
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(currentNode.NodeID))
+	if err != nil {
+		return TaskSessionAssociation{}, err
+	}
 	var sessionIDRaw string
 	var associatedAtUnixMs int64
 	if branchKey, branchScoped := currentNode.TransitionBranchKey(); branchScoped {
 		row, err := q.GetLatestBranchTaskSessionAssociationForNode(ctx, sqlitegen.GetLatestBranchTaskSessionAssociationForNodeParams{
 			TaskID:              sql.NullString{String: string(currentNode.TaskID), Valid: true},
-			NodeID:              string(currentNode.NodeID),
+			NodeID:              nodeID,
 			TransitionBranchKey: sql.NullString{String: string(branchKey), Valid: true},
 		})
 		if err != nil {
@@ -595,7 +603,7 @@ func latestTaskSessionForNode(ctx context.Context, q *sqlitegen.Queries, current
 	} else {
 		row, err := q.GetLatestSerialTaskSessionAssociationForNode(ctx, sqlitegen.GetLatestSerialTaskSessionAssociationForNodeParams{
 			TaskID: sql.NullString{String: string(currentNode.TaskID), Valid: true},
-			NodeID: string(currentNode.NodeID),
+			NodeID: nodeID,
 		})
 		if err != nil {
 			return TaskSessionAssociation{}, err

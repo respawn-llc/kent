@@ -46,7 +46,7 @@ WHERE task_id = ?1
 
 type AcquireCurrentNodeResumeWriteLockParams struct {
 	TaskID              string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey interface{}
 }
 
@@ -215,7 +215,7 @@ WHERE task_id = ?1
 
 type AdmitBranchCurrentNodeParams struct {
 	TaskID              string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey sql.NullString
 }
 
@@ -246,7 +246,7 @@ WHERE task_id = ?1
 
 type AdmitSerialCurrentNodeParams struct {
 	TaskID string
-	NodeID string
+	NodeID []byte
 }
 
 func (q *Queries) AdmitSerialCurrentNode(ctx context.Context, arg AdmitSerialCurrentNodeParams) (int64, error) {
@@ -369,7 +369,7 @@ WHERE task_id = ?2
 type BindSessionToBranchCurrentNodeParams struct {
 	SessionID                sql.NullString
 	TaskID                   string
-	NodeID                   string
+	NodeID                   []byte
 	TransitionBranchKey      sql.NullString
 	ExpectedCurrentSessionID sql.NullString
 }
@@ -409,7 +409,7 @@ WHERE task_id = ?2
 type BindSessionToSerialCurrentNodeParams struct {
 	SessionID                sql.NullString
 	TaskID                   string
-	NodeID                   string
+	NodeID                   []byte
 	ExpectedCurrentSessionID sql.NullString
 }
 
@@ -522,15 +522,15 @@ SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (
     SELECT current_node.task_id
     FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = CAST(?1 AS TEXT)
+    WHERE current_node.entered_by_edge_id = ?1
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = ?1
+    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(?1)
 )
 `
 
-func (q *Queries) CountAllTaskEdgeReferences(ctx context.Context, edgeID string) (int64, error) {
+func (q *Queries) CountAllTaskEdgeReferences(ctx context.Context, edgeID []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countAllTaskEdgeReferences, edgeID)
 	var ref_count int64
 	err := recordQueryError(ctx, row.Scan(&ref_count), countAllTaskEdgeReferences, 1)
@@ -551,11 +551,11 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = ?1
+    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(?1)
 )
 `
 
-func (q *Queries) CountCurrentTaskNodeAnchorReferences(ctx context.Context, nodeID string) (int64, error) {
+func (q *Queries) CountCurrentTaskNodeAnchorReferences(ctx context.Context, nodeID []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countCurrentTaskNodeAnchorReferences, nodeID)
 	var ref_count int64
 	err := recordQueryError(ctx, row.Scan(&ref_count), countCurrentTaskNodeAnchorReferences, 1)
@@ -926,15 +926,15 @@ SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
 FROM (
     SELECT current_node.task_id
     FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = CAST(?1 AS TEXT)
+    WHERE current_node.entered_by_edge_id = ?1
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = ?1
+    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(?1)
 )
 `
 
-func (q *Queries) CountTaskEdgeReferences(ctx context.Context, edgeID string) (int64, error) {
+func (q *Queries) CountTaskEdgeReferences(ctx context.Context, edgeID []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countTaskEdgeReferences, edgeID)
 	var ref_count int64
 	err := recordQueryError(ctx, row.Scan(&ref_count), countTaskEdgeReferences, 1)
@@ -963,11 +963,11 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = ?1
+    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(?1)
 )
 `
 
-func (q *Queries) CountTaskNodeReferences(ctx context.Context, nodeID string) (int64, error) {
+func (q *Queries) CountTaskNodeReferences(ctx context.Context, nodeID []byte) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countTaskNodeReferences, nodeID)
 	var ref_count int64
 	err := recordQueryError(ctx, row.Scan(&ref_count), countTaskNodeReferences, 1)
@@ -1177,7 +1177,7 @@ WHERE task_id = ?1
 
 type DeleteSerialTaskCurrentNodeParams struct {
 	TaskID string
-	NodeID string
+	NodeID []byte
 }
 
 func (q *Queries) DeleteSerialTaskCurrentNode(ctx context.Context, arg DeleteSerialTaskCurrentNodeParams) (int64, error) {
@@ -1271,7 +1271,7 @@ WHERE task_id = ?1
 
 type DeleteTaskCurrentNodeParams struct {
 	TaskID              string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey interface{}
 }
 
@@ -1414,7 +1414,7 @@ DELETE FROM workflow_edges
 WHERE id = ?1
 `
 
-func (q *Queries) DeleteWorkflowEdge(ctx context.Context, id string) (int64, error) {
+func (q *Queries) DeleteWorkflowEdge(ctx context.Context, id []byte) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteWorkflowEdge, id)
 	err = recordQueryError(ctx, err, deleteWorkflowEdge, 1)
 	if err != nil {
@@ -1428,7 +1428,7 @@ DELETE FROM workflow_nodes
 WHERE id = ?1
 `
 
-func (q *Queries) DeleteWorkflowNode(ctx context.Context, id string) (int64, error) {
+func (q *Queries) DeleteWorkflowNode(ctx context.Context, id []byte) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteWorkflowNode, id)
 	err = recordQueryError(ctx, err, deleteWorkflowNode, 1)
 	if err != nil {
@@ -1444,7 +1444,7 @@ WHERE id = ?1
 `
 
 type DeleteWorkflowNodeGroupParams struct {
-	ID         string
+	ID         []byte
 	WorkflowID runtimeids.WorkflowID
 }
 
@@ -1557,7 +1557,7 @@ DELETE FROM workflow_transition_groups
 WHERE id = ?1
 `
 
-func (q *Queries) DeleteWorkflowTransitionGroupByID(ctx context.Context, id string) (int64, error) {
+func (q *Queries) DeleteWorkflowTransitionGroupByID(ctx context.Context, id []byte) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteWorkflowTransitionGroupByID, id)
 	err = recordQueryError(ctx, err, deleteWorkflowTransitionGroupByID, 1)
 	if err != nil {
@@ -1778,7 +1778,7 @@ LIMIT 1
 
 type GetLatestBranchTaskSessionAssociationForNodeParams struct {
 	TaskID              sql.NullString
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey sql.NullString
 }
 
@@ -1811,12 +1811,12 @@ LIMIT 1
 
 type GetLatestSerialTaskSessionAssociationForNodeParams struct {
 	TaskID sql.NullString
-	NodeID string
+	NodeID []byte
 }
 
 type GetLatestSerialTaskSessionAssociationForNodeRow struct {
 	SessionID          string
-	NodeID             string
+	NodeID             []byte
 	AssociatedAtUnixMs int64
 }
 
@@ -2657,13 +2657,13 @@ SELECT
         JOIN task_records task ON task.id = approval.source_task_id
         JOIN task_pending_approval_branches branch ON branch.approval_id = approval.id
         WHERE task.workflow_id = ?1
-          AND json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = ?2
+          AND json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(?2)
     ) AS pending_approval_count
 `
 
 type GetWorkflowEdgeParameterEditPolicyImpactParams struct {
 	WorkflowID runtimeids.WorkflowID
-	EdgeID     sql.NullString
+	EdgeID     []byte
 }
 
 type GetWorkflowEdgeParameterEditPolicyImpactRow struct {
@@ -2730,7 +2730,7 @@ LIMIT 1
 `
 
 type GetWorkflowNodeRow struct {
-	ID                     string
+	ID                     []byte
 	WorkflowID             runtimeids.WorkflowID
 	NodeKey                string
 	Kind                   string
@@ -2739,11 +2739,11 @@ type GetWorkflowNodeRow struct {
 	CompletionMode         string
 	ScriptPath             sql.NullString
 	JoinInputProvidersJson string
-	GroupID                sql.NullString
+	GroupID                []byte
 	SortOrder              int64
 }
 
-func (q *Queries) GetWorkflowNode(ctx context.Context, id string) (GetWorkflowNodeRow, error) {
+func (q *Queries) GetWorkflowNode(ctx context.Context, id []byte) (GetWorkflowNodeRow, error) {
 	row := q.db.QueryRowContext(ctx, getWorkflowNode, id)
 	var i GetWorkflowNodeRow
 	err := recordQueryError(ctx, row.Scan(
@@ -2980,7 +2980,7 @@ SELECT EXISTS (
 
 type HasTaskPendingApprovalForCurrentNodeParams struct {
 	TaskID              string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey interface{}
 }
 
@@ -3340,9 +3340,9 @@ INSERT INTO task_current_nodes (
 
 type InsertTaskCurrentNodeParams struct {
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    sql.NullString
-	EnteredByEdgeID        sql.NullString
+	EnteredByEdgeID        []byte
 	CurrentInputValuesJson string
 	PriorNodeValuesJson    string
 	SessionID              sql.NullString
@@ -3437,7 +3437,7 @@ INSERT INTO task_pending_approvals (
 type InsertTaskPendingApprovalParams struct {
 	ID                        string
 	SourceTaskID              string
-	SourceNodeID              string
+	SourceNodeID              []byte
 	SourceTransitionBranchKey sql.NullString
 	SourceSessionID           sql.NullString
 	WorkflowVersion           int64
@@ -3578,7 +3578,7 @@ INSERT INTO workflow_nodes (
 `
 
 type InsertWorkflowNodeParams struct {
-	ID                     string
+	ID                     []byte
 	WorkflowID             runtimeids.WorkflowID
 	NodeKey                string
 	Kind                   string
@@ -3587,7 +3587,7 @@ type InsertWorkflowNodeParams struct {
 	CompletionMode         string
 	ScriptPath             sql.NullString
 	JoinInputProvidersJson string
-	GroupID                sql.NullString
+	GroupID                []byte
 	SortOrder              int64
 }
 
@@ -3672,7 +3672,7 @@ type InterruptBranchAdmittedCurrentNodeParams struct {
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    sql.NullString
 }
 
@@ -3710,7 +3710,7 @@ type InterruptBranchCurrentNodeParams struct {
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    sql.NullString
 }
 
@@ -3748,7 +3748,7 @@ type InterruptSerialAdmittedCurrentNodeParams struct {
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 }
 
 func (q *Queries) InterruptSerialAdmittedCurrentNode(ctx context.Context, arg InterruptSerialAdmittedCurrentNodeParams) (int64, error) {
@@ -3784,7 +3784,7 @@ type InterruptSerialCurrentNodeParams struct {
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 }
 
 func (q *Queries) InterruptSerialCurrentNode(ctx context.Context, arg InterruptSerialCurrentNodeParams) (int64, error) {
@@ -3896,7 +3896,7 @@ effective_current_nodes AS (
       AND t.workflow_id = ?7
 )
 SELECT
-    node_id,
+    CAST(kent_graph_entity_id_text_v1(node_id) AS TEXT) AS node_id,
     CAST(COUNT(DISTINCT task_id) AS INTEGER) AS task_count
 FROM effective_current_nodes
 JOIN label_filter_args
@@ -4213,7 +4213,7 @@ type ListBoardNodeTasksParams struct {
 	LabelIdsJson         interface{}
 	ExcludedLabelIdsJson interface{}
 	DependencyFilter     interface{}
-	NodeID               string
+	NodeID               []byte
 	SortField            string
 	SortDirection        string
 	OffsetRows           int64
@@ -5544,9 +5544,9 @@ ORDER BY
 
 type ListTaskCurrentNodesRow struct {
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    sql.NullString
-	EnteredByEdgeID        sql.NullString
+	EnteredByEdgeID        []byte
 	CurrentInputValuesJson string
 	PriorNodeValuesJson    string
 	SessionID              sql.NullString
@@ -5628,9 +5628,9 @@ ORDER BY
 
 type ListTaskCurrentNodesByTasksRow struct {
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    sql.NullString
-	EnteredByEdgeID        sql.NullString
+	EnteredByEdgeID        []byte
 	CurrentInputValuesJson string
 	PriorNodeValuesJson    string
 	SessionID              sql.NullString
@@ -6348,7 +6348,7 @@ WITH durable_attention (
         'interrupted' AS kind,
         CAST('interrupted:' || json_object(
             'task_id', current_node.task_id,
-            'node_id', current_node.node_id,
+            'node_id', kent_graph_entity_id_text_v1(current_node.node_id),
             'transition_branch_key', current_node.transition_branch_key
         ) AS TEXT) AS id,
         task.project_id,
@@ -6357,7 +6357,7 @@ WITH durable_attention (
         task.short_id,
         task.title,
         CAST(NULL AS TEXT) AS approval_id,
-        CAST(current_node.node_id AS TEXT) AS node_id,
+        CAST(kent_graph_entity_id_text_v1(current_node.node_id) AS TEXT) AS node_id,
         CAST(current_node.transition_branch_key AS TEXT) AS transition_branch_key,
         current_node.session_id,
         CAST(current_node.interruption_reason AS TEXT) AS interruption_reason,
@@ -6379,7 +6379,7 @@ WITH durable_attention (
               AND (
                   'interrupted:' || json_object(
                       'task_id', current_node.task_id,
-                      'node_id', current_node.node_id,
+                      'node_id', kent_graph_entity_id_text_v1(current_node.node_id),
                       'transition_branch_key', current_node.transition_branch_key
                   )
               ) < ?5
@@ -6513,11 +6513,11 @@ ORDER BY e.sort_order ASC, e.rowid ASC
 `
 
 type ListWorkflowEdgesRow struct {
-	ID                     string
+	ID                     []byte
 	WorkflowID             runtimeids.WorkflowID
-	TransitionGroupID      string
+	TransitionGroupID      []byte
 	EdgeKey                string
-	TargetNodeID           string
+	TargetNodeID           []byte
 	AssigneeSelection      string
 	ThinkingSelection      string
 	RequiresApproval       int64
@@ -6633,7 +6633,7 @@ ORDER BY sort_order ASC, rowid ASC
 `
 
 type ListWorkflowNodesRow struct {
-	ID                     string
+	ID                     []byte
 	WorkflowID             runtimeids.WorkflowID
 	NodeKey                string
 	Kind                   string
@@ -6642,7 +6642,7 @@ type ListWorkflowNodesRow struct {
 	CompletionMode         string
 	ScriptPath             sql.NullString
 	JoinInputProvidersJson string
-	GroupID                sql.NullString
+	GroupID                []byte
 	SortOrder              int64
 }
 
@@ -6999,7 +6999,7 @@ args AS (
 ),
 visible_columns AS (
     SELECT
-        CAST(json_extract(value, '$.node_id') AS TEXT) AS node_id,
+        kent_graph_entity_id_blob_v1(json_extract(value, '$.node_id')) AS node_id,
         CAST(json_extract(value, '$.node_key') AS TEXT) AS node_key,
         CAST(json_extract(value, '$.node_kind') AS TEXT) AS node_kind,
         CAST(json_extract(value, '$.status_order') AS INTEGER) AS column_rank
@@ -7744,9 +7744,9 @@ ORDER BY tg.sort_order ASC, tg.rowid ASC
 `
 
 type ListWorkflowTransitionGroupsRow struct {
-	ID           string
+	ID           []byte
 	WorkflowID   runtimeids.WorkflowID
-	SourceNodeID string
+	SourceNodeID []byte
 	TransitionID string
 	DisplayName  string
 	Description  string
@@ -8288,7 +8288,7 @@ type ReplaceUserInterruptionWithAssignmentFailureParams struct {
 	InterruptionDetailJson sql.NullString
 	InterruptedAtUnixMs    sql.NullInt64
 	TaskID                 string
-	NodeID                 string
+	NodeID                 []byte
 	TransitionBranchKey    interface{}
 }
 
@@ -8329,7 +8329,7 @@ WHERE task_id = ?1
 
 type ResumeBranchCurrentNodeParams struct {
 	TaskID              string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey sql.NullString
 }
 
@@ -8363,7 +8363,7 @@ WHERE task_id = ?1
 
 type ResumeSerialCurrentNodeParams struct {
 	TaskID string
-	NodeID string
+	NodeID []byte
 }
 
 func (q *Queries) ResumeSerialCurrentNode(ctx context.Context, arg ResumeSerialCurrentNodeParams) (int64, error) {
@@ -9118,7 +9118,7 @@ ON CONFLICT(session_id, node_id, transition_branch_key) WHERE transition_branch_
 
 type UpsertBranchSessionWorkflowNodeAssociationParams struct {
 	SessionID           string
-	NodeID              string
+	NodeID              []byte
 	TransitionBranchKey sql.NullString
 	AssociatedAtUnixMs  int64
 }
@@ -9194,7 +9194,7 @@ ON CONFLICT(session_id, node_id) WHERE transition_branch_key IS NULL DO UPDATE S
 
 type UpsertSerialSessionWorkflowNodeAssociationParams struct {
 	SessionID          string
-	NodeID             string
+	NodeID             []byte
 	AssociatedAtUnixMs int64
 }
 
@@ -9397,10 +9397,10 @@ WHERE EXISTS (
 `
 
 type UpsertWorkflowEdgeParams struct {
-	ID                     string
-	TransitionGroupID      string
+	ID                     []byte
+	TransitionGroupID      []byte
 	EdgeKey                string
-	TargetNodeID           string
+	TargetNodeID           []byte
 	AssigneeSelection      string
 	ThinkingSelection      string
 	RequiresApproval       int64
@@ -9471,7 +9471,7 @@ WHERE workflow_nodes.workflow_id = excluded.workflow_id
 `
 
 type UpsertWorkflowNodeParams struct {
-	ID                     string
+	ID                     []byte
 	WorkflowID             runtimeids.WorkflowID
 	NodeKey                string
 	Kind                   string
@@ -9480,7 +9480,7 @@ type UpsertWorkflowNodeParams struct {
 	CompletionMode         string
 	ScriptPath             sql.NullString
 	JoinInputProvidersJson string
-	GroupID                sql.NullString
+	GroupID                []byte
 	SortOrder              int64
 }
 
@@ -9523,7 +9523,7 @@ WHERE workflow_node_groups.workflow_id = excluded.workflow_id
 `
 
 type UpsertWorkflowNodeGroupParams struct {
-	ID          string
+	ID          []byte
 	WorkflowID  runtimeids.WorkflowID
 	GroupKey    string
 	DisplayName sql.NullString
@@ -9580,8 +9580,8 @@ WHERE EXISTS (
 `
 
 type UpsertWorkflowTransitionGroupParams struct {
-	ID           string
-	SourceNodeID string
+	ID           []byte
+	SourceNodeID []byte
 	TransitionID string
 	DisplayName  string
 	Description  string

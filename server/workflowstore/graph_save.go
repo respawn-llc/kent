@@ -179,6 +179,9 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 		plan.Blockers = workflowGraphSaveVersionChangedBlockers(current.Version)
 		return plan, nil
 	}
+	if err := validateWorkflowGraphSaveIdentities(req); err != nil {
+		return WorkflowGraphSavePlan{}, err
+	}
 	currentPolicy := workflow.ExecutionTargetPolicy{
 		Mode:      workflow.ExecutionTargetMode(current.ExecutionTargetPolicy),
 		CustomRef: workflowCustomRefFromRow(current.ExecutionTargetCustomRef),
@@ -807,28 +810,44 @@ func applyWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, workflowI
 		return err
 	}
 	for _, edgeID := range removed.edges {
-		if deleted, err := q.DeleteWorkflowEdge(ctx, string(edgeID)); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(edgeID))
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowEdge(ctx, id); err != nil {
 			return fmt.Errorf("delete removed workflow edge: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
 		}
 	}
 	for _, groupID := range removed.transitionGroups {
-		if deleted, err := q.DeleteWorkflowTransitionGroupByID(ctx, string(groupID)); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(groupID))
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowTransitionGroupByID(ctx, id); err != nil {
 			return fmt.Errorf("delete removed workflow transition group: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
 		}
 	}
 	for _, nodeID := range removed.nodes {
-		if deleted, err := q.DeleteWorkflowNode(ctx, string(nodeID)); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(nodeID))
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowNode(ctx, id); err != nil {
 			return fmt.Errorf("delete removed workflow node: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
 		}
 	}
 	for _, groupID := range removed.nodeGroups {
-		if deleted, err := q.DeleteWorkflowNodeGroup(ctx, sqlitegen.DeleteWorkflowNodeGroupParams{ID: groupID, WorkflowID: workflowID}); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(groupID)
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowNodeGroup(ctx, sqlitegen.DeleteWorkflowNodeGroupParams{ID: id, WorkflowID: workflowID}); err != nil {
 			return fmt.Errorf("delete removed workflow node group: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
@@ -893,8 +912,12 @@ func normalizeNodeGroupName(name *string) *string {
 }
 
 func upsertWorkflowNodeGroup(ctx context.Context, q *sqlitegen.Queries, group NodeGroupRecord, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(group.ID)
+	if err != nil {
+		return err
+	}
 	updated, err := q.UpsertWorkflowNodeGroup(ctx, sqlitegen.UpsertWorkflowNodeGroupParams{
-		ID:          group.ID,
+		ID:          id,
 		WorkflowID:  group.WorkflowID,
 		GroupKey:    string(group.Key),
 		DisplayName: metadata.NullableString(group.DisplayName),
@@ -904,6 +927,14 @@ func upsertWorkflowNodeGroup(ctx context.Context, q *sqlitegen.Queries, group No
 }
 
 func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeRecord, sortOrder int64, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(string(node.ID))
+	if err != nil {
+		return err
+	}
+	groupID, err := nullableGraphIdentityArgument(node.GroupID)
+	if err != nil {
+		return err
+	}
 	if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
 		return err
 	}
@@ -912,7 +943,7 @@ func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeReco
 		return err
 	}
 	updated, err := q.UpsertWorkflowNode(ctx, sqlitegen.UpsertWorkflowNodeParams{
-		ID:                     string(node.ID),
+		ID:                     id,
 		WorkflowID:             node.WorkflowID,
 		NodeKey:                string(node.Key),
 		Kind:                   string(node.Kind),
@@ -921,7 +952,7 @@ func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeReco
 		CompletionMode:         nodeCompletionMode(node),
 		ScriptPath:             nullableString(node.ScriptPath),
 		JoinInputProvidersJson: joinProviders,
-		GroupID:                metadata.NullableString(node.GroupID),
+		GroupID:                groupID,
 		SortOrder:              sortOrder,
 	})
 	if err != nil {
@@ -931,9 +962,17 @@ func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeReco
 }
 
 func upsertWorkflowTransitionGroup(ctx context.Context, q *sqlitegen.Queries, group TransitionGroupRecord, sortOrder int64, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(string(group.ID))
+	if err != nil {
+		return err
+	}
+	sourceNodeID, err := runtimeids.GraphEntityIDBlob(string(group.SourceNodeID))
+	if err != nil {
+		return err
+	}
 	updated, err := q.UpsertWorkflowTransitionGroup(ctx, sqlitegen.UpsertWorkflowTransitionGroupParams{
-		ID:           string(group.ID),
-		SourceNodeID: string(group.SourceNodeID),
+		ID:           id,
+		SourceNodeID: sourceNodeID,
 		TransitionID: strings.TrimSpace(string(group.TransitionID)),
 		DisplayName:  strings.TrimSpace(group.DisplayName),
 		Description:  strings.TrimSpace(group.Description),
@@ -944,6 +983,18 @@ func upsertWorkflowTransitionGroup(ctx context.Context, q *sqlitegen.Queries, gr
 }
 
 func upsertWorkflowEdge(ctx context.Context, q *sqlitegen.Queries, edge EdgeRecord, sortOrder int64, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(string(edge.ID))
+	if err != nil {
+		return err
+	}
+	groupID, err := runtimeids.GraphEntityIDBlob(string(edge.TransitionGroupID))
+	if err != nil {
+		return err
+	}
+	targetNodeID, err := runtimeids.GraphEntityIDBlob(string(edge.TargetNodeID))
+	if err != nil {
+		return err
+	}
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
 	canonicalParameters := make([]workflow.Parameter, 0, len(edge.Parameters))
 	for _, parameter := range edge.Parameters {
@@ -968,10 +1019,10 @@ func upsertWorkflowEdge(ctx context.Context, q *sqlitegen.Queries, edge EdgeReco
 	assigneeSelection := workflow.DefaultAssigneeSelection(edge.AssigneeSelection)
 	thinkingSelection := workflow.DefaultThinkingSelection(edge.ThinkingSelection)
 	updated, err := q.UpsertWorkflowEdge(ctx, sqlitegen.UpsertWorkflowEdgeParams{
-		ID:                     string(edge.ID),
-		TransitionGroupID:      string(edge.TransitionGroupID),
+		ID:                     id,
+		TransitionGroupID:      groupID,
 		EdgeKey:                string(edge.Key),
-		TargetNodeID:           string(edge.TargetNodeID),
+		TargetNodeID:           targetNodeID,
 		AssigneeSelection:      string(assigneeSelection),
 		ThinkingSelection:      string(thinkingSelection),
 		RequiresApproval:       requiresApproval,
