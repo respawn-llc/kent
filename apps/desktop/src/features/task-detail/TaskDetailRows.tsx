@@ -542,7 +542,7 @@ function SourceLine({
   if (trimmed.length === 0) {
     return null;
   }
-  const href = safeExternalUrl(trimmed);
+  const href = safeExternalUrl(trimmed) === undefined ? undefined : trimmed;
   if (href === undefined) {
     return <TaskPropertyLine label={label} value={trimmed} />;
   }

@@ -92,6 +92,7 @@ type GatewayProjectDependencies interface {
 	ProjectExists(context.Context, string) error
 	ProjectViewClient() apicontract.ProjectViewService
 	WorkflowClient() apicontract.WorkflowService
+	TaskImportClient() apicontract.TaskImportService
 }
 
 type GatewaySessionDependencies interface {

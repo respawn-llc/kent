@@ -105,7 +105,12 @@ const newTaskDestination = {
   workflowID: "workflow-1",
 } as const;
 const newTaskDraft = {
-  formValues: { body: "Parent body", sourceWorkspaceID: "workspace-1", title: "Parent" },
+  formValues: {
+    body: "Parent body",
+    sourceURL: "original ticket text",
+    sourceWorkspaceID: "workspace-1",
+    title: "Parent",
+  },
   preparedDependencies: [],
   selectedLabelIDs: ["label-1"],
 };

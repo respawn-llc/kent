@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package kent.api.task_import;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "kent/api/auth/auth.proto";
+import "kent/api/server/server.proto";
+import "kent/api/shared/foundation.proto";
+import "kent/api/shared/validation.proto";
+
+option go_package = "core/shared/protoapi/gen/kent/api/task_import;taskimportpb";
+
+enum ImportMode {
+  IMPORT_MODE_UNSPECIFIED = 0;
+  IMPORT_MODE_SKIP_EXISTING = 1;
+  IMPORT_MODE_FORCE_CREATE = 2;
+}
+
+message NumberRange {
+  int64 first = 1 [(buf.validate.field).int64.gt = 0];
+  int64 last = 2 [(buf.validate.field).int64.gt = 0];
+  option (buf.validate.message).cel = {
+    id: "kent.task_import.ascending_range"
+    message: "range end must not precede its start"
+    expression: "this.last >= this.first"
+  };
+}
+
+message Reference {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    string issue_url = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+    int64 number = 2 [(buf.validate.field).int64.gt = 0];
+    NumberRange range = 3;
+  }
+}
+
+message CredentialCandidates {
+  optional string environment_token = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string login_token = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string login_diagnostic = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+message Request {
+  repeated Reference references = 1 [(buf.validate.field).repeated.min_items = 1];
+  string cwd = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string project = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string workflow_id = 4 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  optional string source_workspace = 5 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string repository = 6 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  ImportMode mode = 7 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  bool create_labels = 8;
+  CredentialCandidates credentials = 9;
+}
+
+message Account {
+  string login = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+message TaskIdentity {
+  string task_id = 1 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string short_id = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  string project_id = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+}
+
+enum FailurePhase {
+  FAILURE_PHASE_UNSPECIFIED = 0;
+  FAILURE_PHASE_RESOLUTION = 1;
+  FAILURE_PHASE_CREDENTIALS = 2;
+  FAILURE_PHASE_ISSUE = 3;
+  FAILURE_PHASE_FIELDS = 4;
+  FAILURE_PHASE_LABELS = 5;
+  FAILURE_PHASE_CREATION = 6;
+  FAILURE_PHASE_COMMENTS = 7;
+}
+
+enum FailureCode {
+  FAILURE_CODE_UNSPECIFIED = 0;
+  FAILURE_CODE_INVALID_INPUT = 1;
+  FAILURE_CODE_AMBIGUOUS = 2;
+  FAILURE_CODE_UNAVAILABLE = 3;
+  FAILURE_CODE_AUTHENTICATION = 4;
+  FAILURE_CODE_RATE_LIMIT = 5;
+  FAILURE_CODE_INTERNAL = 6;
+  FAILURE_CODE_PULL_REQUEST = 7;
+}
+
+message Failure {
+  FailurePhase phase = 1 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  FailureCode code = 2 [(buf.validate.field).enum = {defined_only: true not_in: [0]}];
+  string diagnostic = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional int32 http_status = 4 [(buf.validate.field).int32 = {gte: 100 lte: 599}];
+}
+
+message Item {
+  Reference reference = 1 [(buf.validate.field).required = true];
+  optional string source_url = 2 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  optional string project_id = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  TaskIdentity task = 4;
+  repeated string warnings = 5;
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    google.protobuf.Empty created = 6;
+    google.protobuf.Empty skipped = 7;
+    Failure failed = 8;
+  }
+}
+
+message ProgressEvent {
+  oneof payload {
+    option (buf.validate.oneof).required = true;
+    Account account = 1;
+    Item item = 2;
+  }
+}
+
+message Success {
+  uint64 created = 1;
+  uint64 skipped = 2;
+  uint64 failed = 3;
+}
+
+message Error {
+  string code = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR_CODE
+  ];
+  oneof detail {
+    Failure import_failure = 2 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "import_failure"
+    }];
+    kent.api.shared.InternalFailureDetails internal_failure = 3 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "internal_failure"
+    }];
+    kent.api.auth.AuthRequiredDetails auth_required = 4 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "auth_required"
+    }];
+    kent.api.server.ServerNotReadyDetails server_not_ready = 5 [(kent.api.shared.kent_result_field) = {
+      role: RESULT_FIELD_ROLE_ERROR_DETAIL
+      error_code: "server_not_ready"
+    }];
+  }
+}
+
+message Result {
+  oneof outcome {
+    option (buf.validate.oneof).required = true;
+    Success success = 1 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_SUCCESS];
+    Error error = 2 [(kent.api.shared.kent_result_field).role = RESULT_FIELD_ROLE_ERROR];
+  }
+}
+
+service TaskImportService {
+  rpc Import(Request) returns (Result) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_PROGRESS
+      authentication_stage: AUTHENTICATION_STAGE_SERVER
+      scope_policy: SCOPE_POLICY_NONE
+      direction: DIRECTION_CLIENT_TO_SERVER
+      event: {package: "kent.api.task_import" service: "TaskImportService" method: "Progress"}
+    };
+  }
+  rpc Progress(ProgressEvent) returns (google.protobuf.Empty) {
+    option (kent.api.shared.kent_method) = {
+      kind: OPERATION_KIND_NOTIFICATION
+      authentication_stage: AUTHENTICATION_STAGE_NONE
+      scope_policy: SCOPE_POLICY_NOTIFICATION
+      direction: DIRECTION_SERVER_TO_CLIENT
+    };
+  }
+}

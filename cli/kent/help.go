@@ -213,6 +213,7 @@ var (
 	workflowValidateUsage   = leafCommandUsage(config.Command+" workflow validate <uuid> [--mode <mode>] [--json]", "Check whether a workflow is valid for draft editing, task creation, or execution.")
 	workflowInspectUsage    = leafCommandUsage(config.Command+" workflow inspect <uuid> [--summary] [--json]", "Inspect a workflow graph or metadata summary.")
 	taskUsage               = commandUsage{helpFile: "task.txt"}
+	taskImportUsage         = leafCommandUsage(config.Command+" task import [gh] <issue-url-or-reference>... [flags]", "Import GitHub issues as Tasks. Bare numbers and inclusive ranges require gh; existing sources are skipped unless --force is supplied.")
 	taskCreateUsage         = leafCommandUsage(config.Command+" task create --title <title> (--body <body>|--body-file <path>) [--workflow <uuid>] [flags]", "Create a task in a project.")
 	taskEditUsage           = leafCommandUsage(config.Command+" task edit <task> [flags]", "Change a task's title, body, or source workspace.")
 	taskStartUsage          = leafCommandUsage(config.Command+" task start <task> [--project <project>] [--execution-target none|head|default-branch|ref:<revision>] [--branch-name <name>] [--ignore-dependencies] [--json]", "Move a new task from the start node into its first executable workflow node.", "", "A workflow Session may start another Task, but not its own.")

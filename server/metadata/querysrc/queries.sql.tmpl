@@ -1081,6 +1081,13 @@ INSERT INTO tasks (
     sqlc.arg(metadata_json)
 );
 
+-- name: FindTaskByProjectSourceURL :one
+SELECT id, short_id, project_id
+FROM task_records
+WHERE project_id = sqlc.arg(project_id)
+  AND source_url = sqlc.arg(source_url) COLLATE NOCASE
+LIMIT 1;
+
 -- name: GetTask :one
 SELECT
     id,

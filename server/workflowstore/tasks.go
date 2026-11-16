@@ -152,7 +152,7 @@ func (s *Store) CreateTask(ctx context.Context, req CreateTaskRequest) (TaskReco
 	}
 	prepared := preparedTaskCreate{
 		projectID: projectID, workflowID: workflowID, title: strings.TrimSpace(req.Title),
-		body: strings.TrimSpace(req.Body), sourceURL: strings.TrimSpace(req.SourceURL),
+		body: req.Body, sourceURL: strings.TrimSpace(req.SourceURL),
 		sourceWorkspaceID: strings.TrimSpace(req.SourceWorkspaceID), taskID: prefixedID("task"),
 		labelIDs: labelIDs, dependencyIntents: dependencyIntents, nowUnixMs: s.now().UnixMilli(),
 	}

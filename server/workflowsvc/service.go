@@ -700,7 +700,7 @@ func (s *Service) CreateWorkflowTask(ctx context.Context, req *taskpb.CreateRequ
 	}
 	detail, err := s.readModels.TaskDetail.GetTask(ctx, string(task.ID))
 	if err != nil {
-		return nil, err
+		return nil, &serverapi.CommittedTaskCreationError{TaskID: string(task.ID), ShortID: task.ShortID, ProjectID: task.ProjectID, Cause: err}
 	}
 	return &taskpb.CreateSuccess{Task: detail.Summary}, nil
 }

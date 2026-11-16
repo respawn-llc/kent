@@ -16,6 +16,7 @@ type TaskMutationFields = Readonly<{
   projectID: string;
   title: string;
   body: string;
+  sourceURL?: string | undefined;
   sourceWorkspaceID: string;
   labelIDs: readonly string[];
   dependencyIntents: readonly TaskDependencyCreateIntent[];
