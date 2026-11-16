@@ -2180,6 +2180,7 @@ SELECT
     s.metadata_json,
     s.completed_compaction_count,
     s.manual_compact_eligible,
+    s.last_agent_activity_at_unix_ms,
     COALESCE(w.canonical_root_path, json_extract(s.metadata_json, '$.workspace_root'), '') AS workspace_root
 FROM sessions s
 LEFT JOIN workspaces w ON w.id = s.workspace_id
@@ -2188,27 +2189,28 @@ LIMIT 1
 `
 
 type GetSessionRecordByIDRow struct {
-	ID                       string
-	ShortID                  sql.NullInt64
-	ArtifactRelpath          string
-	Name                     sql.NullString
-	FirstPromptPreview       string
-	InputDraft               string
-	ProtectedInputDraft      sql.NullString
-	PreviousSessionID        sql.NullString
-	ParentAgentSessionID     sql.NullString
-	Category                 sql.NullString
-	CreatedAtUnixMs          int64
-	UpdatedAtUnixMs          int64
-	LastSequence             int64
-	ModelRequestCount        int64
-	ContinuationJson         string
-	LockedJson               string
-	UsageStateJson           string
-	MetadataJson             string
-	CompletedCompactionCount sql.NullInt64
-	ManualCompactEligible    sql.NullInt64
-	WorkspaceRoot            string
+	ID                        string
+	ShortID                   sql.NullInt64
+	ArtifactRelpath           string
+	Name                      sql.NullString
+	FirstPromptPreview        string
+	InputDraft                string
+	ProtectedInputDraft       sql.NullString
+	PreviousSessionID         sql.NullString
+	ParentAgentSessionID      sql.NullString
+	Category                  sql.NullString
+	CreatedAtUnixMs           int64
+	UpdatedAtUnixMs           int64
+	LastSequence              int64
+	ModelRequestCount         int64
+	ContinuationJson          string
+	LockedJson                string
+	UsageStateJson            string
+	MetadataJson              string
+	CompletedCompactionCount  sql.NullInt64
+	ManualCompactEligible     sql.NullInt64
+	LastAgentActivityAtUnixMs sql.NullInt64
+	WorkspaceRoot             string
 }
 
 func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (GetSessionRecordByIDRow, error) {
@@ -2235,6 +2237,7 @@ func (q *Queries) GetSessionRecordByID(ctx context.Context, sessionID string) (G
 		&i.MetadataJson,
 		&i.CompletedCompactionCount,
 		&i.ManualCompactEligible,
+		&i.LastAgentActivityAtUnixMs,
 		&i.WorkspaceRoot,
 	), getSessionRecordByID, 1)
 
@@ -8717,6 +8720,29 @@ func (q *Queries) TouchWorkflowDependencySurvivors(ctx context.Context, arg Touc
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateSessionAgentActivity = `-- name: UpdateSessionAgentActivity :one
+UPDATE sessions
+SET last_agent_activity_at_unix_ms = MAX(
+    COALESCE(last_agent_activity_at_unix_ms, CAST(?1 AS INTEGER)),
+    CAST(?1 AS INTEGER)
+)
+WHERE id = ?2
+RETURNING last_agent_activity_at_unix_ms
+`
+
+type UpdateSessionAgentActivityParams struct {
+	CompletedAtUnixMs int64
+	SessionID         string
+}
+
+func (q *Queries) UpdateSessionAgentActivity(ctx context.Context, arg UpdateSessionAgentActivityParams) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, updateSessionAgentActivity, arg.CompletedAtUnixMs, arg.SessionID)
+	var last_agent_activity_at_unix_ms sql.NullInt64
+	err := recordQueryError(ctx, row.Scan(&last_agent_activity_at_unix_ms), updateSessionAgentActivity, 2)
+
+	return last_agent_activity_at_unix_ms, err
 }
 
 const updateSessionContextFacts = `-- name: UpdateSessionContextFacts :execrows

@@ -48,6 +48,7 @@ const (
 	MessageTypeInterruption                   = clientui.MessageTypeInterruption
 	MessageTypeErrorFeedback                  = clientui.MessageTypeErrorFeedback
 	MessageTypeCompactionSoonReminder         = clientui.MessageTypeCompactionSoonReminder
+	MessageTypeIdleResumeReminder             = clientui.MessageTypeIdleResumeReminder
 	MessageTypeHandoffFutureMessage           = clientui.MessageTypeHandoffFutureMessage
 	MessageTypeReviewerFeedback               = clientui.MessageTypeReviewerFeedback
 	MessageTypeBackgroundNotice               = clientui.MessageTypeBackgroundNotice

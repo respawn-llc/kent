@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -48,6 +49,7 @@ func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
 	}()
 
 	<-started
+	canceledAt := time.Now()
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("execute tool calls error = %v, want context cancellation", err)
@@ -58,6 +60,9 @@ func TestExecuteToolCallsPropagatesContextCancellation(t *testing.T) {
 	}
 	if !bytes.Equal(completion.Output, json.RawMessage(`{"error":"canceled"}`)) {
 		t.Fatalf("completed cancellation output = %s, want handler's honest result", completion.Output)
+	}
+	if activity := store.ContextFacts().LastAgentActivityAt; activity == nil || activity.Before(canceledAt) {
+		t.Fatalf("completed cancellation outcome activity = %v, want completion time", activity)
 	}
 }
 

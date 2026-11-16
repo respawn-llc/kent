@@ -106,13 +106,27 @@ function noticeProse(
     expanded: structuredNoticeText(notice, t, true, formatPath),
     copyText: structuredNoticeText(notice, t, true, (path) => path),
     sourcePath: notice.SourcePath == null ? null : formatPath(notice.SourcePath),
-    compact:
-      notice.MessageType === "agent_steer"
-        ? t("chatTranscript.notice.agentSteer")
-        : notice.MessageType === "workspaces"
-          ? t("chatTranscript.notice.projectWorkspaces")
-          : structuredNoticeText(notice, t, false, formatPath),
+    compact: compactNoticeText(notice, t, formatPath),
   };
+}
+
+function compactNoticeText(
+  notice: TranscriptNotice,
+  t: Translate,
+  formatPath: (path: string) => string,
+): string {
+  switch (notice.MessageType) {
+    case "agent_steer":
+      return t("chatTranscript.notice.agentSteer");
+    case "workspaces":
+      return t("chatTranscript.notice.projectWorkspaces");
+    case "idle_resume_reminder":
+      return t("chatTranscript.notice.idleResumeReminder");
+    case undefined:
+    case null:
+    default:
+      return structuredNoticeText(notice, t, false, formatPath);
+  }
 }
 
 function structuredNoticeText(

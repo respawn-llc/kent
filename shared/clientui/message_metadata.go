@@ -20,6 +20,7 @@ const (
 	MessageTypeInterruption           MessageType = "interruption"
 	MessageTypeErrorFeedback          MessageType = "error_feedback"
 	MessageTypeCompactionSoonReminder MessageType = "compaction_soon_reminder"
+	MessageTypeIdleResumeReminder     MessageType = "idle_resume_reminder"
 	MessageTypeHandoffFutureMessage   MessageType = "handoff_future_message"
 	MessageTypeReviewerFeedback       MessageType = "reviewer_feedback"
 	MessageTypeBackgroundNotice       MessageType = "background_notice"

@@ -6,6 +6,7 @@ Area specs:
 
 - `speech-input.md`: Desktop speech capture, provider selection, final insertion, and recording recovery.
 - `core-runtime-tools.md`: product scope, sessions, authentication, configuration, tools, runtime control, and compaction.
+- `idle-resume-reminder.md`: idle timing, reminder eligibility, configuration, and conversation placement.
 - `provider-connections.md`: named provider access, connection selection, credentials, Session binding, terminal login, and configuration cutover.
 - `nano-inference.md`: small-model inference configuration, invocation, concurrency, and feature switches.
 - `runtime-steering-loop.md`: Active Session Runtime mutation ownership, accepted mutation order, protected Agent Steps, Step Boundaries, and next-Step selection.

@@ -291,6 +291,7 @@ var (
 	CompactionRunningShellsReminder                  = strings.TrimSpace(mustPrompt("compaction_running_shells_reminder.md"))
 	CompactionSummaryPrefix                          = renderCompactionSummaryPrefix()
 	CompactionSoonReminderPrompt                     = mustPrompt("compaction_soon_reminder.md")
+	IdleResumeReminderPrompt                         = mustPrompt("idle_resume_reminder.md")
 	CompactionSoonReminderTriggerHandoffPrompt       = mustPrompt("compaction_soon_reminder_trigger_handoff.md")
 	GoalNudgePrompt                                  = mustPrompt("goal/nudge.md")
 	GoalContinuationGuidancePrompt                   = mustPrompt("goal/continuation_guidance.md")
@@ -380,6 +381,17 @@ func BaseSystemPrompt(args SystemPromptTemplateArgs) string {
 
 type compactionSoonReminderTemplateData struct {
 	EstimatedToolCallsTillForcedHandoff int
+}
+
+func RenderIdleResumeReminder(duration, timestamp string) string {
+	rendered, err := renderNamedTemplate("idle resume reminder", IdleResumeReminderPrompt, struct {
+		Duration  string
+		Timestamp string
+	}{duration, timestamp})
+	if err != nil {
+		panic(err)
+	}
+	return rendered
 }
 
 func RenderCompactionSoonReminderPrompt(triggerHandoffEnabled bool, estimatedToolCallsTillForcedHandoff int) string {

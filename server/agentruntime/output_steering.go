@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"core/server/llm"
 	"core/server/sessionstore"
@@ -49,6 +50,7 @@ type steeringItem struct {
 	missingToolOutputRepair     *steeringMissingToolOutputRepair
 	modelInput                  *steeringPreparedModelInput
 	compactionActivity          *steeringCompactionActivity
+	agentActivity               *time.Time
 	event                       *Event
 	connectionReplacement       *config.ConnectionReplacement
 	streaming                   *steeringStreamingOutput
@@ -723,7 +725,7 @@ func workflowPostCompletionActivityForSteeringItem(item steeringItem) workflowPo
 		item.toolCompletion != nil ||
 		(item.resultGroupFlush != nil && item.resultGroupFlush.committed) ||
 		(item.missingToolOutputRepair != nil && item.missingToolOutputRepair.repaired > 0) ||
-		(item.modelInput != nil && len(item.modelInput.prepared.groups) > 0) {
+		(item.modelInput != nil && (len(item.modelInput.prepared.groups) > 0 || len(item.modelInput.prepared.prefix) > 0)) {
 		return workflowPostCompletionDurableActivity
 	}
 	return workflowPostCompletionNoActivity
@@ -741,6 +743,16 @@ func (e *Engine) resolveCompletedResponseStream(stepID string, instruction compl
 }
 
 func (e *Engine) applySteeringItem(provenance steeringProvenance, item steeringItem) error {
+	if item.agentActivity != nil {
+		if err := e.store.RecordAgentActivity(*item.agentActivity); err != nil {
+			return e.emitRaw(Event{
+				Kind:   EventContextFactsPersistFailed,
+				StepID: provenance.stepID(),
+				Error:  fmt.Errorf("persist Session model/tool activity: %w", err).Error(),
+			})
+		}
+		return nil
+	}
 	if item.connectionReplacement != nil {
 		e.transcriptRuntimeState().SetConnectionReplacement(*item.connectionReplacement)
 		return nil

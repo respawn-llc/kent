@@ -1,8 +1,34 @@
 #import "speech_macos.h"
+#import <Accelerate/Accelerate.h>
 #import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+enum {
+    KentSpectrumSampleCount = 256,
+    KentSpectrumBinCount = 56,
+};
+
+static const float KentSpectrumMinimumDecibels = -100.0f;
+static const float KentSpectrumMaximumDecibels = -30.0f;
+static const float KentSpectrumMinimumMagnitude = 0.00001f;
+static const float KentSpectrumSilenceRms = 0.001f;
+
 @interface KentMicrophone : NSObject <AVCaptureAudioDataOutputSampleBufferDelegate, AVAssetWriterDelegate>
+{
+    vDSP_DFT_Setup _spectrumSetup;
+    float _sampleWindow[KentSpectrumSampleCount];
+    float _windowedSamples[KentSpectrumSampleCount];
+    float _inputReal[KentSpectrumSampleCount / 2];
+    float _inputImaginary[KentSpectrumSampleCount / 2];
+    float _outputReal[KentSpectrumSampleCount / 2];
+    float _outputImaginary[KentSpectrumSampleCount / 2];
+    float _window[KentSpectrumSampleCount];
+    float _frequencyMagnitudes[KentSpectrumBinCount];
+    float _windowSum;
+    NSUInteger _sampleCount;
+    uint8_t _frequencyBins[KentSpectrumBinCount];
+}
 @property(nonatomic) void *context;
 @property(nonatomic) KentSpeechCallbacks callbacks;
 @property(nonatomic) dispatch_queue_t queue;
@@ -10,6 +36,7 @@
 @property(nonatomic) AVCaptureAudioDataOutput *output;
 @property(nonatomic) AVAssetWriter *writer;
 @property(nonatomic) AVAssetWriterInput *input;
+@property(nonatomic, copy) NSDictionary<NSString *, id> *writerSettings;
 @property(nonatomic) id runtimeErrorObserver;
 @property(nonatomic) BOOL stopping;
 @property(nonatomic) BOOL completed;
@@ -18,6 +45,10 @@
 @end
 
 @implementation KentMicrophone
+- (void)dealloc {
+    if (_spectrumSetup) vDSP_DFT_DestroySetup(_spectrumSetup);
+}
+
 - (void)complete:(NSString *)error {
     if (self.completed) return;
     self.completed = YES;
@@ -60,6 +91,15 @@
     }
     self.session = [AVCaptureSession new];
     self.output = [AVCaptureAudioDataOutput new];
+    _spectrumSetup = vDSP_DFT_zrop_CreateSetup(NULL, KentSpectrumSampleCount, vDSP_DFT_FORWARD);
+    if (!_spectrumSetup) {
+        [self stopWithError:@"Microphone spectrum analysis is unavailable"];
+        return;
+    }
+    vDSP_hann_window(_window, KentSpectrumSampleCount, vDSP_HANN_NORM);
+    for (NSUInteger index = 0; index < KentSpectrumSampleCount; index++) {
+        _windowSum += _window[index];
+    }
     [self.session beginConfiguration];
     if (![self.session canAddInput:input] || ![self.session canAddOutput:self.output]) {
         [self.session commitConfiguration];
@@ -68,6 +108,22 @@
     }
     [self.session addInput:input];
     [self.session addOutput:self.output];
+    [self.session commitConfiguration];
+    // The recommendation must describe the AAC writer, not the analyzer's PCM output format.
+    self.writerSettings =
+        [self.output recommendedAudioSettingsForAssetWriterWithOutputFileType:AVFileTypeMPEG4];
+    if (!self.writerSettings) {
+        [self stopWithError:@"Recommended microphone encoding is unavailable"];
+        return;
+    }
+    [self.session beginConfiguration];
+    self.output.audioSettings = @{
+        AVFormatIDKey: @(kAudioFormatLinearPCM),
+        AVLinearPCMBitDepthKey: @32,
+        AVLinearPCMIsFloatKey: @YES,
+        AVLinearPCMIsBigEndianKey: @NO,
+        AVLinearPCMIsNonInterleavedKey: @NO,
+    };
     [self.output setSampleBufferDelegate:self queue:self.queue];
     [self.session commitConfiguration];
     __weak KentMicrophone *weakSelf = self;
@@ -83,18 +139,94 @@
     [self.session startRunning];
 }
 
+- (void)analyzeSpectrumWindow {
+    vDSP_vmul(_sampleWindow, 1, _window, 1, _windowedSamples, 1, KentSpectrumSampleCount);
+    for (NSUInteger index = 0; index < KentSpectrumSampleCount / 2; index++) {
+        _inputReal[index] = _windowedSamples[index * 2];
+        _inputImaginary[index] = _windowedSamples[index * 2 + 1];
+    }
+    vDSP_DFT_Execute(
+        _spectrumSetup, _inputReal, _inputImaginary, _outputReal, _outputImaginary);
+    float squaredMagnitudeSum = 0;
+    for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
+        NSUInteger frequency = index + 1;
+        _frequencyMagnitudes[index] =
+            hypotf(_outputReal[frequency], _outputImaginary[frequency]) / _windowSum;
+        squaredMagnitudeSum += _frequencyMagnitudes[index] * _frequencyMagnitudes[index];
+    }
+    float spectrumRms = sqrtf(squaredMagnitudeSum / KentSpectrumBinCount);
+    if (spectrumRms < KentSpectrumSilenceRms) {
+        for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
+            _frequencyBins[index] = 0;
+        }
+        _sampleCount = 0;
+        return;
+    }
+    for (NSUInteger index = 0; index < KentSpectrumBinCount; index++) {
+        float decibels = 20.0f * log10f(MAX(_frequencyMagnitudes[index], KentSpectrumMinimumMagnitude));
+        float scaled =
+            (decibels - KentSpectrumMinimumDecibels) *
+            (255.0f / (KentSpectrumMaximumDecibels - KentSpectrumMinimumDecibels));
+        _frequencyBins[index] = (uint8_t)lrintf(MIN(255.0f, MAX(0.0f, scaled)));
+    }
+    _sampleCount = 0;
+}
+
+- (BOOL)updateSpectrumFromSampleBuffer:(CMSampleBufferRef)sample {
+    CMFormatDescriptionRef description = CMSampleBufferGetFormatDescription(sample);
+    const AudioStreamBasicDescription *format = description
+        ? CMAudioFormatDescriptionGetStreamBasicDescription((CMAudioFormatDescriptionRef)description)
+        : NULL;
+    if (!format || format->mFormatID != kAudioFormatLinearPCM ||
+        (format->mFormatFlags & kAudioFormatFlagIsFloat) == 0 ||
+        (format->mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0 ||
+        format->mBitsPerChannel != 32 || format->mChannelsPerFrame == 0 ||
+        format->mBytesPerFrame != format->mChannelsPerFrame * sizeof(float)) {
+        [self stopWithError:@"Microphone sample format is not Float32 linear PCM"];
+        return NO;
+    }
+
+    AudioBufferList audioBufferList = {0};
+    CMBlockBufferRef retainedBuffer = NULL;
+    OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+        sample, NULL, &audioBufferList, sizeof(audioBufferList),
+        kCFAllocatorDefault, kCFAllocatorDefault,
+        kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &retainedBuffer);
+    if (status != noErr) {
+        if (retainedBuffer) CFRelease(retainedBuffer);
+        [self stopWithError:[NSString stringWithFormat:@"Microphone audio samples could not be read (%d)", (int)status]];
+        return NO;
+    }
+
+    size_t channelCount = format->mChannelsPerFrame;
+    size_t sampleCount = (size_t)CMSampleBufferGetNumSamples(sample);
+    AudioBuffer *buffer = &audioBufferList.mBuffers[0];
+    if (audioBufferList.mNumberBuffers != 1 || buffer->mNumberChannels != channelCount ||
+        buffer->mData == NULL || buffer->mDataByteSize / format->mBytesPerFrame < sampleCount) {
+        CFRelease(retainedBuffer);
+        [self stopWithError:@"Microphone audio sample layout is unavailable"];
+        return NO;
+    }
+
+    const float *samples = buffer->mData;
+    for (size_t frame = 0; frame < sampleCount; frame++) {
+        float value = 0;
+        for (size_t channel = 0; channel < channelCount; channel++) {
+            value += samples[frame * channelCount + channel];
+        }
+        _sampleWindow[_sampleCount++] = value / channelCount;
+        if (_sampleCount == KentSpectrumSampleCount) [self analyzeSpectrumWindow];
+    }
+    CFRelease(retainedBuffer);
+    return YES;
+}
+
 - (void)captureOutput:(AVCaptureOutput *)output
  didOutputSampleBuffer:(CMSampleBufferRef)sample
        fromConnection:(AVCaptureConnection *)connection {
     if (self.stopping || !CMSampleBufferDataIsReady(sample) || CMSampleBufferGetNumSamples(sample) == 0) return;
+    if (![self updateSpectrumFromSampleBuffer:sample]) return;
     if (!self.writer) {
-        // Capture's recommended settings include Apple's encoder choices rather
-        // than a Kent-selected speech bitrate.
-        NSDictionary *settings = [self.output recommendedAudioSettingsForAssetWriterWithOutputFileType:AVFileTypeMPEG4];
-        if (!settings) {
-            [self stopWithError:@"Recommended microphone encoding is unavailable"];
-            return;
-        }
         self.writer = [[AVAssetWriter alloc] initWithContentType:UTTypeMPEG4Movie];
         self.writer.outputFileTypeProfile = AVFileTypeProfileMPEG4AppleHLS;
         self.writer.preferredOutputSegmentInterval = CMTimeMake(1, 4);
@@ -103,7 +235,7 @@
         self.writer.initialSegmentStartTime = kCMTimeZero;
         self.writer.delegate = self;
         self.input = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeAudio
-            outputSettings:settings sourceFormatHint:CMSampleBufferGetFormatDescription(sample)];
+            outputSettings:self.writerSettings sourceFormatHint:CMSampleBufferGetFormatDescription(sample)];
         self.input.expectsMediaDataInRealTime = YES;
         if (![self.writer canAddInput:self.input]) {
             [self stopWithError:@"Microphone encoder cannot accept audio"];
@@ -147,7 +279,7 @@
     for (AVCaptureAudioChannel *channel in connection.audioChannels) {
         power = MAX(power, pow(10.0, channel.averagePowerLevel / 20.0));
     }
-    self.callbacks.meter(self.context, power);
+    self.callbacks.meter(self.context, power, _frequencyBins, KentSpectrumBinCount);
 }
 
 - (void)assetWriter:(AVAssetWriter *)writer didOutputSegmentData:(NSData *)data

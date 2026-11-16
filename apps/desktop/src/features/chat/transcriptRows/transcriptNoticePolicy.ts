@@ -1,5 +1,6 @@
 import {
   CircleX,
+  RotateCcw,
   Database,
   GitBranch,
   Hourglass,
@@ -65,6 +66,7 @@ const markdownMessageTypes = new Set([
 const contextMessageTypes = new Set([
   ...markdownMessageTypes,
   "compaction_soon_reminder",
+  "idle_resume_reminder",
   "handoff_future_message",
   "manual_compaction_carryover",
   "workflow_mode_exit",
@@ -177,7 +179,12 @@ function noticeRawText(notice: TranscriptNotice): string | undefined {
 }
 
 function noticeCompactText(notice: TranscriptNotice, compactText: string): string {
-  if (notice.MessageType === "agent_steer" || notice.MessageType === "workspaces") return compactText;
+  if (
+    notice.MessageType === "agent_steer" ||
+    notice.MessageType === "workspaces" ||
+    notice.MessageType === "idle_resume_reminder"
+  )
+    return compactText;
   const typedText = firstPresent(
     notice.CompactLabel,
     notice.CondensedText,
@@ -244,6 +251,8 @@ function noticeMessageTypeIcon(notice: TranscriptNotice): LucideIcon | undefined
       return Terminal;
     case "compaction_soon_reminder":
       return TriangleAlert;
+    case "idle_resume_reminder":
+      return RotateCcw;
     case "worktree_mode":
     case "worktree_mode_exit":
       return GitBranch;

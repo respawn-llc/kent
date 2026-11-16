@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // SessionContextFacts are bounded presentation facts persisted independently
@@ -10,6 +11,7 @@ import (
 type SessionContextFacts struct {
 	CompletedCompactionCount *int
 	ManualCompactEligible    *bool
+	LastAgentActivityAt      *time.Time
 }
 
 type ContextSnapshot struct {
@@ -20,6 +22,7 @@ type ContextSnapshot struct {
 type SessionContextFactWriter interface {
 	WriteSessionContextFacts(context.Context, string, SessionContextFacts) error
 	WriteManualCompactEligibility(context.Context, string, bool) error
+	WriteAgentActivity(context.Context, string, time.Time) (time.Time, error)
 }
 
 func independentSessionContextFacts() SessionContextFacts {
@@ -33,6 +36,10 @@ func independentSessionContextFacts() SessionContextFacts {
 
 func (facts SessionContextFacts) Clone() SessionContextFacts {
 	cloned := SessionContextFacts{}
+	if facts.LastAgentActivityAt != nil {
+		value := *facts.LastAgentActivityAt
+		cloned.LastAgentActivityAt = &value
+	}
 	if facts.CompletedCompactionCount != nil {
 		value := *facts.CompletedCompactionCount
 		cloned.CompletedCompactionCount = &value
@@ -93,7 +100,29 @@ func (s *Store) SetSessionContextFacts(completedCompactionCount int, manualCompa
 		return err
 	}
 	s.contextFactsMu.Lock()
-	s.contextFacts = facts.Clone()
+	s.contextFacts.CompletedCompactionCount = facts.CompletedCompactionCount
+	s.contextFacts.ManualCompactEligible = facts.ManualCompactEligible
+	s.contextFactsMu.Unlock()
+	return nil
+}
+
+func (s *Store) RecordAgentActivity(completedAt time.Time) error {
+	if s == nil {
+		return errors.New("session store is required")
+	}
+	s.mutationMu.Lock()
+	defer s.mutationMu.Unlock()
+	if s.options.contextFactWriter == nil {
+		return errors.New("Session Context-fact writer is required")
+	}
+	persistedAt, err := s.options.contextFactWriter.WriteAgentActivity(
+		context.Background(), s.Meta().SessionID, completedAt,
+	)
+	if err != nil {
+		return err
+	}
+	s.contextFactsMu.Lock()
+	s.contextFacts.LastAgentActivityAt = &persistedAt
 	s.contextFactsMu.Unlock()
 	return nil
 }
