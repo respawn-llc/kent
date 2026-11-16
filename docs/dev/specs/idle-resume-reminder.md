@@ -18,3 +18,4 @@
 - The reminder must say exactly: `Session has been resumed after you've been asleep for <duration>. The workspace, VCS, or environment state may have changed. Current time <timestamp>.`
 - The duration must use whole minutes with days, hours, and minutes, omitting seconds and zero units, such as `17d8h24m`, `1h`, or `24m`. A qualifying sub-minute gap must display `0m`.
 - The current time must use server-local time in the Environment format `YYYY-MM-DDTHH:mm:ss`.
+- Browser Chat must show the reminder. The TUI must show it only in detail mode. Both must use a distinct icon and the summary `Resumed session reminder`, without an elapsed duration in the summary.

@@ -124,6 +124,10 @@ func renderCommittedRow(
 			symbol := ConfigurationSymbol
 			meta.SymbolText = &symbol
 		}
+		if row.GetNotice().GetMessageType() == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_IDLE_RESUME_REMINDER {
+			symbol := "↻"
+			meta.SymbolText = &symbol
+		}
 		group := GroupNotice
 		if row.GetNotice().MessageType != nil && *row.GetNotice().MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_BACKGROUND_NOTICE {
 			symbolRole := StyleRoleNoticePrimary
@@ -719,6 +723,9 @@ func noticeRoleAndText(row *transcriptpb.NoticeRow, visibility transcriptpb.Entr
 	}
 	if isError {
 		role = StyleRoleError
+	}
+	if row.GetMessageType() == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_IDLE_RESUME_REMINDER && mode != ModeDetailExpanded {
+		return role, "Resumed session reminder"
 	}
 	if !isError && row.MessageType != nil && *row.MessageType == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_AGENT_STEER {
 		if mode != ModeDetailCollapsed && mode != ModeDetailExpanded && row.Diagnostic != nil {

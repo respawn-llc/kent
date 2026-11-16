@@ -72,6 +72,9 @@ func TestIdleReminderProjectsTypedNoticeBeforeHumanInput(t *testing.T) {
 	for index, row := range rows {
 		if notice := row.GetNotice(); notice != nil && notice.GetMessageType() == transcriptpb.NoticeMessageType_NOTICE_MESSAGE_TYPE_IDLE_RESUME_REMINDER {
 			found = true
+			if row.Visibility != transcriptpb.EntryVisibility_ENTRY_VISIBILITY_DETAIL {
+				t.Fatalf("idle notice visibility = %v, want detail", row.Visibility)
+			}
 			if index+1 >= len(rows) || rows[index+1].GetUser() == nil {
 				t.Fatal("idle notice does not precede human input")
 			}
