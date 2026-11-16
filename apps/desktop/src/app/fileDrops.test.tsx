@@ -175,6 +175,16 @@ describe("window file drops", () => {
     },
   );
 
+  it("leaves mixed plain-text drops intact for ordinary browser insertion", async () => {
+    await mountDropFields(<textarea aria-label="draft" />);
+    const draft = screen.getByLabelText<HTMLTextAreaElement>("draft");
+    showField(draft);
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", "Please investigate\nhttps://example.com\nKeep the existing behavior");
+    expect(fireEvent.drop(draft, { dataTransfer: transfer })).toBe(true);
+    expect(draft.value).toBe("");
+  });
+
   it("does not choose between several visible fields for a URL or file drop", async () => {
     const drop = await mountDropFields(
       <>

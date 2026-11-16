@@ -45,11 +45,14 @@ export function useWindowFileDrops({ nativeBridge, logger }: AppServices): void 
         if (dropTarget() !== null) event.preventDefault();
         return;
       }
-      const text = transfer.getData("text/uri-list") || transfer.getData("text/plain");
-      const urls = text
+      const uriList = transfer.getData("text/uri-list");
+      const text = uriList || transfer.getData("text/plain");
+      const lines = text
         .split("\n")
         .map((line) => line.trim())
-        .filter((line) => URL.canParse(line));
+        .filter((line) => line.length > 0);
+      if (!uriList && !lines.every((line) => URL.canParse(line))) return;
+      const urls = lines.filter((line) => URL.canParse(line));
       if (urls.length > 0) {
         event.preventDefault();
         event.stopPropagation();
