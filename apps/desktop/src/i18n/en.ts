@@ -568,6 +568,7 @@ export const englishResources = {
       submitAnswer: "Submit",
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
+      selectOptionShortcut: "Select option ({{shortcut}})",
       recommended: "Recommended",
       recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",

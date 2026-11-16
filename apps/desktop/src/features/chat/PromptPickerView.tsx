@@ -12,26 +12,47 @@ import {
 } from "@/ui";
 import { StaticMarkdown, PromptOptionRow } from "@/ui/markdown";
 import { usePathFormatter } from "@/app-facade";
-import { pickerBatch, sameSelection, type PickerAction, type PickerState } from "./promptPickerState";
-import { pickerOptions } from "./promptPickerPresentation";
+import {
+  pickerBatch,
+  sameSelection,
+  type PickerAction,
+  type PickerState,
+  type PickerDraft,
+} from "./promptPickerState";
+import { pickerOptions, type PickerOption } from "./promptPickerPresentation";
 import { promptPickerKeyboard } from "./promptPickerKeyboard";
+import { useQuestionNumberShortcuts } from "@/shared/question-shortcuts";
 import "./PromptPickerView.css";
 
-export function PromptPickerView({
-  prompts,
-  state,
-  isPending,
-  dispatch,
-  editorRef,
-}: Readonly<{
+type PromptPickerViewProps = Readonly<{
   prompts: readonly PendingPrompt[];
   state: PickerState;
   isPending: boolean;
   dispatch(action: PickerAction, focusField: () => void): void;
   editorRef?: RefObject<HTMLTextAreaElement | null>;
-}>) {
+}>;
+
+export function PromptPickerView(props: PromptPickerViewProps) {
+  const batch = pickerBatch(props.prompts);
+  const prompt = batch.find((item) => item.toolCallID === props.state.current);
+  const draft = props.state.current === null ? undefined : props.state.drafts.get(props.state.current);
+  if (prompt === undefined || draft === undefined) return null;
+  return <PromptPickerContent {...props} batch={batch} prompt={prompt} draft={draft} />;
+}
+
+function PromptPickerContent({
+  batch,
+  prompt,
+  draft,
+  state,
+  isPending,
+  dispatch,
+  editorRef,
+}: PromptPickerViewProps &
+  Readonly<{ batch: readonly PendingPrompt[]; prompt: PendingPrompt; draft: PickerDraft }>) {
   const { t } = useTranslation();
   const answerArea = useRef<HTMLDivElement | null>(null);
+  const questionRef = useRef<HTMLDivElement | null>(null);
   const localField = useRef<HTMLTextAreaElement | null>(null);
   const focusedAnswerElement = useRef<HTMLElement | null>(null);
   const previousCurrent = useRef(state.current);
@@ -50,11 +71,6 @@ export function PromptPickerView({
       if (removedAnswerFocus) answerArea.current?.focus();
     }
   }, [state]);
-  const batch = pickerBatch(prompts);
-  const index = batch.findIndex((prompt) => prompt.toolCallID === state.current);
-  const prompt = batch[index];
-  const draft = state.current === null ? undefined : state.drafts.get(state.current);
-  if (prompt === undefined || draft === undefined) return null;
   const disabled = isPending || draft.status === "declined";
   const materializing = batch.some((item) => (item.batch?.unmaterializedCount ?? 0) > 0);
   const navigationDisabled = batch.length < 2;
@@ -67,6 +83,7 @@ export function PromptPickerView({
         : action;
     dispatch(originatedAction, () => field.current?.focus());
   };
+  usePickerNumberShortcuts({ questionRef, editorRef: field, options, disabled, act });
   const pointerConfirmationProtected = state.batchToolCallIDs.length === 1 || draft.commentary.length > 0;
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     promptPickerKeyboard(event, { answerArea, field, options, selected, disabled, act });
@@ -78,7 +95,12 @@ export function PromptPickerView({
     >
       <ScrollRegion className="flex-1">
         <div className="grid min-w-0 gap-[var(--space-3)]">
-          <div className="prompt-picker-content" key={prompt.toolCallID}>
+          <div
+            className="prompt-picker-content"
+            key={prompt.toolCallID}
+            ref={questionRef}
+            data-question-number-shortcuts
+          >
             <PromptQuestion prompt={prompt} />
           </div>
           {state.batchToolCallIDs.length > 1 && (
@@ -130,10 +152,12 @@ export function PromptPickerView({
                 if (option !== undefined) act({ kind: "select", selection: option.selection });
               }}
             >
-              {options.map((option) => (
+              {options.map((option, optionIndex) => (
                 <PromptOptionRow
                   key={option.value}
                   {...option}
+                  shortcutNumber={optionIndex + 1}
+                  neitherShortcut={option.selection.kind === "neither"}
                   disabled={disabled}
                   selected={option === selected}
                   appearance="picker"
@@ -177,6 +201,33 @@ export function PromptPickerView({
       />
     </div>
   );
+}
+
+function usePickerNumberShortcuts({
+  questionRef,
+  editorRef,
+  options,
+  disabled,
+  act,
+}: Readonly<{
+  questionRef: RefObject<HTMLDivElement | null>;
+  editorRef: RefObject<HTMLTextAreaElement | null>;
+  options: readonly PickerOption[];
+  disabled: boolean;
+  act: (action: PickerAction) => void;
+}>): void {
+  const neitherIndex = options.findIndex((option) => option.selection.kind === "neither");
+  useQuestionNumberShortcuts({
+    questionRef,
+    editorRef,
+    optionCount: options.length,
+    neitherIndex: neitherIndex < 0 ? undefined : neitherIndex,
+    enabled: !disabled,
+    onSelect: (index) => {
+      const option = options[index];
+      if (option !== undefined) act({ kind: "select", selection: option.selection });
+    },
+  });
 }
 
 function PromptQuestion({ prompt }: Readonly<{ prompt: PendingPrompt }>) {

@@ -72,7 +72,125 @@ beforeEach(() => {
   finishSpeech = async () => false;
 });
 
+describe("question number shortcuts", () => {
+  it("selects an option without submitting, focuses commentary, and submits with Enter", async () => {
+    const attention = ordinaryAttention(["one", "two"], 1);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    const editor = screen.getByRole("textbox");
+    positionQuestionForm(editor);
+
+    const user = userEvent.setup({ delay: null });
+    await user.keyboard("2");
+    expect(screen.getAllByRole("radio")[1]?.getAttribute("aria-checked")).toBe("true");
+    expect(editor).toHaveFocus();
+    expect(inputs).toHaveLength(0);
+    await user.keyboard("120");
+    expect(editor).toHaveValue("120");
+    expect(screen.getAllByRole("radio")[1]).toBeChecked();
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(inputs).toHaveLength(1);
+    });
+    expect(inputs[0]).toMatchObject({
+      kind: "ordinary",
+      selectedOptionNumber: 2,
+      freeformAnswer: "120",
+    });
+  });
+
+  it.each(["0", "3"])("selects Neither with %s and requires commentary before Enter submits", async (key) => {
+    const attention = ordinaryAttention(["one", "two"], 1);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    const editor = screen.getByRole("textbox");
+    positionQuestionForm(editor);
+    const user = userEvent.setup({ delay: null });
+    await user.keyboard(key);
+    expect(screen.getAllByRole("radio")[2]).toBeChecked();
+    expect(editor).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(inputs).toHaveLength(0);
+    await user.keyboard("alternative{Enter}");
+    await waitFor(() => {
+      expect(inputs).toHaveLength(1);
+    });
+    expect(inputs[0]).toMatchObject({
+      kind: "ordinary",
+      selectedOptionNumber: null,
+      freeformAnswer: "alternative",
+    });
+  });
+
+  it("selects Approval decisions by number without offering a zero alias", async () => {
+    const attention = approvalAttention(["allow_once", "deny", "allow_session"]);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    const editor = screen.getByRole("textbox");
+    positionQuestionForm(editor);
+    const user = userEvent.setup({ delay: null });
+    await user.keyboard("0");
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getAllByRole("radio")[0]).toBeChecked();
+    expect(editor).not.toHaveFocus();
+    await user.keyboard("2");
+    expect(screen.getAllByRole("radio")[1]).toBeChecked();
+    expect(editor).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(inputs).toHaveLength(0);
+    await user.keyboard("reason{Enter}");
+    await waitFor(() => {
+      expect(inputs).toHaveLength(1);
+    });
+    expect(inputs[0]).toMatchObject({ kind: "approval", decision: "deny", commentary: "reason" });
+  });
+});
+
 describe("question recording submission", () => {
+  it("submits commentary with Enter and keeps Shift+Enter as a newline", async () => {
+    const attention = ordinaryAttention(["one"], 1);
+    const presentation = questionPresentation(attention);
+    const inputs: QuestionAnswerInput[] = [];
+    renderQuestionForm(
+      attention,
+      presentation,
+      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+      recordingQuestionAnswerMutation(inputs),
+    );
+    const user = userEvent.setup({ delay: null });
+    const editor = screen.getByRole("textbox");
+    await user.type(editor, "first{Shift>}{Enter}{/Shift}second");
+    expect(editor).toHaveValue("first\nsecond");
+    expect(inputs).toHaveLength(0);
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(inputs).toHaveLength(1);
+    });
+    expect(inputs[0]).toMatchObject({
+      kind: "ordinary",
+      selectedOptionNumber: 1,
+      freeformAnswer: "first\nsecond",
+    });
+  });
+
   it.each(["ordinary", "approval"] as const)(
     "finishes recording before submitting the transcribed %s answer",
     async (kind) => {
@@ -160,37 +278,40 @@ describe("question recording submission", () => {
     expect(inputs).toHaveLength(0);
   });
 
-  it("uses the same finish-then-submit path for Command+Enter", async () => {
-    speechPhase = "recording";
-    const finish = vi.fn(async (write: (text: string) => void) => {
-      flushSync(() => {
-        write("spoken commentary");
+  it.each(["{Enter}", "{Meta>}{Enter}{/Meta}"])(
+    "finishes recording before submitting with %s",
+    async (key) => {
+      speechPhase = "recording";
+      const finish = vi.fn(async (write: (text: string) => void) => {
+        flushSync(() => {
+          write("spoken commentary");
+        });
+        return true;
       });
-      return true;
-    });
-    finishSpeech = finish;
-    const attention = ordinaryAttention(["one"], 1);
-    const presentation = questionPresentation(attention);
-    const inputs: QuestionAnswerInput[] = [];
-    renderQuestionForm(
-      attention,
-      presentation,
-      anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
-      recordingQuestionAnswerMutation(inputs),
-    );
-    const user = userEvent.setup({ delay: null });
-    await user.click(screen.getByRole("textbox"));
-    await user.keyboard("{Meta>}{Enter}{/Meta}");
-    await waitFor(() => {
-      expect(inputs).toHaveLength(1);
-    });
-    expect(finish).toHaveBeenCalledTimes(1);
-    expect(inputs[0]).toMatchObject({
-      kind: "ordinary",
-      selectedOptionNumber: 1,
-      freeformAnswer: "spoken commentary",
-    });
-  });
+      finishSpeech = finish;
+      const attention = ordinaryAttention(["one"], 1);
+      const presentation = questionPresentation(attention);
+      const inputs: QuestionAnswerInput[] = [];
+      renderQuestionForm(
+        attention,
+        presentation,
+        anchorQuestionSelection(emptyQuestionSelection(), presentation.defaultSelection),
+        recordingQuestionAnswerMutation(inputs),
+      );
+      const user = userEvent.setup({ delay: null });
+      await user.click(screen.getByRole("textbox"));
+      await user.keyboard(key);
+      await waitFor(() => {
+        expect(inputs).toHaveLength(1);
+      });
+      expect(finish).toHaveBeenCalledTimes(1);
+      expect(inputs[0]).toMatchObject({
+        kind: "ordinary",
+        selectedOptionNumber: 1,
+        freeformAnswer: "spoken commentary",
+      });
+    },
+  );
 
   it("does not submit after the question form closes during transcription", async () => {
     speechPhase = "recording";
@@ -593,6 +714,16 @@ describe("questionPresentation", () => {
     ]);
   });
 });
+
+function positionQuestionForm(editor: HTMLElement): void {
+  if (!(editor instanceof HTMLTextAreaElement)) throw new Error("Expected Question commentary editor");
+  const form = editor.form;
+  if (form === null) throw new Error("Expected Question form");
+  Object.defineProperty(form, "getBoundingClientRect", {
+    configurable: true,
+    value: () => new DOMRect(0, 20, 300, 200),
+  });
+}
 
 async function expectCompleteAttentionDoesNotLookupPendingAsks(
   attention: FixtureQuestionAttention,
