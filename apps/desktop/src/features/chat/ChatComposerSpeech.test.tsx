@@ -397,7 +397,9 @@ it.each(["transcript", "noop"] as const)(
     await screen.findByRole("button", { name: appI18n.t("speech.stop") });
     expect(send).toBeEnabled();
     fireEvent.click(send);
-    await waitFor(() => expect(readTranscript).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(readTranscript).toHaveBeenCalled();
+    });
     expect(answer).not.toHaveBeenCalled();
     await act(async () => {
       transcript.resolve(
@@ -405,7 +407,9 @@ it.each(["transcript", "noop"] as const)(
       );
     });
     if (result === "transcript") {
-      await waitFor(() => expect(answer).toHaveBeenCalledTimes(1));
+      await waitFor(() => {
+        expect(answer).toHaveBeenCalledTimes(1);
+      });
     } else {
       await screen.findByRole("button", { name: appI18n.t("speech.record") });
       expect(answer).not.toHaveBeenCalled();
