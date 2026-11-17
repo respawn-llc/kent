@@ -48,7 +48,7 @@ VALUES ('approval-terminal', 'done', json_object('entered_by_edge_id', ?, 'node_
 		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "node-done"),
 		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-done"))
 	var pendingBefore string
-	const pendingContentQuery = `SELECT json_remove(target_snapshot_json, '$.node_id', '$.entered_by_edge_id') FROM task_pending_approval_branches`
+	const pendingContentQuery = `SELECT materialized_values_json FROM task_pending_approvals`
 	if err := db.QueryRow(pendingContentQuery).Scan(&pendingBefore); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ VALUES ('approval-terminal', 'done', json_object('entered_by_edge_id', ?, 'node_
 		t.Fatalf("pending target changed: %s -> %s", pendingBefore, pendingAfter)
 	}
 	var pendingNodeID, pendingEdgeID string
-	if err := store.db.QueryRow(`SELECT json_extract(target_snapshot_json, '$.node_id'), json_extract(target_snapshot_json, '$.entered_by_edge_id') FROM task_pending_approval_branches`).Scan(&pendingNodeID, &pendingEdgeID); err != nil {
+	if err := store.db.QueryRow(`SELECT kent_graph_entity_id_text_v1(edge.target_node_id), kent_graph_entity_id_text_v1(branch.edge_id) FROM task_pending_approval_branches branch JOIN workflow_edges edge ON edge.id = branch.edge_id`).Scan(&pendingNodeID, &pendingEdgeID); err != nil {
 		t.Fatal(err)
 	}
 	if pendingNodeID != workflowGraphSeedIDText(t, store.db, "node-done") || pendingEdgeID != workflowGraphSeedIDText(t, store.db, "edge-done-1") {

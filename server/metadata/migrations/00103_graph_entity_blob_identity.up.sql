@@ -77,6 +77,7 @@ FROM (
     UNION
     SELECT json_extract(provider.value, '$.provider_edge_id')
     FROM workflow_nodes node, json_each(node.join_input_providers_json) provider
+    WHERE json_type(node.join_input_providers_json) != 'null'
     UNION
     SELECT json_extract(target_snapshot_json, '$.entered_by_edge_id')
     FROM task_pending_approval_branches

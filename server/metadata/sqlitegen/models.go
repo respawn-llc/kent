@@ -291,18 +291,16 @@ type TaskPendingApproval struct {
 	SourceNodeID              []byte
 	SourceTransitionBranchKey sql.NullString
 	SourceSessionID           sql.NullString
-	WorkflowVersion           int64
-	TransitionSnapshotJson    string
+	TransitionGroupID         []byte
+	Commentary                sql.NullString
 	MaterializedValuesJson    string
 	CreatedAtUnixMs           int64
 }
 
 type TaskPendingApprovalBranch struct {
-	ApprovalID                     string
-	TransitionBranchKey            string
-	TargetSnapshotJson             string
-	EffectiveEdgeConfigurationJson string
-	ContextSourceResolutionJson    string
+	ApprovalID          string
+	TransitionBranchKey string
+	EdgeID              []byte
 }
 
 type TaskRecord struct {
@@ -368,35 +366,46 @@ type Workflow struct {
 }
 
 type WorkflowEdge struct {
-	ID                     []byte
-	TransitionGroupID      []byte
-	EdgeKey                string
-	TargetNodeID           []byte
-	RequiresApproval       int64
-	ContextMode            string
-	InputBindingsJson      string
-	OutputRequirementsJson string
-	SortOrder              int64
-	ContextSourceKind      string
-	ContextSourceNodeKey   string
-	PromptTemplate         string
-	ParametersJson         string
-	AssigneeSelection      string
-	ThinkingSelection      string
+	ID                   []byte
+	TransitionGroupID    []byte
+	EdgeKey              string
+	TargetNodeID         []byte
+	RequiresApproval     int64
+	ContextMode          string
+	SortOrder            int64
+	ContextSourceKind    string
+	ContextSourceNodeKey string
+	PromptTemplate       string
+	AssigneeSelection    string
+	ThinkingSelection    string
+}
+
+type WorkflowInputBinding struct {
+	EdgeID    []byte
+	SortOrder int64
+	Name      string
+	Source    string
+	Field     string
+}
+
+type WorkflowJoinProvider struct {
+	NodeID         []byte
+	SortOrder      int64
+	InputName      string
+	ProviderEdgeID []byte
 }
 
 type WorkflowNode struct {
-	ID                     []byte
-	WorkflowID             runtimeids.WorkflowID
-	NodeKey                string
-	Kind                   string
-	DisplayName            string
-	SubagentRole           string
-	GroupID                []byte
-	SortOrder              int64
-	JoinInputProvidersJson string
-	CompletionMode         string
-	ScriptPath             sql.NullString
+	ID             []byte
+	WorkflowID     runtimeids.WorkflowID
+	NodeKey        string
+	Kind           string
+	DisplayName    string
+	SubagentRole   string
+	GroupID        []byte
+	SortOrder      int64
+	CompletionMode string
+	ScriptPath     sql.NullString
 }
 
 type WorkflowNodeGroup struct {
@@ -405,6 +414,20 @@ type WorkflowNodeGroup struct {
 	GroupKey    string
 	DisplayName sql.NullString
 	SortOrder   int64
+}
+
+type WorkflowOutputRequirement struct {
+	EdgeID    []byte
+	SortOrder int64
+	FieldName string
+}
+
+type WorkflowParameter struct {
+	EdgeID       []byte
+	SortOrder    int64
+	ParameterKey string
+	Description  string
+	Purpose      string
 }
 
 type WorkflowTaskStatusRecord struct {

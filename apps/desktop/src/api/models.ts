@@ -635,11 +635,11 @@ export type BoardNodeCardsPage = Readonly<{
 }>;
 
 export type ApprovalSnapshot = Readonly<{
+  choiceAvailability: "available" | "unavailable";
   sourceNodeName: string;
   targets: readonly Readonly<{ displayName: string }>[];
   commentary: string;
   outputValues: Readonly<Record<string, string>>;
-  version: number;
 }>;
 
 export type AttentionPage = Readonly<{

@@ -22,7 +22,7 @@ func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 	execSeed(t, db, "script node", `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, script_path) VALUES ('label-script', ?, 'script', 'script', 'Script', 'scripts/run.sh')`, workflowTestID(t, "1"))
 	execSeed(t, db, "task", workflowSeedTaskSQL, "label-task", "link-1", 1, "Task", 1000, 1000)
 	insertTaskCurrentNode(t, db, "label-task", "node-agent", nil)
-	insertTaskPendingApproval(t, db, "label-approval", "label-task", "node-agent", nil, 1000)
+	execSeed(t, db, "pending approval", `INSERT INTO task_pending_approvals (id, source_task_id, source_node_id, workflow_version, transition_snapshot_json, materialized_values_json, created_at_unix_ms) VALUES ('label-approval', 'label-task', ?, 1, '{}', '{}', 1000)`, workflowGraphSeedID(t, db, "node-agent"))
 	execSeed(t, db, "transition snapshot", `UPDATE task_pending_approvals SET transition_snapshot_json = json_object('id', ?, 'source_node_id', ?) WHERE id = 'label-approval'`, workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-agent"))
 	execSeed(t, db, "pending branch", `INSERT INTO task_pending_approval_branches (approval_id, transition_branch_key, target_snapshot_json, effective_edge_configuration_json, context_source_resolution_json) VALUES ('label-approval', 'branch', json_object('node_id', ?, 'prior_values', json('{"transition_parameters":{}}')), json_object('id', ?, 'transition_group_id', ?, 'target_node_id', ?), '{}')`, workflowGraphSeedID(t, db, "node-done"), workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-done"))
 

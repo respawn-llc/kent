@@ -1,6 +1,7 @@
 import { create } from "@app/server-api-contract";
 import {
   AttentionReadService,
+  ApprovalChoiceAvailability,
   type AttentionItemValid as GeneratedAttentionItem,
   type InterruptedCurrentNodeDetails,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
@@ -83,10 +84,10 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
           sourceNodeName: snapshot.sourceNodeDisplayName,
           targets: snapshot.targets.map((target) => ({ displayName: target.displayName })),
           commentary: snapshot.commentary ?? "",
-          version: Number(snapshot.workflowRevisionSeen),
           outputValues: Object.fromEntries(
             snapshot.outputValues.map((output) => [output.name, output.value]),
           ),
+          choiceAvailability: approvalChoiceAvailability(snapshot.choiceAvailability),
         },
       };
     }
@@ -103,6 +104,18 @@ export function attentionItem(value: GeneratedAttentionItem): AttentionItem {
     }
     case undefined:
       throw new ContractError("Attention item has no detail.");
+  }
+}
+
+function approvalChoiceAvailability(value: ApprovalChoiceAvailability): "available" | "unavailable" {
+  switch (value) {
+    case ApprovalChoiceAvailability.AVAILABLE:
+      return "available";
+    case ApprovalChoiceAvailability.UNAVAILABLE:
+      return "unavailable";
+    case ApprovalChoiceAvailability.UNSPECIFIED:
+    default:
+      throw new ContractError("Unknown Approval choice availability");
   }
 }
 

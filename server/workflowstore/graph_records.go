@@ -93,6 +93,50 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		transitionGroups: make([]TransitionGroupRecord, 0, len(transitionGroups)),
 		edges:            make([]EdgeRecord, 0, len(edges)),
 	}
+	providerRows, err := q.ListWorkflowJoinProviders(ctx, workflowID)
+	if err != nil {
+		return preparedWorkflowGraphSave{}, err
+	}
+	providers := make(map[string][]workflow.JoinInputProvider)
+	for _, row := range providerRows {
+		edgeID, err := runtimeids.GraphEntityIDText(row.ProviderEdgeID)
+		if err != nil {
+			return preparedWorkflowGraphSave{}, err
+		}
+		providers[string(row.NodeID)] = append(providers[string(row.NodeID)], workflow.JoinInputProvider{
+			InputName: row.InputName, ProviderEdgeID: workflow.EdgeID(edgeID),
+		})
+	}
+	parameterRows, err := q.ListWorkflowParameters(ctx, workflowID)
+	if err != nil {
+		return preparedWorkflowGraphSave{}, err
+	}
+	parametersByEdge := make(map[string][]workflow.Parameter)
+	for _, row := range parameterRows {
+		parametersByEdge[string(row.EdgeID)] = append(parametersByEdge[string(row.EdgeID)], workflow.Parameter{
+			Key: row.ParameterKey, Description: row.Description, Purpose: workflow.ParameterPurpose(row.Purpose),
+		})
+	}
+	bindingRows, err := q.ListWorkflowInputBindings(ctx, workflowID)
+	if err != nil {
+		return preparedWorkflowGraphSave{}, err
+	}
+	bindingsByEdge := make(map[string][]workflow.InputBinding)
+	for _, row := range bindingRows {
+		bindingsByEdge[string(row.EdgeID)] = append(bindingsByEdge[string(row.EdgeID)], workflow.InputBinding{
+			Name: row.Name, Source: workflow.BindingSource(row.Source), Field: row.Field,
+		})
+	}
+	requirementRows, err := q.ListWorkflowOutputRequirements(ctx, workflowID)
+	if err != nil {
+		return preparedWorkflowGraphSave{}, err
+	}
+	requirementsByEdge := make(map[string][]workflow.OutputRequirement)
+	for _, row := range requirementRows {
+		requirementsByEdge[string(row.EdgeID)] = append(requirementsByEdge[string(row.EdgeID)], workflow.OutputRequirement{
+			FieldName: row.FieldName,
+		})
+	}
 	for _, group := range nodeGroups {
 		id, err := runtimeids.GraphEntityIDText(group.ID)
 		if err != nil {
@@ -105,10 +149,7 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		if err != nil {
 			return preparedWorkflowGraphSave{}, err
 		}
-		joinProviders := []workflow.JoinInputProvider{}
-		if err := workflow.UnmarshalString(node.JoinInputProvidersJson, &joinProviders); err != nil {
-			return preparedWorkflowGraphSave{}, err
-		}
+		joinProviders := providers[string(node.ID)]
 		groupID, err := nullableGraphIdentity(node.GroupID)
 		if err != nil {
 			return preparedWorkflowGraphSave{}, err
@@ -143,18 +184,9 @@ func currentWorkflowGraphSavePrepared(ctx context.Context, q *sqlitegen.Queries,
 		if err != nil {
 			return preparedWorkflowGraphSave{}, err
 		}
-		parameters := []workflow.Parameter{}
-		inputs := []workflow.InputBinding{}
-		if err := workflow.UnmarshalString(edge.ParametersJson, &parameters); err != nil {
-			return preparedWorkflowGraphSave{}, err
-		}
-		if err := workflow.UnmarshalString(edge.InputBindingsJson, &inputs); err != nil {
-			return preparedWorkflowGraphSave{}, err
-		}
-		requirements := []workflow.OutputRequirement{}
-		if err := workflow.UnmarshalString(edge.OutputRequirementsJson, &requirements); err != nil {
-			return preparedWorkflowGraphSave{}, err
-		}
+		parameters := parametersByEdge[string(edge.ID)]
+		inputs := bindingsByEdge[string(edge.ID)]
+		requirements := requirementsByEdge[string(edge.ID)]
 		prepared.edges = append(prepared.edges, EdgeRecord{
 			ID:                 workflow.EdgeID(id),
 			WorkflowID:         edge.WorkflowID,

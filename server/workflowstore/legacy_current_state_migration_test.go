@@ -255,29 +255,12 @@ UPDATE workflow_edges SET prompt_template = 'Continue the task' WHERE target_nod
 	if approval.SourceSessionID == nil || approval.SourceSessionID.String() != sourceSessionID {
 		t.Fatalf("migrated approval source Session = %v, want %q", approval.SourceSessionID, sourceSessionID)
 	}
+	if approval.ChoiceAvailable() {
+		t.Fatalf("deleted choice was reported available: %+v", approval)
+	}
 	for _, branch := range approval.Branches {
-		targetBranchKey, branchScoped := branch.Target.CurrentNode.Reference.TransitionBranchKey()
-		if !branchScoped || targetBranchKey != branch.TransitionBranchKey {
-			t.Fatalf("migrated approval branch = %+v, want target scoped to frozen branch key", branch)
-		}
-		switch branch.TransitionBranchKey {
-		case "split_a":
-			if branch.Target.CurrentNode.SessionID != nil ||
-				branch.ContextSourceResolution.TargetSession.Kind() != workflow.TargetSessionIntentCreate ||
-				branch.ContextSourceResolution.ActiveSource.Kind() != workflow.MaterializedContinuationSourceDeferredSelf {
-				t.Fatalf("migrated new-session branch = %+v, want no retained Session", branch)
-			}
-		case "split_b":
-			resolvedSessionID, reused := branch.ContextSourceResolution.TargetSession.SessionID()
-			if branch.Target.CurrentNode.SessionID == nil ||
-				branch.Target.CurrentNode.SessionID.String() != sourceSessionID ||
-				!reused ||
-				resolvedSessionID.String() != sourceSessionID ||
-				branch.ContextSourceResolution.ActiveSource.Kind() != workflow.MaterializedContinuationSourceExact {
-				t.Fatalf("migrated continuation branch = %+v, want retained Session %q with exact frozen source", branch, sourceSessionID)
-			}
-		default:
-			t.Fatalf("migrated unexpected approval branch = %+v", branch)
+		if branch.Target != nil || branch.EdgeID == "" || branch.TransitionBranchKey == "" {
+			t.Fatalf("historical unavailable branch lost its original choice: %+v", branch)
 		}
 	}
 

@@ -38,7 +38,6 @@ export function TaskDetailInboxRow({
     <TaskInbox
       attentionItems={attentionItems}
       answerQuestion={answerQuestion}
-      currentVersion={detail.workflowVersion}
       detail={detail}
       initialFocus={initialFocus}
       mutations={mutations}

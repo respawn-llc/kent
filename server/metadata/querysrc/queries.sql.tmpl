@@ -410,6 +410,68 @@ ORDER BY
 LIMIT sqlc.arg(page_limit)
 OFFSET sqlc.arg(page_offset);
 
+-- name: ListWorkflowOutputRequirements :many
+SELECT requirement.edge_id, requirement.field_name
+FROM workflow_output_requirements requirement
+JOIN workflow_edges edge ON edge.id = requirement.edge_id
+JOIN workflow_transition_groups transition_group ON transition_group.id = edge.transition_group_id
+JOIN workflow_nodes source ON source.id = transition_group.source_node_id
+WHERE source.workflow_id = sqlc.arg(workflow_id)
+ORDER BY requirement.edge_id, requirement.sort_order;
+
+-- name: DeleteWorkflowOutputRequirements :exec
+DELETE FROM workflow_output_requirements WHERE edge_id = sqlc.arg(edge_id);
+
+-- name: InsertWorkflowOutputRequirement :exec
+INSERT INTO workflow_output_requirements (edge_id, sort_order, field_name)
+VALUES (sqlc.arg(edge_id), sqlc.arg(sort_order), sqlc.arg(field_name));
+
+-- name: ListWorkflowInputBindings :many
+SELECT binding.edge_id, binding.name, binding.source, binding.field
+FROM workflow_input_bindings binding
+JOIN workflow_edges edge ON edge.id = binding.edge_id
+JOIN workflow_transition_groups transition_group ON transition_group.id = edge.transition_group_id
+JOIN workflow_nodes source ON source.id = transition_group.source_node_id
+WHERE source.workflow_id = sqlc.arg(workflow_id)
+ORDER BY binding.edge_id, binding.sort_order;
+
+-- name: DeleteWorkflowInputBindings :exec
+DELETE FROM workflow_input_bindings WHERE edge_id = sqlc.arg(edge_id);
+
+-- name: InsertWorkflowInputBinding :exec
+INSERT INTO workflow_input_bindings (edge_id, sort_order, name, source, field)
+VALUES (sqlc.arg(edge_id), sqlc.arg(sort_order), sqlc.arg(name), sqlc.arg(source), sqlc.arg(field));
+
+-- name: ListWorkflowParameters :many
+SELECT parameter.edge_id, parameter.parameter_key, parameter.description, parameter.purpose
+FROM workflow_parameters parameter
+JOIN workflow_edges edge ON edge.id = parameter.edge_id
+JOIN workflow_transition_groups transition_group ON transition_group.id = edge.transition_group_id
+JOIN workflow_nodes source ON source.id = transition_group.source_node_id
+WHERE source.workflow_id = sqlc.arg(workflow_id)
+ORDER BY parameter.edge_id, parameter.sort_order;
+
+-- name: DeleteWorkflowParameters :exec
+DELETE FROM workflow_parameters WHERE edge_id = sqlc.arg(edge_id);
+
+-- name: InsertWorkflowParameter :exec
+INSERT INTO workflow_parameters (edge_id, sort_order, parameter_key, description, purpose)
+VALUES (sqlc.arg(edge_id), sqlc.arg(sort_order), sqlc.arg(parameter_key), sqlc.arg(description), sqlc.arg(purpose));
+
+-- name: ListWorkflowJoinProviders :many
+SELECT provider.node_id, provider.input_name, provider.provider_edge_id
+FROM workflow_join_providers provider
+JOIN workflow_nodes node ON node.id = provider.node_id
+WHERE node.workflow_id = sqlc.arg(workflow_id)
+ORDER BY provider.node_id, provider.sort_order;
+
+-- name: DeleteWorkflowJoinProviders :exec
+DELETE FROM workflow_join_providers WHERE node_id = sqlc.arg(node_id);
+
+-- name: InsertWorkflowJoinProvider :exec
+INSERT INTO workflow_join_providers (node_id, sort_order, input_name, provider_edge_id)
+VALUES (sqlc.arg(node_id), sqlc.arg(sort_order), sqlc.arg(input_name), sqlc.arg(provider_edge_id));
+
 -- name: InsertWorkflowNode :exec
 INSERT INTO workflow_nodes (
     id,
@@ -420,7 +482,6 @@ INSERT INTO workflow_nodes (
     subagent_role,
     completion_mode,
     script_path,
-    join_input_providers_json,
     group_id,
     sort_order
 ) VALUES (
@@ -432,7 +493,6 @@ INSERT INTO workflow_nodes (
     sqlc.arg(subagent_role),
     sqlc.arg(completion_mode),
     sqlc.narg(script_path),
-    sqlc.arg(join_input_providers_json),
     sqlc.narg(group_id),
     sqlc.arg(sort_order)
 );
@@ -462,7 +522,7 @@ ON CONFLICT(id) DO UPDATE SET
 WHERE workflow_node_groups.workflow_id = excluded.workflow_id;
 
 -- name: UpsertWorkflowNode :execrows
-INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, subagent_role, completion_mode, script_path, join_input_providers_json, group_id, sort_order)
+INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, subagent_role, completion_mode, script_path, group_id, sort_order)
 VALUES (
     sqlc.arg(id),
     sqlc.arg(workflow_id),
@@ -472,7 +532,6 @@ VALUES (
     sqlc.arg(subagent_role),
     sqlc.arg(completion_mode),
     sqlc.narg(script_path),
-    sqlc.arg(join_input_providers_json),
     sqlc.narg(group_id),
     sqlc.arg(sort_order)
 )
@@ -483,7 +542,6 @@ ON CONFLICT(id) DO UPDATE SET
     subagent_role = excluded.subagent_role,
     completion_mode = excluded.completion_mode,
     script_path = excluded.script_path,
-    join_input_providers_json = excluded.join_input_providers_json,
     group_id = excluded.group_id,
     sort_order = excluded.sort_order
 WHERE workflow_nodes.workflow_id = excluded.workflow_id;
@@ -521,7 +579,7 @@ WHERE EXISTS (
 );
 
 -- name: UpsertWorkflowEdge :execrows
-INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, assignee_selection, thinking_selection, requires_approval, context_mode, context_source_kind, context_source_node_key, prompt_template, parameters_json, input_bindings_json, output_requirements_json, sort_order)
+INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, assignee_selection, thinking_selection, requires_approval, context_mode, context_source_kind, context_source_node_key, prompt_template, sort_order)
 SELECT
     sqlc.arg(id),
     sqlc.arg(transition_group_id),
@@ -534,9 +592,6 @@ SELECT
     sqlc.arg(context_source_kind),
     sqlc.arg(context_source_node_key),
     sqlc.arg(prompt_template),
-    sqlc.arg(parameters_json),
-    sqlc.arg(input_bindings_json),
-    sqlc.arg(output_requirements_json),
     sqlc.arg(sort_order)
 WHERE EXISTS (
     SELECT 1
@@ -558,9 +613,6 @@ ON CONFLICT(id) DO UPDATE SET
     context_source_kind = excluded.context_source_kind,
     context_source_node_key = excluded.context_source_node_key,
     prompt_template = excluded.prompt_template,
-    parameters_json = excluded.parameters_json,
-    input_bindings_json = excluded.input_bindings_json,
-    output_requirements_json = excluded.output_requirements_json,
     sort_order = excluded.sort_order
 WHERE EXISTS (
     SELECT 1
@@ -596,7 +648,6 @@ SELECT
     subagent_role,
     completion_mode,
     script_path,
-    join_input_providers_json,
     group_id,
     sort_order
 FROM workflow_nodes
@@ -613,7 +664,6 @@ SELECT
     subagent_role,
     completion_mode,
     script_path,
-    join_input_providers_json,
     group_id,
     sort_order
 FROM workflow_nodes
@@ -652,9 +702,6 @@ SELECT
     e.context_source_kind,
     e.context_source_node_key,
     e.prompt_template,
-    e.parameters_json,
-    e.input_bindings_json,
-    e.output_requirements_json,
     e.sort_order
 FROM workflow_edges e
 JOIN workflow_transition_groups tg ON tg.id = e.transition_group_id
@@ -922,7 +969,8 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(sqlc.arg(node_id))
+    JOIN workflow_edges edge ON edge.id = branch.edge_id
+    WHERE edge.target_node_id = sqlc.arg(node_id)
 );
 
 -- name: CountCurrentTaskNodeAnchorReferences :one
@@ -938,7 +986,8 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = kent_graph_entity_id_text_v1(sqlc.arg(node_id))
+    JOIN workflow_edges edge ON edge.id = branch.edge_id
+    WHERE edge.target_node_id = sqlc.arg(node_id)
 );
 
 -- name: CountTaskEdgeReferences :one
@@ -950,7 +999,7 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(sqlc.arg(edge_id))
+    WHERE branch.edge_id = sqlc.arg(edge_id)
 );
 
 -- name: CountAllTaskEdgeReferences :one
@@ -962,7 +1011,7 @@ FROM (
     UNION ALL
     SELECT branch.approval_id
     FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(sqlc.arg(edge_id))
+    WHERE branch.edge_id = sqlc.arg(edge_id)
 );
 
 -- name: GetWorkflowEdgeParameterEditPolicyImpact :one
@@ -992,7 +1041,7 @@ SELECT
         JOIN task_records task ON task.id = approval.source_task_id
         JOIN task_pending_approval_branches branch ON branch.approval_id = approval.id
         WHERE task.workflow_id = sqlc.arg(workflow_id)
-          AND json_extract(branch.target_snapshot_json, '$.entered_by_edge_id') = kent_graph_entity_id_text_v1(sqlc.arg(edge_id))
+          AND branch.edge_id = sqlc.arg(edge_id)
     ) AS pending_approval_count;
 
 -- name: GetWorkflowGraphActiveWorkPolicyImpact :one
@@ -2477,48 +2526,6 @@ SELECT
             FROM task_pending_approvals approval
             WHERE approval.source_session_id = sqlc.arg(session_id)
         )
-        OR EXISTS (
-            SELECT 1
-            FROM task_pending_approval_branches branch
-            WHERE (
-                json_extract(
-                    branch.context_source_resolution_json,
-                    '$.target_session.kind'
-                ) = 'reuse'
-                AND json_extract(
-                    branch.context_source_resolution_json,
-                    '$.target_session.session_id'
-                ) = sqlc.arg(session_id)
-            )
-            OR (
-                json_extract(
-                    branch.context_source_resolution_json,
-                    '$.active_source.kind'
-                ) = 'exact'
-                AND json_extract(
-                    branch.context_source_resolution_json,
-                    '$.active_source.session_id'
-                ) = sqlc.arg(session_id)
-            )
-            OR (
-                json_type(
-                    branch.context_source_resolution_json,
-                    '$.target_session'
-                ) IS NULL
-                AND json_type(
-                    branch.context_source_resolution_json,
-                    '$.active_source'
-                ) IS NULL
-                AND json_type(
-                    branch.context_source_resolution_json,
-                    '$.session_id'
-                ) = 'text'
-                AND json_extract(
-                    branch.context_source_resolution_json,
-                    '$.session_id'
-                ) = sqlc.arg(session_id)
-            )
-        )
     AS INTEGER) AS session_in_use;
 
 -- name: DeleteSessionRecordByID :execrows
@@ -3095,8 +3102,8 @@ INSERT INTO task_pending_approvals (
     source_node_id,
     source_transition_branch_key,
     source_session_id,
-    workflow_version,
-    transition_snapshot_json,
+    transition_group_id,
+    commentary,
     materialized_values_json,
     created_at_unix_ms
 ) VALUES (
@@ -3105,8 +3112,8 @@ INSERT INTO task_pending_approvals (
     sqlc.arg(source_node_id),
     sqlc.arg(source_transition_branch_key),
     sqlc.arg(source_session_id),
-    sqlc.arg(workflow_version),
-    sqlc.arg(transition_snapshot_json),
+    sqlc.arg(transition_group_id),
+    sqlc.narg(commentary),
     sqlc.arg(materialized_values_json),
     sqlc.arg(created_at_unix_ms)
 );
@@ -3115,15 +3122,11 @@ INSERT INTO task_pending_approvals (
 INSERT INTO task_pending_approval_branches (
     approval_id,
     transition_branch_key,
-    target_snapshot_json,
-    effective_edge_configuration_json,
-    context_source_resolution_json
+    edge_id
 ) VALUES (
     sqlc.arg(approval_id),
     sqlc.arg(transition_branch_key),
-    sqlc.arg(target_snapshot_json),
-    sqlc.arg(effective_edge_configuration_json),
-    sqlc.arg(context_source_resolution_json)
+    sqlc.arg(edge_id)
 );
 
 -- name: DeleteTaskPendingApproval :execrows
@@ -3168,8 +3171,8 @@ SELECT
     source_node_id,
     source_transition_branch_key,
     source_session_id,
-    workflow_version,
-    transition_snapshot_json,
+    transition_group_id,
+    commentary,
     materialized_values_json,
     created_at_unix_ms
 FROM task_pending_approvals
@@ -3183,8 +3186,8 @@ SELECT
     source_node_id,
     source_transition_branch_key,
     source_session_id,
-    workflow_version,
-    transition_snapshot_json,
+    transition_group_id,
+    commentary,
     materialized_values_json,
     created_at_unix_ms
 FROM task_pending_approvals
@@ -3201,8 +3204,8 @@ SELECT
     source_node_id,
     source_transition_branch_key,
     source_session_id,
-    workflow_version,
-    transition_snapshot_json,
+    transition_group_id,
+    commentary,
     materialized_values_json,
     created_at_unix_ms
 FROM task_pending_approvals
@@ -3212,9 +3215,7 @@ WHERE id = sqlc.arg(id);
 SELECT
     approval_id,
     transition_branch_key,
-    target_snapshot_json,
-    effective_edge_configuration_json,
-    context_source_resolution_json
+    edge_id
 FROM task_pending_approval_branches
 WHERE approval_id = sqlc.arg(approval_id)
 ORDER BY transition_branch_key;

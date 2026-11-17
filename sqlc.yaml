@@ -29,6 +29,26 @@ sql:
             go_type:
               type: "byte"
               slice: true
+          - column: "workflow_join_providers.node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_parameters.edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_input_bindings.edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_output_requirements.edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_join_providers.provider_edge_id"
+            go_type:
+              type: "byte"
+              slice: true
           - column: "workflow_node_groups.id"
             go_type:
               type: "byte"
@@ -66,6 +86,14 @@ sql:
               type: "byte"
               slice: true
           - column: "task_pending_approvals.source_node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "task_pending_approvals.transition_group_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "task_pending_approval_branches.edge_id"
             go_type:
               type: "byte"
               slice: true

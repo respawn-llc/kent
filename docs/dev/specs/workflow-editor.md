@@ -134,6 +134,7 @@
 - Save must follow the [definition-revision contract](declarative-workflows.md#definition-revisions), independently of file schema versioning.
 - If the file changes while its local Workflow Draft is unsaved, the editor must keep the Draft until the user chooses a conflict action.
 - The same remote-conflict behavior applies whether the editor was opened from Workflow Library or from a linked Project.
+- Workflow file dialogs must fit within small windows. Content that exceeds the available space must be scrollable.
 
 ## Workflow library and project links
 

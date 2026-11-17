@@ -393,7 +393,7 @@ func runLazyCompactionTaskInterrupt(t *testing.T, f *currentNodeRunnerFixture, a
 	case <-time.After(currentNodeRunnerWait):
 		t.Fatal("lazy compaction did not start")
 	}
-	target := approval.Branches[0].Target.CurrentNode.Reference.NodeID
+	target := approval.Branches[0].Target.Reference.NodeID
 	f.waitForCurrentNode(t, approval.Source.TaskID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 && nodes[0].Reference.NodeID == target
 	})
@@ -468,7 +468,7 @@ func TestLazyCompactAndContinueManualMoveFailureKeepsTarget(t *testing.T) {
 	if err := prepareLazyCompactionManualMove(t, f, approval)(); err != nil && !errors.Is(err, ErrScriptedRuntime) {
 		t.Fatalf("Manual Move: %v", err)
 	}
-	target := approval.Branches[0].Target.CurrentNode.Reference.NodeID
+	target := approval.Branches[0].Target.Reference.NodeID
 	f.waitForCurrentNode(t, approval.Source.TaskID, func(nodes []workflow.CurrentNode) bool {
 		return len(nodes) == 1 && nodes[0].Reference.NodeID == target &&
 			nodes[0].Scheduling != nil && nodes[0].Scheduling.Interruption != nil
@@ -487,7 +487,7 @@ func prepareLazyCompactionManualMove(t *testing.T, f *currentNodeRunnerFixture, 
 	}
 	prepared, err := f.store.PrepareManualMove(context.Background(), workflowstore.ManualMoveRequest{
 		TaskID:       approval.Source.TaskID,
-		TargetNodeID: approval.Branches[0].Target.CurrentNode.Reference.NodeID,
+		TargetNodeID: approval.Branches[0].Target.Reference.NodeID,
 	})
 	if err != nil {
 		t.Fatalf("prepare Manual Move: %v", err)
