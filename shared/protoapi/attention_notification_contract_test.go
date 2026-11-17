@@ -197,6 +197,7 @@ func TestQuestionAttentionOccurrenceMustBeAfterEpoch(t *testing.T) {
 			ApprovalId: "approval-1",
 			ApprovalSnapshot: &taskpb.ApprovalSnapshot{
 				SourceNodeDisplayName: "Implement",
+				ChoiceAvailability:    taskpb.ApprovalChoiceAvailability_APPROVAL_CHOICE_AVAILABILITY_AVAILABLE,
 			},
 		}}
 		if err := protoapi.Validate(message); err != nil {
