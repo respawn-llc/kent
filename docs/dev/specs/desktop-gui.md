@@ -1,5 +1,8 @@
 ## Authority, connection, and shared behavior
 
+- Desktop must support window-level New Chat shortcuts: Cmd+N and Cmd+Shift+N on macOS, and Ctrl+N and Ctrl+Shift+N on Linux and Windows. The current sidebar must take Project authority over the page behind it. If the current context does not identify one Project, the shortcuts must do nothing.
+- From Home with a selected Project, a Kanban board, or Task details, the unshifted shortcut must open an empty Chat with the default Agent in the same window; the shifted shortcut must open it in a new window. From an existing Session's Chat, both shortcuts must open an empty Chat in a new window with that Session's Agent and that Agent's default settings, without copying other Session settings.
+
 - Tooltips must not intercept pointer or scroll input. Tooltips must dismiss when their containing scroll surface scrolls.
 
 - Across all destinations, the global sidebar owner selects shifting only when the measured main pane has at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.

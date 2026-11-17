@@ -85,6 +85,7 @@ const chatRoute = createRoute({
 const newChatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: newChatRoutePath,
+  validateSearch: z.object({ agentRole: z.string().min(1).optional() }),
   component: NewChatRoute,
 });
 

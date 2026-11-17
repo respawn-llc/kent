@@ -22,11 +22,13 @@ export function createChatSettingsViewModel({
   client,
   target,
   t,
+  initialAgentRole,
 }: Readonly<{
   services: AppServices;
   client: QueryClient;
   target: Atom.Atom<ChatSettingsTarget | null>;
   t: TFunction;
+  initialAgentRole?: string | undefined;
 }>) {
   const report = (body: string) => {
     showStatusToast({
@@ -50,6 +52,12 @@ export function createChatSettingsViewModel({
               const result = await services.api.chat.getSettings(selected);
               if (result.kind !== selected.kind)
                 throw new ContractError("Chat Settings returned a different target kind.");
+              if (
+                result.kind === "new_chat" &&
+                initialAgentRole !== undefined &&
+                !result.catalog.choices.some((choice) => choice.agent.role === initialAgentRole)
+              )
+                throw new ContractError("Requested Agent is not in the New Chat catalog.");
               if (
                 result.kind === "session" &&
                 result.connectionReplacement !== undefined &&
@@ -76,7 +84,7 @@ export function createChatSettingsViewModel({
           error: result.error,
         };
       if (result.data !== undefined)
-        return edit?.source === result.data ? edit.state : loadedState(result.data);
+        return edit?.source === result.data ? edit.state : loadedState(result.data, initialAgentRole);
       return loadingState(selected?.kind ?? "new_chat");
     });
     const publishSettings = (snapshot: Pick<ChatSettingsSnapshot, "settings" | "session">) => {

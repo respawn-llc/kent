@@ -228,16 +228,25 @@ export function ChatRoute() {
 
 export function NewChatRoute() {
   const params = newChatRouteApi.useParams();
-  return <ChatRouteOpening key={params.projectId} projectID={params.projectId} sessionID={null} />;
+  const { agentRole } = newChatRouteApi.useSearch();
+  return (
+    <ChatRouteOpening
+      key={params.projectId}
+      projectID={params.projectId}
+      sessionID={null}
+      initialAgentRole={agentRole}
+    />
+  );
 }
 
 function ChatRouteOpening({
   projectID,
   sessionID,
-}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  initialAgentRole,
+}: Readonly<{ projectID: string; sessionID: string | null; initialAgentRole?: string | undefined }>) {
   return (
     <SidebarRootOwner>
-      <ChatRouteContent projectID={projectID} sessionID={sessionID} />
+      <ChatRouteContent projectID={projectID} sessionID={sessionID} initialAgentRole={initialAgentRole} />
     </SidebarRootOwner>
   );
 }
@@ -245,7 +254,8 @@ function ChatRouteOpening({
 function ChatRouteContent({
   projectID,
   sessionID,
-}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  initialAgentRole,
+}: Readonly<{ projectID: string; sessionID: string | null; initialAgentRole?: string | undefined }>) {
   const bookmark = useChatHistoryBookmark(projectID, sessionID);
   const appNavigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
@@ -263,7 +273,7 @@ function ChatRouteContent({
     <ChatDestination
       opening={
         bookmark.sessionID === null
-          ? { kind: "new_chat", projectID, workspace: null }
+          ? { kind: "new_chat", projectID, workspace: null, initialAgentRole }
           : { kind: "session", projectID, sessionID: bookmark.sessionID }
       }
       navigation={navigation}

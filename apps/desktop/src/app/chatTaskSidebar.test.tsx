@@ -15,6 +15,7 @@ await mock.module("@tanstack/react-router", () => ({
   ...actualRouter,
   getRouteApi: () => ({
     useParams: () => ({ projectId: "project-1", sessionId: "session-1" }),
+    useSearch: () => ({}),
   }),
 }));
 await mock.module("@/app-facade", () => ({

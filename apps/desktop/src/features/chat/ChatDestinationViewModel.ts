@@ -17,7 +17,12 @@ import { createNewChatGoalBinding } from "./goal/goalBinding";
 
 export type ChatDestinationOpening =
   | Extract<ChatSettingsTarget, { kind: "session" }>
-  | Readonly<{ kind: "new_chat"; projectID: string; workspace: WorkspaceCatalogRow | null }>;
+  | Readonly<{
+      kind: "new_chat";
+      projectID: string;
+      workspace: WorkspaceCatalogRow | null;
+      initialAgentRole?: string | undefined;
+    }>;
 
 export function createChatDestinationViewModel({
   opening,
@@ -45,7 +50,13 @@ export function createChatDestinationViewModel({
             workspace: { workspaceID: selected.workspace.id },
           };
   });
-  const settings = createChatSettingsViewModel({ services, client, t, target });
+  const settings = createChatSettingsViewModel({
+    services,
+    client,
+    t,
+    target,
+    initialAgentRole: opening.kind === "new_chat" ? opening.initialAgentRole : undefined,
+  });
   const catalog = createChatCommandCatalogViewModel({ services, client, target });
   const submission = Atom.make((get): ComposerSubmission => {
     const value = get(settings.state);

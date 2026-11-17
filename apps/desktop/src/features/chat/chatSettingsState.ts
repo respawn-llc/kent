@@ -34,7 +34,10 @@ export type SettingsAction =
 export function loadingState(kind: ChatSettingsTarget["kind"]): SettingsState {
   return { kind: kind === "new_chat" ? "loading-new-chat" : "loading-session" };
 }
-export function loadedState(response: ChatSettingsRead): ReadyNewChat | ReadySession {
+export function loadedState(
+  response: ChatSettingsRead,
+  initialAgentRole?: string,
+): ReadyNewChat | ReadySession {
   if (response.kind === "session") {
     return {
       kind: "ready-session",
@@ -44,7 +47,7 @@ export function loadedState(response: ChatSettingsRead): ReadyNewChat | ReadySes
     };
   }
   const selected = response.catalog.choices.find(
-    (choice) => choice.agent.role === response.catalog.initialAgentRole,
+    (choice) => choice.agent.role === (initialAgentRole ?? response.catalog.initialAgentRole),
   );
   if (selected === undefined) throw new Error("Initial Agent is not in the New Chat catalog.");
   return { kind: "ready-new-chat", catalog: response.catalog, initialSettings: selected.baseline };
