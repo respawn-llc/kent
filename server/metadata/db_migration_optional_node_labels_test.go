@@ -34,7 +34,7 @@ func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 		`SELECT * FROM workflow_edges ORDER BY id`,
 		`SELECT * FROM workflows ORDER BY id`,
 		`SELECT * FROM project_workflow_links ORDER BY id`,
-		`SELECT * FROM tasks ORDER BY id`,
+		taskMigrationFactsQuery,
 		`SELECT * FROM task_current_nodes ORDER BY task_id, node_id`,
 		`SELECT * FROM task_pending_approvals ORDER BY id`,
 		`SELECT * FROM task_pending_approval_branches ORDER BY approval_id, transition_branch_key`,
@@ -83,6 +83,15 @@ func TestOptionalNodeLabelsMigrationAllowsEmptyLabels(t *testing.T) {
 		assertSQLiteConstraint(t, db, sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name) VALUES ('missing-workflow', x'550e8400e29b41d4a716446655440009', 'missing', 'agent', '')`)
 	})
 }
+
+// Compare the facts present before these migrations, not columns added by later migrations.
+const taskMigrationFactsQuery = `SELECT
+id, project_workflow_link_id, workflow_revision_seen, task_seq, short_id,
+title, body, source_url, source_workspace_id, managed_worktree_id,
+execution_target_mode, execution_target_requested_ref, execution_target_resolved_ref,
+execution_target_commit_oid, execution_target_provenance,
+created_at_unix_ms, updated_at_unix_ms, metadata_json, pending_initial_managed_branch_name
+FROM tasks ORDER BY id`
 
 func optionalNodeLabelMigrationRows(t *testing.T, db *sql.DB, query string) [][]any {
 	t.Helper()

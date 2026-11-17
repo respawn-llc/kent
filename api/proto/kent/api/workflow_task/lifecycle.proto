@@ -193,6 +193,17 @@ message UpdateRequest {
   ];
   optional string body = 3;
   optional string source_workspace_id = 4 [(buf.validate.field).string.min_len = 1];
+  oneof pr_url_change {
+    string pr_url = 5 [
+      (buf.validate.field).string = {min_len: 1, uri: true},
+      (buf.validate.field).cel = {
+        id: "kent.workflow_task.pr_url_http"
+        message: "pull request URL must use HTTP or HTTPS"
+        expression: "this.lowerAscii().startsWith('http://') || this.lowerAscii().startsWith('https://')"
+      }
+    ];
+    google.protobuf.Empty clear_pr_url = 6;
+  }
 }
 
 message UpdateSuccess {

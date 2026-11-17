@@ -231,6 +231,7 @@ func (b *Board) card(projected TaskStatusProjectionResult, labelIDs []string, so
 		Actions:            projected.Actions,
 		LabelIds:           labelIDs,
 		DependencyProgress: dependencyProgress,
+		PrUrl:              metadata.OptionalString(task.PrUrl),
 		UpdatedAt:          timestamppb.New(time.UnixMilli(task.UpdatedAtUnixMs)),
 	}, projected.Done
 }

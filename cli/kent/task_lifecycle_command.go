@@ -23,6 +23,7 @@ import (
 	"core/shared/worktreecontract"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -198,6 +199,7 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	body := fs.String("body", "", "replace the task body; pass an empty value to clear")
 	bodyFile := fs.String("body-file", "", "replace the task body with this file; an empty file clears it")
 	sourceWorkspace := fs.String("source-workspace", "", "replace the source workspace with this workspace ID or path")
+	prURL := fs.String("pr-url", "", "replace the pull request or merge request URL; pass an empty value to clear")
 	projectRef := fs.String("project", ".", "project ID or attached workspace path used to resolve a short ID")
 	jsonOut := fs.Bool("json", false, "write the updated task as JSON")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
@@ -213,8 +215,9 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	bodyProvided := flagExplicit(fs, "body")
 	bodyFileProvided := flagExplicit(fs, "body-file")
 	workspaceProvided := flagExplicit(fs, "source-workspace")
-	if !titleProvided && !bodyProvided && !bodyFileProvided && !workspaceProvided {
-		fmt.Fprintln(stderr, "task edit requires at least one of --title, --body, --body-file, or --source-workspace")
+	prURLProvided := flagExplicit(fs, "pr-url")
+	if !titleProvided && !bodyProvided && !bodyFileProvided && !workspaceProvided && !prURLProvided {
+		fmt.Fprintln(stderr, "task edit requires at least one of --title, --body, --body-file, --source-workspace, or --pr-url")
 		return 2
 	}
 	if bodyProvided && bodyFileProvided {
@@ -229,6 +232,13 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		// Send title only when provided; omitting it leaves the persisted title unchanged.
 		req := &taskpb.UpdateRequest{TaskId: taskID}
+		if prURLProvided {
+			if *prURL == "" {
+				req.PrUrlChange = &taskpb.UpdateRequest_ClearPrUrl{ClearPrUrl: &emptypb.Empty{}}
+			} else {
+				req.PrUrlChange = &taskpb.UpdateRequest_PrUrl{PrUrl: *prURL}
+			}
+		}
 		if titleProvided {
 			req.Title = title
 		}

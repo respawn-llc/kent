@@ -45,6 +45,7 @@ const card: KanbanCardVM = {
   labels: [],
   borderTone: "default",
   dependencyProgress: null,
+  prURL: null,
   workspaceChipLabel: null,
   updatedAt: 1,
 };

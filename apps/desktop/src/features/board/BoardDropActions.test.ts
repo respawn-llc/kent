@@ -61,6 +61,7 @@ describe("toKanbanCardVM", () => {
       },
       activeNodeIDs: [],
       dependencyProgress: null,
+      prURL: null,
       id: "task-1",
       labelIDs: [betaID, alphaID],
       preview: { markdown: "", truncated: false },

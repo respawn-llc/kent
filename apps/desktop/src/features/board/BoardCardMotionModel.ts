@@ -177,6 +177,7 @@ function cardContentEqual(left: KanbanCardVM, right: KanbanCardVM): boolean {
     left.statusKind === right.statusKind &&
     labelsEqual(left.labels, right.labels) &&
     left.workspaceChipLabel === right.workspaceChipLabel &&
+    left.prURL === right.prURL &&
     left.borderTone === right.borderTone &&
     arrayEqual(left.activeNodeIDs, right.activeNodeIDs)
   );

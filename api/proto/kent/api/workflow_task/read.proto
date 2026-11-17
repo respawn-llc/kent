@@ -653,6 +653,7 @@ message BoardTaskCard {
   ];
   optional DependencyProgress dependency_progress = 11;
   google.protobuf.Timestamp updated_at = 12 [(buf.validate.field).required = true];
+  optional string pr_url = 13 [(buf.validate.field).string.min_len = 1];
 }
 
 message Board {
@@ -893,6 +894,7 @@ message TaskDetail {
   ];
   int32 attention_count = 16 [(buf.validate.field).int32.gte = 0];
   TaskDependencies dependencies = 17 [(buf.validate.field).required = true];
+  optional string pr_url = 18 [(buf.validate.field).string.min_len = 1];
 
   option (buf.validate.message).cel = {
     id: "kent.workflow_task.live_sessions_sorted_unique"

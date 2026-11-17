@@ -349,7 +349,13 @@ export function PropertiesIsland({
         />
         <TaskExecutionTargetFacts detail={detail} />
         <TaskPropertyLine label={t("task.workflow")} value={detail.workflowName} />
-        <SourceLine label={t("task.source")} onOpen={openExternalLink} value={detail.sourceURL} />
+        <TaskLinkLine
+          label={t("task.source")}
+          onOpen={openExternalLink}
+          value={detail.sourceURL}
+          testID="task-source-link"
+        />
+        <TaskLinkLine label={t("task.pullRequest")} onOpen={openExternalLink} value={detail.prURL} />
         <TaskPropertyLine label={t("task.sessions")} value={detail.retainedSessionCount.toString()} />
         {detail.currentNodes.map((node) => (
           <TaskCurrentNodeSelectionProperties key={node.nodeID} node={node} />
@@ -533,11 +539,12 @@ function taskStatusTextClassName(tone: ReturnType<typeof taskStatusTone>): strin
   return "text-[var(--color-muted)]";
 }
 
-function SourceLine({
+function TaskLinkLine({
   label,
   onOpen,
   value,
-}: Readonly<{ label: string; onOpen: (url: string) => void; value: string | null }>) {
+  testID,
+}: Readonly<{ label: string; onOpen: (url: string) => void; value: string | null; testID?: string }>) {
   if (value === null) return null;
   const trimmed = value.trim();
   if (trimmed.length === 0) {
@@ -553,7 +560,7 @@ function SourceLine({
       value={
         <a
           className="truncate text-[var(--color-primary)] underline-offset-2 hover:underline"
-          data-testid="task-source-link"
+          data-testid={testID}
           href={href}
           onClick={(event) => {
             event.preventDefault();

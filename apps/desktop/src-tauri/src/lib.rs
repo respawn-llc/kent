@@ -13,6 +13,7 @@ use tauri_plugin_dialog::DialogExt;
 mod clipboard;
 mod main_window;
 mod native_glass;
+mod output_files;
 mod settings;
 mod speech;
 #[cfg(target_os = "linux")]
@@ -705,6 +706,8 @@ pub fn run() {
             select_directory,
             select_file,
             file_available,
+            output_files::inspect_output_file,
+            output_files::read_output_image,
             open_file_path,
             open_file_default,
             open_external_url,
@@ -775,7 +778,7 @@ fn resolve_user_file_path(path: &str, base_path: &str) -> Result<PathBuf, String
     if trimmed_path.is_empty() {
         return Err("File path is required.".to_string());
     }
-    let path = PathBuf::from(trimmed_path);
+    let path = PathBuf::from(path);
     if path.is_absolute() {
         return Ok(clean_path(&path));
     }

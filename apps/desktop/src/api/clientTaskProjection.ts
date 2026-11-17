@@ -181,6 +181,7 @@ export function boardNodeCardsPage(value: pb.BoardNodeCardsListSuccessValid): Bo
     nextOffset: value.nextOffset ?? null,
     cards: value.cards.map((card) => {
       return {
+        prURL: card.prUrl ?? null,
         id: card.taskId,
         shortID: card.shortId,
         title: card.title,
@@ -341,6 +342,7 @@ export function taskDetail(value: pb.TaskDetailValid): TaskDetail {
     title: value.summary.title,
     body: value.body,
     sourceURL: value.sourceUrl ?? null,
+    prURL: value.prUrl ?? null,
     sourceWorkspace: taskSourceWorkspace(value.sourceWorkspace),
     status: taskStatus(value.status),
     actions: taskActions(value.actions),

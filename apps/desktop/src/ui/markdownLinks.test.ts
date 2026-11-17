@@ -4,6 +4,16 @@ import { safeExternalUrl } from "./externalLinks";
 import { markdownLinkTarget } from "./markdownLinkTarget";
 
 describe("Markdown link targets", () => {
+  it("keeps literal filesystem names separate from URI decoding", () => {
+    expect(markdownLinkTarget("file:///tmp/a%2520%23%3F.png")).toEqual({
+      kind: "file",
+      path: "/tmp/a%20#?.png",
+    });
+    expect(markdownLinkTarget("../images/a%20b.png", true)).toEqual({
+      kind: "file",
+      path: "../images/a b.png",
+    });
+  });
   it.each([
     "/Users/nek/My Project/源.ts",
     "/Users/nek/My%20Project/%E6%BA%90.ts",

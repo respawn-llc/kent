@@ -10,15 +10,19 @@ import { TaskResumeButton } from "./TaskResumeButton";
 import { TaskDetailCopyableValue } from "./TaskDetailCopyableValue";
 import { taskDetailIslandRadius } from "./taskDetailIslandStyles";
 import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
+import { WorkflowParameterOutput, type WorkflowOutputRoot } from "@/shared/workflow-parameter-output";
+import { Copy } from "lucide-react";
 
 export { QuestionBox } from "./TaskDetailQuestionForm";
 
 export function ApprovalBox({
   attention,
   mutations,
+  outputRoot,
 }: Readonly<{
   attention: ApprovalAttentionItem;
   mutations: TaskDetailLifecycle;
+  outputRoot: WorkflowOutputRoot;
 }>) {
   const { t } = useTranslation();
   const snapshot = attention.approvalSnapshot;
@@ -60,7 +64,7 @@ export function ApprovalBox({
           {snapshot.commentary.length > 0 ? (
             <p className="m-0 whitespace-pre-wrap text-sm text-[var(--color-muted)]">{snapshot.commentary}</p>
           ) : null}
-          <ApprovalOutputValues outputValues={snapshot.outputValues} />
+          <ApprovalOutputValues outputValues={snapshot.outputValues} root={outputRoot} />
           {snapshot.choiceAvailability === "unavailable" ? (
             <p className="m-0 text-sm text-[var(--color-warning)]">{t("task.approvalChoiceUnavailable")}</p>
           ) : null}
@@ -124,7 +128,8 @@ export function InterruptedCurrentNodeBox({
 
 function ApprovalOutputValues({
   outputValues,
-}: Readonly<{ outputValues: Readonly<Record<string, string>> }>) {
+  root,
+}: Readonly<{ outputValues: Readonly<Record<string, string>>; root: WorkflowOutputRoot }>) {
   const { t } = useTranslation();
   const entries = Object.entries(outputValues);
   if (entries.length === 0) {
@@ -136,11 +141,13 @@ function ApprovalOutputValues({
         <div className="grid gap-[var(--space-2)]" key={name}>
           <div className="grid gap-[var(--space-1)]">
             <strong className="text-sm">{name}</strong>
+            <WorkflowParameterOutput value={value} root={root} />
             <TaskDetailCopyableValue
+              className="justify-self-start"
               clipboardValue={value}
               kind={{ kind: "transition_output", outputName: name }}
             >
-              {value}
+              <Copy size={14} />
             </TaskDetailCopyableValue>
           </div>
           {index < entries.length - 1 ? (

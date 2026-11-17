@@ -574,8 +574,10 @@
 - Selection-required output identifies the reason and concrete rerun flags.
 - Task start exposes the same typed outcome in JSON.
 - `kent task start`, `kent task resume`, and `kent task move` must report success only after the server completes preparation and commits the action's atomic cutover. They must not wait for Agent or Script execution to finish. If a command stops waiting or loses its connection, the server operation must continue. The CLI must not replay it and must direct the operator to inspect authoritative Task state.
-- `kent task edit <task>` changes a Task's title, body, or source workspace.
-- Task edit requires at least one of `--title`, `--body`, `--body-file`, or `--source-workspace`.
+- `kent task edit <task>` changes a Task's title, body, source workspace, or pull request URL.
+- Task edit requires at least one of `--title`, `--body`, `--body-file`, `--source-workspace`, or `--pr-url`.
+- `kent task edit <task> --pr-url <url>` must set or replace the pull request URL. An explicitly empty `--pr-url` value must clear it. Omitting the option must leave it unchanged.
+- Human and JSON `kent task show` output must expose the Task's pull request URL when present.
 - When `--title` is absent, Task edit must not change the current title.
 - Agents can use Task edit.
 - `--json` prints the Task edit result.

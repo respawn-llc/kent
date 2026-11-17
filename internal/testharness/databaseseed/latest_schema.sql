@@ -272,7 +272,7 @@ CREATE TABLE "tasks" (
             AND execution_target_mode IS NULL
             AND managed_worktree_id IS NULL
         )
-    ),
+    ), pr_url TEXT,
     CHECK (
         (
             execution_target_mode IS NULL
@@ -484,6 +484,7 @@ SELECT
     task.title,
     task.body,
     task.source_url,
+    task.pr_url,
     task.source_workspace_id,
     task.managed_worktree_id,
     task.pending_initial_managed_branch_name,

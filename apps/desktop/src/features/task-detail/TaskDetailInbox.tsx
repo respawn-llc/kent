@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AttentionItem, TaskDetail } from "@/api";
 import type { TaskDetailInitialFocus } from "@/app-facade";
 import { sameTaskDetailInitialFocus } from "@/app-facade";
@@ -10,6 +10,8 @@ import { promptAnswerKey, type PromptAnswerKey, type PromptAnswerState } from ".
 import { PromptPrimaryControlRegistry, type PromptPrimaryFocusRequest } from "./PromptPrimaryControlRegistry";
 import type { TaskDetailLifecycle } from "./TaskDetailLifecycleActions";
 import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
+import { taskOutputRoot } from "./taskExecutionTarget";
+import type { WorkflowOutputRoot } from "@/shared/workflow-parameter-output";
 
 export function TaskInbox({
   answerQuestion,
@@ -34,6 +36,13 @@ export function TaskInbox({
   const missingFocusLogKeyRef = useRef<TaskDetailInitialFocus | null>(null);
   const [primaryControls] = useState(() => new PromptPrimaryControlRegistry());
   const focusedAttentionID = focusedAttentionItemID(attentionItems, initialFocus);
+  const executionMode = detail.executionTarget?.mode;
+  const worktreePath = detail.worktreePath;
+  const sourceWorkspaceRoot = detail.sourceWorkspace.rootPath;
+  const outputRoot = useMemo(
+    () => taskOutputRoot(executionMode, worktreePath, sourceWorkspaceRoot),
+    [executionMode, worktreePath, sourceWorkspaceRoot],
+  );
 
   useLayoutEffect(() => {
     if (primaryFocusRequest !== undefined) {
@@ -68,6 +77,7 @@ export function TaskInbox({
           primaryControls={primaryControls}
           promptAnswerState={promptAnswerState}
           task={detail}
+          outputRoot={outputRoot}
         />
       ))}
     </>
@@ -122,6 +132,7 @@ function InboxItem({
   primaryControls,
   promptAnswerState,
   task,
+  outputRoot,
 }: Readonly<{
   answerQuestion: QuestionAnswerAction;
   attention: AttentionItem;
@@ -131,6 +142,7 @@ function InboxItem({
   primaryControls: PromptPrimaryControlRegistry;
   promptAnswerState: PromptAnswerState;
   task: TaskDetail;
+  outputRoot: WorkflowOutputRoot;
 }>) {
   const focusTargetRef = useRef<HTMLDivElement | null>(null);
 
@@ -170,7 +182,11 @@ function InboxItem({
   if (attention.kind === "approval") {
     return (
       <div ref={focusTargetRef}>
-        <ApprovalBox attention={attention} mutations={mutations} />
+        <ApprovalBox
+          attention={attention}
+          mutations={mutations}
+          outputRoot={outputRoot}
+        />
       </div>
     );
   }

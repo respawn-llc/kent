@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { GitPullRequest, Maximize2, Minimize2 } from "lucide-react";
 import { useDragSource, useDropTarget } from "@app/ui-kit";
 
 import { formatRelativeTime } from "@/app-facade";
@@ -22,6 +22,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
+  ControlTooltip,
   InfiniteListBoundary,
   OneLineOverflowRow,
   Popover,
@@ -39,6 +40,7 @@ import { useBoardCardInstanceVisibility } from "./BoardCardVisibilityRegistry";
 import type { KanbanCardVM, KanbanColumnVM, KanbanGroupVM } from "./BoardColumnViewModel";
 import { useBoardCardMotion } from "./BoardCardMotionContext";
 import { BoardDependencyProgressChip } from "./BoardDependencyProgressChip";
+import { useOpenExternalLink } from "@/app-facade";
 import { BoardTaskCardActions } from "./BoardTaskCardActions";
 import { useOwnedSidebarRoots } from "@/app-facade";
 import { TaskSessionPicker } from "@/shared/task-session-chat";
@@ -476,6 +478,7 @@ const TaskCard = memo(function TaskCard({
                         testID="task-card-active-run-spinner"
                       />
                     ) : null}
+                    <TaskCardPRLink url={card.prURL} />
                     {card.workspaceChipLabel !== null ? (
                       <span className="inline-flex shrink-0 items-center" data-testid="task-card-chip-slot">
                         <Badge tone="neutral">{card.workspaceChipLabel}</Badge>
@@ -535,12 +538,43 @@ function taskCardFooter(card: KanbanCardVM, pendingAction: boolean) {
     loading,
     visible:
       loading ||
+      card.prURL !== null ||
       card.workspaceChipLabel !== null ||
       card.dependencyProgress !== null ||
       card.labels.length > 0 ||
       card.actions.canInterrupt ||
       card.actions.canResume,
   };
+}
+
+function TaskCardPRLink({ url }: Readonly<{ url: string | null }>) {
+  const { t } = useTranslation();
+  const openExternalLink = useOpenExternalLink();
+  if (url === null) return null;
+  return (
+    <ControlTooltip label={t("task.pullRequest")}>
+      <a
+        className="inline-flex shrink-0 text-[var(--color-muted)]"
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        onPointerDown={(event) => {
+          event.stopPropagation();
+        }}
+        onDragStart={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openExternalLink(url);
+        }}
+      >
+        <GitPullRequest size={16} />
+      </a>
+    </ControlTooltip>
+  );
 }
 
 function TaskCardDependencyProgress({ card }: Readonly<{ card: KanbanCardVM }>): ReactNode {

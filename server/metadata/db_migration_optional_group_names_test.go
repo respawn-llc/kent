@@ -23,7 +23,7 @@ func TestOptionalGroupNamesMigrationPreservesGraphAndNullableNames(t *testing.T)
 		`SELECT rowid, * FROM workflow_node_groups ORDER BY rowid`,
 		`SELECT * FROM workflow_nodes ORDER BY id`,
 		`SELECT * FROM workflow_edges ORDER BY id`,
-		`SELECT * FROM tasks ORDER BY id`,
+		taskMigrationFactsQuery,
 		`SELECT * FROM task_current_nodes ORDER BY task_id, node_id`,
 	}
 	before := make([][][]any, len(queries))

@@ -21,11 +21,21 @@ export type NativeFileTarget = Readonly<{
   basePath?: string | undefined;
 }>;
 
+export type NativeFileInspection = Readonly<{
+  kind: "unavailable" | "missing" | "file" | "image" | "preview_ineligible";
+}>;
+
+export type NativeImagePreview =
+  | Readonly<{ kind: "unavailable" | "missing" | "preview_ineligible" }>
+  | Readonly<{ kind: "image"; url: string; release(): void }>;
+
 export type NativeDirectoryBridge = Readonly<{
   selectDirectory(options: NativeDirectoryPickerOptions): Promise<NativeDirectorySelection>;
 }>;
 
 export type NativeFileBridge = Readonly<{
+  inspectOutputFile(target: NativeFileTarget): Promise<NativeFileInspection>;
+  readOutputImage(target: NativeFileTarget): Promise<NativeImagePreview>;
   selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection>;
   fileAvailable(target: NativeFileTarget): Promise<boolean>;
   openFile(target: NativeFileTarget): Promise<void>;
@@ -42,6 +52,12 @@ export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
 
 export function createBrowserFileBridge(): NativeFileBridge {
   return {
+    async inspectOutputFile() {
+      return { kind: "unavailable" };
+    },
+    async readOutputImage() {
+      return { kind: "unavailable" };
+    },
     async selectFile(): Promise<NativeFileSelection> {
       throw new Error("File selection is unavailable in this shell.");
     },
@@ -68,6 +84,24 @@ export function createTauriDirectoryBridge(): NativeDirectoryBridge {
 
 export function createTauriFileBridge(): NativeFileBridge {
   return {
+    async inspectOutputFile(target) {
+      return invoke<NativeFileInspection>("inspect_output_file", target);
+    },
+    async readOutputImage(target) {
+      const preview = await invoke<Exclude<NativeImagePreview, { kind: "image" }> | ArrayBuffer>(
+        "read_output_image",
+        target,
+      );
+      if (!(preview instanceof ArrayBuffer)) return preview;
+      const url = URL.createObjectURL(new Blob([preview]));
+      return {
+        kind: "image",
+        url,
+        release: () => {
+          URL.revokeObjectURL(url);
+        },
+      };
+    },
     async selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection> {
       const path = await invoke<string | null>("select_file", { title: options.title });
       return path === null ? null : { path };
