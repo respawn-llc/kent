@@ -39,7 +39,13 @@ await mock.module("@/features/chat", () => ({
         >
           Deliver
         </button>
-        <button onClick={() => { navigation.openTask("task-1"); }}>Task</button>
+        <button
+          onClick={() => {
+            navigation.openTask("task-1");
+          }}
+        >
+          Task
+        </button>
       </div>
     );
   },
@@ -52,7 +58,9 @@ await mock.module("@/features/task-detail", () => ({
 }));
 const { createAppRouter } = await import("./routes");
 
-afterEach(() => { vi.restoreAllMocks(); });
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 it("opens same-window Chat from a secondary Task window with its required shell", async () => {
   const path = "/native-dialog/task-detail?taskID=task-1";
@@ -86,7 +94,9 @@ it("does not register main-window navigation or notification controllers in a se
   );
   await screen.findByTestId("chat-destination");
   await act(async () => router.load());
-  await waitFor(() => { expect(navigation).not.toHaveBeenCalled(); });
+  await waitFor(() => {
+    expect(navigation).not.toHaveBeenCalled();
+  });
   expect(activations).not.toHaveBeenCalled();
 });
 

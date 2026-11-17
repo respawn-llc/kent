@@ -207,7 +207,7 @@ export function useAppNavigation(): AppNavigation {
         });
       },
       async openNewChat(projectID) {
-        await runNavigation(async () => {
+        await runNavigationTransition(async () => {
           await navigate({
             to: newChatRoutePath,
             params: { projectId: projectID },

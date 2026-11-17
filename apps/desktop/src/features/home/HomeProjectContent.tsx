@@ -15,6 +15,7 @@ import {
   projectOpeningTab,
   useDesktopSettings,
   writeLastProjectContentTab,
+  useStatusController,
 } from "@/app-facade";
 import {
   directionalBoundary,
@@ -65,6 +66,7 @@ function ProjectContentTabs({
 }>) {
   const navigation = useAppNavigation();
   const { t } = useTranslation();
+  const { push } = useStatusController();
   const { storageNamespace } = useAppServices();
   const settings = useDesktopSettings();
   const [tab, setTab] = useState<ProjectContentTab>(() => {
@@ -96,7 +98,14 @@ function ProjectContentTabs({
                 ariaLabel: t("chat.newChat"),
                 children: <Plus size={14} />,
                 onClick: () => {
-                  void navigation.openNewChat(projectID);
+                  void navigation.openNewChat(projectID).catch((error: unknown) => {
+                    push({
+                      id: "new-chat-navigation-error",
+                      tone: "danger",
+                      title: t("states.error"),
+                      body: errorMessage(error),
+                    });
+                  });
                 },
               },
             },
