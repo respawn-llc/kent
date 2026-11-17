@@ -212,7 +212,7 @@ func TestModelDisplayLabel(t *testing.T) {
 		{model: "gpt-6-sol", thinkingLevel: "high", want: "gpt-6-sol high"},
 		{model: "claude-3-7-sonnet", thinkingLevel: "high", want: "claude-3-7-sonnet high"},
 		{model: "custom-alias", thinkingLevel: "high", want: "custom-alias high"},
-		{model: "", thinkingLevel: "", want: "gpt-6.1-sol"},
+		{model: "", thinkingLevel: "", want: "gpt-6.2-sol"},
 	}
 
 	for _, tc := range tests {
