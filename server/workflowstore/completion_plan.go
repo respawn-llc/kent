@@ -200,30 +200,34 @@ func (s *Store) CommitCurrentNodeCompletion(ctx context.Context, prepared Curren
 }
 
 func (s *Store) PlanPendingApproval(ctx context.Context, id workflow.ApprovalID) (prepared PendingApprovalPlan, resultErr error) {
-	approval, err := s.PendingApproval(ctx, id)
+	facts, err := pendingApprovalByID(ctx, s.queries, id)
 	if err != nil {
 		return PendingApprovalPlan{}, err
-	}
-	if !approval.ChoiceAvailable() {
-		return PendingApprovalPlan{}, &TaskContextSelectionRequiredError{TaskID: approval.Source.TaskID}
 	}
 	defer func() {
 		var validation CompletionValidationError
 		var unavailable workflow.RetainedTargetUnavailableError
 		if errors.As(resultErr, &validation) || errors.As(resultErr, &unavailable) || errors.Is(resultErr, sql.ErrNoRows) {
-			resultErr = fmt.Errorf("%w: %w", &TaskContextSelectionRequiredError{TaskID: approval.Source.TaskID}, resultErr)
+			resultErr = fmt.Errorf("%w: %w", &TaskContextSelectionRequiredError{TaskID: facts.Source.TaskID}, resultErr)
 		}
 	}()
-	if err := s.requireTaskContextSelectionResolved(ctx, s.queries, approval.Source.TaskID); err != nil {
+	if err := s.requireTaskContextSelectionResolved(ctx, s.queries, facts.Source.TaskID); err != nil {
 		return PendingApprovalPlan{}, err
 	}
-	task, err := s.queries.GetTask(ctx, string(approval.Source.TaskID))
+	task, err := s.queries.GetTask(ctx, string(facts.Source.TaskID))
 	if err != nil {
 		return PendingApprovalPlan{}, err
 	}
 	definition, record, err := workflowDefinitionFromQueries(ctx, s.queries, task.WorkflowID)
 	if err != nil {
 		return PendingApprovalPlan{}, err
+	}
+	approval, selected, err := newPendingApprovalResolver(definition).resolve(facts)
+	if err != nil {
+		return PendingApprovalPlan{}, err
+	}
+	if !approval.ChoiceAvailable() {
+		return PendingApprovalPlan{}, &TaskContextSelectionRequiredError{TaskID: approval.Source.TaskID}
 	}
 	current, err := s.currentNodeForReference(ctx, s.queries, approval.Source)
 	if err != nil {
@@ -232,22 +236,6 @@ func (s *Store) PlanPendingApproval(ctx context.Context, id workflow.ApprovalID)
 	source, err := currentNodeDefinitionNode(definition, current.Reference.NodeID)
 	if err != nil {
 		return PendingApprovalPlan{}, err
-	}
-	edges := make(map[workflow.EdgeID]workflow.Edge, len(definition.Edges))
-	for _, edge := range definition.Edges {
-		edges[edge.ID] = edge
-	}
-	selected := make([]currentNodeCompletionTarget, 0, len(approval.Branches))
-	for _, branch := range approval.Branches {
-		edge, ok := edges[branch.EdgeID]
-		if !ok || edge.TransitionGroupID != approval.Transition.Group.ID {
-			return PendingApprovalPlan{}, errors.New("pending approval selected branch is missing")
-		}
-		node, err := currentNodeDefinitionNode(definition, edge.TargetNodeID)
-		if err != nil {
-			return PendingApprovalPlan{}, err
-		}
-		selected = append(selected, currentNodeCompletionTarget{Edge: edge, Node: node})
 	}
 	if len(selected) == 0 {
 		return PendingApprovalPlan{}, errors.New("pending approval has no target branches")
