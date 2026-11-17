@@ -37,6 +37,7 @@ export function createNewSessionShortcutViewModel({
     scope: { id: crypto.randomUUID() },
     mutationFn: async ({ newWindow, currentDestination }: Input) => {
       if (!(await services.nativeBridge.window.isFocused())) return;
+      if (!observer.hasListeners()) return;
       const { source, openNewChat } = currentDestination();
       if (source === null) return;
       if (source.kind === "new_chat" && (!newWindow || !services.nativeBridge.app.isMainWindow())) return;

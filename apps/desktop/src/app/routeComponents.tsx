@@ -1,4 +1,4 @@
-import { getRouteApi, Outlet, useMatch } from "@tanstack/react-router";
+import { getRouteApi, Outlet, useLocation, useMatch } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -51,8 +51,8 @@ const routeRestoreSessionKey = "desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
 
 export function RootRoute() {
-  const isNativeDialogWindow =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/native-dialog/");
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const isNativeDialogWindow = pathname.startsWith("/native-dialog/");
   if (isNativeDialogWindow) {
     return (
       <StartupGate>

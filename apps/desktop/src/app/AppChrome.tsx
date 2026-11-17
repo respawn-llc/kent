@@ -92,9 +92,13 @@ function AppChromeContent({
       }
     >
       <TaskSearchHost />
-      <MainWindowNavigation />
       <MainNewSessionShortcuts />
-      <AttentionController />
+      {nativeBridge.app.isMainWindow() ? (
+        <>
+          <MainWindowNavigation />
+          <AttentionController />
+        </>
+      ) : null}
       <div
         className="min-h-0 min-w-0 flex-1 overflow-visible"
         data-testid="app-main-content"
