@@ -20,6 +20,8 @@ interface Capability {
   readonly capture: Readonly<{ read: () => unknown }> | null;
 }
 interface PendingRoot {
+  readonly lifecycle: Promise<SidebarRootOutcome>;
+  ownerID: symbol;
   resolve(outcome: SidebarRootOutcome): void;
 }
 export interface SidebarStackEntry {
@@ -66,6 +68,21 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
         clearTimeout(closeTimeout);
         closeTimeout = undefined;
       }
+    };
+    const createRootHandle = (ownedRoot: PendingRoot): SidebarRootHandle => {
+      const ownerID = Symbol("sidebar-root-handle");
+      ownedRoot.ownerID = ownerID;
+      return {
+        lifecycle: ownedRoot.lifecycle,
+        release: () => {
+          if (root !== ownedRoot || ownedRoot.ownerID !== ownerID) {
+            return;
+          }
+          settle(ownedRoot, "released");
+          clearCloseTimeout();
+          emit([], "open", null);
+        },
+      };
     };
     const updateCapability = (id: symbol, update: (capability: Capability) => Capability) => {
       if (!accepts(id)) return;
@@ -146,7 +163,10 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
           ? previous.retainedState
           : policy.applyBackResult(previous.destination, previous.retainedState, result);
       emit(
-        [...view().entries.slice(0, -2), createEntry(previous.destination, retainedState)],
+        [
+          ...view().entries.slice(0, -2),
+          createEntry(withoutTaskDetailInitialFocus(previous.destination), retainedState),
+        ],
         "open",
         "back",
       );
@@ -162,6 +182,9 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
       const currentDestination = current()?.destination;
       if (currentDestination === undefined) {
         throw new Error("Sidebar Replace requires a current page.");
+      }
+      if (isOrdinaryOpenOfSameTask(currentDestination, destination)) {
+        return "accepted";
       }
       emit(
         [
@@ -182,12 +205,18 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
         throw new Error("Sidebar Push requires a current page.");
       }
       const resolvedDestination = destinationInOpenSidebarMode(destination, currentEntry.destination);
+      if (isOrdinaryOpenOfSameTask(currentEntry.destination, resolvedDestination)) {
+        return "accepted";
+      }
       const retained = findRetainedEntry(view().entries, resolvedDestination, policy);
       if (retained !== undefined) {
+        const restoredDestination = hasTaskDetailInitialFocus(resolvedDestination)
+          ? resolvedDestination
+          : withoutTaskDetailInitialFocus(retained.entry.destination);
         emit(
           [
             ...view().entries.slice(0, retained.index),
-            createEntry(retained.entry.destination, retained.entry.retainedState),
+            createEntry(restoredDestination, retained.entry.retainedState),
           ],
           "open",
           "back",
@@ -215,8 +244,17 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
       return "accepted";
     };
     const open = (destination: SidebarDestination): SidebarRootHandle => {
+      const active = current();
+      if (
+        view().phase === "open" &&
+        root !== undefined &&
+        active !== undefined &&
+        isOrdinaryOpenOfSameTask(active.destination, destination)
+      ) {
+        return createRootHandle(root);
+      }
       clearCloseTimeout();
-      const resolvedDestination = destinationInOpenSidebarMode(destination, current()?.destination);
+      const resolvedDestination = destinationInOpenSidebarMode(destination, active?.destination);
       if (root !== undefined) {
         settle(root, "replaced");
       }
@@ -227,20 +265,14 @@ export function createSidebarStack(policy: SidebarDestinationPolicy) {
       if (resolveLifecycle === undefined) {
         throw new Error("Sidebar lifecycle promise did not initialize.");
       }
-      const ownedRoot: PendingRoot = { resolve: resolveLifecycle };
+      const ownedRoot: PendingRoot = {
+        lifecycle,
+        ownerID: Symbol("sidebar-root-owner"),
+        resolve: resolveLifecycle,
+      };
       root = ownedRoot;
       emit([createEntry(resolvedDestination)], "open", "replace");
-      return {
-        lifecycle,
-        release: () => {
-          if (root !== ownedRoot) {
-            return;
-          }
-          settle(ownedRoot, "released");
-          clearCloseTimeout();
-          emit([], "open", null);
-        },
-      };
+      return createRootHandle(ownedRoot);
     };
     const toggle = (destination: SidebarDestination): SidebarRootHandle | null => {
       const entry = current();
@@ -289,4 +321,28 @@ function findRetainedEntry(
     if (policy.equals(entry.destination, destination)) return { entry, index };
   }
   return undefined;
+}
+
+function isOrdinaryOpenOfSameTask(
+  current: SidebarDestination | undefined,
+  requested: SidebarDestination,
+): boolean {
+  return (
+    current?.kind === "taskDetail" &&
+    requested.kind === "taskDetail" &&
+    current.taskID === requested.taskID &&
+    requested.initialFocus === undefined
+  );
+}
+
+function hasTaskDetailInitialFocus(destination: SidebarDestination): boolean {
+  return destination.kind === "taskDetail" && destination.initialFocus !== undefined;
+}
+
+function withoutTaskDetailInitialFocus(destination: SidebarDestination): SidebarDestination {
+  if (destination.kind !== "taskDetail") {
+    return destination;
+  }
+  const { initialFocus, ...ordinaryDestination } = destination;
+  return initialFocus === undefined ? destination : ordinaryDestination;
 }
