@@ -498,7 +498,6 @@ type PendingApproval struct {
 	ID              ApprovalID
 	Source          CurrentNodeReference
 	SourceSessionID *runtimeids.SessionID
-	WorkflowVersion int64
 	Transition      PendingApprovalTransition
 	Commentary      string
 	OutputValues    map[string]string
@@ -507,26 +506,33 @@ type PendingApproval struct {
 }
 
 type PendingApprovalTransition struct {
-	Group             TransitionGroup
+	ID                TransitionGroupID
+	Group             *TransitionGroup
 	SourceDisplayName string
 }
 
 type PendingApprovalBranch struct {
-	TransitionBranchKey     TransitionBranchKey
-	Target                  PendingApprovalTarget
-	EffectiveEdge           Edge
-	ContextSourceResolution PendingApprovalContextSourceResolution
+	TransitionBranchKey TransitionBranchKey
+	Target              *PendingApprovalTarget
+	EdgeID              EdgeID
 }
 
 type PendingApprovalTarget struct {
-	CurrentNode CurrentNode
+	Reference   CurrentNodeReference
 	DisplayName string
 	NodeKind    NodeKind
 }
 
-type PendingApprovalContextSourceResolution struct {
-	TargetSession TargetSessionIntent
-	ActiveSource  MaterializedContinuationSource
+func (approval PendingApproval) ChoiceAvailable() bool {
+	if approval.Transition.Group == nil {
+		return false
+	}
+	for _, branch := range approval.Branches {
+		if branch.Target == nil {
+			return false
+		}
+	}
+	return true
 }
 
 type CurrentNodeMutationResult struct {

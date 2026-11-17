@@ -48,7 +48,10 @@ describe("Attention notification contract", () => {
           case: "approval",
           value: {
             approvalId: "approval-1",
-            approvalSnapshot: { sourceNodeDisplayName: "Implement" },
+            approvalSnapshot: {
+              sourceNodeDisplayName: "Implement",
+              choiceAvailability: T.ApprovalChoiceAvailability.AVAILABLE,
+            },
           },
         },
       });

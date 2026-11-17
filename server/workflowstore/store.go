@@ -406,10 +406,10 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert workflow: %w", err)
 	}
-	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", JoinInputProvidersJson: "[]", SortOrder: 0}); err != nil {
+	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", SortOrder: 0}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert backlog node: %w", err)
 	}
-	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", JoinInputProvidersJson: "[]", SortOrder: 1000}); err != nil {
+	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", SortOrder: 1000}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert done node: %w", err)
 	}
 	return WorkflowRecord{ID: workflowID, Name: name, Description: description, Version: 1, ExecutionTargetPolicy: policy}, nil

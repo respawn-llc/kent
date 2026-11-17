@@ -14,7 +14,6 @@ import type { QuestionAnswerAction } from "./TaskDetailQuestionAnswer";
 export function TaskInbox({
   answerQuestion,
   attentionItems,
-  currentVersion,
   detail,
   initialFocus,
   mutations,
@@ -24,7 +23,6 @@ export function TaskInbox({
 }: Readonly<{
   answerQuestion: QuestionAnswerAction;
   attentionItems: readonly AttentionItem[];
-  currentVersion: number;
   detail: TaskDetail;
   initialFocus?: TaskDetailInitialFocus | undefined;
   mutations: TaskDetailLifecycle;
@@ -63,7 +61,6 @@ export function TaskInbox({
         <InboxItem
           answerQuestion={answerQuestion}
           attention={item}
-          currentVersion={currentVersion}
           focusOnMount={item.id === focusedAttentionID}
           key={taskDetailAttentionRowKey(item)}
           mutations={mutations}
@@ -119,7 +116,6 @@ function focusedAttentionItemID(
 function InboxItem({
   answerQuestion,
   attention,
-  currentVersion,
   focusOnMount,
   mutations,
   onQuestionSelectionChange,
@@ -129,7 +125,6 @@ function InboxItem({
 }: Readonly<{
   answerQuestion: QuestionAnswerAction;
   attention: AttentionItem;
-  currentVersion: number;
   focusOnMount: boolean;
   mutations: TaskDetailLifecycle;
   onQuestionSelectionChange: (key: PromptAnswerKey, selection: QuestionSelectionState) => void;
@@ -177,7 +172,7 @@ function InboxItem({
   if (attention.kind === "approval") {
     return (
       <div ref={focusTargetRef}>
-        <ApprovalBox attention={attention} currentVersion={currentVersion} mutations={mutations} />
+        <ApprovalBox attention={attention} mutations={mutations} />
       </div>
     );
   }

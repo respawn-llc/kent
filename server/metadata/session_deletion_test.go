@@ -39,10 +39,9 @@ func TestDeleteSessionUsesCurrentRetentionAuthorityAndPreservesHistory(t *testin
 			},
 			outcome: sessionDeletionBlocked,
 		},
-		{name: "pending Approval source", setup: pendingApprovalSetup(pendingApprovalSource), outcome: sessionDeletionBlocked},
-		{name: "pending Approval reused target", setup: pendingApprovalSetup(pendingApprovalReusedTarget), outcome: sessionDeletionBlocked},
-		{name: "pending Approval exact active source", setup: pendingApprovalSetup(pendingApprovalActiveSource), outcome: sessionDeletionBlocked},
-		{name: "legacy pending Approval snapshot", setup: pendingApprovalSetup(pendingApprovalLegacySnapshot), outcome: sessionDeletionBlocked},
+		{name: "pending Approval source", setup: func(t *testing.T, fixture *sessionDeletionFixture) {
+			fixture.insertPendingApproval(t, sql.NullString{String: fixture.targetSessionID, Valid: true})
+		}, outcome: sessionDeletionBlocked},
 		{
 			name: "dormant association",
 			setup: func(t *testing.T, fixture *sessionDeletionFixture) {
@@ -181,37 +180,6 @@ const (
 	sessionDeletionMissing
 )
 
-type pendingApprovalSessionReference uint8
-
-const (
-	pendingApprovalSource pendingApprovalSessionReference = iota + 1
-	pendingApprovalReusedTarget
-	pendingApprovalActiveSource
-	pendingApprovalLegacySnapshot
-)
-
-func pendingApprovalSetup(
-	reference pendingApprovalSessionReference,
-) func(*testing.T, *sessionDeletionFixture) {
-	return func(t *testing.T, fixture *sessionDeletionFixture) {
-		var sourceSessionID sql.NullString
-		var resolution sql.NullString
-		switch reference {
-		case pendingApprovalSource:
-			sourceSessionID = sql.NullString{String: fixture.targetSessionID, Valid: true}
-		case pendingApprovalReusedTarget:
-			resolution = sql.NullString{String: fmt.Sprintf(`{"target_session":{"kind":"reuse","session_id":%q},"active_source":{"kind":"absent"}}`, fixture.targetSessionID), Valid: true}
-		case pendingApprovalActiveSource:
-			resolution = sql.NullString{String: fmt.Sprintf(`{"target_session":{"kind":"create"},"active_source":{"kind":"exact","session_id":%q}}`, fixture.targetSessionID), Valid: true}
-		case pendingApprovalLegacySnapshot:
-			resolution = sql.NullString{String: fmt.Sprintf(`{"session_id":%q}`, fixture.targetSessionID), Valid: true}
-		default:
-			t.Fatalf("unsupported pending Approval reference %d", reference)
-		}
-		fixture.insertPendingApproval(t, sourceSessionID, resolution)
-	}
-}
-
 type sessionDeletionFixture struct {
 	store              *Store
 	workspaceID        string
@@ -288,30 +256,18 @@ func (fixture *sessionDeletionFixture) insertAssociation(t *testing.T, sessionID
 func (fixture *sessionDeletionFixture) insertPendingApproval(
 	t *testing.T,
 	sourceSessionID sql.NullString,
-	contextSourceResolutionJSON sql.NullString,
 ) {
 	t.Helper()
 	insertTaskCurrentNode(t, fixture.store.db, "task-1", "node-agent", nil)
 	execSeed(t, fixture.store.db, "pending Approval", `INSERT INTO task_pending_approvals (
     id, source_task_id, source_node_id, source_transition_branch_key, source_session_id,
-    workflow_version, transition_snapshot_json, materialized_values_json, created_at_unix_ms
-) VALUES ('approval-1', 'task-1', ?, NULL, ?, 1, '{}', '{}', ?)`,
+    transition_group_id, materialized_values_json, created_at_unix_ms
+) VALUES ('approval-1', 'task-1', ?, NULL, ?, ?, '{}', ?)`,
 		workflowGraphSeedID(t, fixture.store.db, "node-agent"),
 		sourceSessionID,
+		workflowGraphSeedID(t, fixture.store.db, "group-done"),
 		fixture.now,
 	)
-	if !contextSourceResolutionJSON.Valid {
-		return
-	}
-	execSeed(t, fixture.store.db, "pending Approval branch", `INSERT INTO task_pending_approval_branches (
-    approval_id, transition_branch_key, target_snapshot_json,
-    effective_edge_configuration_json, context_source_resolution_json
-) VALUES (
-    'approval-1', 'approved',
-    '{"prior_values":{"transition_parameters":{}}}',
-    '{}',
-    ?
-)`, contextSourceResolutionJSON.String)
 }
 
 func assertMetadataRowCount(t *testing.T, db *sql.DB, table, column, value string, want int) {

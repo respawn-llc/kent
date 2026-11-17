@@ -184,11 +184,11 @@ export const taskAttentionResponse = create(taskAttention.TaskAttentionListSucce
         value: {
           approvalId: "approval-1",
           approvalSnapshot: {
+            choiceAvailability: taskAttention.ApprovalChoiceAvailability.AVAILABLE,
             sourceNodeDisplayName: "Implement",
             targets: [{ displayName: "Ship" }],
             commentary: "Looks good",
             outputValues: [{ name: "result", value: "ok" }],
-            workflowRevisionSeen: 7n,
           },
         },
       },

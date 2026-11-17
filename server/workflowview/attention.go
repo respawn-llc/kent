@@ -233,14 +233,20 @@ func (a *Attention) pendingApproval(ctx context.Context, taskID workflow.TaskID,
 func approvalAttentionSnapshot(approval workflow.PendingApproval) *taskpb.ApprovalSnapshot {
 	targets := make([]*taskpb.ApprovalTarget, 0, len(approval.Branches))
 	for _, branch := range approval.Branches {
-		targets = append(targets, &taskpb.ApprovalTarget{DisplayName: branch.Target.DisplayName})
+		if branch.Target != nil {
+			targets = append(targets, &taskpb.ApprovalTarget{DisplayName: branch.Target.DisplayName})
+		}
+	}
+	availability := taskpb.ApprovalChoiceAvailability_APPROVAL_CHOICE_AVAILABILITY_UNAVAILABLE
+	if approval.ChoiceAvailable() {
+		availability = taskpb.ApprovalChoiceAvailability_APPROVAL_CHOICE_AVAILABILITY_AVAILABLE
 	}
 	return &taskpb.ApprovalSnapshot{
 		SourceNodeDisplayName: approval.Transition.SourceDisplayName,
 		Targets:               targets,
 		Commentary:            textutil.OptionalExactString(approval.Commentary),
 		OutputValues:          attentionOutputValues(approval.OutputValues),
-		WorkflowRevisionSeen:  approval.WorkflowVersion,
+		ChoiceAvailability:    availability,
 	}
 }
 

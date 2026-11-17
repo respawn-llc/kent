@@ -2,14 +2,25 @@ package workflowstore
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"core/server/workflow"
 )
 
-func TestPendingApprovalReloadDefaultsMissingCommentaryToEmpty(t *testing.T) {
+type emptyTargetAgentCatalog struct{}
+
+func (emptyTargetAgentCatalog) ResolveConfiguredRole(string) (workflow.TargetAgentRole, bool) {
+	return workflow.TargetAgentRole{}, false
+}
+
+func (emptyTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
+	return nil
+}
+
+func TestPendingApprovalReloadUsesCurrentLabelsAndSubmittedValues(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -36,34 +47,16 @@ func TestPendingApprovalReloadDefaultsMissingCommentaryToEmpty(t *testing.T) {
 		t.Fatal("CompleteCurrentNode did not create a pending Approval")
 	}
 
-	row, err := store.queries.GetTaskPendingApproval(ctx, completed.PendingApproval.ID.String())
-	if err != nil {
-		t.Fatalf("GetTaskPendingApproval: %v", err)
-	}
-	var legacySnapshot map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(row.TransitionSnapshotJson), &legacySnapshot); err != nil {
-		t.Fatalf("decode transition snapshot: %v", err)
-	}
-	delete(legacySnapshot, "commentary")
-	legacyJSON, err := json.Marshal(legacySnapshot)
-	if err != nil {
-		t.Fatalf("encode legacy transition snapshot: %v", err)
-	}
-	if _, err := store.db.ExecContext(
-		ctx,
-		`UPDATE task_pending_approvals SET transition_snapshot_json = ? WHERE id = ?`,
-		string(legacyJSON),
-		completed.PendingApproval.ID.String(),
-	); err != nil {
-		t.Fatalf("write legacy transition snapshot: %v", err)
+	if _, err := store.db.ExecContext(ctx, `UPDATE workflow_nodes SET display_name = ? WHERE id = ?`, "Current label", testGraphEntityIDBlob(t, string(completed.PendingApproval.Branches[0].Target.Reference.NodeID))); err != nil {
+		t.Fatal(err)
 	}
 
 	reloaded, err := store.PendingApproval(ctx, completed.PendingApproval.ID)
 	if err != nil {
 		t.Fatalf("PendingApproval: %v", err)
 	}
-	if reloaded.Commentary != "" {
-		t.Fatalf("legacy pending Approval commentary = %q, want empty", reloaded.Commentary)
+	if reloaded.Commentary != "New snapshot commentary" || reloaded.OutputValues["summary"] != "ready" {
+		t.Fatalf("pending Approval lost submitted values: %+v", reloaded)
 	}
 	if len(reloaded.Branches) != 1 {
 		t.Fatalf("reloaded pending Approval branches = %d, want one", len(reloaded.Branches))
@@ -72,34 +65,12 @@ func TestPendingApprovalReloadDefaultsMissingCommentaryToEmpty(t *testing.T) {
 	if target.NodeKind != workflow.NodeKindAgent {
 		t.Fatalf("pending Approval target kind = %q, want agent", target.NodeKind)
 	}
-	if target.CurrentNode.AgentExecutionSelection == nil {
-		t.Fatal("pending Approval Agent target omitted frozen execution selection")
-	}
-	branchRow, err := store.queries.ListTaskPendingApprovalBranches(ctx, completed.PendingApproval.ID.String())
-	if err != nil {
-		t.Fatalf("ListTaskPendingApprovalBranches: %v", err)
-	}
-	var targetSnapshot map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(branchRow[0].TargetSnapshotJson), &targetSnapshot); err != nil {
-		t.Fatalf("decode target snapshot: %v", err)
-	}
-	delete(targetSnapshot, "agent_execution_selection")
-	malformedTargetSnapshot, err := json.Marshal(targetSnapshot)
-	if err != nil {
-		t.Fatalf("encode malformed target snapshot: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
-UPDATE task_pending_approval_branches
-SET target_snapshot_json = ?
-WHERE approval_id = ?`, string(malformedTargetSnapshot), completed.PendingApproval.ID.String()); err != nil {
-		t.Fatalf("write malformed target snapshot: %v", err)
-	}
-	if _, err := store.PendingApproval(ctx, completed.PendingApproval.ID); err == nil {
-		t.Fatal("PendingApproval accepted Agent target without execution selection")
+	if target.DisplayName != "Current label" {
+		t.Fatalf("pending Approval retained an obsolete target label: %+v", target)
 	}
 }
 
-func TestPendingApprovalFreezesSelectedAgentExecutionWithoutCatalogResolution(t *testing.T) {
+func TestPendingApprovalPreservesSubmittedAgentSelection(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
@@ -133,12 +104,9 @@ func TestPendingApprovalFreezesSelectedAgentExecutionWithoutCatalogResolution(t 
 	if completed.PendingApproval == nil || len(completed.PendingApproval.Branches) != 1 {
 		t.Fatalf("pending approval = %+v, want one frozen branch", completed.PendingApproval)
 	}
-	frozen := completed.PendingApproval.Branches[0].Target.CurrentNode.AgentExecutionSelection
-	if frozen == nil || frozen.Assignee != "reviewer" || frozen.Origin != workflow.AssigneeOriginTransitionSelected {
-		t.Fatalf("frozen target selection = %+v, want selected reviewer", frozen)
+	if completed.PendingApproval.OutputValues["role"] != "reviewer" {
+		t.Fatalf("submitted selection was not retained: %+v", completed.PendingApproval)
 	}
-
-	store.roleResolver = emptyTargetAgentCatalog{}
 	applied, err := applyPendingApproval(t, store, ctx, completed.PendingApproval.ID)
 	if err != nil {
 		t.Fatalf("ApplyPendingApproval without catalog: %v", err)
@@ -153,14 +121,126 @@ func TestPendingApprovalFreezesSelectedAgentExecutionWithoutCatalogResolution(t 
 	}
 }
 
-type emptyTargetAgentCatalog struct{}
-
-func (emptyTargetAgentCatalog) ResolveConfiguredRole(string) (workflow.TargetAgentRole, bool) {
-	return workflow.TargetAgentRole{}, false
+func TestPendingApprovalInputMismatchKeepsOriginalChoicePending(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "review")
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: source.Reference, TransitionID: "review", OutputValues: map[string]string{"summary": "submitted"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval := completed.PendingApproval
+	replaceTestParameters(t, store, string(approval.Branches[0].EdgeID), []workflow.Parameter{
+		{Key: "summary", Description: "Summary.", Purpose: workflow.ParameterPurposeOrdinary},
+		{Key: "risk", Description: "Risk.", Purpose: workflow.ParameterPurposeOrdinary},
+	})
+	before, err := store.PendingApproval(ctx, approval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.PlanPendingApproval(ctx, approval.ID)
+	var manualMove *TaskContextSelectionRequiredError
+	if !errors.As(err, &manualMove) || manualMove.TaskID != task.ID {
+		t.Fatalf("approval mismatch = %v, want typed Manual Move requirement", err)
+	}
+	after, err := store.PendingApproval(ctx, approval.ID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("pending choice changed: before=%+v after=%+v error=%v", before, after, err)
+	}
+	nodes, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil || len(nodes) != 1 || !nodes[0].Reference.Equal(source.Reference) {
+		t.Fatalf("approval mismatch changed source: %+v, %v", nodes, err)
+	}
 }
 
-func (emptyTargetAgentCatalog) ExplicitCallableRoles() []workflow.TargetAgentRole {
-	return nil
+func TestPendingApprovalKeepsParallelSourceScopeAndSibling(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	requireApprovalOnWorkflowEdge(t, ctx, store, workflowID, "review")
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	leftKey, rightKey := workflow.TransitionBranchKey("left"), workflow.TransitionBranchKey("right")
+	left, err := workflow.NewCurrentNodeReference(task.ID, source.Reference.NodeID, &leftKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := workflow.NewCurrentNodeReference(task.ID, source.Reference.NodeID, &rightKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedParallelCurrentApprovalSources(t, ctx, store, task.ID, source.Reference, workflow.CurrentNode{Reference: left}, workflow.CurrentNode{Reference: right})
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: left, TransitionID: "review", OutputValues: map[string]string{"summary": "left only"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := applyPendingApproval(t, store, ctx, completed.PendingApproval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied.Mutation.Removed) != 1 || !applied.Mutation.Removed[0].Equal(left) || len(applied.Mutation.Created) != 1 {
+		t.Fatalf("approval changed the wrong scope: %+v", applied.Mutation)
+	}
+	key, scoped := applied.Mutation.Created[0].Reference.TransitionBranchKey()
+	if !scoped || key != leftKey {
+		t.Fatalf("approval lost original branch scope: %+v", applied.Mutation.Created[0])
+	}
+	nodes, err := store.ListCurrentNodes(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, current := range nodes {
+		if current.Reference.Equal(right) {
+			return
+		}
+	}
+	t.Fatalf("approval removed the parallel sibling: %+v", nodes)
+}
+
+func TestPendingApprovalDeletedContextRequiresManualMove(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
+		edge := workflowGraphSaveEdgeRecord(t, req.Edges, testEdgeID("edge-audit-"+workflowID.String()))
+		edge.RequiresApproval = true
+		edge.ContextMode = workflow.ContextModeContinueSession
+		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceSelectedNode, NodeKey: "plan"}
+	})
+	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	plan := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	planSession := currentNodeSessionForStoreTest(t, ctx, store, plan.Reference)
+	review, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: plan.Reference, TransitionID: "review", OutputValues: map[string]string{"summary": "submitted"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: review.Mutation.Created[0].Reference, TransitionID: "audit",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.metadata.DeleteSession(ctx, planSession.String()); err != nil {
+		t.Fatalf("obsolete Approval context prevented explicit deletion: %v", err)
+	}
+	_, err = store.PlanPendingApproval(ctx, completed.PendingApproval.ID)
+	var manualMove *TaskContextSelectionRequiredError
+	if !errors.As(err, &manualMove) || manualMove.TaskID != task.ID {
+		t.Fatalf("missing Approval context = %v, want typed Manual Move error", err)
+	}
+	remaining, err := store.PendingApproval(ctx, completed.PendingApproval.ID)
+	if err != nil || !reflect.DeepEqual(remaining.OutputValues, completed.PendingApproval.OutputValues) {
+		t.Fatalf("unavailable context lost pending work: %+v, %v", remaining, err)
+	}
 }
 
 func TestListPendingApprovalsKeepsParallelSourcesIndependent(t *testing.T) {
@@ -171,7 +251,7 @@ func TestListPendingApprovalsKeepsParallelSourcesIndependent(t *testing.T) {
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	started := startTask(t, ctx, store, task.ID)
-	definition, record, err := store.GetDefinition(ctx, workflowID)
+	definition, _, err := store.GetDefinition(ctx, workflowID)
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
@@ -229,7 +309,6 @@ func TestListPendingApprovalsKeepsParallelSourcesIndependent(t *testing.T) {
 	q := store.queries.WithTx(tx)
 	approvalA, err := newPendingApproval(
 		sourceA,
-		record.Version,
 		groups[joinAEdge.TransitionGroupID],
 		workflow.NodeDisplayName(implementationA),
 		joinAEdge,
@@ -244,7 +323,6 @@ func TestListPendingApprovalsKeepsParallelSourcesIndependent(t *testing.T) {
 	}
 	approvalB, err := newPendingApproval(
 		sourceB,
-		record.Version,
 		groups[joinBEdge.TransitionGroupID],
 		workflow.NodeDisplayName(implementationB),
 		joinBEdge,

@@ -474,12 +474,15 @@
 - CLI Workflow Apply must follow the [publication contract](declarative-workflows.md#agent-authoring).
 - Workflow authoring must allow operators to omit Node Group names. Optional Group names follow [Workflow rules](workflow-orchestration.md).
 - Path-based Workflow commands must use the same path syntax and report their selected file location.
-- `kent workflow list` is paginated.
-- `--project <path-or-id>` filters Workflow list to Workflows linked to the resolved Project.
-- Project-filtered Workflow discovery is paginated. It performs no per-Workflow graph validation.
-- Project-filtered results are ordered with the Project default first, then by Project-local Task activity, then by Workflow name.
-- Project-filtered human results use the global one-line format and append default/link status plus Execution Target Policy.
-- Project-filtered JSON includes the resolved Project ID once and adds only the default-link fact to each Workflow record.
+- `kent workflow list` must list only Workflows linked to the resolved Project, using database metadata and remembered source paths without reading Workflow files or scanning directories.
+- `--project <path-or-id>` must select that Project. Its default must be the current workspace's Project, as for `kent task list`.
+- If the current Project cannot be resolved, the command must report the failure and require an explicit `--project`.
+- Workflow list must be paginated. It must not offer a global listing mode.
+- CLI help must explain that Workflow list excludes filesystem files that have not been attached to the Project.
+- Workflow list must perform no per-Workflow graph validation.
+- Results must be ordered with the Project default first, then by Project-local Task activity, then by Workflow name.
+- Human results must use the one-line format and append default/link status plus Execution Target Policy.
+- JSON must include the resolved Project ID once and add only the default-link fact to each Workflow record.
 - `kent workflow inspect <path>` must inspect only that file. Path inspection must never substitute applied content.
 - `kent workflow inspect <uuid>` must inspect only the internal applied definition for that Workflow UUID.
 - CLI help must explain the distinct meanings of path and UUID inspection.

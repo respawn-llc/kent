@@ -573,7 +573,7 @@ func (s *Store) validateTaskExecutionPlan(ctx context.Context, q *sqlitegen.Quer
 				return task, errors.New("current node is no longer interrupted")
 			}
 			if action == taskExecutionResume {
-				_, pending, err := currentNodePendingApprovalID(ctx, q, actual.Reference)
+				pending, err := currentNodeHasPendingApproval(ctx, q, actual.Reference)
 				if err != nil {
 					return task, err
 				}
@@ -582,7 +582,7 @@ func (s *Store) validateTaskExecutionPlan(ctx context.Context, q *sqlitegen.Quer
 				}
 			}
 			if action == taskExecutionComplete {
-				if _, pending, err := currentNodePendingApprovalID(ctx, q, actual.Reference); err != nil {
+				if pending, err := currentNodeHasPendingApproval(ctx, q, actual.Reference); err != nil {
 					return task, err
 				} else if pending {
 					return task, ErrCurrentNodePendingApproval

@@ -189,14 +189,10 @@ func requireIgnoredSelectorMaterialization(t *testing.T, source workflow.NodeKin
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireNoIgnoredSelectorValues(t, pending.Branches[0].Target.CurrentNode)
-			catalog := store.roleResolver
-			store.roleResolver = emptyTargetAgentCatalog{}
 			applied, err := applyPendingApproval(t, store, ctx, pending.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			store.roleResolver = catalog
 			target = applied.Mutation.Created[0]
 		} else {
 			target = completed.Mutation.Created[0]
