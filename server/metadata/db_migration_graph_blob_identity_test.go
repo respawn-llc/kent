@@ -182,6 +182,32 @@ func seedGraphBlobIdentityMigration(t *testing.T, db *sql.DB, ids map[string]str
 	}
 }
 
+func TestGraphBlobIdentityMigrationPreservesNullJoinProviders(t *testing.T) {
+	db, err := openDatabaseAtVersionForTest(t, 102)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	for _, name := range []string{"group", "source", "target", "transition", "edge"} {
+		ids[name] = uuid.NewString()
+	}
+	seedGraphBlobIdentityMigration(t, db, ids)
+	execSeed(t, db, "null join providers", `UPDATE workflow_nodes SET join_input_providers_json = 'null' WHERE node_key = 'source'`)
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("upgrade graph with null join providers: %v", err)
+	}
+	var providers string
+	if err := db.QueryRow(`SELECT join_input_providers_json FROM workflow_nodes WHERE node_key = 'source'`).Scan(&providers); err != nil {
+		t.Fatal(err)
+	}
+	if providers != "null" {
+		t.Fatalf("null join providers changed: %s", providers)
+	}
+	if violations := optionalNodeLabelMigrationRows(t, db, `PRAGMA foreign_key_check`); len(violations) != 0 {
+		t.Fatalf("foreign-key violations: %v", violations)
+	}
+}
+
 func TestGraphBlobIdentityMigrationFailurePreservesExistingData(t *testing.T) {
 	for _, invalid := range []string{"", "   ", uuid.Nil.String()} {
 		t.Run("invalid-"+invalid, func(t *testing.T) {

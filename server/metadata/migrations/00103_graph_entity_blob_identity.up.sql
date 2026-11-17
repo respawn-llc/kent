@@ -77,6 +77,7 @@ FROM (
     UNION
     SELECT json_extract(provider.value, '$.provider_edge_id')
     FROM workflow_nodes node, json_each(node.join_input_providers_json) provider
+    WHERE json_type(node.join_input_providers_json) = 'array'
     UNION
     SELECT json_extract(target_snapshot_json, '$.entered_by_edge_id')
     FROM task_pending_approval_branches
@@ -306,6 +307,7 @@ SELECT source.rowid,
     group_map.new_id,
     source.sort_order,
     CASE
+        WHEN json_type(source.join_input_providers_json) = 'null' THEN source.join_input_providers_json
         WHEN json_array_length(source.join_input_providers_json) = 0 THEN '[]'
         ELSE (
             SELECT json_group_array(json(provider_json))
