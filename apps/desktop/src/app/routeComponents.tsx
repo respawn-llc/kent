@@ -24,6 +24,7 @@ import {
   writeBrowserStorage,
   writeLastProjectRoute,
   appStorageKey,
+  sessionChatHistoryStateSchema,
 } from "@/app-facade";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
 import { useWindowChromeTitle } from "@/app-facade";
@@ -229,9 +230,12 @@ export function ChatRoute() {
 export function NewChatRoute() {
   const params = newChatRouteApi.useParams();
   const { agentRole } = newChatRouteApi.useSearch();
+  const historyState = useLocation({ select: (location) => location.state });
+  const bookmark = sessionChatHistoryStateSchema.parse(historyState).sessionChat;
+  const openingKey = bookmark?.projectID === params.projectId ? bookmark.openingID : undefined;
   return (
     <ChatRouteOpening
-      key={params.projectId}
+      key={openingKey ?? params.projectId}
       projectID={params.projectId}
       sessionID={null}
       initialAgentRole={agentRole}

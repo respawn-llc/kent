@@ -9,6 +9,7 @@ export const sessionChatHistoryStateSchema = z.looseObject({
     .object({
       catalogOrigin: sessionChatCatalogOriginSchema.nullable(),
       projectID: z.string().min(1),
+      openingID: z.uuid().optional(),
       deliveredSessionID: z.string().min(1).nullable().optional(),
     })
     .nullable()

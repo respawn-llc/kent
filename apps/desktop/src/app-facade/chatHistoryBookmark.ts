@@ -30,6 +30,7 @@ export function useChatHistoryBookmark(projectID: string, routeSessionID: string
         {
           ...state,
           sessionChat: {
+            ...metadata,
             projectID,
             catalogOrigin: metadata?.catalogOrigin ?? null,
             deliveredSessionID: sessionID,

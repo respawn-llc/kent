@@ -215,6 +215,7 @@ export function useAppNavigation(): AppNavigation {
               ...previous,
               sessionChat: {
                 projectID,
+                openingID: crypto.randomUUID(),
                 catalogOrigin: { category: "main" },
                 deliveredSessionID: null,
               },
