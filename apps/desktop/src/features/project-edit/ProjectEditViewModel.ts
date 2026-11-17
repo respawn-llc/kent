@@ -9,7 +9,7 @@ import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 import { useAtomMount, useAtomSet } from "@effect/atom-react";
 
-import { errorMessage, type WorkspaceCatalogRow } from "@/api";
+import { errorMessage, type WorkspaceCatalogRow, type WorkspaceUnlinkBlocker } from "@/api";
 import {
   completeProjectDeletion,
   queryAtom,
@@ -32,6 +32,30 @@ const explicitReadOptions = {
   refetchOnReconnect: false,
   refetchOnWindowFocus: false,
 } as const;
+
+function workspaceUnlinkBlockerFeedback(blocker: WorkspaceUnlinkBlocker, t: TFunction): string {
+  switch (blocker.code) {
+    case "default_workspace":
+      return t("projectEdit.workspaceUnlinkBlockers.defaultWorkspace");
+    case "active_sessions":
+      return t("projectEdit.workspaceUnlinkBlockers.activeSessions", { count: blocker.count });
+    case "non_terminal_tasks":
+      return t("projectEdit.workspaceUnlinkBlockers.nonTerminalTasks", { count: blocker.count });
+    case "executable_current_nodes":
+      return t("projectEdit.workspaceUnlinkBlockers.executableCurrentNodes", { count: blocker.count });
+    case "managed_owned_worktrees":
+      return t("projectEdit.workspaceUnlinkBlockers.managedOwnedWorktrees", { count: blocker.count });
+    case "missing_history_snapshot":
+      return t("projectEdit.workspaceUnlinkBlockers.missingHistorySnapshot", { count: blocker.count });
+    default:
+      return blocker.count === undefined
+        ? t("projectEdit.workspaceUnlinkBlockers.unknown", { code: blocker.code })
+        : t("projectEdit.workspaceUnlinkBlockers.unknownCount", {
+            code: blocker.code,
+            count: blocker.count,
+          });
+  }
+}
 
 export function createProjectEditViewModel({
   services,
@@ -168,7 +192,7 @@ export function createProjectEditViewModel({
           tone: "danger",
           title: t("projectEdit.workspaceUnlinkBlocked"),
           body:
-            response.blockers.map((blocker) => blocker.message).join("\n") ||
+            response.blockers.map((blocker) => workspaceUnlinkBlockerFeedback(blocker, t)).join("\n") ||
             t("projectEdit.workspaceUnlinkBlocked"),
         });
       }

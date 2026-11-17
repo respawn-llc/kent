@@ -258,7 +258,6 @@ export async function unlinkWorkspace(
     workspaceID: success.workspaceId,
     blockers: success.blockers.map((blocker) => ({
       code: blocker.code,
-      message: workspaceUnlinkBlockerMessage(blocker.code),
       ...(blocker.count === undefined ? {} : { count: blocker.count }),
     })),
   };
@@ -314,25 +313,6 @@ function projectMutationBinding(binding: ProjectMutationBinding): ProjectMutatio
     workspaceName: binding.workspaceName,
     workspaceStatus: projectAvailability(binding.workspaceStatus),
   };
-}
-
-function workspaceUnlinkBlockerMessage(code: string): string {
-  switch (code) {
-    case "default_workspace":
-      return "Workspace is the project default workspace.";
-    case "non_terminal_tasks":
-      return "Active or non-terminal tasks still depend on this workspace.";
-    case "executable_current_nodes":
-      return "Executable current nodes still depend on this workspace.";
-    case "managed_owned_worktrees":
-      return "Worktrees still depend on this workspace.";
-    case "missing_history_snapshot":
-      return "Historical task or retained Session references do not have a durable workspace path/name snapshot.";
-    case "active_sessions":
-      return "Active runtime sessions still depend on this workspace.";
-    default:
-      throw new ContractError(`Unsupported Workspace unlink blocker code ${code}.`);
-  }
 }
 
 function projectDeleteBlockerMessage(code: string): string {

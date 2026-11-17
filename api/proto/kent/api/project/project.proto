@@ -320,22 +320,18 @@ message WorkspaceDetachConflictDetails {
 
 message WorkspaceUnlinkBlocker {
   string code = 1 [
-    (buf.validate.field).string.min_len = 1,
-    (buf.validate.field).cel = {
-      id: "workspace_unlink_blocker.code"
-      message: "workspace unlink blocker code is invalid"
-      expression:
-        "this in ['default_workspace', 'non_terminal_tasks', "
-        "'executable_current_nodes', 'managed_owned_worktrees', "
-        "'missing_history_snapshot', 'active_sessions']"
-    }
+    (buf.validate.field).string.min_len = 1
   ];
   optional int32 count = 3 [(buf.validate.field).int32.gt = 0];
 
   option (buf.validate.message).cel = {
     id: "workspace_unlink_blocker.count"
-    message: "default_workspace has no count and every counted blocker has a positive count"
-    expression: "this.code == 'default_workspace' ? !has(this.count) : has(this.count)"
+    message: "default_workspace has no count and known counted blockers have positive counts"
+    expression:
+      "this.code == 'default_workspace' ? !has(this.count) : "
+      "this.code in ['non_terminal_tasks', 'executable_current_nodes', "
+      "'managed_owned_worktrees', 'missing_history_snapshot', 'active_sessions'] "
+      "? has(this.count) : true"
   };
 }
 
