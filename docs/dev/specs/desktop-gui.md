@@ -150,6 +150,9 @@
 - After a workspace-catalog page-edge failure, loaded rows must be visible with Retry at that edge. A first-page failure uses the standard retryable error state.
 - Raw Project Settings catalog pages are not deduplicated or reconciled. Detach must refresh the loaded Workspace catalog from the server, including when the Workspace was already detached. Other Workspace mutations do not refresh loaded pages, which may overlap or be stale.
 - Workspace detach confirmation must use an in-window modal over the destination, outside the sidebar layout. Confirm must close the modal and submit the detach through Project Settings. Project Settings must show request progress and success, blocker, or error feedback in the main window.
+- Desktop must present every Workspace detach blocker in the existing failure notification with a localized explanation, a positive count when supplied, and a short next step. Retry must use the explicit unlink action without automatic cleanup or new navigation actions.
+- For known Workspace detach blockers, Desktop must use the remedies in [Detach blocker guidance](cli-commands.md#detach-blocker-guidance), phrased for Desktop without CLI commands.
+- For an unrecognized Workspace detach blocker, Desktop must show localized generic guidance, the blocker code, and any positive count. It must advise updating Desktop and server together without guessing a remedy.
 - A workspace row shows the shared shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its row or gives equivalent feedback.
 - Choosing an already attached path outside the loaded pages keeps the current list and scroll position and shows success-style feedback without adding or finding its row.
 - Project Settings loads Project metadata and the Workspace catalog independently.
