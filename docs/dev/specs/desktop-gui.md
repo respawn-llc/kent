@@ -1,6 +1,7 @@
 ## Authority, connection, and shared behavior
 
-- Desktop must support window-level New Chat shortcuts: Cmd+N and Cmd+Shift+N on macOS, and Ctrl+N and Ctrl+Shift+N on Linux and Windows. The current sidebar must take Project authority over the page behind it. If the current context does not identify one Project, the shortcuts must do nothing.
+- Desktop must support window-level New Chat shortcuts: Cmd+N and Cmd+Shift+N on macOS, and Ctrl+N and Ctrl+Shift+N on Linux and Windows. The current sidebar must take Project authority over the page behind it. If the current context does not identify one Project, the shortcuts must do nothing. Shortcut actions must run asynchronously without a loading spinner.
+- Desktop must queue shortcut presses in their window and execute them sequentially, checking the current destination before each action. The unshifted shortcut must do nothing on a not-yet-created New Chat page. On that page in the main window, the shifted shortcut may open a new Chat window. In a not-yet-created Chat popup, both shortcuts must do nothing. Queued presses must not open further windows after focus transfers to the new Chat window.
 - From Home with a selected Project, a Kanban board, or Task details, the unshifted shortcut must open an empty Chat with the default Agent in the same window; the shifted shortcut must open it in a new window. From an existing Session's Chat, both shortcuts must open an empty Chat in a new window with that Session's Agent and that Agent's default settings, without copying other Session settings.
 
 - Tooltips must not intercept pointer or scroll input. Tooltips must dismiss when their containing scroll surface scrolls.

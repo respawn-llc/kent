@@ -12,14 +12,17 @@ import {
 } from "@/app-facade";
 
 export type NewSessionSource =
+  | Readonly<{ kind: "new_chat"; projectID: string }>
   | Readonly<{ kind: "project"; projectID: string }>
   | Readonly<{ kind: "task"; taskID: string }>
   | Readonly<{ kind: "session"; projectID: string; sessionID: string }>;
 
 type Input = Readonly<{
-  source: NewSessionSource;
   newWindow: boolean;
-  openNewChat(projectID: string): Promise<void>;
+  currentDestination(): Readonly<{
+    source: NewSessionSource | null;
+    openNewChat(projectID: string): Promise<void>;
+  }>;
 }>;
 
 export function createNewSessionShortcutViewModel({
@@ -31,7 +34,12 @@ export function createNewSessionShortcutViewModel({
   const observer = new MutationObserver(client, {
     retry: false,
     networkMode: "always",
-    mutationFn: async ({ source, newWindow, openNewChat }: Input) => {
+    scope: { id: crypto.randomUUID() },
+    mutationFn: async ({ newWindow, currentDestination }: Input) => {
+      if (!(await services.nativeBridge.window.isFocused())) return;
+      const { source, openNewChat } = currentDestination();
+      if (source === null) return;
+      if (source.kind === "new_chat" && (!newWindow || !services.nativeBridge.app.isMainWindow())) return;
       const projectID =
         source.kind === "task"
           ? (
@@ -71,11 +79,7 @@ export function createNewSessionShortcutViewModel({
   });
   const request = queryAtom(observer);
   const activate = Atom.fn<Input>()(
-    (input) =>
-      Effect.gen(function* () {
-        if (observer.getCurrentResult().isPending) return;
-        yield* Effect.tryPromise(async () => observer.mutate(input)).pipe(Effect.ignore);
-      }),
+    (input) => Effect.tryPromise(async () => observer.mutate(input)).pipe(Effect.ignore),
     { concurrent: true },
   );
   return { request, activate };

@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useAtomMount, useAtomSet } from "@effect/atom-react";
 import { useTranslation } from "react-i18next";
 import {
   SidebarShellContext,
@@ -8,8 +8,8 @@ import {
   useStatusController,
   type SidebarDestination,
 } from "@/app-facade";
-import { Spinner } from "@/ui";
 import { createNewSessionShortcutViewModel, type NewSessionSource } from "./NewSessionShortcutViewModel";
+import { useStableCallback } from "@/ui";
 
 export function NewSessionShortcuts({
   source,
@@ -23,8 +23,9 @@ export function NewSessionShortcuts({
   const destination = sidebar?.activeDestination;
   const effective = destination == null ? source : sidebarSource(destination);
   const [model] = useState(() => createNewSessionShortcutViewModel({ services, client, t, push }));
-  const request = useAtomValue(model.request);
+  useAtomMount(model.request);
   const activate = useAtomSet(model.activate);
+  const currentDestination = useStableCallback(() => ({ source: effective, openNewChat }));
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       const mac = services.nativeBridge.capabilities.platform === "macos";
@@ -37,19 +38,14 @@ export function NewSessionShortcuts({
       )
         return;
       event.preventDefault();
-      if (!event.repeat && effective !== null)
-        activate({ source: effective, newWindow: event.shiftKey, openNewChat });
+      if (!event.repeat) activate({ currentDestination, newWindow: event.shiftKey });
     };
     window.addEventListener("keydown", listener);
     return () => {
       window.removeEventListener("keydown", listener);
     };
-  }, [activate, effective, openNewChat, services.nativeBridge.capabilities.platform]);
-  return request.isPending ? (
-    <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center">
-      <Spinner testID="new-session-opening" />
-    </div>
-  ) : null;
+  }, [activate, currentDestination, services.nativeBridge.capabilities.platform]);
+  return null;
 }
 
 function sidebarSource(destination: SidebarDestination): NewSessionSource | null {

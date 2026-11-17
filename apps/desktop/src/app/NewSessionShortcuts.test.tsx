@@ -1,5 +1,6 @@
-import { afterEach, expect, it, vi } from "bun:test";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "bun:test";
+import { fireEvent, render, waitFor } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { NewSessionShortcuts } from "./NewSessionShortcuts";
 import { SidebarShellContext } from "@/app-facade";
@@ -10,6 +11,9 @@ import { createTaskDetailTestServices, taskDetailResponse } from "@/test-support
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+beforeEach(() => {
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
 });
 
 it("opens a default-Agent Chat in the selected Project without creating a Session yet", async () => {
@@ -128,14 +132,15 @@ it("does nothing without a Project, even when the page behind an ambiguous sideb
   expect(openNewChat).not.toHaveBeenCalled();
 });
 
-it("ignores repeats, composition, and other modifiers while admitting only one pending opening", async () => {
+it("queues presses and rechecks the destination after the previous opening completes", async () => {
   const services = createTestServices([]);
+  const client = new QueryClient();
   const opening = deferred<undefined>();
   const openNewChat = vi.fn(async () => {
     await opening.promise;
   });
-  render(
-    <TestAppProviders services={services}>
+  const view = render(
+    <TestAppProviders services={services} queryClient={client}>
       <NewSessionShortcuts source={{ kind: "project", projectID: "project-1" }} openNewChat={openNewChat} />
     </TestAppProviders>,
   );
@@ -148,7 +153,42 @@ it("ignores repeats, composition, and other modifiers while admitting only one p
   await waitFor(() => {
     expect(openNewChat).toHaveBeenCalledTimes(1);
   });
+  view.rerender(
+    <TestAppProviders services={services} queryClient={client}>
+      <NewSessionShortcuts source={{ kind: "new_chat", projectID: "project-1" }} openNewChat={openNewChat} />
+    </TestAppProviders>,
+  );
   opening.resolve(undefined);
+  await waitFor(() => {
+    expect(client.isMutating()).toBe(0);
+  });
+  expect(openNewChat).toHaveBeenCalledTimes(1);
+});
+
+it("executes an already queued press after an earlier opening fails", async () => {
+  const services = createTestServices([]);
+  const opening = deferred<"created">();
+  const openWindow = vi
+    .spyOn(services.nativeBridge.dialogs, "openWindow")
+    .mockReturnValueOnce(opening.promise)
+    .mockResolvedValue("created");
+  render(
+    <TestAppProviders services={services}>
+      <NewSessionShortcuts
+        source={{ kind: "project", projectID: "project-1" }}
+        openNewChat={async () => undefined}
+      />
+    </TestAppProviders>,
+  );
+  fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
+  fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledTimes(1);
+  });
+  opening.reject(new Error("window failed"));
+  await waitFor(() => {
+    expect(openWindow).toHaveBeenCalledTimes(2);
+  });
 });
 
 it("resolves a Task sidebar's Project instead of using the page behind it", async () => {
@@ -174,12 +214,13 @@ it("resolves a Task sidebar's Project instead of using the page behind it", asyn
 
 it("permits another attempt after a failed window opening", async () => {
   const services = createTestServices([]);
+  const client = new QueryClient();
   const openWindow = vi
     .spyOn(services.nativeBridge.dialogs, "openWindow")
     .mockRejectedValueOnce(new Error("window creation failed"))
     .mockResolvedValue("created");
   render(
-    <TestAppProviders services={services}>
+    <TestAppProviders services={services} queryClient={client}>
       <NewSessionShortcuts
         source={{ kind: "project", projectID: "project-1" }}
         openNewChat={async () => undefined}
@@ -191,7 +232,7 @@ it("permits another attempt after a failed window opening", async () => {
     expect(openWindow).toHaveBeenCalledTimes(1);
   });
   await waitFor(() => {
-    expect(screen.queryByTestId("new-session-opening")).toBeNull();
+    expect(client.isMutating()).toBe(0);
   });
   fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
   await waitFor(() => {

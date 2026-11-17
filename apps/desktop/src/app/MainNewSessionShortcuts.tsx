@@ -31,7 +31,7 @@ function useChatSource(): NewSessionSource | null {
   const sessionID =
     chat?.params.sessionId ?? (bookmark?.projectID === projectID ? bookmark?.deliveredSessionID : null);
   if (projectID === undefined) return null;
-  return sessionID == null ? projectSource(projectID) : { kind: "session", projectID, sessionID };
+  return sessionID == null ? { kind: "new_chat", projectID } : { kind: "session", projectID, sessionID };
 }
 
 function projectSource(projectID: string | undefined): NewSessionSource | null {
