@@ -36,7 +36,7 @@ func TestFinalizerEqualInteractiveChoicesRenderIdentically(t *testing.T) {
 	nullHome := t.TempDir()
 	defaultRoot := t.TempDir()
 	defaultHome := t.TempDir()
-	defaultModel := onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6.1-sol")}
+	defaultModel := onboardingpb.ModelChoice{Kind: onboardingpb.ModelKind_MODEL_KIND_KNOWN, ModelId: ptr("gpt-6.2-sol")}
 	defaultTheme := onboardingpb.Theme_THEME_AUTO
 	defaultSupervisor := &onboardingpb.SupervisorChoice{Frequency: onboardingpb.SupervisorFrequency_SUPERVISOR_FREQUENCY_EDITS}
 
@@ -68,7 +68,7 @@ func TestFinalizerDefaultsSelectSupervisorModelOnlyForFirstPartyOpenAI(t *testin
 		wantSupervisorModel string
 	}{
 		{name: "first-party OpenAI", endpoint: "https://api.openai.com/v1", wantSupervisorModel: "gpt-6-luna"},
-		{name: "OpenAI-compatible provider", endpoint: "http://localhost:1234/v1", wantSupervisorModel: "gpt-6.1-sol"},
+		{name: "OpenAI-compatible provider", endpoint: "http://localhost:1234/v1", wantSupervisorModel: "gpt-6.2-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -80,8 +80,8 @@ func TestFinalizerDefaultsSelectSupervisorModelOnlyForFirstPartyOpenAI(t *testin
 			}
 
 			settings := loadFinalizedConfig(t, root).Settings
-			if settings.Model != "gpt-6.1-sol" || settings.Reviewer.Frequency == "off" || settings.Reviewer.Model != tc.wantSupervisorModel {
-				t.Fatalf("default settings = model %q, Supervisor %q/%q; want gpt-6.1-sol, enabled/%s",
+			if settings.Model != "gpt-6.2-sol" || settings.Reviewer.Frequency == "off" || settings.Reviewer.Model != tc.wantSupervisorModel {
+				t.Fatalf("default settings = model %q, Supervisor %q/%q; want gpt-6.2-sol, enabled/%s",
 					settings.Model, settings.Reviewer.Frequency, settings.Reviewer.Model, tc.wantSupervisorModel)
 			}
 		})
