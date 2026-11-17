@@ -57,30 +57,38 @@ it.each(["linux", "windows", "macos"] as const)("opens Shift+N in a new window o
   expect(openNewChat).not.toHaveBeenCalled();
 });
 
-it("uses the current Session's Agent for a new window without copying its settings", async () => {
-  const services = createTestServices([]);
-  const read = sessionSettingsRead();
-  vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
-    ...read,
-    settings: { ...read.settings, selectedAgent: { ...read.settings.selectedAgent, role: "reviewer" } },
-  });
-  const openWindow = vi.spyOn(services.nativeBridge.dialogs, "openWindow").mockResolvedValue("created");
-  const openNewChat = vi.fn(async () => undefined);
-  render(
-    <TestAppProviders services={services}>
-      <NewSessionShortcuts
-        source={{ kind: "session", projectID: "project-1", sessionID: "session-1" }}
-        openNewChat={openNewChat}
-      />
-    </TestAppProviders>,
-  );
-  fireEvent.keyDown(window, { key: "n", ctrlKey: true });
-  await waitFor(() => {
-    expect(openWindow).toHaveBeenCalledTimes(1);
-  });
-  expect(openWindow.mock.calls[0]?.[0]).toMatchObject({ params: { agentRole: "reviewer" } });
-  expect(openNewChat).not.toHaveBeenCalled();
-});
+it.each([false, true])(
+  "uses the current Session's Agent without copying settings (popup=%s)",
+  async (newWindow) => {
+    const services = createTestServices([]);
+    const read = sessionSettingsRead();
+    vi.spyOn(services.api.chat, "getSettings").mockResolvedValue({
+      ...read,
+      settings: { ...read.settings, selectedAgent: { ...read.settings.selectedAgent, role: "reviewer" } },
+    });
+    const openWindow = vi.spyOn(services.nativeBridge.dialogs, "openWindow").mockResolvedValue("created");
+    const openNewChat = vi.fn(async () => undefined);
+    render(
+      <TestAppProviders services={services}>
+        <NewSessionShortcuts
+          source={{ kind: "session", projectID: "project-1", sessionID: "session-1" }}
+          openNewChat={openNewChat}
+        />
+      </TestAppProviders>,
+    );
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true, shiftKey: newWindow });
+    await waitFor(() => {
+      expect(newWindow ? openWindow : openNewChat).toHaveBeenCalledTimes(1);
+    });
+    if (newWindow) {
+      expect(openWindow.mock.calls[0]?.[0]).toMatchObject({ params: { agentRole: "reviewer" } });
+      expect(openNewChat).not.toHaveBeenCalled();
+    } else {
+      expect(openNewChat).toHaveBeenCalledWith("project-1", "reviewer");
+      expect(openWindow).not.toHaveBeenCalled();
+    }
+  },
+);
 
 it("gives the sidebar Project authority over Chat and uses the default Agent", async () => {
   const services = createTestServices([]);

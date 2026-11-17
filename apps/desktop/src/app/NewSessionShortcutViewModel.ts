@@ -21,7 +21,7 @@ type Input = Readonly<{
   newWindow: boolean;
   currentDestination(): Readonly<{
     source: NewSessionSource | null;
-    openNewChat(projectID: string): Promise<void>;
+    openNewChat(projectID: string, agentRole?: string): Promise<void>;
   }>;
 }>;
 
@@ -57,12 +57,12 @@ export function createNewSessionShortcutViewModel({
           sessionID: source.sessionID,
         });
         if (settings.kind !== "session") throw new Error("Expected Session settings");
-        await openNativeNewChat(
-          services.nativeBridge,
-          projectID,
-          t("chat.newChat"),
-          settings.settings.selectedAgent.role,
-        );
+        const agentRole = settings.settings.selectedAgent.role;
+        if (newWindow) {
+          await openNativeNewChat(services.nativeBridge, projectID, t("chat.newChat"), agentRole);
+        } else {
+          await openNewChat(projectID, agentRole);
+        }
       } else if (newWindow) {
         await openNativeNewChat(services.nativeBridge, projectID, t("chat.newChat"));
       } else {

@@ -40,7 +40,7 @@ export type AppNavigation = Readonly<{
   replaceTask(taskID: string): Promise<void>;
   openProjectTask(projectID: string, workflowID: string, taskID: string): Promise<void>;
   openSessionChat(target: SessionChatTarget): Promise<void>;
-  openNewChat(projectID: string): Promise<void>;
+  openNewChat(projectID: string, agentRole?: string): Promise<void>;
   closeProjectTask(projectID: string, workflowID?: string): Promise<void>;
 }>;
 
@@ -206,11 +206,12 @@ export function useAppNavigation(): AppNavigation {
           });
         });
       },
-      async openNewChat(projectID) {
+      async openNewChat(projectID, agentRole) {
         await runNavigationTransition(async () => {
           await navigate({
             to: newChatRoutePath,
             params: { projectId: projectID },
+            search: agentRole === undefined ? {} : { agentRole },
             state: (previous) => ({
               ...previous,
               sessionChat: {

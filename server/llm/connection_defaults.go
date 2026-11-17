@@ -13,15 +13,14 @@ func ApplyConnectionModelDefaults(settings *config.Settings, sources map[string]
 	if err != nil {
 		return err
 	}
-	if selected.Variant.DefaultModel == nil {
-		return nil
-	}
-	defaults, _ := LookupModelCapabilityContract(*selected.Variant.DefaultModel)
-	if sources["model"].Kind == config.SourceDefault {
-		settings.Model = defaults.Model
-	}
-	if sources["thinking_level"].Kind == config.SourceDefault {
-		settings.ThinkingLevel = *defaults.DefaultReasoningEffort
+	if selected.Variant.DefaultModel != nil {
+		defaults, _ := LookupModelCapabilityContract(*selected.Variant.DefaultModel)
+		if sources["model"].Kind == config.SourceDefault {
+			settings.Model = defaults.Model
+		}
+		if sources["thinking_level"].Kind == config.SourceDefault {
+			settings.ThinkingLevel = *defaults.DefaultReasoningEffort
+		}
 	}
 	if sources["model_context_window"].Kind == config.SourceDefault {
 		derived := *settings

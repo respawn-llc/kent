@@ -14,7 +14,10 @@ import { useStableCallback } from "@/ui";
 export function NewSessionShortcuts({
   source,
   openNewChat,
-}: Readonly<{ source: NewSessionSource | null; openNewChat(projectID: string): Promise<void> }>) {
+}: Readonly<{
+  source: NewSessionSource | null;
+  openNewChat(projectID: string, agentRole?: string): Promise<void>;
+}>) {
   const services = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();

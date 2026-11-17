@@ -5,6 +5,7 @@ import { createTestServices, TestAppProviders } from "@/test-support/app-service
 import { MainNewSessionShortcuts } from "./MainNewSessionShortcuts";
 import { sessionSettingsRead } from "@/test-support/chat-destination";
 import { QueryClient } from "@tanstack/react-query";
+import { sessionChatHistoryStateSchema } from "@/app-facade";
 
 await mock.module("./routeComponents", () => ({
   RootRoute: () => (
@@ -120,7 +121,7 @@ it("does not choose a Project on the unselected Home screen", async () => {
 });
 
 it.each(["/projects/project-1/sessions/parent-session", "/projects/project-1/chat"])(
-  "opens a new window from an existing Session at %s",
+  "pushes a new Chat from an existing Session at %s and preserves Back",
   async (path) => {
     const services = createTestServices([]);
     const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(sessionSettingsRead());
@@ -139,13 +140,29 @@ it.each(["/projects/project-1/sessions/parent-session", "/projects/project-1/cha
     await act(async () => router.load());
     fireEvent.keyDown(window, { key: "n", ctrlKey: true });
     await waitFor(() => {
-      expect(openWindow).toHaveBeenCalledTimes(1);
+      expect(
+        sessionChatHistoryStateSchema.parse(router.state.location.state).sessionChat?.openingID,
+      ).toBeDefined();
     });
     expect(settings).toHaveBeenCalledWith({
       kind: "session",
       projectID: "project-1",
       sessionID: "session-1",
     });
-    expect(router.state.location.pathname).toBe(path);
+    expect(openWindow).not.toHaveBeenCalled();
+    expect(router.state.location.pathname).toBe("/projects/project-1/chat");
+    expect(router.state.location.search).toEqual({
+      agentRole: sessionSettingsRead().settings.selectedAgent.role,
+    });
+    expect(history.length).toBe(2);
+    await act(async () => {
+      history.back();
+    });
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe(path);
+      expect(
+        sessionChatHistoryStateSchema.parse(router.state.location.state).sessionChat?.deliveredSessionID,
+      ).toBe("session-1");
+    });
   },
 );
