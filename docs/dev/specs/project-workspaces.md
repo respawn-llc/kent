@@ -45,6 +45,9 @@
 - Each API operation resolves its selector inside the selected Project and applies the requested change as one operation.
 - A resolved detach result identifies the selected Project and workspace.
 - A blocked detach returns every blocker with its stable code and count when present. Clients derive human-readable explanations and guidance from typed blocker facts.
+- Workspace-detach blocker codes must be non-empty. Clients must accept unfamiliar codes and keep their original values without a dedicated unknown marker.
+- The `default_workspace` blocker must omit its count. The `non_terminal_tasks`, `executable_current_nodes`, `managed_owned_worktrees`, `missing_history_snapshot`, and `active_sessions` blockers must include positive counts.
+- An unfamiliar blocker code may omit its count. Every supplied blocker count must be positive.
 - The detach success result contains exactly `project_id` and `workspace_id`.
 - The default-workspace success result contains exactly `project`, whose value is the authoritative updated Project.
 - Mutation error details contain only `code`, resolved Project/workspace IDs when resolution succeeded, bounded `blockers` when detach is blocked, and `retryable: true` for a concurrent detach conflict.
