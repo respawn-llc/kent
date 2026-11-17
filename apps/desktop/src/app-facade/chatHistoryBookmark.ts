@@ -1,17 +1,15 @@
 import { useRouter } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { sessionChatHistoryStateSchema } from "./sessionChatHistory";
+import { displayedChatSessionID, sessionChatHistoryStateSchema } from "./sessionChatHistory";
 
 export function useChatHistoryBookmark(projectID: string, routeSessionID: string | null) {
   const { history } = useRouter();
   const [opening] = useState(() => {
-    const metadata = sessionChatHistoryStateSchema.parse(history.location.state).sessionChat;
     return {
       href: history.location.href,
       index: history.location.state.__TSR_index,
       key: history.location.state.__TSR_key,
-      sessionID:
-        metadata?.projectID === projectID ? (metadata.deliveredSessionID ?? routeSessionID) : routeSessionID,
+      sessionID: displayedChatSessionID(history.location.state, projectID, routeSessionID),
     };
   });
   const expected = useRef({ href: opening.href, index: opening.index, key: opening.key });

@@ -2,7 +2,7 @@ import { useMatch, useRouterState } from "@tanstack/react-router";
 import {
   newChatRoutePath,
   sessionChatRoutePath,
-  sessionChatHistoryStateSchema,
+  displayedChatSessionID,
   useAppNavigation,
 } from "@/app-facade";
 import { NewSessionShortcuts } from "./NewSessionShortcuts";
@@ -26,10 +26,8 @@ function useChatSource(): NewSessionSource | null {
   const chat = useMatch({ from: sessionChatRoutePath, shouldThrow: false });
   const newChat = useMatch({ from: newChatRoutePath, shouldThrow: false });
   const history = useRouterState({ select: (state) => state.location.state });
-  const bookmark = sessionChatHistoryStateSchema.parse(history).sessionChat;
   const projectID = chat?.params.projectId ?? newChat?.params.projectId;
-  const sessionID =
-    chat?.params.sessionId ?? (bookmark?.projectID === projectID ? bookmark?.deliveredSessionID : null);
+  const sessionID = displayedChatSessionID(history, projectID, chat?.params.sessionId);
   if (projectID === undefined) return null;
   return sessionID == null ? { kind: "new_chat", projectID } : { kind: "session", projectID, sessionID };
 }

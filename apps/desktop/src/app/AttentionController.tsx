@@ -14,7 +14,7 @@ import {
   useSidebarShell,
   sessionChatRoutePath,
   newChatRoutePath,
-  sessionChatHistoryStateSchema,
+  displayedChatSessionID,
   useDesktopSettings,
 } from "@/app-facade";
 import { useStableCallback } from "@/ui";
@@ -76,11 +76,9 @@ function useFocusedChatPicker() {
   const chatMatch = useMatch({ from: sessionChatRoutePath, shouldThrow: false });
   const newChatMatch = useMatch({ from: newChatRoutePath, shouldThrow: false });
   const historyState = useLocation({ select: (location) => location.state });
-  const bookmark = sessionChatHistoryStateSchema.parse(historyState).sessionChat;
   const projectID = (chatMatch ?? newChatMatch)?.params.projectId;
   const routeSessionID = chatMatch?.params.sessionId;
-  const sessionID =
-    bookmark?.projectID === projectID ? (bookmark?.deliveredSessionID ?? routeSessionID) : routeSessionID;
+  const sessionID = displayedChatSessionID(historyState, projectID, routeSessionID);
   return activeDestination === null &&
     presence.target !== null &&
     projectID === presence.target.projectID &&

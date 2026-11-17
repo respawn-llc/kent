@@ -119,7 +119,7 @@ it("does not choose a Project on the unselected Home screen", async () => {
   expect(openWindow).not.toHaveBeenCalled();
 });
 
-it.each(["/projects/project-1/sessions/session-1", "/projects/project-1/chat"])(
+it.each(["/projects/project-1/sessions/parent-session", "/projects/project-1/chat"])(
   "opens a new window from an existing Session at %s",
   async (path) => {
     const services = createTestServices([]);

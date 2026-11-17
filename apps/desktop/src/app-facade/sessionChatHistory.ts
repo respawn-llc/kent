@@ -17,3 +17,14 @@ export const sessionChatHistoryStateSchema = z.looseObject({
 
 export type SessionChatCatalogOrigin = z.output<typeof sessionChatCatalogOriginSchema>;
 export type SessionChatHistoryState = z.output<typeof sessionChatHistoryStateSchema>;
+
+export function displayedChatSessionID(
+  historyState: unknown,
+  projectID: string | undefined,
+  routeSessionID: string | null | undefined,
+): string | null {
+  const metadata = sessionChatHistoryStateSchema.parse(historyState).sessionChat;
+  return metadata?.projectID === projectID
+    ? (metadata?.deliveredSessionID ?? routeSessionID ?? null)
+    : (routeSessionID ?? null);
+}
