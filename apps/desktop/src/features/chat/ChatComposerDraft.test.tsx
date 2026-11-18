@@ -69,9 +69,8 @@ it("restores a failed name command after new typing without model delivery", asy
   const steer = vi.spyOn(services.api.chat, "steer");
   const command = createNameCommand({
     api: services.api.chat,
-    existingSession: true,
     description: null,
-    notify: vi.fn(),
+    setTemporaryName: vi.fn(),
   });
   const { result } = renderHook(
     () => useChatComposer({ ...target, submission: { kind: "ready" }, commands: [command] }),

@@ -1,19 +1,20 @@
 import { queryOptions, skipToken, type QueryClient } from "@tanstack/react-query";
 
-import type { ApiService } from "@/api";
+import type { ApiService, WorktreeScope } from "@/api";
 import { queryKeys, type WorktreeListReadOwner } from "./queryKeys";
 
 export type WorktreeCreateTargetResolutionRequest = Readonly<{
-  sessionID: string;
+  scope: WorktreeScope;
   target: string;
 }>;
 export type WorktreeSelectorRequest = Readonly<{ sessionID: string; selector: string }>;
+export type WorktreeDeleteRequest = Readonly<{ scope: WorktreeScope; selector: string }>;
 
 export function createWorktreeTargetResolutionRequest(
-  sessionID: string,
+  scope: WorktreeScope,
   rawTarget: string,
 ): WorktreeCreateTargetResolutionRequest {
-  const request = Object.freeze({ sessionID, target: rawTarget.trim() });
+  const request = Object.freeze({ scope, target: rawTarget.trim() });
   createKey(request);
   return request;
 }
@@ -29,8 +30,8 @@ export async function invalidateWorktreeSessionReads(
   sessionID: string,
 ): Promise<void> {
   await Promise.all(
-    [queryKeys.worktreeStatus(sessionID), queryKeys.worktreeList(sessionID)].map(async (queryKey) =>
-      queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "active" }),
+    [queryKeys.worktreeStatus(sessionID), queryKeys.worktreeList({ kind: "session", sessionID })].map(
+      async (queryKey) => queryClient.invalidateQueries({ queryKey, exact: true, refetchType: "active" }),
     ),
   );
 }
@@ -43,15 +44,13 @@ export const worktreeStatusQueryOptions = (api: ApiService, sessionID: string) =
 
 export const worktreeListQueryOptions = (
   api: ApiService,
-  sessionID: string | null,
+  scope: WorktreeScope | null,
   owner: WorktreeListReadOwner = "sidebar",
 ) =>
   queryOptions({
     queryKey:
-      sessionID === null
-        ? (["worktree", null, "list", owner] as const)
-        : queryKeys.worktreeList(sessionID, owner),
-    queryFn: sessionID === null ? skipToken : async () => api.listWorktrees(sessionID),
+      scope === null ? (["worktree", null, "list", owner] as const) : queryKeys.worktreeList(scope, owner),
+    queryFn: scope === null ? skipToken : async () => api.listWorktrees(scope),
     staleTime: 0,
     structuralSharing: false,
     retry: false,
@@ -62,30 +61,30 @@ export const worktreeListQueryOptions = (
 export async function replaceWorktreeListRead(
   queryClient: QueryClient,
   api: ApiService,
-  sessionID: string,
+  scope: WorktreeScope,
   owner: WorktreeListReadOwner = "sidebar",
 ): Promise<void> {
-  const options = worktreeListQueryOptions(api, sessionID, owner);
+  const options = worktreeListQueryOptions(api, scope, owner);
   await queryClient.cancelQueries({ queryKey: options.queryKey, exact: true });
   // The query retains the error and previous data for the browser's Error + Retry state.
   await queryClient.fetchQuery(options).catch(() => undefined);
 }
 
 const createKey = (request: WorktreeCreateTargetResolutionRequest) =>
-  queryKeys.worktreeCreateTargetResolution(request.sessionID, request.target);
+  ["worktree", request.scope, "create-target-resolution", request.target] as const;
 const selectorKey = (request: WorktreeSelectorRequest) =>
   queryKeys.worktreeSelectorResolution(request.sessionID, request.selector);
-const deleteKey = (request: WorktreeSelectorRequest) =>
-  queryKeys.worktreeDeletePreview(request.sessionID, request.selector);
+const deleteKey = (request: WorktreeDeleteRequest) =>
+  ["worktree", request.scope, "delete-preview", request.selector] as const;
 
 const createOperation = operation(createKey, async (api, request: WorktreeCreateTargetResolutionRequest) =>
-  api.resolveWorktreeCreateTarget(request.sessionID, request.target),
+  api.resolveWorktreeCreateTarget(request.scope, request.target),
 );
 const selectorOperation = operation(selectorKey, async (api, request: WorktreeSelectorRequest) =>
   api.resolveWorktreeSelector(request.sessionID, request.selector),
 );
-const deleteOperation = operation(deleteKey, async (api, request: WorktreeSelectorRequest) =>
-  api.previewWorktreeDelete(request.sessionID, request.selector),
+const deleteOperation = operation(deleteKey, async (api, request: WorktreeDeleteRequest) =>
+  api.previewWorktreeDelete(request.scope, request.selector),
 );
 export const worktreeCreateTargetResolutionQueryOptions = createOperation.options;
 export const freshFetchWorktreeCreateTargetResolution = createOperation.fresh;

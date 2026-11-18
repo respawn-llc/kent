@@ -83,7 +83,9 @@ export function GoalBrowserFixture({
         target: {
           kind: "new_chat",
           projectID: "project-1",
-          workspaceID: "workspace-1",
+          workspace: { workspaceID: "workspace-1" },
+          name: null,
+          worktreeSelector: null,
           initialSettings: {
             agentRole: "default",
             supervisor: "off",

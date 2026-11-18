@@ -12,7 +12,7 @@ export function createWorktreeCommand({
   push,
   t,
 }: Readonly<{
-  execute: ((sessionID: string, intent: WorktreeCommandIntent) => void | Promise<void>) | null;
+  execute: (sessionID: string | null, intent: WorktreeCommandIntent) => void | Promise<void>;
   push: StatusController["push"];
   t: TFunction;
 }>): ComposerCommand {
@@ -24,22 +24,14 @@ export function createWorktreeCommand({
     execution: {
       kind: "direct",
       send: async (target, invocation) => {
-        if (target.kind === "session" && execute !== null) {
-          const intent = parseArguments(invocation.arguments);
-          if (intent !== null) await execute(target.sessionID, intent);
-          else
-            push({
-              id: crypto.randomUUID(),
-              tone: "danger",
-              title: t("chat.worktree.title"),
-              body: t("chat.worktree.commandUsage"),
-            });
-        } else
+        const intent = parseArguments(invocation.arguments);
+        if (intent !== null) await execute(target.kind === "session" ? target.sessionID : null, intent);
+        else
           push({
             id: crypto.randomUUID(),
             tone: "danger",
             title: t("chat.worktree.title"),
-            body: t("chat.worktree.sessionRequired"),
+            body: t("chat.worktree.commandUsage"),
           });
         return { kind: "local" };
       },

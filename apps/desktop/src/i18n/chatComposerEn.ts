@@ -20,7 +20,6 @@ export const chatComposerEnglish = {
   },
   saveFailed: "Could not save Chat draft",
   submitFailed: "Could not submit input",
-  nameSessionRequired: "Open an existing Session before changing its name.",
   acceptedDiagnostic: "Input accepted with a diagnostic",
   pendingFailed: "Could not update Pending Work",
   discard: "Discard",
@@ -41,9 +40,10 @@ export const chatComposerEnglish = {
     prompt_catalog_read: "Could not read the command catalog.",
     prompt_command_not_found: "This command was not found.",
     prompt_command_read: "Could not read this command.",
-    too_soon: "This operation is not available yet.",
+    too_soon: "There is nothing to compact yet. Complete a conversation turn first.",
     disabled: "This operation is disabled.",
     active: "This operation is already active.",
-    internal_failure: "Kent could not complete the operation.",
+    internal_failure:
+      "The action did not complete. Check the selected Worktree and Chat settings, then try again. Your draft is kept.",
   },
 };

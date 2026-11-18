@@ -11,6 +11,7 @@ import {
   useSidebarShell,
   useStatusController,
   worktreeTransitionOutcomeHandler,
+  type ChatWorktreeBinding,
 } from "@/app-facade";
 import { Spinner, useStableCallback } from "@/ui";
 import { createWorktreeCommand } from "./worktreeCommand";
@@ -21,16 +22,21 @@ import { useWorktreeActions } from "./WorktreeActions";
 
 type WorktreeCommandModel = Readonly<{
   deletion: ReturnType<typeof createWorktreeCommandDelete>;
-  actions: ReturnType<typeof createWorktreeCommandActions>;
+  actions: NonNullable<Atom.Type<ReturnType<typeof createWorktreeCommandActions>>>;
   preview: Atom.Writable<WorktreeDeletePreview | null>;
 }>;
 
-export function useWorktreeCommands(
-  projectID: string | null,
-  sessionID: string | null,
-  focusComposer: () => void,
-  openSession: (sessionID: string) => void | Promise<void>,
-) {
+export function useWorktreeCommands({
+  projectID,
+  focusComposer,
+  openSession,
+  chat,
+}: Readonly<{
+  projectID: string;
+  focusComposer(): void;
+  openSession(sessionID: string): void | Promise<void>;
+  chat: ChatWorktreeBinding;
+}>) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const roots = useOwnedSidebarRoots();
@@ -38,17 +44,19 @@ export function useWorktreeCommands(
   const { push } = useStatusController();
   const { t } = useTranslation();
   const openOriginSession = useStableCallback(openSession);
+  const managementScope = useAtomValue(chat.scope);
+  const sessionID = managementScope?.kind === "session" ? managementScope.sessionID : null;
+  const temporarySelector = useAtomValue(chat.selector);
   const scope = useMemo(
     () =>
       Atom.make((get) => {
-        if (sessionID === null) return null;
-        if (projectID === null) throw new Error("Worktree actions require a Project.");
+        if (managementScope === null) return null;
         const preview = Atom.make<WorktreeDeletePreview | null>(null);
         const dependencies = {
           client,
           api,
           projectID,
-          sessionID,
+          scope: managementScope,
           push,
           t,
           refreshOpenWorktreeList: createRefreshOpenWorktreeList(client, api, currentSurface),
@@ -60,38 +68,67 @@ export function useWorktreeCommands(
             get.set(preview, value);
           },
         });
-        const actions = createWorktreeCommandActions({
-          ...dependencies,
-          roots,
-          focusComposer,
-          openSession: openOriginSession,
-          deleteTarget: deletion.prepare,
-        });
+        const actions = get(
+          createWorktreeCommandActions({
+            client,
+            api,
+            projectID,
+            push,
+            t,
+            chat,
+            refreshOpenWorktreeList: dependencies.refreshOpenWorktreeList,
+            roots,
+            focusComposer,
+            openSession: openOriginSession,
+            deleteTarget: async (selector) => deletion.prepare(selector ?? temporarySelector),
+          }),
+        );
+        if (actions === null) return null;
         return {
           deletion,
           actions,
           preview,
-          observation: {
-            onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(
-              dependencies.refreshOpenWorktreeList,
-              sessionID,
-              push,
-              t,
-            ),
-          },
+          observation:
+            sessionID === null
+              ? undefined
+              : {
+                  onWorktreeTransitionOutcome: worktreeTransitionOutcomeHandler(
+                    dependencies.refreshOpenWorktreeList,
+                    sessionID,
+                    push,
+                    t,
+                  ),
+                },
         };
       }),
-    [api, client, currentSurface, focusComposer, openOriginSession, projectID, push, roots, sessionID, t],
+    [
+      api,
+      client,
+      currentSurface,
+      focusComposer,
+      openOriginSession,
+      projectID,
+      push,
+      roots,
+      sessionID,
+      t,
+      managementScope,
+      chat,
+      temporarySelector,
+    ],
   );
   const model = useAtomValue(scope);
   const commands = useMemo(
-    () => [
-      createWorktreeCommand({
-        push,
-        t,
-        execute: model === null ? null : async (_sessionID, intent) => model.actions.execute(intent),
-      }),
-    ],
+    () =>
+      model === null
+        ? []
+        : [
+            createWorktreeCommand({
+              push,
+              t,
+              execute: async (_sessionID, intent) => model.actions.execute(intent),
+            }),
+          ],
     [model, push, t],
   );
   return {

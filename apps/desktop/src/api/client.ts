@@ -10,7 +10,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/server/server_pb";
 import type { ApiService, ApiSubscription } from "./apiService";
 import type { ChatApi } from "./chat";
-import type { ChatSessionTarget } from "./chatTypes";
+import type { ProcessScope } from "./processes";
 import { createChatApi } from "./chat";
 import { listSessionPage as listSessionCatalogPage } from "./clientCatalog";
 import * as attention from "./clientAttention";
@@ -125,7 +125,7 @@ export class ApiClient implements ApiService {
   getSubscriptionUsage = async (connectionID: string) =>
     subscriptionUsage.getSubscriptionUsage(this.#transport, connectionID);
 
-  observeProcesses = (target: ChatSessionTarget) => processes.observeProcesses(this.#transport, target);
+  observeProcesses = (target: ProcessScope) => processes.observeProcesses(this.#transport, target);
   killProcess = async (processID: string) => processes.killProcess(this.#transport, processID);
 
   async getReadiness(): Promise<ServerReadiness> {
@@ -404,22 +404,23 @@ export class ApiClient implements ApiService {
   }
 
   getWorktreeStatus = async (sessionID: string) => worktree.getWorktreeStatus(this.#transport, sessionID);
-  listWorktrees = async (sessionID: string) => worktree.listWorktrees(this.#transport, sessionID);
+  listWorktrees = async (scope: worktreeModels.WorktreeScope) =>
+    worktree.listWorktrees(this.#transport, scope);
   resolveWorktreeSelector = async (sessionID: string, selector: string) =>
     worktree.resolveWorktreeSelector(this.#transport, sessionID, selector);
-  resolveWorktreeCreateTarget = async (sessionID: string, target: string) =>
-    worktree.resolveWorktreeCreateTarget(this.#transport, sessionID, target);
-  previewWorktreeDelete = async (sessionID: string, selector: string) =>
-    worktree.previewWorktreeDelete(this.#transport, sessionID, selector);
+  resolveWorktreeCreateTarget = async (scope: worktreeModels.WorktreeScope, target: string) =>
+    worktree.resolveWorktreeCreateTarget(this.#transport, scope, target);
+  previewWorktreeDelete = async (scope: worktreeModels.WorktreeScope, selector: string) =>
+    worktree.previewWorktreeDelete(this.#transport, scope, selector);
   createWorktree = async (input: worktreeModels.WorktreeCreateInput) =>
     worktree.createWorktree(this.#transport, input);
   switchWorktree = async (sessionID: string, operation: worktreeModels.WorktreeTransition) =>
     worktree.switchWorktree(this.#transport, sessionID, operation);
   deleteWorktree = async (
-    sessionID: string,
+    scope: worktreeModels.WorktreeScope,
     preview: worktreeModels.WorktreeDeletePreview,
     confirmation: worktreeModels.WorktreeDeleteConfirmationChoice,
-  ) => worktree.deleteWorktree(this.#transport, sessionID, preview, confirmation);
+  ) => worktree.deleteWorktree(this.#transport, scope, preview, confirmation);
   subscribeWorktreeSetup = (setupOperationID: SetupOperationID, handler: WorktreeSetupEventHandler) =>
     subscribeWorktreeSetup(this.#transport, setupOperationID, handler);
 }

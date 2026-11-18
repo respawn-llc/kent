@@ -346,7 +346,7 @@ class RpcWebSocketTransport implements RpcTransport {
     run: (socket: WebSocket) => Promise<void>,
     onError: (error: Error) => void,
     signal: AbortSignal,
-    attachmentTarget?: SessionAttachmentTarget,
+    attachmentTarget?: DescriptorSubscriptionInput<DescMethod, DescMessage, DescMessage>["attachment"],
   ): Promise<void> {
     try {
       await this.#withSubscriptionSocket(signal, run, attachmentTarget);
@@ -361,7 +361,7 @@ class RpcWebSocketTransport implements RpcTransport {
   async #withSubscriptionSocket(
     signal: AbortSignal,
     run: (socket: WebSocket) => Promise<void>,
-    attachmentTarget?: SessionAttachmentTarget,
+    attachmentTarget?: DescriptorSubscriptionInput<DescMethod, DescMessage, DescMessage>["attachment"],
   ): Promise<void> {
     const socket = await openSocket(this.#endpoint, socketOpenTimeoutMs, signal);
     const abort = () => {
@@ -369,14 +369,13 @@ class RpcWebSocketTransport implements RpcTransport {
     };
     signal.addEventListener("abort", abort, { once: true });
     try {
-      const attachment = await setupSocket(socket, {
-        timeoutMilliseconds: rpcRequestTimeoutMs,
-        expectedRootId: this.#expectedRootId,
-        signal,
-        ...(attachmentTarget === undefined ? {} : { sessionID: attachmentTarget.sessionID }),
-      });
+      const attachment = await setupSocket(
+        socket,
+        socketSetupOptions(this.#expectedRootId, { signal }, attachmentTarget),
+      );
       if (attachmentTarget !== undefined) {
-        requireSessionAttachment(attachment, attachmentTarget);
+        if ("sessionID" in attachmentTarget) requireSessionAttachment(attachment, attachmentTarget);
+        else requireProjectAttachment(attachment, attachmentTarget);
       }
       await run(socket);
     } finally {

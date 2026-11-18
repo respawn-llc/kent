@@ -28,18 +28,25 @@ export function WorktreeDestination({
   );
 }
 
+function useWorktreeDestinationTarget(destination: Parameters<typeof WorktreeDestination>[0]["destination"]) {
+  const scope = useAtomValue(destination.chat.scope);
+  const sessionID = scope?.kind === "session" ? scope.sessionID : null;
+  return { scope, sessionID };
+}
+
 function WorktreeDestinationContent({ destination, navigator }: Parameters<typeof WorktreeDestination>[0]) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { currentSurface } = useSidebarShell();
   const { push } = useStatusController();
   const { t } = useTranslation();
+  const { scope, sessionID } = useWorktreeDestinationTarget(destination);
   const model = useMemo(
     () =>
       createWorktreeActions({
         client,
         api,
-        sessionID: destination.sessionID,
+        sessionID,
         onAccepted: () => {
           navigator.close();
         },
@@ -47,15 +54,16 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
         t,
         refreshOpenWorktreeList: createRefreshOpenWorktreeList(client, api, currentSurface),
       }),
-    [api, client, currentSurface, destination.sessionID, navigator, push, t],
+    [api, client, currentSurface, sessionID, navigator, push, t],
   );
   const actions = useWorktreeActions(model);
   const switching = useAtomValue(model.requestPending);
+  if (scope === null) return null;
   if (destination.page === "create")
     return (
       <WorktreeCreateForm
         projectID={destination.projectID}
-        sessionID={destination.sessionID}
+        chat={destination.chat}
         openSession={destination.openSession}
         navigator={navigator}
         actions={model}
@@ -64,7 +72,7 @@ function WorktreeDestinationContent({ destination, navigator }: Parameters<typeo
   return (
     <WorktreeBrowser
       projectID={destination.projectID}
-      sessionID={destination.sessionID}
+      chat={destination.chat}
       onOpenSession={destination.openSession}
       navigator={navigator}
       switchPending={switching}

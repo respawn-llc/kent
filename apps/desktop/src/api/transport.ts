@@ -1,4 +1,5 @@
 import type { DescMessage, DescMethod, MessageShape, MessageValidType } from "@app/server-api-contract";
+import type { ChatProjectTarget } from "./chatTypes";
 
 export type RpcSubscription = Readonly<{
   close(): void;
@@ -25,7 +26,7 @@ export type DescriptorSubscriptionInput<
     MessageValidType<EventDescriptor>,
     MessageValidType<CompletionDescriptor>
   >;
-  attachment?: SessionAttachmentTarget;
+  attachment?: SessionAttachmentTarget | ChatProjectTarget;
   establishmentTimeoutMs?: number | null;
   transcriptRejection?: Readonly<{ onInvalidEvent(error: Error): void }>;
 }>;

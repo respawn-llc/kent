@@ -8,6 +8,7 @@ import (
 
 	"core/server/sessionstore"
 	chatpb "core/shared/protoapi/gen/kent/api/chat"
+	processpb "core/shared/protoapi/gen/kent/api/process"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
 	worktreepb "core/shared/protoapi/gen/kent/api/worktree"
 	"core/shared/runtimeids"
@@ -54,6 +55,18 @@ func (e routePolicyExecutor) authorizeScopeFacts(
 	method string,
 	scopeParams routeScopeParams,
 ) error {
+	if scope == sharedpb.ScopePolicy_SCOPE_POLICY_PROCESS_OBSERVATION {
+		switch selected := scopeParams.processObservation.GetScope().(type) {
+		case *processpb.ObserveRequest_SessionId:
+			scope = sharedpb.ScopePolicy_SCOPE_POLICY_SESSION_ATTACHED_PROJECT
+			scopeParams.sessionID = selected.SessionId
+		case *processpb.ObserveRequest_ProjectId:
+			scope = sharedpb.ScopePolicy_SCOPE_POLICY_PROJECT_VIEW
+			scopeParams.projectID = selected.ProjectId
+		default:
+			return errors.New("process observation scope is required")
+		}
+	}
 	if scopeParams.sessionSelector != nil {
 		id, err := e.gateway.deps.MetadataStore().ResolveSessionTarget(ctx, scopeParams.sessionSelector)
 		if err != nil {
@@ -167,6 +180,7 @@ func (e routePolicyExecutor) authorizeResolvedScope(
 }
 
 type routeScopeParams struct {
+	processObservation        *processpb.ObserveRequest
 	sessionID                 string
 	sessionSelector           *sharedpb.SessionSelector
 	sessionReattachCapability *string

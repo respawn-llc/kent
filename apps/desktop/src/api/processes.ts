@@ -1,3 +1,8 @@
+import type { ChatProjectTarget, ChatSessionTarget } from "./chatTypes";
+
+export type ProcessScope =
+  (Readonly<{ kind: "project" }> & ChatProjectTarget) | (Readonly<{ kind: "session" }> & ChatSessionTarget);
+
 export type DesktopProcess = Readonly<{
   id: string;
   state: string;

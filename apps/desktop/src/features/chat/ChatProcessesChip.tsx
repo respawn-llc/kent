@@ -21,7 +21,7 @@ function ActiveProcessesChip({ target, count }: Readonly<{ target: ChatSessionTa
       onClick={(event) => {
         const origin = event.currentTarget;
         void roots
-          .toggle({ kind: "processes", projectID: target.projectID, sessionID: target.sessionID })
+          .toggle({ kind: "processes", scope: { kind: "session", ...target } })
           ?.lifecycle.then((outcome) => {
             if (outcome === "closed" && origin.isConnected) origin.focus();
           });

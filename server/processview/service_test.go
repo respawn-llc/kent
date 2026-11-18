@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,6 +28,121 @@ import (
 )
 
 const processViewTestWaitTimeout = 10 * time.Second
+
+func TestProjectObservationFiltersAndSuppressesUnchangedLifecycle(t *testing.T) {
+	membership := &mutableProjectSessionMembership{byProject: make(map[string][]string)}
+	fixture := newProcessViewFixtureWithMembership(t, membership)
+	membership.setProject(fixture.projectID, "session-1")
+	membership.setProject("other-project", "other-session")
+	marker := filepath.Join(t.TempDir(), "continue")
+	fixture.startCommand(t, "background", fmt.Sprintf("printf initial; while [ ! -f %q ]; do sleep 0.01; done; printf later; sleep 30", marker), processViewTestStepID)
+	other := fixture
+	other.tool = shelltool.NewExecCommandToolWithPostprocessor(t.TempDir(), 16_000, 200_000, fixture.manager, "other-session", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin}))
+	other.startCommand(t, "other-project", "sleep 30", processViewTestStepID)
+	sub, err := fixture.service.ObserveProcesses(t.Context(), &processpb.ObserveRequest{
+		Scope: &processpb.ObserveRequest_ProjectId{ProjectId: fixture.projectID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	initial, err := sub.Next(t.Context())
+	if err != nil || len(initial.Processes) != 1 {
+		t.Fatalf("initial: %v (%v)", initial, err)
+	}
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForProcessSnapshot(t, processViewTestWaitTimeout, func() (shelltool.Snapshot, bool) {
+		for _, snapshot := range fixture.manager.List() {
+			if snapshot.ID == initial.Processes[0].Id {
+				return snapshot, snapshot.RecentOutput != initial.Processes[0].RecentOutput
+			}
+		}
+		return shelltool.Snapshot{}, false
+	})
+	fixture.service.BackgroundListChanged("other-session")
+	ctx, cancel := context.WithTimeout(t.Context(), 650*time.Millisecond)
+	defer cancel()
+	if _, err := sub.Next(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("unchanged projection emitted: %v", err)
+	}
+	if _, err := fixture.service.KillProcess(t.Context(), &processpb.KillRequest{ProcessId: initial.Processes[0].Id}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel = context.WithTimeout(t.Context(), processViewTestWaitTimeout)
+	defer cancel()
+	updated, err := sub.Next(ctx)
+	if err != nil || len(updated.Processes) != 1 || (!updated.Processes[0].KillRequested && updated.Processes[0].Running) {
+		t.Fatalf("update: %v (%v)", updated, err)
+	}
+}
+
+func TestProjectObservationReadDoesNotBlockShellTermination(t *testing.T) {
+	for _, readError := range []error{nil, errors.New("membership unavailable")} {
+		t.Run(fmt.Sprint(readError), func(t *testing.T) {
+			membership := &mutableProjectSessionMembership{byProject: make(map[string][]string)}
+			fixture := newProcessViewFixtureWithMembership(t, membership)
+			membership.setProject(fixture.projectID, "session-1")
+			fixture.startCommand(t, "background", "sleep 30", processViewTestStepID)
+			sub, err := fixture.service.ObserveProcesses(t.Context(), &processpb.ObserveRequest{Scope: &processpb.ObserveRequest_ProjectId{ProjectId: fixture.projectID}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			initial, err := sub.Next(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			release := make(chan struct{})
+			entered := make(chan struct{}, 1)
+			membership.mu.Lock()
+			membership.hold, membership.entered, membership.failure = release, entered, readError
+			membership.mu.Unlock()
+			defer func() {
+				select {
+				case <-release:
+				default:
+					close(release)
+				}
+			}()
+			fixture.service.BackgroundListChanged("other-session")
+			select {
+			case <-entered:
+			case <-time.After(processViewTestWaitTimeout):
+				t.Fatal("observation read did not start")
+			}
+			killed := make(chan error, 1)
+			go func() {
+				_, err := fixture.service.KillProcess(t.Context(), &processpb.KillRequest{ProcessId: initial.Processes[0].Id})
+				killed <- err
+			}()
+			select {
+			case err := <-killed:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("termination waited for observation read")
+			}
+			waitForProcessSnapshot(t, processViewTestWaitTimeout, func() (shelltool.Snapshot, bool) {
+				process := fixture.manager.List()[0]
+				return process, !process.Running
+			})
+			close(release)
+			ctx, cancel := context.WithTimeout(t.Context(), processViewTestWaitTimeout)
+			defer cancel()
+			update, err := sub.Next(ctx)
+			if readError != nil {
+				if !errors.Is(err, readError) {
+					t.Fatalf("failure = %v", err)
+				}
+			} else if err != nil || len(update.Processes) != 1 || update.Processes[0].Running {
+				t.Fatalf("completed projection: %v (%v)", update, err)
+			}
+		})
+	}
+}
 
 func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 	fixture := newProcessViewFixture(t)
@@ -84,7 +201,7 @@ func TestServiceListProcessesIncludesStepOwnership(t *testing.T) {
 func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-		SessionId: "session-1",
+		Scope: &processpb.ObserveRequest_SessionId{SessionId: "session-1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +234,7 @@ func TestServiceListExcludesForegroundProcesses(t *testing.T) {
 func TestObservationReplacesWithLatestCompletedListInServerOrder(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-		SessionId: "session-1",
+		Scope: &processpb.ObserveRequest_SessionId{SessionId: "session-1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +285,7 @@ func TestObservationInitialSessionScopeAndClose(t *testing.T) {
 	fixture.startCommand(t, "background", "sleep 30", processViewTestStepID)
 	for _, sessionID := range []string{"session-1", "session-2"} {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-			SessionId: sessionID,
+			Scope: &processpb.ObserveRequest_SessionId{SessionId: sessionID},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -212,7 +329,7 @@ func TestObservationFollowsSessionAfterProjectMembershipChanges(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), processViewTestWaitTimeout)
 	defer cancel()
 	openedBeforeMove, err := fixture.service.ObserveProcesses(ctx, &processpb.ObserveRequest{
-		SessionId: sessionID,
+		Scope: &processpb.ObserveRequest_SessionId{SessionId: sessionID},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +352,7 @@ func TestObservationFollowsSessionAfterProjectMembershipChanges(t *testing.T) {
 	}
 
 	openedAfterMove, err := fixture.service.ObserveProcesses(ctx, &processpb.ObserveRequest{
-		SessionId: sessionID,
+		Scope: &processpb.ObserveRequest_SessionId{SessionId: sessionID},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +371,7 @@ func TestObservationBatchesOnlyMatchingChanges(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	synctest.Test(t, func(t *testing.T) {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-			SessionId: "session-1",
+			Scope: &processpb.ObserveRequest_SessionId{SessionId: "session-1"},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -318,7 +435,7 @@ func TestObservationFailsWhenReplacementCannotBeDelivered(t *testing.T) {
 	fixture := newProcessViewFixture(t)
 	synctest.Test(t, func(t *testing.T) {
 		sub, err := fixture.service.ObserveProcesses(context.Background(), &processpb.ObserveRequest{
-			SessionId: "session-1",
+			Scope: &processpb.ObserveRequest_SessionId{SessionId: "session-1"},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -544,13 +661,33 @@ func TestServiceListProcessesPropagatesMembershipError(t *testing.T) {
 type mutableProjectSessionMembership struct {
 	mu        sync.RWMutex
 	byProject map[string][]string
+	hold      <-chan struct{}
+	entered   chan<- struct{}
+	failure   error
 }
 
 func (m *mutableProjectSessionMembership) FilterProjectSessionIDs(
-	_ context.Context,
+	ctx context.Context,
 	projectID string,
 	sessionIDs []string,
 ) ([]string, error) {
+	m.mu.RLock()
+	hold, entered, failure := m.hold, m.entered, m.failure
+	m.mu.RUnlock()
+	if hold != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if failure != nil {
+			return nil, failure
+		}
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	result := make([]string, 0, len(sessionIDs))

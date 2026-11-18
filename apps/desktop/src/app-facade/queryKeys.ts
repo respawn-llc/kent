@@ -6,6 +6,8 @@ import {
   type BoardNodeCardsSort,
   type SessionCategory,
   type WorkflowTaskListSort,
+  type WorktreeScope,
+  type ProcessScope,
 } from "@/api";
 
 const attentionKey = ["attention"] as const;
@@ -191,14 +193,20 @@ export const queryKeys = {
   activity: (taskID: string) => ["activity", taskID],
   comments: (taskID: string) => ["comments", taskID],
   pendingAsks: (sessionID: string | null) => ["pending-asks", sessionID],
-  processes: (projectID: string, sessionID: string) => ["processes", projectID, sessionID],
+  processes: (scope: ProcessScope) =>
+    scope.kind === "project"
+      ? ["processes", scope.kind, scope.projectID]
+      : ["processes", scope.kind, scope.projectID, scope.sessionID],
   worktreeStatus: (sessionID: string) => ["worktree", worktreeFact(sessionID), "status"] as const,
-  worktreeList: (sessionID: string, owner: WorktreeListReadOwner = "sidebar") =>
-    ["worktree", worktreeFact(sessionID), "list", owner] as const,
-  worktreeCreateTargetResolution: (sessionID: string, target: string) =>
-    worktreeOperationKey(sessionID, "create-target-resolution", worktreeFact(target, true)),
+  worktreeList: (scope: WorktreeScope, owner: WorktreeListReadOwner = "sidebar") =>
+    [
+      "worktree",
+      scope.kind === "session"
+        ? { kind: scope.kind, sessionID: scope.sessionID }
+        : { kind: scope.kind, projectID: scope.projectID, workspaceID: scope.workspaceID },
+      "list",
+      owner,
+    ] as const,
   worktreeSelectorResolution: (sessionID: string, selector: string) =>
     worktreeOperationKey(sessionID, "selector-resolution", selector),
-  worktreeDeletePreview: (sessionID: string, selector: string) =>
-    worktreeOperationKey(sessionID, "delete-preview", selector),
 };

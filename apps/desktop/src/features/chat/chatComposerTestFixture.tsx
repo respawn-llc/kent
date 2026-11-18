@@ -31,16 +31,14 @@ export function useChatComposer(
   const setSubmission = useAtomSet(submission);
   const state = options.submission?.kind ?? "loading";
   const settings =
-    options.submission?.kind === "ready" && "initialSettings" in options.submission
-      ? options.submission.initialSettings
-      : null;
+    options.submission?.kind === "ready" && "target" in options.submission ? options.submission.target : null;
   const error = options.submission?.kind === "failed" ? options.submission.error : null;
   useLayoutEffect(() => {
     setSubmission(
       state === "ready"
         ? settings === null
           ? { kind: "ready" }
-          : { kind: "ready", initialSettings: settings }
+          : { kind: "ready", target: settings }
         : state === "failed"
           ? { kind: "failed", error }
           : { kind: "loading" },

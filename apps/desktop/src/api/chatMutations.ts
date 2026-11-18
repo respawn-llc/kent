@@ -23,7 +23,7 @@ import {
 
 import { requireProjectAttachment } from "./chatAttachment";
 import { requireChatSuccess } from "./chatErrors";
-import { initialChatSettingsToWire } from "./chatSettings";
+import { newChatToWire } from "./newChat";
 import { required } from "./chatWire";
 import type { ChatActivation, ChatApi, ChatMutationTarget } from "./chatTypes";
 import { ContractError } from "./errors";
@@ -266,27 +266,11 @@ function inputAdmissionDisposition(value: InputAdmissionDisposition) {
   }
 }
 
-function mutationTarget(
-  target: Extract<ChatMutationTarget, { kind: "new_chat" }>,
-  workspaceID: string,
-): {
-  target: {
-    case: "newChat";
-    value: {
-      projectId: string;
-      workspaceId: string;
-      initialSettings: ReturnType<typeof initialChatSettingsToWire>;
-    };
-  };
-} {
+function mutationTarget(target: Extract<ChatMutationTarget, { kind: "new_chat" }>, workspaceID: string) {
   return {
     target: {
-      case: "newChat",
-      value: {
-        projectId: target.projectID,
-        workspaceId: workspaceID,
-        initialSettings: initialChatSettingsToWire(target.initialSettings),
-      },
+      case: "newChat" as const,
+      value: newChatToWire(target, workspaceID),
     },
   };
 }
