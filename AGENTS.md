@@ -42,6 +42,7 @@ This repository contains Kent - a coding agent focused on output quality, built 
 - `server/tools/definitions.go`
   - Centralized compile-time tool interface declarations (name, descriptions, JSON schemas).
 - `docs/dev/specs/terminology.md` - DDD's ubiquitous language, must read during design phases to communicate with user.
+- `docs/dev/specs/mobile.md` - Android and iOS product requirements.
 
 ## Product Principles 
 These should guide default architectural choices in addition to user preferences.
