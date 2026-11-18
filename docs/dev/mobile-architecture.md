@@ -1,3 +1,19 @@
+## Mobile stack
+
+| Area | Choice |
+| --- | --- |
+| Platforms | Kotlin Multiplatform for Android and iOS |
+| UI and screen state | Compose Multiplatform with Material 3. FlowMVI containers own screen state independently of Compose. |
+| Dependency injection | Metro |
+| Error handling | ApiResult |
+| API | Kotlin DTOs generated from Kent’s Protobuf schemas. The Kotlin generator is an open decision. |
+| Networking | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
+| Navigation | Open decision. |
+| Local storage | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision. |
+| Background notifications | Firebase Cloud Messaging for Android and iOS. Push relay hosting and authorization are open decisions. |
+| Crash reporting | Firebase Crashlytics, enabled by default with an opt-out setting. |
+| Unit tests and lint | Kotest without mocks, Detekt for Kotlin, and Android Lint. |
+
 ## Build and module boundaries
 
 Kent mobile uses one Kotlin Multiplatform build under `apps/mobile`, with shared Gradle conventions, thin Android and iOS entry points, and a Metro composition root. Create a module when it has production code to own. Keep shared mobile components in that build.
