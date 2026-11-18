@@ -437,6 +437,9 @@ describe("New Task Workspace catalog integration", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "task.body" }), {
       target: { value: "Parent body" },
     });
+    fireEvent.change(screen.getByRole("textbox", { name: "task.sourceURL" }), {
+      target: { value: "original ticket text" },
+    });
     fireEvent.click(screen.getByTestId("dependency-add-blocks"));
     fireEvent.click(screen.getByRole("button", { name: "task.dependenciesCreateTask" }));
 
@@ -453,6 +456,7 @@ describe("New Task Workspace catalog integration", () => {
     expect(capture()).toEqual({
       formValues: {
         body: "Parent body",
+        sourceURL: "original ticket text",
         sourceWorkspaceID: "source",
         title: "Parent title",
       },
@@ -465,13 +469,19 @@ describe("New Task Workspace catalog integration", () => {
     loadAttachedCatalog();
     state.labels = undefined;
     const retainedState = {
-      formValues: { body: "Body", sourceWorkspaceID: "source", title: "" },
+      formValues: {
+        body: "Body",
+        sourceURL: "arbitrary source text",
+        sourceWorkspaceID: "source",
+        title: "",
+      },
       preparedDependencies: [preparedDependency("blocked-by", "task-restored")],
       selectedLabelIDs: ["label-restored"],
     };
     const view = render(<NewTaskForm {...props} retainedState={retainedState} />);
     expect(screen.getByRole("textbox", { name: "task.name" })).toHaveValue("");
     expect(screen.getByRole("textbox", { name: "task.body" })).toHaveValue("Body");
+    expect(screen.getByRole("textbox", { name: "task.sourceURL" })).toHaveValue("arbitrary source text");
     expect(screen.getByTestId("dependency-row-task-restored")).toBeInTheDocument();
     expect(screen.queryByText("form.required")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "task.create" })).toBeDisabled();
@@ -485,6 +495,7 @@ describe("New Task Workspace catalog integration", () => {
       expect(state.create).toHaveBeenCalledWith(
         expect.objectContaining({
           labelIDs: ["label-restored"],
+          sourceURL: "arbitrary source text",
         }),
       );
     });
@@ -498,7 +509,7 @@ describe("New Task Workspace catalog integration", () => {
         {...props}
         navigator={navigator}
         retainedState={{
-          formValues: { body: "", sourceWorkspaceID: "source", title: "" },
+          formValues: { body: "", sourceURL: "", sourceWorkspaceID: "source", title: "" },
           preparedDependencies: [
             preparedDependency("blocks", "task-origin"),
             preparedDependency("blocked-by", "task-blocked"),
@@ -534,7 +545,7 @@ describe("New Task Workspace catalog integration", () => {
       <NewTaskForm
         {...props}
         retainedState={{
-          formValues: { body: "", sourceWorkspaceID: "source", title: "" },
+          formValues: { body: "", sourceURL: "", sourceWorkspaceID: "source", title: "" },
           preparedDependencies: Array.from({ length: 48 }, (_, index) =>
             preparedDependency("blocked-by", `task-${String(index)}`),
           ),
@@ -636,7 +647,7 @@ describe("New Task Workspace catalog integration", () => {
       <NewTaskForm
         {...props}
         retainedState={{
-          formValues: { body: "Keep body", sourceWorkspaceID: "source", title: "Keep title" },
+          formValues: { body: "Keep body", sourceURL: "", sourceWorkspaceID: "source", title: "Keep title" },
           preparedDependencies: [preparedDependency("blocks", "task-related")],
           selectedLabelIDs: [],
         }}

@@ -1698,6 +1698,33 @@ func (q *Queries) FindContainingProjectWorkspace(ctx context.Context, arg FindCo
 	return i, err
 }
 
+const findTaskByProjectSourceURL = `-- name: FindTaskByProjectSourceURL :one
+SELECT id, short_id, project_id
+FROM task_records
+WHERE project_id = ?1
+  AND source_url = ?2 COLLATE NOCASE
+LIMIT 1
+`
+
+type FindTaskByProjectSourceURLParams struct {
+	ProjectID string
+	SourceUrl string
+}
+
+type FindTaskByProjectSourceURLRow struct {
+	ID        string
+	ShortID   string
+	ProjectID string
+}
+
+func (q *Queries) FindTaskByProjectSourceURL(ctx context.Context, arg FindTaskByProjectSourceURLParams) (FindTaskByProjectSourceURLRow, error) {
+	row := q.db.QueryRowContext(ctx, findTaskByProjectSourceURL, arg.ProjectID, arg.SourceUrl)
+	var i FindTaskByProjectSourceURLRow
+	err := recordQueryError(ctx, row.Scan(&i.ID, &i.ShortID, &i.ProjectID), findTaskByProjectSourceURL, 2)
+
+	return i, err
+}
+
 const getActiveProjectWorkflowLinkByWorkflow = `-- name: GetActiveProjectWorkflowLinkByWorkflow :one
 SELECT
     id,

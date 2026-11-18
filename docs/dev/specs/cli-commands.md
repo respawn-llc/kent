@@ -493,6 +493,39 @@
 - Task creation with several linked Workflows and no default omits the candidate enumeration.
 - It must direct the operator to paginated Project Workflow discovery, an explicit `--workflow <path>` retry, or default selection.
 
+### GitHub issue import
+
+- `kent task import <URL>...` must recognize GitHub issue URLs and use the same import behavior as `kent task import gh`.
+- `kent task import gh` must accept issue URLs, issue numbers, comma-separated references, inclusive number ranges, and several references per invocation.
+- Import must accept explicit Project, Workflow, source Workspace, and `--repo owner/repo` selection without hardcoded repository-to-Project mappings.
+- Source repository selection must prefer the supplied issue URL or explicit repository, then the current directory's GitHub remote, then the linked Project's Main Workspace GitHub remote. An explicit URL must identify its own source repository. A conflicting explicit repository must be rejected.
+- Destination Project selection must use explicit `--project` or the current directory's Workspace links. When that Workspace belongs to several Projects, import must require explicit Project selection. Import must not infer another destination Project by searching other Workspaces' Git remotes.
+- When several distinct GitHub repositories are possible, import must require `--repo` or an issue URL. Repository and Project inference must be server-owned.
+- Import must use the existing Task creation rules for destination Project and Workflow selection.
+- Import must read GitHub without modifying GitHub issues.
+- GitHub credential selection must prefer CLI environment, server environment, CLI GitHub login, then server GitHub login. Without credentials, import must use anonymous access.
+- Environment credentials must support `GH_TOKEN` and `GITHUB_TOKEN`, including the server environment file.
+- Kent must not persist supplied credentials or manage a separate GitHub credential store.
+- Kent may use `gh` to obtain an existing login token. GitHub API requests must not depend on `gh`.
+- Import output must identify the GitHub account used.
+- When an invocation uses one GitHub account, human output must identify that account once. Without credentials, human output must omit account attribution.
+- Each credential environment must prefer `GH_TOKEN` over `GITHUB_TOKEN`. Invalid selected credentials must fail rather than silently select another account.
+- Imported Tasks must keep the original title, Markdown body, source issue URL, and comments. The description must include the issue number and import date.
+- The description must separate the import reminder from issue content with a Markdown horizontal separator and a plain paragraph.
+- The description footer must identify the GitHub issue creator as `Created by @username`.
+- Kent must include the non-maintainer warning unless the issue author is an owner, member, collaborator, or the authenticated GitHub user. Unknown author association must include the warning.
+- Imported Markdown must contain the original attachment and image links. Import must not download attachments.
+- By default, import must assign matching existing Project Labels without creating missing Labels. `--labels` must allow creation of missing Labels.
+- Import must consider ordinary GitHub labels, issue type, and single-select or multi-select issue fields for Label assignment. It must not create Labels from date, number, or free-text fields.
+- Priority values Urgent, High, Medium, and Low must map to P0, P1, P2, and P3. Effort values Low, Medium, and High must map to Small, Medium, and Large.
+- For categorical fields, existing Label matching must prefer the mapped name, then `Field: Value`, then the bare value, using normal Project Label comparison. Issue types must match by type name. Ordinary labels must match their literal names.
+- When creating missing Labels, import must use the mapped name or bare value. It must not create the `Field: Value` form automatically.
+- Import must recognize an existing import by its canonical GitHub issue source URL in the destination Project and skip it by default. Changing or removing that source URL must break the association.
+- `--force` must create a new Task even when one with the same source URL exists. Import must not replace existing Tasks, comments, or Label assignments.
+- Batch import must continue after individual failures and report created, skipped, and failed items. If a failure occurs after Task creation, it must report that Task's identity.
+- Import must exit unsuccessfully when any item fails. It must not roll back completed items or automatically retry failed items.
+- Import must add comments page by page to the new Task. A later GitHub fetch failure may leave a partial import and must report the affected Task.
+
 ### Common pagination
 
 - Task Search pagination is defined by the Task Search section.

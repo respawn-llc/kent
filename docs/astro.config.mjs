@@ -65,6 +65,10 @@ export default defineConfig({
           link: "/worktrees/",
         },
         {
+          label: "Integrations",
+          link: "/integrations/",
+        },
+        {
           label: "Prompts",
           link: "/prompts/",
         },

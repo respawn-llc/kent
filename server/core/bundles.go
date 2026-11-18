@@ -107,6 +107,7 @@ type WorktreeBundle struct {
 
 type WorkflowBundle struct {
 	workflows apicontract.WorkflowService
+	imports   apicontract.TaskImportService
 }
 
 func (s *Core) safeBundles() *Bundles {
@@ -188,6 +189,7 @@ type bundleCompositionInput struct {
 	sessionLifecycleService *sessionservice.SessionLifecycleService
 	updateStatusService     *serverstatus.UpdateStatusService
 	workflowService         *workflowsvc.Service
+	taskImports             apicontract.TaskImportService
 	workflowController      *workflowexecution.CurrentNodeController
 	workflowRuntimeStarter  *workflowrunner.Starter
 	worktreeService         *worktree.Service
@@ -250,7 +252,7 @@ func composeBundles(in bundleCompositionInput) *Bundles {
 		Prompts:     newPromptBundle(in.askService, in.approvalService, in.promptControlService, in.attentionService),
 		Runtime:     newRuntimeBundle(in.background, in.runtimeRegistry, in.runtimeAuthority, in.runtimeControlService),
 		Sessions:    newSessionBundle(in.sessionViewService, in.sessionLifecycleService, in.settingsChanges),
-		Workflows:   newWorkflowBundle(in.workflowService),
+		Workflows:   &WorkflowBundle{workflows: in.workflowService, imports: in.taskImports},
 		Worktrees:   &WorktreeBundle{worktrees: in.worktreeService},
 	}
 }
@@ -298,10 +300,6 @@ func newRuntimeBundle(background *shelltool.Manager, runtimeRegistry *registry.R
 		liveRunObserver:     runtimeControlService,
 		sessionTranscript:   runtimeRegistry,
 	}
-}
-
-func newWorkflowBundle(workflowService *workflowsvc.Service) *WorkflowBundle {
-	return &WorkflowBundle{workflows: workflowService}
 }
 
 func newSessionBundle(sessionViewService *sessionview.Service, sessionLifecycleService *sessionservice.SessionLifecycleService, settingsChanges *sessionlaunch.SettingsBroadcaster) *SessionBundle {

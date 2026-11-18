@@ -547,6 +547,8 @@ export const englishResources = {
       workspace: "Workspace",
       workflow: "Workflow",
       source: "Source",
+      sourceURL: "Source URL",
+      sourceURLPlaceholder: "Full URL of the original issue or task",
       currentNodeAssignee: "Node {{nodeName}} effective assignee",
       currentNodeThinking: "Node {{nodeName}} effective thinking",
       sourceWorkspaceLocked: "Source workspace locked after start.",

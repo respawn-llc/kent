@@ -156,6 +156,9 @@ func productionGatewayBinaryBindings() (map[string]gatewayBinaryBinding, error) 
 	if err := registerRunPromptGatewayBinaryBinding(bindings); err != nil {
 		return nil, err
 	}
+	if err := registerTaskImportGatewayBinaryBinding(bindings); err != nil {
+		return nil, err
+	}
 	if err := registerProcessGatewayBinaryBindings(bindings); err != nil {
 		return nil, err
 	}

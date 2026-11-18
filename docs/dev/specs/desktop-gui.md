@@ -389,7 +389,8 @@
 
 - Task Detail must identify Current Nodes by their workflow display names in effective Agent and thinking labels and their tooltips, not by Node IDs.
 
-- New Task requires title and accepts optional body, Project Labels, hidden source information, and source workspace. Workflow selection is outside the form.
+- New Task requires title and accepts optional body, Project Labels, Source URL, and source workspace. Workflow selection is outside the form.
+- Every New Task entry point must show an optional Source URL text input after the description. It must default to empty and accept arbitrary text without URL validation. Its placeholder must be `Full URL of the original issue or task`.
 - The source-workspace selector uses the Project Workspace catalog with infinite scroll and bounded page retention.
 - Source-workspace options use the Workspace-name presentation.
 - The source workspace defaults to the opened attached Workspace or Project default Workspace. A detached initiating Workspace is omitted and the Project default is selected.
@@ -422,7 +423,9 @@
 - Task Detail shows Task Short ID, title, Markdown body, Project, Workflow, source workspace name and root, all Current Nodes and states, completion state, and available actions including Task Delete. When available, it also shows Execution Target, managed worktree, requested revision, resolved commit, branch, Agent role and execution state, Session identity, source URL, and assignee or column.
 - Source root and Execution Root are not separate facts. Unavailable expected facts are hidden. Useful continuity facts may be empty or unassigned. Unexpected meaningful absence is an unavailable or error state. Unavailable managed worktrees have no managed-worktree fact.
 - Visible values copy by selecting the value itself, with clipboard feedback that identifies the copied value on success and includes the error on failure. Short commit display copies the complete commit. Actions that copy deliberately hidden content must use explicit controls.
-- Source URL is read-only. Valid web, secure web, and mail links use their host as the label and open externally. Other values are plain source text.
+- Source URL is read-only in Task Detail. GitHub issue links must display as `owner/repo#123`, show the full URL on hover, and open the full URL externally. Other valid web, secure web, and mail links use their host as the label and open externally. Other values are plain source text.
+- Source display must also recognize standard Jira, Linear, and Confluence URLs without fetching their content, including self-hosted Jira and Confluence. Jira links must display as `site · ABC-123`, Linear links as `workspace · ABC-123`, and Confluence links as `site · Page title` when a title is available in the URL or `site · Page 12345` when only the page ID is available. These links must use the full original URL for hover and opening.
+- Source display must also recognize GitLab, Azure DevOps, and YouTrack issue links using URL-only formatting. This display behavior must not require importing from those services.
 - Core Task Detail, Task attention, Comments, and Activity load independently. Comments and Activity start their first page asynchronously and in parallel without blocking other Task Detail content. Attention loading must not block core detail. Opening from Inbox focuses its requested attention item once available. Live server changes update open Task Detail without replacing unsaved title or body edits or collapsing the surface.
 - Comments and Activity use 50 rows per page, newest first, and hold at most 10 nearby pages per feed.
 - A Comment header's author title must occupy all width left after its icon, timestamp, and delete action. The title must ellipsize only when that space is exhausted, both while editing and viewing the Comment.

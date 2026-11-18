@@ -11,14 +11,13 @@ import (
 )
 
 func (s *Store) AddComment(ctx context.Context, taskID workflow.TaskID, body string, authorKind string, authorID string) (CommentRecord, error) {
-	trimmed := strings.TrimSpace(body)
 	trimmedAuthorKind := strings.TrimSpace(authorKind)
 	now := s.now().UnixMilli()
 	id := prefixedID("comment")
-	if err := s.queries.InsertTaskComment(ctx, sqlitegen.InsertTaskCommentParams{ID: id, TaskID: string(taskID), Body: trimmed, AuthorKind: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
+	if err := s.queries.InsertTaskComment(ctx, sqlitegen.InsertTaskCommentParams{ID: id, TaskID: string(taskID), Body: body, AuthorKind: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAtUnixMs: now, UpdatedAtUnixMs: now}); err != nil {
 		return CommentRecord{}, err
 	}
-	return CommentRecord{ID: id, TaskID: taskID, Body: trimmed, Author: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAt: now, UpdatedAt: now}, nil
+	return CommentRecord{ID: id, TaskID: taskID, Body: body, Author: trimmedAuthorKind, AuthorID: strings.TrimSpace(authorID), CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *Store) ReplaceComment(ctx context.Context, commentID string, body string) error {
