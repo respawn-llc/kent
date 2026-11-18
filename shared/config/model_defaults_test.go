@@ -4,7 +4,7 @@ import "testing"
 
 func TestGPT6OnboardingDefaults(t *testing.T) {
 	settings := DefaultOnboardingSettings()
-	if settings.Model != "gpt-6.1-sol" {
+	if settings.Model != "gpt-6.2-sol" {
 		t.Fatalf("onboarding model = %q", settings.Model)
 	}
 	if settings.ModelContextWindow != 272_000 || settings.ContextCompactionThresholdTokens != 258_400 {

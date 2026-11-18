@@ -530,23 +530,7 @@ func TestGatewayDisconnectKeepsRuntimeAvailable(t *testing.T) {
 	store := createGatewayAuthoritativeSession(t, appCore)
 
 	first := dialGatewayRemote(t, server)
-	accepted, err := first.Steer(t.Context(), &chatpb.SteerRequest{
-		QueueItemId: runtimeids.NewQueueItemID().String(),
-		Target: &chatpb.ChatTarget{Target: &chatpb.ChatTarget_Session{Session: &chatpb.ExistingSessionRequestTarget{
-			SessionId: requestfixture.Selector(t, store.Meta().SessionID),
-		}}},
-		Activation: &chatpb.Activation{Input: &chatpb.Activation_Shell{Shell: &chatpb.ShellCommand{Command: "true"}}},
-	})
-	if err != nil || accepted.GetAccepted() == nil {
-		t.Fatalf("activate through Chat: %v, %v", accepted, err)
-	}
-	waitForGatewayCondition(t, "idle Runtime after Shell", func() bool {
-		view, err := first.GetSessionMainView(t.Context(), &sessionpb.MainViewRequest{SessionId: requestfixture.Selector(t, store.Meta().SessionID)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return view.GetMainView().GetActivity().GetState() == runtimepb.ActivityState_RUNTIME_ACTIVITY_REGISTERED_IDLE
-	})
+	chatfixture.OpenRuntime(t, first, first, store.Meta().SessionID)
 	if err := first.Close(); err != nil {
 		t.Fatalf("close first gateway connection: %v", err)
 	}
