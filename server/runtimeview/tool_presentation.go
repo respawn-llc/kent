@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"core/server/tools"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/transcriptmodel"
@@ -16,7 +17,7 @@ func ToolPresentationToProto(meta *transcript.ToolCallMeta) (*transcriptpb.ToolP
 	if meta == nil {
 		return nil, nil
 	}
-	normalized := transcript.NormalizeToolCallMeta(*meta)
+	normalized := transcript.NormalizeToolCallMeta(tools.ReprojectToolCallMeta(*meta))
 	if !normalized.Valid() {
 		return nil, fmt.Errorf("tool presentation is structurally invalid")
 	}
@@ -24,6 +25,7 @@ func ToolPresentationToProto(meta *transcript.ToolCallMeta) (*transcriptpb.ToolP
 		transcript.ToolPresentationDefault:     transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
 		transcript.ToolPresentationShell:       transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_SHELL,
 		transcript.ToolPresentationAskQuestion: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_ASK_QUESTION,
+		transcript.ToolPresentationWebSearch:   transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH,
 	}
 	behaviors := map[transcript.ToolCallRenderBehavior]transcriptpb.ToolPresentationKind{
 		transcript.ToolCallRenderBehaviorDefault:     transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,

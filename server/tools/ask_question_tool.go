@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +31,7 @@ type AskQuestionRequest struct {
 	AccessTargets          []FileAccessTarget                    `json:"-"`
 	Origin                 AskQuestionOrigin                     `json:"-"`
 	StepID                 string                                `json:"-"`
-	ToolCallID             string                                `json:"-"`
+	ToolCallID             runtimeids.ToolCallID                 `json:"-"`
 	QuestionBatch          *AskQuestionBatchMetadata             `json:"-"`
 	AttentionTarget        *clientui.AttentionNotificationTarget `json:"-"`
 }
@@ -155,7 +156,7 @@ func (b *AskQuestionBroker) Ask(ctx context.Context, req AskQuestionRequest) (As
 		if err != nil {
 			return nil, err
 		}
-		if string(identity.ToolCallID) != req.ToolCallID {
+		if identity.ToolCallID != req.ToolCallID {
 			return nil, fmt.Errorf(
 				"Approval Tool Call ID %q does not match executing Tool Call ID %q",
 				req.ToolCallID,
@@ -218,7 +219,7 @@ func (b *AskQuestionBroker) askHandler() func(context.Context, AskQuestionReques
 }
 
 func validateRequest(req AskQuestionRequest) error {
-	if err := clientui.ToolCallID(req.ToolCallID).Validate(); err != nil {
+	if err := req.ToolCallID.Validate(); err != nil {
 		return fmt.Errorf("invalid tool call identity: %w", err)
 	}
 	if len(req.AccessTargets) > 0 && (!req.Approval || req.Question != "") {
@@ -287,7 +288,7 @@ func selectedOptionToolOutputSummary(optionNumber int, freeform *string, answere
 	return base + " They also said: " + *freeform
 }
 
-func (r AskQuestionToolRequest) request(callID string) AskQuestionRequest {
+func (r AskQuestionToolRequest) request(callID runtimeids.ToolCallID) AskQuestionRequest {
 	return AskQuestionRequest{
 		ToolCallID:             callID,
 		Question:               r.Question,
@@ -296,7 +297,7 @@ func (r AskQuestionToolRequest) request(callID string) AskQuestionRequest {
 	}
 }
 
-func DecodeAskQuestionToolRequest(callID string, input json.RawMessage) (AskQuestionRequest, error) {
+func DecodeAskQuestionToolRequest(callID runtimeids.ToolCallID, input json.RawMessage) (AskQuestionRequest, error) {
 	var in AskQuestionToolRequest
 	if err := json.Unmarshal(input, &in); err != nil {
 		return AskQuestionRequest{}, fmt.Errorf("invalid input: %w", err)

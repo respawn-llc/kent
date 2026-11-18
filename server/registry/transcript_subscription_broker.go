@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/serverapi"
 )
@@ -210,11 +210,11 @@ func transcriptProjectionContractError(err error) error {
 type transcriptSubscriptionContract struct {
 	hydrated                 bool
 	activeStreams            map[string]transcriptpb.AssistantSourceState
-	inFlightTools            map[clientui.ToolCallID]struct{}
+	inFlightTools            map[runtimeids.ToolCallID]struct{}
 	hydratedEventSequence    int64
 	hasHydratedEventSequence bool
 	liveLocator              *transcriptpb.CommittedRowLocator
-	nativeToolCalls          map[clientui.ToolCallID]*transcriptpb.CommittedRow
+	nativeToolCalls          map[runtimeids.ToolCallID]*transcriptpb.CommittedRow
 }
 
 func (c *transcriptSubscriptionContract) Validate(message *transcriptpb.Message) error {
@@ -281,7 +281,7 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 	case *transcriptpb.Event_ToolStart:
 		return c.trackToolStart(payload.ToolStart, fmt.Sprintf("tool_start at seq=%d", message.Sequence))
 	case *transcriptpb.Event_ToolAbort:
-		id := clientui.ToolCallID(payload.ToolAbort.ToolCallId)
+		id := runtimeids.ToolCallID(payload.ToolAbort.ToolCallId)
 		delete(c.nativeToolCalls, id)
 		return c.trackToolTerminal(id, fmt.Sprintf("tool_abort at seq=%d", message.Sequence))
 	case *transcriptpb.Event_StepState:
@@ -295,7 +295,7 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 	case *transcriptpb.Event_CommittedRow:
 		row := payload.CommittedRow
 		if tool := row.GetTool(); tool != nil && tool.ToolCallId != nil {
-			id := clientui.ToolCallID(*tool.ToolCallId)
+			id := runtimeids.ToolCallID(*tool.ToolCallId)
 			if source := c.nativeToolCalls[id]; source != nil {
 				if row.Locator.EventSequence != source.Locator.EventSequence || row.Locator.RowOrdinal != source.Locator.RowOrdinal ||
 					tool.GetToolName() != source.GetToolCall().ToolName {
@@ -326,7 +326,7 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 			}
 		}
 		if tool := row.GetTool(); tool != nil && tool.ToolCallId != nil {
-			return c.trackToolTerminal(clientui.ToolCallID(*tool.ToolCallId), fmt.Sprintf("committed tool row at seq=%d", message.Sequence))
+			return c.trackToolTerminal(runtimeids.ToolCallID(*tool.ToolCallId), fmt.Sprintf("committed tool row at seq=%d", message.Sequence))
 		}
 	}
 	return nil
@@ -334,9 +334,9 @@ func (c *transcriptSubscriptionContract) validateLiveMessage(message *transcript
 
 func (c *transcriptSubscriptionContract) trackNativeToolCall(row *transcriptpb.CommittedRow) error {
 	if c.nativeToolCalls == nil {
-		c.nativeToolCalls = make(map[clientui.ToolCallID]*transcriptpb.CommittedRow)
+		c.nativeToolCalls = make(map[runtimeids.ToolCallID]*transcriptpb.CommittedRow)
 	}
-	id := clientui.ToolCallID(row.GetToolCall().ToolCallId)
+	id := runtimeids.ToolCallID(row.GetToolCall().ToolCallId)
 	if c.nativeToolCalls[id] != nil {
 		return errTranscriptContractViolation("native call repeats a pending tool identity")
 	}
@@ -388,12 +388,12 @@ func (c *transcriptSubscriptionContract) matchActiveStream(streamID string, seq 
 }
 
 func (c *transcriptSubscriptionContract) trackToolStart(tool *transcriptpb.ToolStart, op string) error {
-	toolID := clientui.ToolCallID(strings.TrimSpace(tool.ToolCallId))
+	toolID := runtimeids.ToolCallID(strings.TrimSpace(tool.ToolCallId))
 	if toolID == "" {
 		return errTranscriptContractViolation(op + " has empty tool_call_id")
 	}
 	if c.inFlightTools == nil {
-		c.inFlightTools = make(map[clientui.ToolCallID]struct{})
+		c.inFlightTools = make(map[runtimeids.ToolCallID]struct{})
 	}
 	if _, exists := c.inFlightTools[toolID]; exists {
 		return nil
@@ -402,8 +402,8 @@ func (c *transcriptSubscriptionContract) trackToolStart(tool *transcriptpb.ToolS
 	return nil
 }
 
-func (c *transcriptSubscriptionContract) trackToolTerminal(toolCallID clientui.ToolCallID, op string) error {
-	toolID := clientui.ToolCallID(strings.TrimSpace(string(toolCallID)))
+func (c *transcriptSubscriptionContract) trackToolTerminal(toolCallID runtimeids.ToolCallID, op string) error {
+	toolID := runtimeids.ToolCallID(strings.TrimSpace(string(toolCallID)))
 	if toolID == "" {
 		return errTranscriptContractViolation(op + " has empty tool_call_id")
 	}

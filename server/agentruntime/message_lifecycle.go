@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
 	"strings"
@@ -48,8 +49,8 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 	var rollbackLocator rollbackCandidateLocatorTracker
 	manualEligible := false
 	type restoredToolGeneration struct {
-		expected  map[string]struct{}
-		completed map[string]struct{}
+		expected  map[runtimeids.ToolCallID]struct{}
+		completed map[runtimeids.ToolCallID]struct{}
 	}
 	generationsByStep := make(map[string][]*restoredToolGeneration)
 	for _, record := range activeWindow.Records {
@@ -81,7 +82,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return fmt.Errorf("restore session message projection: %w", err)
 			}
 			if msg.Role == llm.RoleAssistant && len(msg.ToolCalls) > 0 {
-				expected := make(map[string]struct{}, len(msg.ToolCalls))
+				expected := make(map[runtimeids.ToolCallID]struct{}, len(msg.ToolCalls))
 				userShellGeneration := true
 				for _, call := range msg.ToolCalls {
 					if call.ID != "" {
@@ -94,7 +95,7 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				if len(expected) > 0 && !userShellGeneration {
 					generationsByStep[stepID] = append(generationsByStep[stepID], &restoredToolGeneration{
 						expected:  expected,
-						completed: make(map[string]struct{}, len(expected)),
+						completed: make(map[runtimeids.ToolCallID]struct{}, len(expected)),
 					})
 				}
 			} else if msg.Role == llm.RoleAssistant &&
@@ -109,8 +110,8 @@ func (m *defaultMessageLifecycle) RestoreMessages() error {
 				return err
 			}
 			for _, generation := range generationsByStep[stepID] {
-				if _, ok := generation.expected[payload.CallID]; ok {
-					generation.completed[payload.CallID] = struct{}{}
+				if _, ok := generation.expected[runtimeids.ToolCallID(payload.CallID)]; ok {
+					generation.completed[runtimeids.ToolCallID(payload.CallID)] = struct{}{}
 				}
 			}
 		case session.LocalEntryRecord:

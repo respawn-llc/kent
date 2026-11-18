@@ -19,7 +19,6 @@ import (
 	"core/server/workflow"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
@@ -697,7 +696,7 @@ func (f currentNodeQuestionFixture) answerPromptBatch(
 		return "", err
 	}
 	results, err := f.authority.ResolvePromptBatch(ctx, pending.sessionID, parsedStepID, []sessionruntime.PromptAnswerCommand{{
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 		Payload:    sessionruntime.PromptQuestionAnswerCommand{Answer: answer},
 	}})
 	if err != nil {

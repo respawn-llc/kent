@@ -7,7 +7,6 @@ import (
 	"io"
 	"sync"
 
-	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/runtimeids"
 	"core/shared/serverapi"
@@ -22,7 +21,7 @@ type promptFollowUpState struct {
 type promptFollowUpKey struct {
 	sessionID  runtimeids.SessionID
 	stepID     runtimeids.StepID
-	toolCallID clientui.ToolCallID
+	toolCallID runtimeids.ToolCallID
 }
 
 type promptFollowUpSubscription struct {
@@ -37,7 +36,7 @@ func (a *Authority) SubscribePromptFollowUp(
 	_ context.Context,
 	sessionID runtimeids.SessionID,
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 ) (serverapi.PromptFollowUpSubscription, error) {
 	if a == nil {
 		return nil, errors.New("session runtime authority is required")
@@ -51,7 +50,7 @@ func (a *Authority) SubscribePromptFollowUp(
 
 func (s *executionPromptStore) subscribePromptFollowUp(
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 ) (serverapi.PromptFollowUpSubscription, error) {
 	if s == nil || s.authority == nil {
 		return nil, errors.New("session runtime authority is required")
@@ -83,7 +82,7 @@ func (s *executionPromptStore) subscribePromptFollowUp(
 
 func (s *executionPromptStore) promptFollowUpKey(
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 ) (promptFollowUpKey, error) {
 	resource, ok := s.scope.Resource()
 	if !ok {
@@ -120,7 +119,7 @@ func (s *executionPromptStore) registerPromptFollowUpLocked(
 
 func (s *executionPromptStore) resolvePromptFollowUpLocked(
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 	descriptor *validatedQuestionBatchDescriptor,
 ) {
 	if len(s.promptFollowUps) == 0 {

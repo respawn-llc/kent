@@ -1,7 +1,9 @@
 package clientui
 
+import "core/shared/runtimeids"
+
 type PromptAnswer struct {
-	ToolCallID           ToolCallID
+	ToolCallID           runtimeids.ToolCallID
 	ErrorMessage         string
 	Answer               string
 	SelectedOptionNumber *int

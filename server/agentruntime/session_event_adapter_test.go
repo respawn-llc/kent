@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -34,7 +35,7 @@ func TestSessionMessageRecordAdapterRoundTrip(t *testing.T) {
 		Content:              textutil.Value("tool call follows"),
 		CompactContent:       textutil.Value("tool call"),
 		Name:                 textutil.Value("assistant"),
-		ToolCallID:           textutil.Value("parent-call"),
+		ToolCallID:           (*runtimeids.ToolCallID)(textutil.Value("parent-call")),
 		Phase:                textutil.Value(llm.MessagePhaseCommentary),
 		BackgroundActivityID: textutil.Value("activity-1"),
 		BackgroundExitCode:   &exitCode,
@@ -189,7 +190,7 @@ func TestSessionToolCompletionRecordAdapterRoundTrip(t *testing.T) {
 	}
 	providerItems := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type:   llm.ResponseItemTypeFunctionCallOutput,
-		CallID: textutil.Value(result.CallID),
+		CallID: (*string)(textutil.Value(result.CallID)),
 		Name:   textutil.Value(string(result.Name)),
 		Output: result.Output,
 	}})
@@ -257,7 +258,7 @@ func TestSessionQuestionCompletionAdapterCarriesTypedAnswer(t *testing.T) {
 				ToolCallID: textutil.Value(result.CallID),
 				Name:       textutil.Value(string(result.Name)),
 			},
-			map[string]tools.Result{result.CallID: result},
+			map[runtimeids.ToolCallID]tools.Result{result.CallID: result},
 			nil,
 		)
 		if len(entries) != 1 || entries[0].QuestionAnswer == nil ||
@@ -273,7 +274,7 @@ func TestSessionQuestionCompletionAdapterCarriesTypedAnswer(t *testing.T) {
 
 		providerItems := llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 			Type:   llm.ResponseItemTypeFunctionCallOutput,
-			CallID: textutil.Value(result.CallID),
+			CallID: (*string)(textutil.Value(result.CallID)),
 			Name:   textutil.Value(string(result.Name)),
 			Output: result.Output,
 		}})
@@ -334,7 +335,7 @@ func TestChatStoreRestoresTypedQuestionAnswer(t *testing.T) {
 	if err := store.restoreToolCompletionRecord(record); err != nil {
 		t.Fatalf("restore typed Question completion into chat store: %v", err)
 	}
-	restored, ok := store.toolCompletions[record.CallID]
+	restored, ok := store.toolCompletions[runtimeids.ToolCallID(record.CallID)]
 	if !ok || restored.QuestionAnswer == nil ||
 		!textutil.EqualOptional(
 			restored.QuestionAnswer.SelectedOptionNumber,
@@ -392,7 +393,7 @@ func TestSessionLocalAndCacheRecordAdaptersRoundTrip(t *testing.T) {
 		CondensedText:   textutil.Value("feedback"),
 		DiagnosticKey:   textutil.Value("diagnostic-1"),
 		NoticeID:        textutil.Value("notice-1"),
-		AfterToolCallID: &afterToolCallID,
+		AfterToolCallID: (*runtimeids.ToolCallID)(&afterToolCallID),
 	}
 	localRecord, err := sessionLocalEntryRecordFromRuntime(localEntry)
 	if err != nil {
@@ -654,7 +655,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
 				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
-					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value(result.CallID),
+					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: (*string)(textutil.Value(result.CallID)),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
 			},
@@ -669,7 +670,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
 				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
-					Type: llm.ResponseItemTypeCustomToolOutput, CallID: textutil.Value(result.CallID),
+					Type: llm.ResponseItemTypeCustomToolOutput, CallID: (*string)(textutil.Value(result.CallID)),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
 			},
@@ -685,7 +686,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
 				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
-					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value(result.CallID),
+					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: (*string)(textutil.Value(result.CallID)),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
 			},
@@ -700,7 +701,7 @@ func TestSessionToolCompletionRecordAdaptersPreserveProviderPaths(t *testing.T) 
 			},
 			providerItems: func(result tools.Result) []llm.ResponseItem {
 				return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
-					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: textutil.Value(result.CallID),
+					Type: llm.ResponseItemTypeFunctionCallOutput, CallID: (*string)(textutil.Value(result.CallID)),
 					Name: textutil.Value(string(result.Name)), Output: result.Output,
 				}})
 			},

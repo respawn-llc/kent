@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"core/server/workflow"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -26,7 +25,7 @@ const (
 )
 
 type PendingPromptReference struct {
-	ToolCallID clientui.ToolCallID
+	ToolCallID runtimeids.ToolCallID
 	Kind       PendingPromptKind
 }
 

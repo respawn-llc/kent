@@ -22,7 +22,7 @@ func PendingAskFromQuestion(value *promptpb.Question) (clientui.PendingAsk, erro
 	}
 	return clientui.PendingAsk{
 		ShortID:    shortID,
-		ToolCallID: clientui.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
+		ToolCallID: runtimeids.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
 		Question: value.Question, Suggestions: append([]string(nil), value.Suggestions...),
 		RecommendedOptionIndex: recommended, CreatedAt: value.CreatedAt.AsTime(),
 		Batch: questionBatchFromProto(value.Batch),
@@ -38,7 +38,7 @@ func PendingApprovalFromApproval(value *promptpb.Approval) (clientui.PendingAppr
 	}
 	result := clientui.PendingApproval{
 		ShortID:    shortID,
-		ToolCallID: clientui.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
+		ToolCallID: runtimeids.ToolCallID(value.ToolCallId), SessionID: sessionID, StepID: stepID,
 		Question: value.GetQuestion(), AccessTargets: FileAccessTargetsFromProto(value.AccessTargets),
 		CreatedAt: value.CreatedAt.AsTime(),
 		Batch:     questionBatchFromProto(value.Batch),

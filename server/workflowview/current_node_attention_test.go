@@ -9,7 +9,6 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/clientui"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -229,7 +228,7 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	prompts := currentNodeViewPrompts{bySession: map[string][]*promptpb.ObservationQuestion{
 		question.sessionID.String(): {{
 			Question: &promptpb.ObservationQuestion_Ask{Ask: &promptpb.Question{
-				ToolCallId:             question.request.ToolCallID,
+				ToolCallId:             string(question.request.ToolCallID),
 				SessionId:              question.sessionID.String(),
 				StepId:                 question.request.StepID,
 				CreatedAt:              timestamppb.New(time.UnixMilli(4_000)),
@@ -276,7 +275,7 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	}
 	if prompt == nil || ask.Question != question.request.Question ||
 		prompt.GetSessionName() != "Current Node session" || prompt.Question == nil ||
-		ask.ToolCallId != question.request.ToolCallID ||
+		ask.ToolCallId != string(question.request.ToolCallID) ||
 		ask.SessionId != question.sessionID.String() ||
 		ask.StepId != mustWorkflowViewStepID(t, question.request.StepID).String() ||
 		prompt.CurrentNode == nil || prompt.CurrentNode.SessionId != nil ||
@@ -327,7 +326,7 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	prompts := currentNodeViewPrompts{bySession: map[string][]*promptpb.ObservationQuestion{
 		prompt.sessionID.String(): {{
 			Question: &promptpb.ObservationQuestion_Approval{Approval: &promptpb.Approval{
-				ToolCallId: request.ToolCallID,
+				ToolCallId: string(request.ToolCallID),
 				SessionId:  prompt.sessionID.String(),
 				StepId:     request.StepID,
 				CreatedAt:  timestamppb.New(time.UnixMilli(4_000)),
@@ -367,7 +366,7 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	question := item.GetQuestion()
 	approval := question.Question.GetApproval()
 	if question == nil || question.Question == nil ||
-		approval.ToolCallId != request.ToolCallID ||
+		approval.ToolCallId != string(request.ToolCallID) ||
 		approval.SessionId != prompt.sessionID.String() ||
 		approval.StepId != mustWorkflowViewStepID(t, request.StepID).String() ||
 		approval.Question != nil ||
@@ -394,7 +393,7 @@ func mustWorkflowViewStepID(t *testing.T, raw string) runtimeids.StepID {
 
 func TestMergeAttentionCandidatesPreservesQuestionStepIdentity(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
-	toolCallID := clientui.ToolCallID("shared-prompt")
+	toolCallID := runtimeids.ToolCallID("shared-prompt")
 	ids := []string{
 		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "11111111-1111-4111-8111-111111111111"), toolCallID),
 		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "22222222-2222-4222-8222-222222222222"), toolCallID),

@@ -198,7 +198,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		t.Fatalf("unexpected ask prompt: %+v", askPrompt)
 	}
 	answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, askPrompt, clientui.PromptAnswer{
-		ToolCallID:           clientui.ToolCallID(transcriptPromptToolCallID(askPrompt)),
+		ToolCallID:           runtimeids.ToolCallID(transcriptPromptToolCallID(askPrompt)),
 		SelectedOptionNumber: func() *int { selected := 2; return &selected }(),
 	})
 	approvalPrompt := waitForRemoteTranscriptPrompt(t, runtimePlan.Wiring.eventDispatcher.transcriptEvents, "", submissionFailed)
@@ -206,7 +206,7 @@ func TestStartSessionServerUsesConfiguredDaemonForPromptRoundTrip(t *testing.T) 
 		t.Fatalf("unexpected approval prompt: %+v", approvalPrompt)
 	}
 	answerRemoteTranscriptPrompt(t, runtimePlan.Wiring.promptAnswers, approvalPrompt, clientui.PromptAnswer{
-		ToolCallID: clientui.ToolCallID(transcriptPromptToolCallID(approvalPrompt)),
+		ToolCallID: runtimeids.ToolCallID(transcriptPromptToolCallID(approvalPrompt)),
 		Approval: &clientui.ApprovalPromptAnswer{
 			Decision:   clientui.ApprovalDecisionAllowOnce,
 			Commentary: "trusted",

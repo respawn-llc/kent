@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"sync"
 	"testing"
@@ -77,7 +78,7 @@ func prepareSimpleResultGroupCall(
 	t.Helper()
 	stepID = runtimeTestStepID(stepID)
 	call := normalizeToolCallForTranscript(llm.ToolCall{
-		ID:    callID,
+		ID:    runtimeids.ToolCallID(callID),
 		Name:  string(toolspec.ToolExecCommand),
 		Input: []byte(`{"cmd":"true"}`),
 	}, engine.transcriptWorkingDir())
@@ -99,7 +100,7 @@ func reportAndFlushSimpleResultGroup(
 	var outcome *resultGroupReportOutcome
 	return engine.steer(stepID, steerResultGroupReportIntent(
 		collector,
-		callID,
+		runtimeids.ToolCallID(callID),
 		testResultGroupUnit(callID),
 		&outcome,
 	),
@@ -112,7 +113,7 @@ func testResultGroupCollector(t *testing.T, callIDs ...string) *resultGroupColle
 	roster := make([]resultGroupCallIdentity, len(callIDs))
 	for index, callID := range callIDs {
 		roster[index] = resultGroupCallIdentity{
-			CallID:     callID,
+			CallID:     runtimeids.ToolCallID(callID),
 			Name:       toolspec.ToolExecCommand,
 			OutputKind: session.ToolOutputKindFunction,
 		}
@@ -127,7 +128,7 @@ func testResultGroupCollector(t *testing.T, callIDs ...string) *resultGroupColle
 func testResultGroupUnit(callID string) resultGroupUnit {
 	return resultGroupUnit{
 		result: tools.Result{
-			CallID: callID,
+			CallID: runtimeids.ToolCallID(callID),
 			Name:   toolspec.ToolExecCommand,
 			Output: []byte(`{"ok":true}`),
 		},
@@ -139,7 +140,7 @@ func countHydratedToolRows(rows []TranscriptCommittedRowFact, callID string) int
 	for _, row := range rows {
 		if row.Kind == TranscriptCommittedRowFactTool &&
 			row.Tool != nil &&
-			row.Tool.ToolCallID == callID {
+			row.Tool.ToolCallID == runtimeids.ToolCallID(callID) {
 			count++
 		}
 	}
@@ -177,7 +178,7 @@ func TestResultGroupCollectorReleasesContiguousReadyPrefix(t *testing.T) {
 func TestResultGroupCollectorCursorAdvanceStartsNextPrefix(t *testing.T) {
 	collector := testResultGroupCollector(t, "first", "second", "third")
 	for _, callID := range []string{"first", "second", "third"} {
-		if _, err := collector.report(callID, testResultGroupUnit(callID)); err != nil {
+		if _, err := collector.report(runtimeids.ToolCallID(callID), testResultGroupUnit(callID)); err != nil {
 			t.Fatalf("report %s result: %v", callID, err)
 		}
 	}
@@ -346,7 +347,7 @@ func TestResultGroupFlushCommitsOutOfOrderReadyResultsInRosterOrder(t *testing.T
 	var completed []string
 	for _, event := range events {
 		if event.Kind == EventToolCallCompleted && event.ToolResult != nil {
-			completed = append(completed, event.ToolResult.CallID)
+			completed = append(completed, string(event.ToolResult.CallID))
 		}
 	}
 	if len(completed) != 2 || completed[0] != "first" || completed[1] != "second" {

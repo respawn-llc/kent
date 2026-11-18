@@ -23,7 +23,7 @@ it("formats the image label without changing its source or offering Copy", async
       Presentation: {
         ToolName: "view_image",
         Presentation: "default",
-        RenderBehavior: "plain",
+        RenderBehavior: "default",
         IsShell: false,
         UserInitiated: false,
         Command: "",

@@ -12,7 +12,7 @@ import (
 )
 
 type Call struct {
-	ID                        string
+	ID                        runtimeids.ToolCallID
 	Name                      toolspec.ID
 	Input                     json.RawMessage
 	StepID                    string
@@ -29,14 +29,14 @@ const (
 type AskQuestionBatchMetadata struct {
 	Origin              AskQuestionOrigin
 	StepID              string
-	ToolCallID          string
+	ToolCallID          runtimeids.ToolCallID
 	BatchToolCallIDs    []string
 	CandidateOrdinal    int
 	PreparedPromptCount int
 }
 
 type Result struct {
-	CallID              string                   `json:"call_id"`
+	CallID              runtimeids.ToolCallID    `json:"call_id"`
 	Name                toolspec.ID              `json:"name"`
 	Output              json.RawMessage          `json:"output"`
 	IsError             bool                     `json:"is_error"`

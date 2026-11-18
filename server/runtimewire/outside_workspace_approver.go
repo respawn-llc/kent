@@ -48,7 +48,7 @@ func (a *OutsideWorkspaceApprover) Approve(ctx context.Context, req tools.FileAc
 		Approval:      true,
 		AccessTargets: targets,
 		StepID:        identity.StepID,
-		ToolCallID:    string(identity.ToolCallID),
+		ToolCallID:    identity.ToolCallID,
 		ApprovalOptions: []tools.AskQuestionApprovalOption{
 			{Decision: tools.AskQuestionApprovalDecisionAllowOnce},
 			{Decision: tools.AskQuestionApprovalDecisionAllowSession},

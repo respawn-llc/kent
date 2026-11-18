@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -136,13 +137,13 @@ func TestBuildRequestReplaysPersistedCustomToolCallWithoutCallIDAsItemID(t *test
 	callID := "call_UnbEo1BIBE40RjqhTkbs7Gxj"
 	if _, _, err := appendTestEvent(t, store, "step", llm.Message{
 		Role:      llm.RoleAssistant,
-		ToolCalls: []llm.ToolCall{{ID: callID, Name: string(toolspec.ToolPatch), Custom: true, CustomInput: textutil.Value("*** Begin Patch\n*** End Patch\n")}},
+		ToolCalls: []llm.ToolCall{{ID: runtimeids.ToolCallID(callID), Name: string(toolspec.ToolPatch), Custom: true, CustomInput: textutil.Value("*** Begin Patch\n*** End Patch\n")}},
 	}); err != nil {
 		t.Fatalf("persist assistant custom tool call: %v", err)
 	}
 	if _, _, err := appendTestEvent(t, store, "step", llm.Message{
 		Role: llm.RoleTool, MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput),
-		ToolCallID: &callID, Name: textutil.Value(string(toolspec.ToolPatch)), Content: textutil.Value(`{"ok":true}`),
+		ToolCallID: (*runtimeids.ToolCallID)(&callID), Name: textutil.Value(string(toolspec.ToolPatch)), Content: textutil.Value(`{"ok":true}`),
 	}); err != nil {
 		t.Fatalf("persist custom tool output: %v", err)
 	}
@@ -325,7 +326,7 @@ func TestBuildRequestPreservesMaterializedToolOutputOrder(t *testing.T) {
 			Output: output,
 			ProviderItems: []llm.ResponseItem{{
 				Type:   llm.ResponseItemTypeFunctionCallOutput,
-				CallID: textutil.Value(call.ID),
+				CallID: (*string)(textutil.Value(call.ID)),
 				Name:   textutil.Value(call.Name),
 				Output: output,
 			}},
@@ -390,7 +391,7 @@ func TestHistoryReplacementPrunesPriorToolWorkingState(t *testing.T) {
 			Output: json.RawMessage(`{"ok":true}`),
 			ProviderItems: []llm.ResponseItem{{
 				Type:   llm.ResponseItemTypeFunctionCallOutput,
-				CallID: textutil.Value(call.ID),
+				CallID: (*string)(textutil.Value(call.ID)),
 				Name:   textutil.Value(call.Name),
 				Output: json.RawMessage(`{"ok":true}`),
 			}},

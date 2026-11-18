@@ -7,7 +7,6 @@ import (
 
 	"core/server/agentruntime"
 	askquestion "core/server/tools"
-	"core/shared/clientui"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	"core/shared/runtimeids"
 )
@@ -35,11 +34,11 @@ func TestPendingPromptsRetainOriginalBatchReadinessAcrossExternalAnswers(t *test
 	}
 	request := func(index int) askquestion.AskQuestionRequest {
 		return askquestion.AskQuestionRequest{
-			ToolCallID: ids[index], StepID: registryTestStepID,
+			ToolCallID: runtimeids.ToolCallID(ids[index]), StepID: registryTestStepID,
 			Question: "Proceed?", Origin: askquestion.AskQuestionOriginModelTool,
 			QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 				Origin: askquestion.AskQuestionOriginModelTool, StepID: registryTestStepID,
-				ToolCallID: ids[index], BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
+				ToolCallID: runtimeids.ToolCallID(ids[index]), BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
 			},
 		}
 	}
@@ -113,7 +112,7 @@ func TestQuestionBatchReadinessUpdatesExistingPendingPromptSubscriptions(t *test
 		t.Fatalf("initial readiness = %d, want 1", count)
 	}
 	callID := snapshot.Request.QuestionBatch.BatchToolCallIDs[1]
-	finished := clientui.ToolCallID(callID)
+	finished := runtimeids.ToolCallID(callID)
 	if err := registry.PublishAuthorityRuntimeEvent(resource, runtime.Event{
 		Kind: runtime.EventQuestionCandidateFinished, StepID: &stepID, FinishedQuestionCandidate: &finished,
 	}); err != nil {
@@ -140,12 +139,12 @@ func TestPendingPromptsOrderQuestionsByOriginalCallsNotRegistrationTime(t *testi
 	}
 	for index := len(ids) - 1; index >= 0; index-- {
 		store.Begin("22222222-2222-4222-8222-222222222222", resource, scope, askquestion.AskQuestionRequest{
-			ToolCallID: ids[index], StepID: registryTestStepID,
+			ToolCallID: runtimeids.ToolCallID(ids[index]), StepID: registryTestStepID,
 			QuestionBatch: &askquestion.AskQuestionBatchMetadata{BatchToolCallIDs: ids, CandidateOrdinal: index},
 		}, time.Now())
 	}
 	for index, pending := range store.List("22222222-2222-4222-8222-222222222222") {
-		if pending.Request.ToolCallID != ids[index] {
+		if pending.Request.ToolCallID != runtimeids.ToolCallID(ids[index]) {
 			t.Fatalf("Question %d = %s, want %s", index, pending.Request.ToolCallID, ids[index])
 		}
 	}

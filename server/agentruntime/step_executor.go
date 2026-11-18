@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
 	"sort"
@@ -119,7 +120,7 @@ func (c acceptedResponseCalls) toolCalls() []llm.ToolCall {
 }
 
 func (c *acceptedResponseCalls) establishCanonicalOrder(outputItems []llm.ResponseItem) error {
-	seenIDs := make(map[string]struct{}, len(c.local)+len(c.hosted))
+	seenIDs := make(map[runtimeids.ToolCallID]struct{}, len(c.local)+len(c.hosted))
 	for _, call := range c.local {
 		if err := registerAcceptedCallID(seenIDs, call.ID); err != nil {
 			return err
@@ -157,7 +158,7 @@ func (c *acceptedResponseCalls) establishCanonicalOrder(outputItems []llm.Respon
 		ref      acceptedResponseCallRef
 	}
 	positioned := make([]positionedCall, 0, len(c.local)+len(c.hosted))
-	seenPositions := make(map[int]string, len(c.local)+len(c.hosted))
+	seenPositions := make(map[int]runtimeids.ToolCallID, len(c.local)+len(c.hosted))
 	for index, call := range c.local {
 		positions := outputPositionsForLocalCall(outputItems, call.ID)
 		if len(positions) != 1 {
@@ -204,10 +205,9 @@ func (c *acceptedResponseCalls) establishCanonicalOrder(outputItems []llm.Respon
 	return nil
 }
 
-func registerAcceptedCallID(seen map[string]struct{}, callID string) error {
-	callID = strings.TrimSpace(callID)
-	if callID == "" {
-		return errors.New("accepted tool call ID is required")
+func registerAcceptedCallID(seen map[runtimeids.ToolCallID]struct{}, callID runtimeids.ToolCallID) error {
+	if err := callID.Validate(); err != nil {
+		return fmt.Errorf("accepted tool call ID: %w", err)
 	}
 	if _, exists := seen[callID]; exists {
 		return fmt.Errorf("accepted tool call ID %q is duplicated", callID)
@@ -216,8 +216,7 @@ func registerAcceptedCallID(seen map[string]struct{}, callID string) error {
 	return nil
 }
 
-func outputPositionsForLocalCall(items []llm.ResponseItem, callID string) []int {
-	callID = strings.TrimSpace(callID)
+func outputPositionsForLocalCall(items []llm.ResponseItem, callID runtimeids.ToolCallID) []int {
 	var positions []int
 	for position, item := range items {
 		switch item.Type {
@@ -227,7 +226,7 @@ func outputPositionsForLocalCall(items []llm.ResponseItem, callID string) []int 
 		}
 		itemID, hasItemID := textutil.OptionalTrimmed(item.ID)
 		itemCallID, hasItemCallID := textutil.OptionalTrimmed(item.CallID)
-		if hasItemID && itemID == callID || hasItemCallID && itemCallID == callID {
+		if hasItemID && runtimeids.ToolCallID(itemID) == callID || hasItemCallID && runtimeids.ToolCallID(itemCallID) == callID {
 			positions = append(positions, position)
 		}
 	}
@@ -235,9 +234,9 @@ func outputPositionsForLocalCall(items []llm.ResponseItem, callID string) []int 
 }
 
 func registerAcceptedOutputPosition(
-	seen map[int]string,
+	seen map[int]runtimeids.ToolCallID,
 	position int,
-	callID string,
+	callID runtimeids.ToolCallID,
 ) error {
 	if previousCallID, exists := seen[position]; exists {
 		return fmt.Errorf(
@@ -773,9 +772,9 @@ func (s *defaultStepExecutor) prepareCompletedResponse(ctx context.Context, step
 			return preparedCompletedResponse{}, err
 		}
 	}
-	executableCallIDs := make(map[string]struct{}, len(acceptedCalls.local))
+	executableCallIDs := make(map[runtimeids.ToolCallID]struct{}, len(acceptedCalls.local))
 	for _, call := range acceptedCalls.local {
-		if callID := strings.TrimSpace(call.ID); callID != "" {
+		if callID := call.ID; callID != "" {
 			executableCallIDs[callID] = struct{}{}
 		}
 	}
@@ -839,9 +838,9 @@ func (s *defaultStepExecutor) materializeFinalAnswerToolCalls(ctx context.Contex
 		return false, false, err
 	}
 
-	executableCallIDs := make(map[string]struct{}, len(calls.local))
+	executableCallIDs := make(map[runtimeids.ToolCallID]struct{}, len(calls.local))
 	for _, call := range calls.local {
-		if callID := strings.TrimSpace(call.ID); callID != "" {
+		if callID := call.ID; callID != "" {
 			executableCallIDs[callID] = struct{}{}
 		}
 	}
@@ -1093,10 +1092,10 @@ func sameVisibleChatEntryContent(a, b ChatEntry) bool {
 		a.Text == b.Text &&
 		a.CondensedText == b.CondensedText &&
 		a.Phase == b.Phase &&
-		strings.TrimSpace(a.ToolCallID) == strings.TrimSpace(b.ToolCallID)
+		a.ToolCallID == b.ToolCallID
 }
 
-func committedStartsForPersistedAssistantMessage(e *Engine, msg llm.Message, executableCallIDs map[string]struct{}) (*committedAssistantCoordinate, map[string]int) {
+func committedStartsForPersistedAssistantMessage(e *Engine, msg llm.Message, executableCallIDs map[runtimeids.ToolCallID]struct{}) (*committedAssistantCoordinate, map[runtimeids.ToolCallID]int) {
 	if e == nil {
 		return nil, nil
 	}
@@ -1109,12 +1108,12 @@ func committedStartsForPersistedAssistantMessage(e *Engine, msg llm.Message, exe
 	if start < 0 {
 		return nil, nil
 	}
-	toolCallStarts := make(map[string]int)
+	toolCallStarts := make(map[runtimeids.ToolCallID]int)
 	for idx, entry := range entries {
 		if !isToolCallEntryRole(strings.TrimSpace(entry.Role)) {
 			continue
 		}
-		callID := strings.TrimSpace(entry.ToolCallID)
+		callID := entry.ToolCallID
 		if callID == "" {
 			continue
 		}

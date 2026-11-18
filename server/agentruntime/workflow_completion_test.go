@@ -381,7 +381,7 @@ func testWorkflowConfig(controller workflowruntime.Controller, mode config.Workf
 }
 
 func completeNodeCall(id string, input json.RawMessage) llm.ToolCall {
-	return llm.ToolCall{ID: id, Name: string(toolspec.ToolCompleteNode), Input: input}
+	return llm.ToolCall{ID: runtimeids.ToolCallID(id), Name: string(toolspec.ToolCompleteNode), Input: input}
 }
 
 func structuredFinalResponse(content string) llm.Response {
@@ -1134,10 +1134,10 @@ func TestWorkflowDuplicateCompleteNodePreflightSkipsSideEffects(t *testing.T) {
 		}
 		message := persistedMessageForTest(t, record)
 		for _, call := range message.ToolCalls {
-			persistedCalls[call.ID] = true
+			persistedCalls[string(call.ID)] = true
 		}
 		if message.Role == llm.RoleTool && message.ToolCallID != nil {
-			persistedResults[*message.ToolCallID] = true
+			persistedResults[string(*message.ToolCallID)] = true
 		}
 	}
 	for _, rejectedID := range []string{"call_complete_1", "call_complete_2"} {
@@ -1766,7 +1766,7 @@ func assertDeveloperErrorFeedbackAfterAssistantFinalContains(t *testing.T, eng *
 func assertToolMessageWithCallID(t *testing.T, eng *Engine, callID string) {
 	t.Helper()
 	for _, msg := range eng.transcriptRuntimeState().SnapshotMessages() {
-		if msg.Role == llm.RoleTool && msg.ToolCallID != nil && *msg.ToolCallID == callID {
+		if msg.Role == llm.RoleTool && msg.ToolCallID != nil && *msg.ToolCallID == runtimeids.ToolCallID(callID) {
 			return
 		}
 	}

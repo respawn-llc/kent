@@ -14,6 +14,7 @@ function presentationKind(value: T.ToolPresentationKind): ChatToolPresentation["
     [T.ToolPresentationKind.DEFAULT]: "default",
     [T.ToolPresentationKind.SHELL]: "shell",
     [T.ToolPresentationKind.ASK_QUESTION]: "ask_question",
+    [T.ToolPresentationKind.WEB_SEARCH]: "web_search",
   });
 }
 
@@ -25,7 +26,11 @@ export function toolPresentation(
   return {
     ToolName: required(toolName),
     Presentation: presentationKind(value.presentation),
-    RenderBehavior: presentationKind(value.renderBehavior),
+    RenderBehavior: enumValue(value.renderBehavior, {
+      [T.ToolPresentationKind.DEFAULT]: "default",
+      [T.ToolPresentationKind.SHELL]: "shell",
+      [T.ToolPresentationKind.ASK_QUESTION]: "ask_question",
+    }),
     IsShell: value.isShell,
     UserInitiated: value.userInitiated,
     Command: value.command ?? "",

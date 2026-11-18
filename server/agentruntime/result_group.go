@@ -1,9 +1,9 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 
 	"core/server/llm"
@@ -14,7 +14,7 @@ import (
 )
 
 type resultGroupCallIdentity struct {
-	CallID     string
+	CallID     runtimeids.ToolCallID
 	Name       toolspec.ID
 	OutputKind session.ToolOutputKind
 }
@@ -104,9 +104,8 @@ func newResultGroupCollector(roster []resultGroupCallIdentity) (*resultGroupColl
 		return nil, errors.New("result group roster is required")
 	}
 	slots := make([]resultGroupSlot, len(roster))
-	seen := make(map[string]struct{}, len(roster))
+	seen := make(map[runtimeids.ToolCallID]struct{}, len(roster))
 	for ordinal, call := range roster {
-		call.CallID = strings.TrimSpace(call.CallID)
 		if call.CallID == "" {
 			return nil, fmt.Errorf("result group call %d ID is required", ordinal)
 		}
@@ -135,7 +134,7 @@ func newResultGroupCollector(roster []resultGroupCallIdentity) (*resultGroupColl
 }
 
 func (c *resultGroupCollector) report(
-	callID string,
+	callID runtimeids.ToolCallID,
 	unit resultGroupUnit,
 ) (*resultGroupReportOutcome, error) {
 	if c == nil {
@@ -151,7 +150,6 @@ func (c *resultGroupCollector) report(
 	default:
 		return nil, fmt.Errorf("result group collector has invalid state %d", c.state)
 	}
-	callID = strings.TrimSpace(callID)
 	for index := range c.slots {
 		slot := &c.slots[index]
 		if slot.call.CallID != callID {
@@ -182,11 +180,10 @@ func (c *resultGroupCollector) readyPrefix() []resultGroupUnit {
 	return result
 }
 
-func (c *resultGroupCollector) result(callID string) (tools.Result, bool, error) {
+func (c *resultGroupCollector) result(callID runtimeids.ToolCallID) (tools.Result, bool, error) {
 	if c == nil {
 		return tools.Result{}, false, errors.New("result group collector is required")
 	}
-	callID = strings.TrimSpace(callID)
 	for _, slot := range c.slots {
 		if slot.call.CallID != callID {
 			continue

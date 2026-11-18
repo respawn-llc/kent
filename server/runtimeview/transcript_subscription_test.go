@@ -3,6 +3,7 @@ package runtimeview
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -45,6 +46,62 @@ func assertTranscriptRoundTrip(t *testing.T, message *transcriptpb.Message) {
 	}
 	if !proto.Equal(message, decoded) {
 		t.Fatalf("transcript binary round trip differs: got %v want %v", decoded, message)
+	}
+}
+
+func TestSavedWebSearchFamilyProjectionPreservesResultFacts(t *testing.T) {
+	meta := &transcript.ToolCallMeta{
+		ToolName: string(toolspec.ToolWebSearch), Presentation: transcript.ToolPresentationDefault,
+		RenderBehavior: transcript.ToolCallRenderBehaviorDefault, Command: "saved query",
+		CompactText: "saved compact query", OutputTruncated: true,
+	}
+	saved := *meta
+	starts, err := transcriptToolStartsFromRuntime([]runtime.TranscriptLiveToolStart{{
+		StepID: "22222222-2222-4222-8222-222222222222", ToolCallID: "saved-search",
+		ToolName: meta.ToolName, Presentation: meta,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(starts) != 1 || starts[0].Presentation.Presentation != transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH {
+		t.Fatalf("projected Web Search start = %v", starts)
+	}
+	locator := transcript.CommittedRowLocator{EventSequence: 17, RowOrdinal: 1}
+	detail := &transcript.WebSearchDetail{
+		Action: transcript.WebSearchSearch{Queries: []string{"first query", "second query"}},
+		Results: []transcript.WebSearchResult{{
+			Title: textutil.Value("saved title"), Destination: textutil.Value("https://example.com"),
+		}},
+		Sources: []string{"https://example.com"},
+	}
+	fact := runtime.TranscriptCommittedRowFact{
+		Kind: runtime.TranscriptCommittedRowFactTool, Locator: locator,
+		Visibility: transcript.EntryVisibilityOngoingCollapsed, Integrity: transcript.RowIntegrityValid,
+		Tool: &runtime.TranscriptToolRowFact{
+			ToolCallID: "saved-search", ToolName: meta.ToolName, Presentation: meta,
+			WebSearch: detail, IsError: false,
+		},
+	}
+	row, err := transcriptRowFromFact(fact, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapted := protoapi.ToolPresentationFromProto(meta.ToolName, row.GetTool().Presentation)
+	if adapted.Presentation != transcript.ToolPresentationWebSearch {
+		t.Fatalf("saved search family = %q", adapted.Presentation)
+	}
+	expectedDetail, err := webSearchDetailToProto(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proto.Equal(row.GetTool().WebSearch, expectedDetail) ||
+		row.Locator.EventSequence != locator.EventSequence || int64(row.Locator.RowOrdinal) != locator.RowOrdinal ||
+		row.GetTool().GetToolCallId() != string(fact.Tool.ToolCallID) {
+		t.Fatalf("saved search result facts changed: %v", row)
+	}
+	adapted.Presentation = saved.Presentation
+	if !reflect.DeepEqual(*adapted, saved) || !reflect.DeepEqual(*meta, saved) {
+		t.Fatalf("reprojection changed saved metadata: source=%+v adapted=%+v", meta, adapted)
 	}
 }
 
@@ -931,7 +988,7 @@ func TestUnknownToolExecutionProjectsFinalizedFailedInput(t *testing.T) {
 			scriptedllm.ToolBatch("", call),
 			{
 				ExpectedToolResults: []scriptedllm.ExpectedToolResult{{
-					CallID: call.ID,
+					CallID: string(call.ID),
 					Name:   call.Name,
 				}},
 				Response: scriptedllm.FinalAnswer("done").Response,

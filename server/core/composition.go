@@ -47,7 +47,6 @@ import (
 	"core/server/workflowsvc"
 	"core/server/workflowview"
 	"core/server/worktreeservice"
-	"core/shared/clientui"
 	"core/shared/config"
 	attentionpb "core/shared/protoapi/gen/kent/api/attention"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -707,7 +706,7 @@ func (r authorityPromptResponder) SubscribePromptFollowUp(
 	ctx context.Context,
 	sessionID runtimeids.SessionID,
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 ) (serverapi.PromptFollowUpSubscription, error) {
 	return r.authority.SubscribePromptFollowUp(ctx, sessionID, stepID, toolCallID)
 }
