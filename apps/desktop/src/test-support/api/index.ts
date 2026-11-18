@@ -156,6 +156,35 @@ export function worktreeBrowserFixtureRoute(worktrees: ListEntry[] = []) {
   };
 }
 
+export function workspaceWorktreeBrowserFixtureRoute(
+  workspaceID = "workspace-1",
+  worktrees: readonly ListEntry[] = [],
+) {
+  return {
+    descriptor: ListService.method.listWorkspace,
+    result: create(ListService.method.listWorkspace.output, {
+      outcome: {
+        case: "success",
+        value: {
+          workspaceId: workspaceID,
+          worktrees: worktrees.map((entry) => {
+            if (entry.projection === undefined) throw new Error("Worktree fixture requires a projection");
+            return create(ListEntrySchema, {
+              ...entry,
+              projection: {
+                ...entry.projection,
+                isCurrent: false,
+                switch: undefined,
+                deletePreview: undefined,
+              },
+            });
+          }),
+        },
+      },
+    }),
+  };
+}
+
 export function worktreeQueryFixtureRoutes(): readonly FakeRoute[] {
   const topology = {
     topology: {

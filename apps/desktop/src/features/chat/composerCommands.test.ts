@@ -8,7 +8,11 @@ it("sets literal name arguments immediately without submitting model input", asy
   const setName = vi.spyOn(api, "setSessionName").mockResolvedValue();
   const steer = vi.spyOn(api, "steer");
   const queue = vi.spyOn(api, "queue");
-  const command = createNameCommand({ api, existingSession: true, description: null, notify: vi.fn() });
+  const command = createNameCommand({
+    api,
+    description: null,
+    setTemporaryName: vi.fn(),
+  });
   const resolution = resolveComposerCommand(' /name \t Ω  "review"\nsecond line  ', [command]);
   if (resolution.kind !== "direct") throw new Error("Expected direct name execution");
   const target = { kind: "session", projectID: "project-1", sessionID: "session-1" } as const;
@@ -22,7 +26,11 @@ it("executes blank name arguments as Clear immediately through Queue", async () 
   const api = createTestServices([]).api.chat;
   const setName = vi.spyOn(api, "setSessionName").mockResolvedValue();
   const queue = vi.spyOn(api, "queue");
-  const command = createNameCommand({ api, existingSession: true, description: null, notify: vi.fn() });
+  const command = createNameCommand({
+    api,
+    description: null,
+    setTemporaryName: vi.fn(),
+  });
   const resolution = resolveComposerCommand("/name \t\n ", [command]);
   if (resolution.kind !== "direct") throw new Error("Expected direct name execution");
   const target = { kind: "session", projectID: "project-1", sessionID: "session-1" } as const;

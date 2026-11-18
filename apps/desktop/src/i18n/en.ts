@@ -471,7 +471,7 @@ export const englishResources = {
     processes: {
       activeCount_one: "{{count}} shell",
       activeCount_other: "{{count}} shells",
-      sessionRequired: "Create a Session before opening its processes.",
+      projectTitle: "Project processes",
       title: "Processes",
       loadFailed: "Processes could not be loaded",
       emptyTitle: "No background processes",

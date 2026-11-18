@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
-import { type ApiService, type WorktreeSwitch } from "@/api";
+import { type ApiService, type WorktreeSwitch, type WorktreeScope } from "@/api";
 import { mutationPendingAtom, queryAtom, type StatusController } from "@/app-facade";
 import { worktreeErrorMessage } from "./worktreeErrorMessage";
 
@@ -19,16 +19,17 @@ export function createWorktreeActions({
 }: Readonly<{
   client: QueryClient;
   api: ApiService;
-  sessionID: string;
+  sessionID: string | null;
   onAccepted(): void;
   push: StatusController["push"];
   t: TFunction;
-  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
+  refreshOpenWorktreeList(scope: WorktreeScope): void | Promise<void>;
 }>) {
   const mutationKey = ["worktree-switch", sessionID, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
     mutationKey,
     mutationFn: async (operation: WorktreeSwitchRequest) => {
+      if (sessionID === null) throw new Error("Worktree transition requires a Session");
       if (operation.kind === "selector") {
         const resolution = await api.resolveWorktreeSelector(sessionID, operation.selector);
         return api.switchWorktree(sessionID, { kind: "resolved", resolution });
@@ -41,7 +42,7 @@ export function createWorktreeActions({
       onAccepted();
     },
     onError: (error) => {
-      void refreshOpenWorktreeList(sessionID);
+      if (sessionID !== null) void refreshOpenWorktreeList({ kind: "session", sessionID });
       push({
         id: crypto.randomUUID(),
         tone: "danger",

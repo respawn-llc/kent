@@ -6,7 +6,6 @@ export const chatWorktreeEnglish = {
   openOriginSession: "Open origin Session: {{sessionID}}",
   currentOriginSession: "Current Session: {{sessionID}}",
   title: "Worktree",
-  sessionRequired: "Start a Session before managing worktrees.",
   commandUsage:
     "Usage: /worktree [status | new | create | switch <target> | leave | delete [target] | remove [target] | rm [target]]",
   refresh: "Refresh worktrees",
@@ -43,7 +42,10 @@ export const chatWorktreeEnglish = {
   missing: "Missing",
   inUse: "In Use",
   internalFailure: "The worktree operation failed. Try again. If it keeps failing, report the issue.",
+  readFailed: "Could not load Worktrees. Retry to load them again.",
+  createFailed: "Could not create the Worktree. Check the branch or ref and try again.",
   selectorNotFound: "Worktree “{{target}}” was not found. Refresh the list and choose another worktree.",
+  mainWorkspace: "Main Workspace",
   selectorAmbiguous: "“{{target}}” matches multiple worktrees: {{candidates}}. Choose a specific worktree.",
   selectorUnavailable: "Worktree “{{target}}” is unavailable. Refresh the list before trying again.",
   operationBlocked: "This worktree operation is blocked.",

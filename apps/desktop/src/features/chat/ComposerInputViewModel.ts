@@ -7,14 +7,13 @@ import type { TFunction } from "i18next";
 import {
   type ChatSettingsTarget,
   type ChatMutationTarget,
-  type InitialChatSettings,
   type ChatNotAcceptedReason,
   type PendingWorkItemID,
   pendingWorkItemIDFromProto,
   type ChatRuntimeActivity,
   type ChatInputMutationResult,
 } from "@/api";
-import { mutationPendingAtom, queryAtom, type AppServices } from "@/app-facade";
+import { mutationPendingAtom, queryAtom, type AppServices, type AppLogger } from "@/app-facade";
 import { showStatusToast } from "@/ui";
 import { chatOperationFailureMessage } from "./chatSettingsPresentation";
 import {
@@ -36,7 +35,7 @@ export type ComposerSubmission<Kind extends ChatSettingsTarget["kind"] = ChatSet
   | Readonly<{ kind: "loading" }>
   | Readonly<{ kind: "failed"; error: unknown }>
   | (Kind extends "new_chat"
-      ? Readonly<{ kind: "ready"; initialSettings: InitialChatSettings }>
+      ? Readonly<{ kind: "ready"; target: Extract<ChatMutationTarget, { kind: "new_chat" }> }>
       : Readonly<{ kind: "ready" }>);
 type CompletedInput = Exclude<ComposerCommandResult, { kind: "local" }>;
 type SubmissionCallbacks = Readonly<{
@@ -89,6 +88,7 @@ export function createComposerInputViewModel({
     mutationFn: async (input: Request) =>
       dispatchComposerCommand(services.api.chat, input.target, input.command, input.intent),
     onSuccess: async (result, input) => {
+      reportChatRejection(services.logger, result);
       if (input.command.kind === "input" && !("kind" in result)) {
         if (result.outcome.kind === "accepted" && !("disposition" in result.outcome))
           throw new Error("Ordinary input acceptance requires an admission disposition.");
@@ -251,8 +251,8 @@ function mutationTarget(
   if (target === null) return null;
   if (target.kind === "session") return target;
   if (submission.kind !== "ready") return null;
-  if (!("initialSettings" in submission)) throw new Error("Ready New Chat requires initial settings.");
-  return { ...target, initialSettings: submission.initialSettings };
+  if (!("target" in submission)) throw new Error("Ready New Chat requires creation inputs.");
+  return submission.target;
 }
 
 async function complete(result: ComposerCommandResult, input: Request, t: TFunction) {
@@ -288,10 +288,17 @@ async function complete(result: ComposerCommandResult, input: Request, t: TFunct
     });
   }
 }
+function reportChatRejection(logger: AppLogger, result: ComposerCommandResult): void {
+  if ("kind" in result || result.outcome.kind !== "not_accepted") return;
+  const reason = result.outcome.reason;
+  if (reason.kind !== "internal_failure") return;
+  void logger.append("error", "Chat action rejected", {
+    ...(reason.operation === null ? {} : { operation: reason.operation }),
+    ...(reason.cause === null ? {} : { cause: reason.cause }),
+  });
+}
 function rejectionDetails(reason: ChatNotAcceptedReason): readonly string[] {
   if ("command" in reason) return reason.command === null ? [] : [reason.command];
-  if (reason.kind === "internal_failure")
-    return [reason.operation, reason.cause].filter((value) => value !== null);
   return [];
 }
 

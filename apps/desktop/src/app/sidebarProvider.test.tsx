@@ -1,3 +1,4 @@
+import { createTestWorktreeBinding } from "@/test-support/sidebar";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import {
@@ -672,7 +673,7 @@ describe("SidebarProvider stack", () => {
     const worktree = {
       kind: "worktree",
       projectID: "project-1",
-      sessionID: "session-1",
+      chat: createTestWorktreeBinding({ kind: "session", projectID: "project-1", sessionID: "session-1" }),
       page: "list",
       openSession: vi.fn(),
     } as const;
@@ -688,7 +689,10 @@ describe("SidebarProvider stack", () => {
     });
     expect(result.current.shell.phase).toBe("open");
     act(() => {
-      result.current.roots.toggle({ kind: "processes", projectID: "project-1", sessionID: "session-1" });
+      result.current.roots.toggle({
+        kind: "processes",
+        scope: { kind: "session", projectID: "project-1", sessionID: "session-1" },
+      });
     });
     expect(result.current.shell.activeDestination?.kind).toBe("processes");
     expect(result.current.shell.canGoBack).toBe(false);

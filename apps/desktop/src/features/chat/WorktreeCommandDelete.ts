@@ -12,18 +12,29 @@ export function createWorktreeCommandDelete({
   Readonly<{
     present(preview: WorktreeDeletePreview): void;
   }>) {
-  const { client, api, sessionID, push, t } = dependencies;
+  const { client, api, scope, push, t } = dependencies;
   const deletion = createWorktreeDeletion(dependencies);
-  const mutationKey = ["worktree-command-preview", sessionID, crypto.randomUUID()];
+  const mutationKey = ["worktree-command-preview", scope, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
     mutationKey,
     mutationFn: async (selector: string | null) => {
+      if (scope.kind === "workspace") {
+        const resolved =
+          selector ??
+          (await api.listWorktrees(scope)).worktrees.find(
+            (row) => row.topology.topology.case === "mainWorkspace",
+          )?.projection.selector;
+        if (resolved === undefined)
+          throw new Error(t("chat.worktree.selectorNotFound", { target: t("chat.worktree.mainWorkspace") }));
+        return api.previewWorktreeDelete(scope, resolved);
+      }
+      const { sessionID } = scope;
       const resolved =
         selector === null
           ? (await api.getWorktreeStatus(sessionID)).worktree?.recordedRoot
           : (await api.resolveWorktreeSelector(sessionID, selector)).worktree.projection.selector;
       if (resolved === undefined) throw new Error("Worktree read returned no target identity");
-      return api.previewWorktreeDelete(sessionID, resolved);
+      return api.previewWorktreeDelete(scope, resolved);
     },
     retry: false,
     networkMode: "always",

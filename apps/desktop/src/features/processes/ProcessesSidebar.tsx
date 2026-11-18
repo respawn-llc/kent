@@ -4,7 +4,7 @@ import { useAtomMount, useAtomValue, useAtomSet } from "@effect/atom-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { errorMessage, type ChatSessionTarget, type DesktopProcess } from "@/api";
+import { errorMessage, type ProcessScope, type DesktopProcess } from "@/api";
 import { useAppServices, useStatusController } from "@/app-facade";
 import {
   ActionableListRow,
@@ -29,19 +29,18 @@ import { createProcessesViewModel, createProcessTermination } from "./ProcessesV
 const processRowEstimatedHeightPx = 80;
 const noLoad = () => undefined;
 
-export function ProcessesSidebar({ target }: Readonly<{ target: ChatSessionTarget }>): ReactElement {
+export function ProcessesSidebar({ target }: Readonly<{ target: ProcessScope }>): ReactElement {
   const { t } = useTranslation();
   const { api } = useAppServices();
   const client = useQueryClient();
-  const { projectID, sessionID } = target;
   const model = useMemo(
     () =>
       createProcessesViewModel({
         api,
         client,
-        target: { projectID, sessionID },
+        target,
       }),
-    [api, client, projectID, sessionID],
+    [api, client, target],
   );
   const data = useAtomValue(model.state);
   const retry = useAtomSet(model.retry);

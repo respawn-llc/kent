@@ -1,4 +1,4 @@
-import { create, operationName, type DescMethod } from "@app/server-api-contract";
+import { create, operationName, type DescMethod, type MessageShape } from "@app/server-api-contract";
 import type {
   DeleteError as TaskDeleteError,
   StartError as TaskStartError,
@@ -27,7 +27,6 @@ import {
   type DeleteSuccess,
   type EnterError,
   type LeaveError,
-  type ListSuccessValid as ListSuccess,
   type ScheduledAcknowledgement,
   type SelectorResolveError,
   type SelectorResolveSuccessValid as SelectorResolveSuccess,
@@ -36,6 +35,7 @@ import {
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import { ContractError, RpcError } from "./errors";
+import { requireProjectAttachment } from "./chatAttachment";
 import { protobufRpcError, requireUnarySuccess } from "./protobufRpc";
 import {
   authorizeWorktreeCreateTargetResolution,
@@ -47,6 +47,8 @@ import {
   type WorktreeDeleteConfirmationChoice,
   type WorktreeDeletePreview,
   type WorktreeTransition,
+  type WorktreeScope,
+  type WorktreeList,
 } from "./schemas/worktree";
 import type { RpcTransport } from "./transport";
 
@@ -62,7 +64,21 @@ export async function getWorktreeStatus(transport: RpcTransport, sessionID: stri
   );
 }
 
-export async function listWorktrees(transport: RpcTransport, sessionID: string): Promise<ListSuccess> {
+export async function listWorktrees(transport: RpcTransport, scope: WorktreeScope): Promise<WorktreeList> {
+  if (scope.kind === "workspace") {
+    const method = ListService.method.listWorkspace;
+    const success = requireUnarySuccess(
+      method,
+      await managementCall(
+        transport,
+        scope,
+        method,
+        create(method.input, { projectId: scope.projectID, workspaceId: scope.workspaceID }),
+      ),
+    );
+    return { worktrees: success.worktrees, target: null, branchSuggestion: undefined };
+  }
+  const { sessionID } = scope;
   const method = ListService.method.list;
   const success = requireUnarySuccess(
     method,
@@ -74,6 +90,46 @@ export async function listWorktrees(transport: RpcTransport, sessionID: string):
   );
   success.worktrees.forEach(authorizeWorktreeListEntry);
   return success;
+}
+
+function managementScope(scope: WorktreeScope) {
+  return scope.kind === "session"
+    ? {
+        scope: {
+          case: "sessionId" as const,
+          value: { value: { case: "sessionId" as const, value: scope.sessionID } },
+        },
+      }
+    : {
+        scope: {
+          case: "workspace" as const,
+          value: { target: { projectId: scope.projectID, workspaceId: scope.workspaceID } },
+        },
+      };
+}
+
+async function managementCall<Method extends DescMethod>(
+  transport: RpcTransport,
+  scope: WorktreeScope,
+  method: Method,
+  request: MessageShape<Method["input"]>,
+) {
+  return scope.kind === "session"
+    ? transport.callDescriptorAttachedSession(scope, method, request)
+    : transport
+        .callDescriptorAttachedProject({
+          projectID: scope.projectID,
+          selector: { workspaceID: scope.workspaceID },
+          method,
+          createRequest: () => request,
+        })
+        .then((call) => {
+          requireProjectAttachment(call.attachment, {
+            projectID: scope.projectID,
+            workspace: { workspaceID: scope.workspaceID },
+          });
+          return call.result;
+        });
 }
 
 export async function resolveWorktreeSelector(
@@ -97,17 +153,18 @@ export async function resolveWorktreeSelector(
 
 export async function resolveWorktreeCreateTarget(
   transport: RpcTransport,
-  sessionID: string,
+  scope: WorktreeScope,
   target: string,
 ): Promise<CreateTargetResolveSuccess> {
   const method = CreateTargetService.method.resolve;
   const success = requireWorktreeSuccess(
     method,
-    await transport.callDescriptorAttachedSession(
-      { sessionID },
+    await managementCall(
+      transport,
+      scope,
       method,
       create(method.input, {
-        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+        scope: managementScope(scope),
         target,
       }),
     ),
@@ -118,18 +175,19 @@ export async function resolveWorktreeCreateTarget(
 
 export async function previewWorktreeDelete(
   transport: RpcTransport,
-  sessionID: string,
+  scope: WorktreeScope,
   selector: string,
 ): Promise<WorktreeDeletePreview> {
   const method = DeletePreviewService.method.get;
   return authorizeWorktreeDeletePreview(
     requireWorktreeSuccess(
       method,
-      await transport.callDescriptorAttachedSession(
-        { sessionID },
+      await managementCall(
+        transport,
+        scope,
         method,
         create(method.input, {
-          scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+          scope: managementScope(scope),
           selector,
         }),
       ),
@@ -231,7 +289,7 @@ function transitionSelector(operation: WorktreeTransition): string | null {
 
 export async function deleteWorktree(
   transport: RpcTransport,
-  sessionID: string,
+  scope: WorktreeScope,
   preview: WorktreeDeletePreview,
   confirmation: WorktreeDeleteConfirmationChoice,
 ): Promise<DeleteSuccess> {
@@ -242,11 +300,12 @@ export async function deleteWorktree(
   const method = TransitionService.method.delete;
   return requireWorktreeSuccess(
     method,
-    await transport.callDescriptorAttachedSession(
-      { sessionID },
+    await managementCall(
+      transport,
+      scope,
       method,
       create(method.input, {
-        scope: { scope: { case: "sessionId", value: { value: { case: "sessionId", value: sessionID } } } },
+        scope: managementScope(scope),
         selector: authority.deletionSelector,
         forceFolderRemoval: authority.cleanliness.kind !== DirtyStateKind.DIRTY_STATE_CLEAN,
         branchCleanupPolicy:

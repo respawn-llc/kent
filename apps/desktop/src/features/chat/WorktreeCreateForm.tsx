@@ -13,6 +13,7 @@ import {
   useTextFieldSubmitShortcut,
   worktreeListQueryOptions,
   type SidebarPageNavigator,
+  type ChatWorktreeBinding,
 } from "@/app-facade";
 import {
   Button,
@@ -29,7 +30,7 @@ import type { createWorktreeActions } from "./WorktreeActions";
 
 type Props = Readonly<{
   projectID: string;
-  sessionID: string;
+  chat: ChatWorktreeBinding;
   openSession(sessionID: string): void | Promise<void>;
   navigator: SidebarPageNavigator;
   actions: ReturnType<typeof createWorktreeActions>;
@@ -39,7 +40,8 @@ export function WorktreeCreateForm(props: Props) {
   const { api } = useAppServices();
   const client = useQueryClient();
   const { t } = useTranslation();
-  const query = useQuery(worktreeListQueryOptions(api, props.sessionID));
+  const scope = useAtomValue(props.chat.scope);
+  const query = useQuery(worktreeListQueryOptions(api, scope));
   const header = useMemo(
     () => (
       <IconTooltipButton
@@ -49,15 +51,15 @@ export function WorktreeCreateForm(props: Props) {
             kind: "worktree",
             page: "list",
             projectID: props.projectID,
-            sessionID: props.sessionID,
             openSession: props.openSession,
+            chat: props.chat,
           })
         }
       >
         <ArrowLeft size={16} />
       </IconTooltipButton>
     ),
-    [props.navigator, props.projectID, props.sessionID, props.openSession, t],
+    [props.navigator, props.projectID, props.chat, props.openSession, t],
   );
   usePublishSidebarHeaderAction(header);
   useEffect(() => {
@@ -68,17 +70,19 @@ export function WorktreeCreateForm(props: Props) {
         kind: "worktree",
         page: "list",
         projectID: props.projectID,
-        sessionID: props.sessionID,
         openSession: props.openSession,
+        chat: props.chat,
       });
     };
     document.addEventListener("keydown", back);
     return () => {
       document.removeEventListener("keydown", back);
     };
-  }, [props.navigator, props.projectID, props.sessionID, props.openSession]);
+  }, [props.navigator, props.projectID, props.chat, props.openSession]);
   if (query.data !== undefined)
-    return <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />;
+    return scope === null ? null : (
+      <CreateFields {...props} suggestion={query.data.branchSuggestion} query={query} />
+    );
   if (query.isError)
     return (
       <ErrorState
@@ -87,7 +91,7 @@ export function WorktreeCreateForm(props: Props) {
         body={errorMessage(query.error)}
         retryLabel={t("app.retry")}
         onRetry={() => {
-          void replaceWorktreeListRead(client, api, props.sessionID);
+          if (scope !== null) void replaceWorktreeListRead(client, api, scope);
         }}
       />
     );
@@ -96,28 +100,30 @@ export function WorktreeCreateForm(props: Props) {
 
 function CreateFields({
   projectID,
-  sessionID,
   openSession,
   navigator,
   actions,
   suggestion,
   query,
+  chat,
 }: Props &
   Readonly<{
     suggestion: string | undefined;
     query: UseQueryResult<Awaited<ReturnType<ReturnType<typeof useAppServices>["api"]["listWorktrees"]>>>;
   }>) {
-  const { api } = useAppServices();
+  const { api, logger } = useAppServices();
   const client = useQueryClient();
   const { push } = useStatusController();
   const { t } = useTranslation();
   const id = useId();
+  const scope = useAtomValue(chat.scope);
   const [model] = useState(() =>
     createWorktreeCreate({
       client,
       api,
+      logger,
       projectID,
-      sessionID,
+      chat,
       openSession,
       navigator,
       suggestion,
@@ -143,7 +149,7 @@ function CreateFields({
         body={errorMessage(query.isError ? query.error : resolution?.error)}
         retryLabel={t("app.retry")}
         onRetry={() => {
-          if (query.isError) void replaceWorktreeListRead(client, api, sessionID);
+          if (query.isError && scope !== null) void replaceWorktreeListRead(client, api, scope);
           else retryResolution(undefined);
         }}
       />

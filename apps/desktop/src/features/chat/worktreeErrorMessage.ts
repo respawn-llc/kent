@@ -11,7 +11,7 @@ export function worktreeErrorMessage(error: unknown, t: TFunction): string {
     case "delete_partial":
       return partialDeletionMessage(detail.details, t);
     case "create":
-      return detail.diagnostic;
+      return t("chat.worktree.createFailed");
     case "setup_retained":
       return detail.details.diagnostic;
     case "selector":

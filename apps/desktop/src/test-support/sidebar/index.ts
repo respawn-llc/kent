@@ -1,10 +1,27 @@
 import { vi } from "bun:test";
+import * as Atom from "effect/reactivity/Atom";
+import type { ChatSessionTarget } from "@/api";
 import type {
   SidebarDestination,
   SidebarPageNavigator,
   SidebarRootController,
   SidebarShellController,
+  ChatWorktreeBinding,
 } from "@/app-facade";
+export function createTestWorktreeBinding(
+  target: ChatSessionTarget & { kind: "session" },
+): ChatWorktreeBinding {
+  return {
+    scope: Atom.make({ kind: "session", sessionID: target.sessionID }),
+    selector: Atom.make<string | null>(null),
+    workspaceName: Atom.make<string | null>("Workspace"),
+    creationTarget: Atom.make(target),
+    draft: Atom.make(""),
+    creationKey: ["worktree-create", crypto.randomUUID()],
+    select: vi.fn(),
+    delivered: vi.fn(async () => undefined),
+  };
+}
 export function createTestSidebarNavigator(
   overrides: Partial<SidebarPageNavigator> = {},
 ): SidebarPageNavigator {

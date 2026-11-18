@@ -988,7 +988,7 @@ describe("Chat Settings descriptor adapter", () => {
       fast: { kind: "unsupported" },
     });
     await chat.queue(
-      { ...newChatTarget, initialSettings: selected.baseline },
+      { ...newChatTarget, initialSettings: selected.baseline, name: null, worktreeSelector: null },
       { kind: "text", text: "start" },
       pendingWorkItemIDFromProto("223e4567-e89b-42d3-a456-426614174000"),
     );

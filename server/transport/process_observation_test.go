@@ -49,41 +49,49 @@ func (s observedProcessSubscription) Close() error {
 }
 
 func TestProcessObservationGatewayInitialAndClose(t *testing.T) {
-	app, _ := newGatewayTestCore(t, true, true)
-	defer app.Close()
-	store := createGatewayAuthoritativeSession(t, app)
-	closed := make(chan struct{}, 1)
-	gateway, err := NewGateway(processObservationDependencies{
-		GatewayDependencies: app,
-		observer:            observedProcessClient{ProcessObservationService: app.ProcessObservationClient(), closed: closed},
-	}, gatewayTestIdentity())
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(gateway.Handler())
-	defer server.Close()
-	conn := dialGateway(t, server)
-	defer conn.Close()
-	handshakeGateway(t, conn)
-	requireGatewayProjectAttachment(t, conn, "attach", &connectionpb.AttachProjectRequest{ProjectId: app.ProjectID()})
-	service := processpb.File_kent_api_process_process_proto.Services().ByName("ViewService")
-	var started processpb.ObserveResult
-	callGatewayDescriptor(t, conn, "observe", service.Methods().ByName("Observe"),
-		&processpb.ObserveRequest{SessionId: store.Meta().SessionID}, &started)
-	if started.GetSuccess() == nil {
-		t.Fatalf("observe failed: %v", &started)
-	}
-	var initial processpb.ListSuccess
-	receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &initial)
-	if len(initial.Processes) != 0 {
-		t.Fatalf("initial: %v", &initial)
-	}
-	if err := conn.Close(); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-closed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("connection close did not release observation")
+	for _, scope := range []string{"session", "project"} {
+		t.Run(scope, func(t *testing.T) {
+			app, _ := newGatewayTestCore(t, true, true)
+			defer app.Close()
+			store := createGatewayAuthoritativeSession(t, app)
+			closed := make(chan struct{}, 1)
+			gateway, err := NewGateway(processObservationDependencies{
+				GatewayDependencies: app,
+				observer:            observedProcessClient{ProcessObservationService: app.ProcessObservationClient(), closed: closed},
+			}, gatewayTestIdentity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(gateway.Handler())
+			defer server.Close()
+			conn := dialGateway(t, server)
+			defer conn.Close()
+			handshakeGateway(t, conn)
+			request := &processpb.ObserveRequest{Scope: &processpb.ObserveRequest_ProjectId{ProjectId: app.ProjectID()}}
+			if scope == "session" {
+				requireGatewayProjectAttachment(t, conn, "attach", &connectionpb.AttachProjectRequest{ProjectId: app.ProjectID()})
+				request.Scope = &processpb.ObserveRequest_SessionId{SessionId: store.Meta().SessionID}
+			}
+			service := processpb.File_kent_api_process_process_proto.Services().ByName("ViewService")
+			var started processpb.ObserveResult
+			callGatewayDescriptor(t, conn, "observe", service.Methods().ByName("Observe"),
+				request, &started)
+			if started.GetSuccess() == nil {
+				t.Fatalf("observe failed: %v", &started)
+			}
+			var initial processpb.ListSuccess
+			receiveGatewayDescriptorNotification(t, conn, service.Methods().ByName("Event"), &initial)
+			if len(initial.Processes) != 0 {
+				t.Fatalf("initial: %v", &initial)
+			}
+			if err := conn.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-closed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("connection close did not release observation")
+			}
+		})
 	}
 }

@@ -4,9 +4,13 @@ import * as Effect from "effect/Effect";
 import * as Atom from "effect/reactivity/Atom";
 import type { TFunction } from "i18next";
 
-import { type ApiService, type WorktreeDeleteConfirmationChoice, type WorktreeDeletePreview } from "@/api";
 import {
-  createWorktreeSelectorRequest,
+  type ApiService,
+  type WorktreeDeleteConfirmationChoice,
+  type WorktreeDeletePreview,
+  type WorktreeScope,
+} from "@/api";
+import {
   disposeWorktreeDeletePreview,
   freshFetchWorktreeDeletePreview,
   worktreeDeletePreviewQueryOptions,
@@ -20,15 +24,15 @@ import { worktreeErrorMessage } from "./worktreeErrorMessage";
 export function createWorktreeDelete({
   client,
   api,
-  sessionID,
+  scope,
   refreshOpenWorktreeList,
   push,
   t,
 }: Readonly<{
   client: QueryClient;
   api: ApiService;
-  sessionID: string;
-  refreshOpenWorktreeList(sessionID: string): void | Promise<void>;
+  scope: WorktreeScope;
+  refreshOpenWorktreeList(scope: WorktreeScope): void | Promise<void>;
   push: StatusController["push"];
   t: TFunction;
 }>) {
@@ -36,7 +40,7 @@ export function createWorktreeDelete({
   const selection = Atom.make((get) => {
     const selected = get(selector);
     if (selected === null) return null;
-    const request = createWorktreeSelectorRequest(sessionID, selected);
+    const request = { scope, selector: selected };
     const observer = new QueryObserver(client, {
       ...worktreeDeletePreviewQueryOptions(api, request),
       enabled: false,
@@ -76,7 +80,7 @@ export function createWorktreeDelete({
   const mutation = createWorktreeDeletion({
     client,
     api,
-    sessionID,
+    scope,
     refreshOpenWorktreeList,
     push,
     t,
@@ -107,15 +111,15 @@ type DeleteRequest = Readonly<{ preview: WorktreeDeletePreview; choice: Worktree
 export function createWorktreeDeletion({
   client,
   api,
-  sessionID,
+  scope,
   refreshOpenWorktreeList,
   push,
   t,
 }: Parameters<typeof createWorktreeDelete>[0]) {
-  const mutationKey = ["worktree-delete", sessionID, crypto.randomUUID()];
+  const mutationKey = ["worktree-delete", scope, crypto.randomUUID()];
   const observer = new MutationObserver(client, {
     mutationKey,
-    mutationFn: async ({ preview, choice }: DeleteRequest) => api.deleteWorktree(sessionID, preview, choice),
+    mutationFn: async ({ preview, choice }: DeleteRequest) => api.deleteWorktree(scope, preview, choice),
     retry: false,
     networkMode: "always",
     onSuccess: async (result) => {
@@ -129,7 +133,7 @@ export function createWorktreeDeletion({
           title: t("chat.worktree.delete"),
           body: warnings.join("\n"),
         });
-      await refreshOpenWorktreeList(sessionID);
+      await refreshOpenWorktreeList(scope);
     },
     onError: (error) => {
       push({
