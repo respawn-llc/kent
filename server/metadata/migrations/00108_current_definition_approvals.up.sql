@@ -22,14 +22,6 @@ CREATE TABLE task_pending_approvals_current (
     created_at_unix_ms INTEGER NOT NULL CHECK (created_at_unix_ms > 0)
 );
 
-CREATE TABLE task_pending_approval_branches_current (
-    approval_id TEXT NOT NULL REFERENCES task_pending_approvals_current(id) ON DELETE CASCADE,
-    transition_branch_key TEXT NOT NULL CHECK (length(trim(transition_branch_key)) BETWEEN 1 AND 64),
-    edge_id BLOB NOT NULL
-        CHECK (typeof(edge_id) = 'blob' AND length(edge_id) = 16 AND edge_id != zeroblob(16)),
-    PRIMARY KEY (approval_id, transition_branch_key)
-);
-
 INSERT INTO task_pending_approvals_current (
     rowid, id, source_task_id, source_node_id, source_transition_branch_key, source_session_id,
     transition_group_id, commentary, materialized_values_json, created_at_unix_ms
@@ -39,15 +31,9 @@ SELECT rowid, id, source_task_id, source_node_id, source_transition_branch_key, 
        json_extract(transition_snapshot_json, '$.commentary'), materialized_values_json, created_at_unix_ms
 FROM task_pending_approvals;
 
-INSERT INTO task_pending_approval_branches_current (rowid, approval_id, transition_branch_key, edge_id)
-SELECT rowid, approval_id, transition_branch_key,
-       kent_migration_graph_entity_id_blob_v1(json_extract(effective_edge_configuration_json, '$.id'), 'Transition Branch')
-FROM task_pending_approval_branches;
-
 DROP TABLE task_pending_approval_branches;
 DROP TABLE task_pending_approvals;
 ALTER TABLE task_pending_approvals_current RENAME TO task_pending_approvals;
-ALTER TABLE task_pending_approval_branches_current RENAME TO task_pending_approval_branches;
 
 CREATE UNIQUE INDEX task_pending_approvals_parallel_source_unique_idx
     ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key);
@@ -61,8 +47,6 @@ CREATE INDEX task_pending_approvals_source_node_idx
     ON task_pending_approvals(source_node_id);
 CREATE INDEX task_pending_approvals_source_session_idx
     ON task_pending_approvals(source_session_id) WHERE source_session_id IS NOT NULL;
-CREATE INDEX task_pending_approval_branches_edge_idx
-    ON task_pending_approval_branches(edge_id);
 
 -- The full index handles both parallel and serial lookups with a nullable branch key.
 -- The separate serial index still enforces uniqueness for NULL branch keys.
@@ -101,34 +85,6 @@ WHEN NOT EXISTS (
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval transition must belong to its source node');
-END;
--- +goose StatementEnd
-
--- +goose StatementBegin
-CREATE TRIGGER task_pending_approval_branches_choice_insert
-BEFORE INSERT ON task_pending_approval_branches
-FOR EACH ROW
-WHEN NOT EXISTS (
-    SELECT 1 WHERE
-        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
-        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
-)
-BEGIN
-    SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
-END;
--- +goose StatementEnd
-
--- +goose StatementBegin
-CREATE TRIGGER task_pending_approval_branches_choice_update
-BEFORE UPDATE OF approval_id, edge_id ON task_pending_approval_branches
-FOR EACH ROW
-WHEN NOT EXISTS (
-    SELECT 1 WHERE
-        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
-        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
-)
-BEGIN
-    SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
 END;
 -- +goose StatementEnd
 
@@ -198,10 +154,6 @@ BEFORE DELETE ON workflow_nodes
 FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id
-) OR EXISTS (
-    SELECT 1 FROM workflow_edges edge
-    CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
-    WHERE edge.target_node_id = OLD.id
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node has current task references');
@@ -215,11 +167,6 @@ FOR EACH ROW
 WHEN NEW.kind != OLD.kind AND (
     EXISTS (SELECT 1 FROM task_current_nodes current_node WHERE current_node.node_id = OLD.id)
     OR EXISTS (SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id)
-    OR EXISTS (
-        SELECT 1 FROM workflow_edges edge
-        CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
-        WHERE edge.target_node_id = OLD.id
-    )
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node kind changes are blocked for nodes referenced by current task state');

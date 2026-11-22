@@ -106,9 +106,6 @@ func pendingApprovalPresentationFromRows(
 	if row.WorkflowID == nil || !row.SourceKey.Valid {
 		return workflow.PendingApproval{}, errors.New("pending approval source node is missing")
 	}
-	if len(branches) == 0 {
-		return workflow.PendingApproval{}, errors.New("pending approval has no branch choices")
-	}
 	var group *workflow.TransitionGroup
 	if row.CurrentTransitionKey.Valid {
 		group = &workflow.TransitionGroup{

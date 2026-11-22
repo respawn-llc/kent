@@ -155,7 +155,7 @@ func TestServiceWorkflowGraphSaveCurrentNodeDeletionIsBlocked(t *testing.T) {
 	assertWorkflowGraphAtomicUnchanged(t, ctx, service, before)
 }
 
-func TestServiceWorkflowGraphSavePendingApprovalDeletionIsBlocked(t *testing.T) {
+func TestServiceWorkflowGraphSaveRetargetsPendingApprovalAfterTargetDeletion(t *testing.T) {
 	ctx, service, binding, metadataStore := newWorkflowServiceTestContextWithMetadata(t)
 	workflowID := createWorkflowServiceChainedWorkflow(t, ctx, service)
 	requireWorkflowServiceEdgeApproval(t, ctx, service, workflowID, "next")
@@ -177,15 +177,18 @@ func TestServiceWorkflowGraphSavePendingApprovalDeletionIsBlocked(t *testing.T) 
 
 	preview := previewWorkflowGraphAtomicDraft(t, ctx, service, before, graph)
 	nodeReference := &pb.GraphEntityReference{EntityType: pb.GraphEntityType_WORKFLOW_GRAPH_ENTITY_TYPE_NODE, EntityId: removedNodeID}
-	if preview.Impact.PendingApprovalCount != 1 || !slices.ContainsFunc(preview.Impact.RemovedEntities, func(value *pb.GraphEntityReference) bool { return proto.Equal(value, nodeReference) }) ||
-		!slices.EqualFunc(workflowServiceGraphSaveBlockerEntities(preview.Blockers, "node_task_references"), []*pb.GraphEntityReference{nodeReference}, workflowGraphReferenceEqual) {
+	if preview.Impact.PendingApprovalCount != 1 || !slices.ContainsFunc(preview.Impact.RemovedEntities, func(value *pb.GraphEntityReference) bool { return proto.Equal(value, nodeReference) }) {
 		t.Fatalf("Pending Approval preview = %+v", preview)
 	}
-	blocked := saveWorkflowGraphAtomicPreview(t, ctx, service, before, graph, preview)
-	if blocked.Saved {
-		t.Fatalf("Pending Approval save = %+v, want blocked", blocked)
+	saved := saveWorkflowGraphAtomicPreview(t, ctx, service, before, graph, preview)
+	if !saved.Saved {
+		t.Fatalf("could not retarget pending Transition: %+v", saved)
 	}
-	assertWorkflowGraphAtomicUnchanged(t, ctx, service, before)
+	pending, err := service.store.PendingApproval(ctx, completed.PendingApproval.ID)
+	if err != nil || !pending.ChoiceAvailable() || len(pending.Branches) != 1 ||
+		string(pending.Branches[0].Target.Reference.NodeID) != workflowServiceNodeIDByKind(t, before, "terminal") {
+		t.Fatalf("pending Approval should point to the new target: %+v, %v", pending, err)
+	}
 }
 
 func TestServiceWorkflowGraphSaveAllowsCompletedSessionProvenanceDeletion(t *testing.T) {

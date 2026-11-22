@@ -3,6 +3,8 @@ package metadata
 import (
 	"reflect"
 	"testing"
+
+	"core/server/metadata/sqlitegen"
 )
 
 func TestJoinProviderCollectionMigrationPreservesOrderAndIdentity(t *testing.T) {
@@ -94,7 +96,7 @@ func TestOutputRequirementCollectionMigrationPreservesSemanticOrder(t *testing.T
 	}
 }
 
-func TestPendingApprovalChoiceMigrationPreservesUnresolvedWork(t *testing.T) {
+func TestPendingApprovalMigrationPreservesUnresolvedWorkAndUsesCurrentBranches(t *testing.T) {
 	db, err := openDatabaseAtVersionForTest(t, 107)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +111,8 @@ func TestPendingApprovalChoiceMigrationPreservesUnresolvedWork(t *testing.T) {
 	targetID := workflowGraphSeedIDText(t, db, "node-done")
 	execSeed(t, db, "pending work", `INSERT INTO task_pending_approvals (id, source_task_id, source_node_id, workflow_version, transition_snapshot_json, materialized_values_json, created_at_unix_ms) VALUES ('pending-choice', 'approval-task', ?, 10, json_object('id', ?, 'commentary', 'Keep commentary'), '{"summary":"Keep submitted value"}', 1000)`, sourceID, groupID)
 	execSeed(t, db, "pending branch", `INSERT INTO task_pending_approval_branches (approval_id, transition_branch_key, target_snapshot_json, effective_edge_configuration_json, context_source_resolution_json) VALUES ('pending-choice', 'done', json_object('node_id', ?, 'entered_by_edge_id', ?, 'prior_values', json('{"transition_parameters":{}}')), json_object('id', ?), '{}')`, targetID, edgeID, edgeID)
+	execSeed(t, db, "changed branch key and order", `UPDATE workflow_edges SET edge_key = 'alpha', sort_order = 1 WHERE id = ?`, workflowGraphSeedID(t, db, "edge-done-1"))
+	execSeed(t, db, "additional branch", `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, context_mode, sort_order) VALUES (randomblob(16), ?, 'zulu', ?, 'new_session', 0)`, workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-done"))
 	before := optionalNodeLabelMigrationRows(t, db, `SELECT id, source_task_id, source_node_id, source_transition_branch_key, source_session_id, materialized_values_json, created_at_unix_ms FROM task_pending_approvals`)
 	if err := runMigrations(db); err != nil {
 		t.Fatal(err)
@@ -121,9 +125,27 @@ func TestPendingApprovalChoiceMigrationPreservesUnresolvedWork(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("selected transition: got %v, want %v", got, want)
 	}
-	got = optionalNodeLabelMigrationRows(t, db, `SELECT approval_id, transition_branch_key, edge_id FROM task_pending_approval_branches`)
-	want = [][]any{{"pending-choice", "done", workflowGraphSeedID(t, db, "edge-done-1")}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("selected branch: got %v, want %v", got, want)
+	queries := sqlitegen.New(db)
+	branches, err := queries.ListPendingApprovalPresentationBranches(t.Context(), `["pending-choice","missing-approval"]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, branch := range branches {
+		if branch.ApprovalID != "pending-choice" {
+			t.Fatalf("unexpected approval %q", branch.ApprovalID)
+		}
+		keys = append(keys, branch.TransitionBranchKey)
+	}
+	if want := []string{"zulu", "alpha"}; !reflect.DeepEqual(keys, want) {
+		t.Fatalf("current branch order: got %v, want %v", keys, want)
+	}
+	execSeed(t, db, "move selected Transition to a different source", `UPDATE workflow_transition_groups SET source_node_id = ? WHERE id = ?`, workflowGraphSeedID(t, db, "node-start"), workflowGraphSeedID(t, db, "group-done"))
+	branches, err = queries.ListPendingApprovalPresentationBranches(t.Context(), `["pending-choice"]`)
+	if err != nil || len(branches) != 0 {
+		t.Fatalf("moved transition branches: got %v, error %v", branches, err)
+	}
+	if _, err := queries.GetTaskPendingApproval(t.Context(), "pending-choice"); err != nil {
+		t.Fatalf("approval must remain pending after the transition moved: %v", err)
 	}
 }

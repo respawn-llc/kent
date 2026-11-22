@@ -297,12 +297,6 @@ type TaskPendingApproval struct {
 	CreatedAtUnixMs           int64
 }
 
-type TaskPendingApprovalBranch struct {
-	ApprovalID          string
-	TransitionBranchKey string
-	EdgeID              []byte
-}
-
 type TaskRecord struct {
 	ID                              string
 	ProjectID                       string

@@ -524,7 +524,7 @@ type PendingApprovalTarget struct {
 }
 
 func (approval PendingApproval) ChoiceAvailable() bool {
-	if approval.Transition.Group == nil {
+	if approval.Transition.Group == nil || len(approval.Branches) == 0 {
 		return false
 	}
 	for _, branch := range approval.Branches {

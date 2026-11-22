@@ -194,14 +194,6 @@ CREATE TABLE task_label_assignments (
     PRIMARY KEY (task_id, label_id)
 );
 
-CREATE TABLE "task_pending_approval_branches" (
-    approval_id TEXT NOT NULL REFERENCES "task_pending_approvals"(id) ON DELETE CASCADE,
-    transition_branch_key TEXT NOT NULL CHECK (length(trim(transition_branch_key)) BETWEEN 1 AND 64),
-    edge_id BLOB NOT NULL
-        CHECK (typeof(edge_id) = 'blob' AND length(edge_id) = 16 AND edge_id != zeroblob(16)),
-    PRIMARY KEY (approval_id, transition_branch_key)
-);
-
 CREATE TABLE "task_pending_approvals" (
     id TEXT PRIMARY KEY,
     source_task_id TEXT NOT NULL,
@@ -671,9 +663,6 @@ CREATE INDEX task_dependencies_reverse_idx
 CREATE INDEX task_label_assignments_label_task_idx
     ON task_label_assignments(label_id, task_id);
 
-CREATE INDEX task_pending_approval_branches_edge_idx
-    ON task_pending_approval_branches(edge_id);
-
 CREATE UNIQUE INDEX task_pending_approvals_parallel_source_unique_idx
     ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key);
 
@@ -1099,30 +1088,6 @@ BEGIN
     SELECT RAISE(ABORT, 'task label assignment must stay within one project');
 END;
 
-CREATE TRIGGER task_pending_approval_branches_choice_insert
-BEFORE INSERT ON task_pending_approval_branches
-FOR EACH ROW
-WHEN NOT EXISTS (
-    SELECT 1 WHERE
-        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
-        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
-)
-BEGIN
-    SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
-END;
-
-CREATE TRIGGER task_pending_approval_branches_choice_update
-BEFORE UPDATE OF approval_id, edge_id ON task_pending_approval_branches
-FOR EACH ROW
-WHEN NOT EXISTS (
-    SELECT 1 WHERE
-        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
-        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
-)
-BEGIN
-    SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
-END;
-
 CREATE TRIGGER task_pending_approvals_choice_insert
 BEFORE INSERT ON task_pending_approvals
 FOR EACH ROW
@@ -1480,10 +1445,6 @@ BEFORE DELETE ON workflow_nodes
 FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id
-) OR EXISTS (
-    SELECT 1 FROM workflow_edges edge
-    CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
-    WHERE edge.target_node_id = OLD.id
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node has current task references');
@@ -1521,11 +1482,6 @@ FOR EACH ROW
 WHEN NEW.kind != OLD.kind AND (
     EXISTS (SELECT 1 FROM task_current_nodes current_node WHERE current_node.node_id = OLD.id)
     OR EXISTS (SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id)
-    OR EXISTS (
-        SELECT 1 FROM workflow_edges edge
-        CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
-        WHERE edge.target_node_id = OLD.id
-    )
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node kind changes are blocked for nodes referenced by current task state');

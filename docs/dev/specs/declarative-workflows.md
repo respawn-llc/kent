@@ -169,12 +169,12 @@
 - A Task awaiting Transition Approval must keep that pending Approval until the user approves it or manually moves the Task.
 - Approve must resolve the Transition against the current applied Workflow definition without a frozen definition or Approval-specific Workflow revision.
 - If the current Transition requires no Approval, the existing Approve action must allow that ordinary Transition to execute.
-- Approve must use the originally selected Transition when it exists.
+- Approve authorizes the Task to resume through the originally selected Transition at its source Node. Its current branches, targets and instructions apply, including branches added or replaced while the Task was paused.
 - If the submitted Parameters do not match the current Transition, Approve must leave the Task awaiting Approval and show an error Toast directing the user to manually move the Task.
-- If an existing pending Approval's originally selected Transition or branch is missing, Kent must preserve its original choice identities and submitted inputs and show that the choice is unavailable.
+- If the selected Transition is absent from the source Node or has no branches, Kent must keep the Approval and its submitted inputs and show the choice as unavailable.
 - Approving an unavailable choice must leave the Approval pending and direct the user to manually move the Task.
 - Kent must reject new pending Approvals whose selected Transition or branches are missing.
-- A pending Approval must protect its source Session from explicit deletion. It must not retain Sessions solely because they were previously resolved as its target or context.
+- A pending Approval must protect only its source Session from explicit deletion.
 - If current Approval context is unavailable, Approve must leave the Approval pending and direct the user to manually move the Task.
 
 ## Configuration context

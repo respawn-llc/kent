@@ -248,8 +248,8 @@ UPDATE workflow_edges SET prompt_template = 'Continue the task' WHERE target_nod
 	if err != nil {
 		t.Fatalf("ListPendingApprovals after migration: %v", err)
 	}
-	if len(approvals) != 1 || len(approvals[0].Branches) != 2 {
-		t.Fatalf("migrated approvals = %+v, want one two-branch approval", approvals)
+	if len(approvals) != 1 || len(approvals[0].Branches) != 0 {
+		t.Fatalf("migrated approvals = %+v, want the pending Approval without obsolete targets", approvals)
 	}
 	approval := approvals[0]
 	if approval.SourceSessionID == nil || approval.SourceSessionID.String() != sourceSessionID {
@@ -257,11 +257,6 @@ UPDATE workflow_edges SET prompt_template = 'Continue the task' WHERE target_nod
 	}
 	if approval.ChoiceAvailable() {
 		t.Fatalf("deleted choice was reported available: %+v", approval)
-	}
-	for _, branch := range approval.Branches {
-		if branch.Target != nil || branch.EdgeID == "" || branch.TransitionBranchKey == "" {
-			t.Fatalf("historical unavailable branch lost its original choice: %+v", branch)
-		}
 	}
 
 	_, err = store.PlanPendingApproval(t.Context(), approval.ID)

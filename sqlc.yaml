@@ -93,10 +93,6 @@ sql:
             go_type:
               type: "byte"
               slice: true
-          - column: "task_pending_approval_branches.edge_id"
-            go_type:
-              type: "byte"
-              slice: true
           - column: "session_workflow_node_associations.node_id"
             go_type:
               type: "byte"

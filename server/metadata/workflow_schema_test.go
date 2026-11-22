@@ -46,7 +46,6 @@ func TestOpenCreatesWorkflowSchemaAndForeignKeys(t *testing.T) {
 		"task_active_fanouts",
 		"task_active_fanout_branches",
 		"task_pending_approvals",
-		"task_pending_approval_branches",
 		"session_workflow_node_associations",
 		"task_comments",
 		"project_labels",

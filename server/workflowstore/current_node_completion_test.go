@@ -913,27 +913,6 @@ func TestCompleteCurrentNodeApprovalUsesCurrentSettingsAndRetainsSource(t *testi
 	if eligible {
 		t.Fatal("pending approval source was eligible for execution")
 	}
-	currentDefinition, currentRecord, err := store.GetDefinition(ctx, workflowID)
-	if err != nil {
-		t.Fatalf("GetDefinition before frozen edge removal: %v", err)
-	}
-	edgeRemoval := NewWorkflowGraphSaveRequest(currentDefinition, currentRecord.Version)
-	edgeRemoval.Confirmed = true
-	edgeRemoval.Edges = removeWorkflowGraphSaveEdge(edgeRemoval.Edges, reviewEdgeID)
-	preview, err := store.PreviewWorkflowGraphSave(ctx, edgeRemoval)
-	if err != nil {
-		t.Fatalf("PreviewWorkflowGraphSave frozen target edge removal: %v", err)
-	}
-	if preview.Impact.EdgeTaskReferenceCount != 1 || workflowGraphSaveBlockerCount(preview.Blockers, "edge_task_references") != 1 {
-		t.Fatalf("frozen target edge removal preview = %+v, want one protected approval edge", preview)
-	}
-	saved, err := store.SaveWorkflowGraph(ctx, edgeRemoval)
-	if err != nil {
-		t.Fatalf("SaveWorkflowGraph frozen target edge removal: %v", err)
-	}
-	if saved.Saved || workflowGraphSaveBlockerCount(saved.Blockers, "edge_task_references") != 1 {
-		t.Fatalf("frozen target edge removal save = %+v, want blocked save", saved)
-	}
 	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",

@@ -983,83 +983,12 @@ FROM (
     SELECT current_node.task_id FROM task_current_nodes current_node WHERE current_node.node_id = sqlc.arg(node_id)
     UNION ALL
     SELECT approval.id FROM task_pending_approvals approval WHERE approval.source_node_id = sqlc.arg(node_id)
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    JOIN workflow_edges edge ON edge.id = branch.edge_id
-    WHERE edge.target_node_id = sqlc.arg(node_id)
-);
-
--- name: CountCurrentTaskNodeAnchorReferences :one
-SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
-FROM (
-    SELECT current_node.task_id
-    FROM task_current_nodes current_node
-    WHERE current_node.node_id = sqlc.arg(node_id)
-    UNION ALL
-    SELECT approval.id
-    FROM task_pending_approvals approval
-    WHERE approval.source_node_id = sqlc.arg(node_id)
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    JOIN workflow_edges edge ON edge.id = branch.edge_id
-    WHERE edge.target_node_id = sqlc.arg(node_id)
 );
 
 -- name: CountTaskEdgeReferences :one
 SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
-FROM (
-    SELECT current_node.task_id
-    FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = sqlc.arg(edge_id)
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    WHERE branch.edge_id = sqlc.arg(edge_id)
-);
-
--- name: CountAllTaskEdgeReferences :one
-SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
-FROM (
-    SELECT current_node.task_id
-    FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = sqlc.arg(edge_id)
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    WHERE branch.edge_id = sqlc.arg(edge_id)
-);
-
--- name: GetWorkflowEdgeParameterEditPolicyImpact :one
-SELECT
-    (
-        SELECT CAST(COUNT(*) AS INTEGER)
-        FROM task_current_nodes current_node
-        JOIN task_records task ON task.id = current_node.task_id
-        WHERE task.workflow_id = sqlc.arg(workflow_id)
-          AND current_node.entered_by_edge_id = sqlc.arg(edge_id)
-          AND (
-              current_node.scheduling_state IS NULL
-              OR current_node.scheduling_state != 'interrupted'
-          )
-    ) AS active_current_node_count,
-    (
-        SELECT CAST(COUNT(*) AS INTEGER)
-        FROM task_current_nodes current_node
-        JOIN task_records task ON task.id = current_node.task_id
-        WHERE task.workflow_id = sqlc.arg(workflow_id)
-          AND current_node.entered_by_edge_id = sqlc.arg(edge_id)
-          AND current_node.transition_branch_key IS NOT NULL
-    ) AS unresolved_parallel_branch_count,
-    (
-        SELECT CAST(COUNT(DISTINCT approval.id) AS INTEGER)
-        FROM task_pending_approvals approval
-        JOIN task_records task ON task.id = approval.source_task_id
-        JOIN task_pending_approval_branches branch ON branch.approval_id = approval.id
-        WHERE task.workflow_id = sqlc.arg(workflow_id)
-          AND branch.edge_id = sqlc.arg(edge_id)
-    ) AS pending_approval_count;
+FROM task_current_nodes
+WHERE entered_by_edge_id = sqlc.arg(edge_id);
 
 -- name: GetWorkflowGraphActiveWorkPolicyImpact :one
 SELECT
@@ -3135,17 +3064,6 @@ INSERT INTO task_pending_approvals (
     sqlc.arg(created_at_unix_ms)
 );
 
--- name: InsertTaskPendingApprovalBranch :exec
-INSERT INTO task_pending_approval_branches (
-    approval_id,
-    transition_branch_key,
-    edge_id
-) VALUES (
-    sqlc.arg(approval_id),
-    sqlc.arg(transition_branch_key),
-    sqlc.arg(edge_id)
-);
-
 -- name: DeleteTaskPendingApproval :execrows
 DELETE FROM task_pending_approvals
 WHERE id = sqlc.arg(id);
@@ -3228,14 +3146,6 @@ SELECT
 FROM task_pending_approvals
 WHERE id = sqlc.arg(id);
 
--- name: ListTaskPendingApprovalBranches :many
-SELECT
-    approval_id,
-    transition_branch_key,
-    edge_id
-FROM task_pending_approval_branches
-WHERE approval_id = sqlc.arg(approval_id)
-ORDER BY transition_branch_key;
 -- name: GetTaskDependency :one
 SELECT blocker_task_id, blocked_task_id
 FROM task_dependencies
@@ -4112,26 +4022,26 @@ ORDER BY approval.created_at_unix_ms, approval.id;
 
 -- name: ListPendingApprovalPresentationBranches :many
 SELECT
-    choice.approval_id,
-    choice.transition_branch_key,
-    choice.edge_id,
+    approval.id AS approval_id,
+    edge.edge_key AS transition_branch_key,
+    edge.id AS edge_id,
     edge.target_node_id,
     target.node_key AS target_key,
     target.display_name AS target_name,
     target.kind AS target_kind
-FROM task_pending_approval_branches choice INDEXED BY sqlite_autoindex_task_pending_approval_branches_1
-CROSS JOIN task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
-  ON approval.id = choice.approval_id
-LEFT JOIN workflow_nodes source INDEXED BY sqlite_autoindex_workflow_nodes_1
+FROM task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
+CROSS JOIN workflow_nodes source INDEXED BY sqlite_autoindex_workflow_nodes_1
   ON source.id = approval.source_node_id
-LEFT JOIN workflow_edges edge INDEXED BY sqlite_autoindex_workflow_edges_1
-  ON edge.id = choice.edge_id AND edge.transition_group_id = approval.transition_group_id
-LEFT JOIN workflow_nodes target
+CROSS JOIN workflow_transition_groups transition INDEXED BY sqlite_autoindex_workflow_transition_groups_1
+  ON transition.id = approval.transition_group_id AND transition.source_node_id = source.id
+CROSS JOIN workflow_edges edge INDEXED BY workflow_edges_transition_group_sort_idx
+  ON edge.transition_group_id = transition.id
+LEFT JOIN workflow_nodes target INDEXED BY sqlite_autoindex_workflow_nodes_1
   ON target.id = edge.target_node_id AND target.workflow_id = source.workflow_id
-WHERE choice.approval_id IN (
+WHERE approval.id IN (
     SELECT CAST(value AS TEXT) FROM json_each(sqlc.arg(approval_ids_json))
 )
-ORDER BY choice.approval_id, choice.transition_branch_key;
+ORDER BY approval.id, edge.sort_order, edge.rowid;
 
 -- name: ListPendingApprovalAttentionFacts :many
 SELECT

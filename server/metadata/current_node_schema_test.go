@@ -90,7 +90,7 @@ WHERE task_id = 'task-1'`,
 	)
 }
 
-func TestTaskPendingApprovalSchemaRejectsMissingBranchChoice(t *testing.T) {
+func TestTaskPendingApprovalSchemaRejectsTransitionAtDifferentSource(t *testing.T) {
 	t.Parallel()
 	store, now := newTaskCurrentSchemaFixture(t)
 	insertTaskCurrentNode(t, store.db, "task-1", "node-start", nil)
@@ -99,15 +99,8 @@ func TestTaskPendingApprovalSchemaRejectsMissingBranchChoice(t *testing.T) {
 		t,
 		store.db,
 		sqlite3.SQLITE_CONSTRAINT_TRIGGER,
-		`INSERT INTO task_pending_approval_branches (
-    approval_id,
-    transition_branch_key,
-    edge_id
-) VALUES (
-    'approval-1',
-    'done',
-    randomblob(16)
-)`,
+		`UPDATE task_pending_approvals SET transition_group_id = ? WHERE id = 'approval-1'`,
+		workflowGraphSeedID(t, store.db, "group-done"),
 	)
 }
 
@@ -200,7 +193,6 @@ func TestTaskCurrentNodeSchemaUsesNaturalReferencesAndLeanFanoutStorage(t *testi
 		"task_current_nodes",
 		"task_active_fanouts",
 		"task_active_fanout_branches",
-		"task_pending_approval_branches",
 	} {
 		if columnExists(t, store.db, table, "id") {
 			t.Fatalf("%s.id should not exist; the relation has a natural identity", table)

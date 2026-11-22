@@ -517,53 +517,6 @@ func (q *Queries) CountActiveProjectWorkflowLinks(ctx context.Context, projectID
 	return active_link_count, err
 }
 
-const countAllTaskEdgeReferences = `-- name: CountAllTaskEdgeReferences :one
-SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
-FROM (
-    SELECT current_node.task_id
-    FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = ?1
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    WHERE branch.edge_id = ?1
-)
-`
-
-func (q *Queries) CountAllTaskEdgeReferences(ctx context.Context, edgeID []byte) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAllTaskEdgeReferences, edgeID)
-	var ref_count int64
-	err := recordQueryError(ctx, row.Scan(&ref_count), countAllTaskEdgeReferences, 1)
-
-	return ref_count, err
-}
-
-const countCurrentTaskNodeAnchorReferences = `-- name: CountCurrentTaskNodeAnchorReferences :one
-SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
-FROM (
-    SELECT current_node.task_id
-    FROM task_current_nodes current_node
-    WHERE current_node.node_id = ?1
-    UNION ALL
-    SELECT approval.id
-    FROM task_pending_approvals approval
-    WHERE approval.source_node_id = ?1
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    JOIN workflow_edges edge ON edge.id = branch.edge_id
-    WHERE edge.target_node_id = ?1
-)
-`
-
-func (q *Queries) CountCurrentTaskNodeAnchorReferences(ctx context.Context, nodeID []byte) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countCurrentTaskNodeAnchorReferences, nodeID)
-	var ref_count int64
-	err := recordQueryError(ctx, row.Scan(&ref_count), countCurrentTaskNodeAnchorReferences, 1)
-
-	return ref_count, err
-}
-
 const countExecutableCurrentNodesByWorkspace = `-- name: CountExecutableCurrentNodesByWorkspace :one
 SELECT CAST(COUNT(DISTINCT current_node.task_id) AS INTEGER) AS current_node_count
 FROM task_current_nodes current_node
@@ -924,15 +877,8 @@ func (q *Queries) CountTaskDependenciesByBlocker(ctx context.Context, blockerTas
 
 const countTaskEdgeReferences = `-- name: CountTaskEdgeReferences :one
 SELECT CAST(COUNT(*) AS INTEGER) AS ref_count
-FROM (
-    SELECT current_node.task_id
-    FROM task_current_nodes current_node
-    WHERE current_node.entered_by_edge_id = ?1
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    WHERE branch.edge_id = ?1
-)
+FROM task_current_nodes
+WHERE entered_by_edge_id = ?1
 `
 
 func (q *Queries) CountTaskEdgeReferences(ctx context.Context, edgeID []byte) (int64, error) {
@@ -961,11 +907,6 @@ FROM (
     SELECT current_node.task_id FROM task_current_nodes current_node WHERE current_node.node_id = ?1
     UNION ALL
     SELECT approval.id FROM task_pending_approvals approval WHERE approval.source_node_id = ?1
-    UNION ALL
-    SELECT branch.approval_id
-    FROM task_pending_approval_branches branch
-    JOIN workflow_edges edge ON edge.id = branch.edge_id
-    WHERE edge.target_node_id = ?1
 )
 `
 
@@ -2633,56 +2574,6 @@ func (q *Queries) GetWorkflowDeleteImpact(ctx context.Context, workflowID runtim
 	return i, err
 }
 
-const getWorkflowEdgeParameterEditPolicyImpact = `-- name: GetWorkflowEdgeParameterEditPolicyImpact :one
-SELECT
-    (
-        SELECT CAST(COUNT(*) AS INTEGER)
-        FROM task_current_nodes current_node
-        JOIN task_records task ON task.id = current_node.task_id
-        WHERE task.workflow_id = ?1
-          AND current_node.entered_by_edge_id = ?2
-          AND (
-              current_node.scheduling_state IS NULL
-              OR current_node.scheduling_state != 'interrupted'
-          )
-    ) AS active_current_node_count,
-    (
-        SELECT CAST(COUNT(*) AS INTEGER)
-        FROM task_current_nodes current_node
-        JOIN task_records task ON task.id = current_node.task_id
-        WHERE task.workflow_id = ?1
-          AND current_node.entered_by_edge_id = ?2
-          AND current_node.transition_branch_key IS NOT NULL
-    ) AS unresolved_parallel_branch_count,
-    (
-        SELECT CAST(COUNT(DISTINCT approval.id) AS INTEGER)
-        FROM task_pending_approvals approval
-        JOIN task_records task ON task.id = approval.source_task_id
-        JOIN task_pending_approval_branches branch ON branch.approval_id = approval.id
-        WHERE task.workflow_id = ?1
-          AND branch.edge_id = ?2
-    ) AS pending_approval_count
-`
-
-type GetWorkflowEdgeParameterEditPolicyImpactParams struct {
-	WorkflowID runtimeids.WorkflowID
-	EdgeID     []byte
-}
-
-type GetWorkflowEdgeParameterEditPolicyImpactRow struct {
-	ActiveCurrentNodeCount        int64
-	UnresolvedParallelBranchCount int64
-	PendingApprovalCount          int64
-}
-
-func (q *Queries) GetWorkflowEdgeParameterEditPolicyImpact(ctx context.Context, arg GetWorkflowEdgeParameterEditPolicyImpactParams) (GetWorkflowEdgeParameterEditPolicyImpactRow, error) {
-	row := q.db.QueryRowContext(ctx, getWorkflowEdgeParameterEditPolicyImpact, arg.WorkflowID, arg.EdgeID)
-	var i GetWorkflowEdgeParameterEditPolicyImpactRow
-	err := recordQueryError(ctx, row.Scan(&i.ActiveCurrentNodeCount, &i.UnresolvedParallelBranchCount, &i.PendingApprovalCount), getWorkflowEdgeParameterEditPolicyImpact, 2)
-
-	return i, err
-}
-
 const getWorkflowGraphActiveWorkPolicyImpact = `-- name: GetWorkflowGraphActiveWorkPolicyImpact :one
 SELECT
     (
@@ -3460,30 +3351,6 @@ func (q *Queries) InsertTaskPendingApproval(ctx context.Context, arg InsertTaskP
 	)
 	err = recordQueryError(ctx, err, insertTaskPendingApproval, 9)
 
-	return err
-}
-
-const insertTaskPendingApprovalBranch = `-- name: InsertTaskPendingApprovalBranch :exec
-INSERT INTO task_pending_approval_branches (
-    approval_id,
-    transition_branch_key,
-    edge_id
-) VALUES (
-    ?1,
-    ?2,
-    ?3
-)
-`
-
-type InsertTaskPendingApprovalBranchParams struct {
-	ApprovalID          string
-	TransitionBranchKey string
-	EdgeID              []byte
-}
-
-func (q *Queries) InsertTaskPendingApprovalBranch(ctx context.Context, arg InsertTaskPendingApprovalBranchParams) error {
-	_, err := q.db.ExecContext(ctx, insertTaskPendingApprovalBranch, arg.ApprovalID, arg.TransitionBranchKey, arg.EdgeID)
-	err = recordQueryError(ctx, err, insertTaskPendingApprovalBranch, 3)
 	return err
 }
 
@@ -4588,26 +4455,26 @@ func (q *Queries) ListPendingApprovalAttentionFacts(ctx context.Context, arg Lis
 
 const listPendingApprovalPresentationBranches = `-- name: ListPendingApprovalPresentationBranches :many
 SELECT
-    choice.approval_id,
-    choice.transition_branch_key,
-    choice.edge_id,
+    approval.id AS approval_id,
+    edge.edge_key AS transition_branch_key,
+    edge.id AS edge_id,
     edge.target_node_id,
     target.node_key AS target_key,
     target.display_name AS target_name,
     target.kind AS target_kind
-FROM task_pending_approval_branches choice INDEXED BY sqlite_autoindex_task_pending_approval_branches_1
-CROSS JOIN task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
-  ON approval.id = choice.approval_id
-LEFT JOIN workflow_nodes source INDEXED BY sqlite_autoindex_workflow_nodes_1
+FROM task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
+CROSS JOIN workflow_nodes source INDEXED BY sqlite_autoindex_workflow_nodes_1
   ON source.id = approval.source_node_id
-LEFT JOIN workflow_edges edge INDEXED BY sqlite_autoindex_workflow_edges_1
-  ON edge.id = choice.edge_id AND edge.transition_group_id = approval.transition_group_id
-LEFT JOIN workflow_nodes target
+CROSS JOIN workflow_transition_groups transition INDEXED BY sqlite_autoindex_workflow_transition_groups_1
+  ON transition.id = approval.transition_group_id AND transition.source_node_id = source.id
+CROSS JOIN workflow_edges edge INDEXED BY workflow_edges_transition_group_sort_idx
+  ON edge.transition_group_id = transition.id
+LEFT JOIN workflow_nodes target INDEXED BY sqlite_autoindex_workflow_nodes_1
   ON target.id = edge.target_node_id AND target.workflow_id = source.workflow_id
-WHERE choice.approval_id IN (
+WHERE approval.id IN (
     SELECT CAST(value AS TEXT) FROM json_each(?1)
 )
-ORDER BY choice.approval_id, choice.transition_branch_key
+ORDER BY approval.id, edge.sort_order, edge.rowid
 `
 
 type ListPendingApprovalPresentationBranchesRow struct {
@@ -6222,40 +6089,6 @@ func (q *Queries) ListTaskIDsByShortID(ctx context.Context, shortID string) ([]s
 		return nil, err
 	}
 	if err := recordQueryError(ctx, rows.Err(), listTaskIDsByShortID, 1); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listTaskPendingApprovalBranches = `-- name: ListTaskPendingApprovalBranches :many
-SELECT
-    approval_id,
-    transition_branch_key,
-    edge_id
-FROM task_pending_approval_branches
-WHERE approval_id = ?1
-ORDER BY transition_branch_key
-`
-
-func (q *Queries) ListTaskPendingApprovalBranches(ctx context.Context, approvalID string) ([]TaskPendingApprovalBranch, error) {
-	rows, err := q.db.QueryContext(ctx, listTaskPendingApprovalBranches, approvalID)
-	err = recordQueryError(ctx, err, listTaskPendingApprovalBranches, 1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []TaskPendingApprovalBranch
-	for rows.Next() {
-		var i TaskPendingApprovalBranch
-		if err := recordQueryError(ctx, rows.Scan(&i.ApprovalID, &i.TransitionBranchKey, &i.EdgeID), listTaskPendingApprovalBranches, 1); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := recordQueryError(ctx, rows.Close(), listTaskPendingApprovalBranches, 1); err != nil {
-		return nil, err
-	}
-	if err := recordQueryError(ctx, rows.Err(), listTaskPendingApprovalBranches, 1); err != nil {
 		return nil, err
 	}
 	return items, nil

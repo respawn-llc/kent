@@ -27,7 +27,6 @@ type pendingApprovalFacts struct {
 	TransitionID    workflow.TransitionGroupID
 	Commentary      string
 	OutputValues    map[string]string
-	Branches        []pendingApprovalBranchFacts
 	CreatedAt       time.Time
 }
 
@@ -53,16 +52,7 @@ func pendingApprovalByID(ctx context.Context, q *sqlitegen.Queries, id workflow.
 	if err != nil {
 		return pendingApprovalFacts{}, err
 	}
-	return pendingApprovalFromRow(ctx, q, row)
-}
-
-func pendingApprovalHandoff(approval workflow.PendingApproval) CompletionHandoff {
-	group := approval.Transition.Group
-	destination := workflow.DisplayLabel(group.DisplayName, string(group.TransitionID))
-	if len(approval.Branches) == 1 {
-		destination = approval.Branches[0].Target.DisplayName
-	}
-	return CompletionHandoff{SourceNodeDisplayName: approval.Transition.SourceDisplayName, DestinationDisplayName: destination}
+	return pendingApprovalHeaderFromRow(row)
 }
 
 func validatePendingApprovalSequentialTarget(source, target workflow.CurrentNodeReference) error {
@@ -162,48 +152,12 @@ func insertPendingApproval(ctx context.Context, q *sqlitegen.Queries, approval w
 	if approval.SourceSessionID != nil {
 		sessionID = sql.NullString{String: approval.SourceSessionID.String(), Valid: true}
 	}
-	if err := q.InsertTaskPendingApproval(ctx, sqlitegen.InsertTaskPendingApprovalParams{
+	return q.InsertTaskPendingApproval(ctx, sqlitegen.InsertTaskPendingApprovalParams{
 		ID: approval.ID.String(), SourceTaskID: string(approval.Source.TaskID), SourceNodeID: sourceID,
 		SourceTransitionBranchKey: branchKey, SourceSessionID: sessionID,
 		TransitionGroupID: groupID, Commentary: sql.NullString{String: approval.Commentary, Valid: true},
 		MaterializedValuesJson: values, CreatedAtUnixMs: approval.CreatedAt.UnixMilli(),
-	}); err != nil {
-		return err
-	}
-	for _, branch := range approval.Branches {
-		edgeID, err := runtimeids.GraphEntityIDBlob(string(branch.EdgeID))
-		if err != nil {
-			return err
-		}
-		if err := q.InsertTaskPendingApprovalBranch(ctx, sqlitegen.InsertTaskPendingApprovalBranchParams{
-			ApprovalID: approval.ID.String(), TransitionBranchKey: string(branch.TransitionBranchKey), EdgeID: edgeID,
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func pendingApprovalFromRow(ctx context.Context, q *sqlitegen.Queries, row sqlitegen.TaskPendingApproval) (facts pendingApprovalFacts, err error) {
-	facts, err = pendingApprovalHeaderFromRow(row)
-	if err != nil {
-		return facts, err
-	}
-	rows, err := q.ListTaskPendingApprovalBranches(ctx, facts.ID.String())
-	if err != nil {
-		return facts, err
-	}
-	for _, row := range rows {
-		branch, err := pendingApprovalBranchFromRow(row.TransitionBranchKey, row.EdgeID)
-		if err != nil {
-			return facts, err
-		}
-		facts.Branches = append(facts.Branches, branch)
-	}
-	if len(facts.Branches) == 0 {
-		return facts, errors.New("pending approval has no branch choices")
-	}
-	return facts, nil
+	})
 }
 
 func pendingApprovalSourceFromRow(taskID string, node []byte, sourceBranchKey, sourceSessionID sql.NullString) (workflow.CurrentNodeReference, *runtimeids.SessionID, error) {
@@ -294,21 +248,21 @@ func (branch pendingApprovalBranchFacts) target(
 
 type pendingApprovalResolver struct {
 	groups map[workflow.TransitionGroupID]workflow.TransitionGroup
-	edges  map[workflow.EdgeID]workflow.Edge
+	edges  map[workflow.TransitionGroupID][]workflow.Edge
 	nodes  map[workflow.NodeID]workflow.Node
 }
 
 func newPendingApprovalResolver(definition workflow.Definition) pendingApprovalResolver {
 	r := pendingApprovalResolver{
 		groups: make(map[workflow.TransitionGroupID]workflow.TransitionGroup, len(definition.TransitionGroups)),
-		edges:  make(map[workflow.EdgeID]workflow.Edge, len(definition.Edges)),
+		edges:  make(map[workflow.TransitionGroupID][]workflow.Edge, len(definition.TransitionGroups)),
 		nodes:  make(map[workflow.NodeID]workflow.Node, len(definition.Nodes)),
 	}
 	for _, group := range definition.TransitionGroups {
 		r.groups[group.ID] = group
 	}
 	for _, edge := range definition.Edges {
-		r.edges[edge.ID] = edge
+		r.edges[edge.TransitionGroupID] = append(r.edges[edge.TransitionGroupID], edge)
 	}
 	for _, node := range definition.Nodes {
 		r.nodes[workflow.NodeIDOf(node)] = node
@@ -321,30 +275,34 @@ func (r pendingApprovalResolver) resolve(facts pendingApprovalFacts) (workflow.P
 	if !ok {
 		return workflow.PendingApproval{}, nil, errors.New("pending approval source node is missing")
 	}
-	var currentGroup *workflow.TransitionGroup
-	group, groupAvailable := r.groups[facts.TransitionID]
-	groupAvailable = groupAvailable && group.SourceNodeID == facts.Source.NodeID
-	if groupAvailable {
-		currentGroup = &group
+	approval := workflow.PendingApproval{
+		ID: facts.ID, Source: facts.Source, SourceSessionID: facts.SourceSessionID,
+		Transition: workflow.PendingApprovalTransition{ID: facts.TransitionID, SourceDisplayName: workflow.NodeDisplayLabel(source)},
+		Commentary: facts.Commentary, OutputValues: facts.OutputValues, CreatedAt: facts.CreatedAt,
 	}
-	approval := facts.presentation(workflow.NodeDisplayLabel(source), currentGroup)
-	approval.Branches = make([]workflow.PendingApprovalBranch, 0, len(facts.Branches))
-	selected := make([]currentNodeCompletionTarget, 0, len(facts.Branches))
-	for _, branch := range facts.Branches {
-		choice := branch.choice()
-		edge, edgeAvailable := r.edges[branch.EdgeID]
-		if groupAvailable && edgeAvailable && edge.TransitionGroupID == group.ID {
-			target, ok := r.nodes[edge.TargetNodeID]
-			if !ok {
-				return workflow.PendingApproval{}, nil, errors.New("pending approval target node is missing")
-			}
-			var err error
-			choice.Target, err = branch.target(facts.Source, len(facts.Branches), edge.TargetNodeID, target.Kind(), workflow.NodeDisplayLabel(target))
-			if err != nil {
-				return workflow.PendingApproval{}, nil, err
-			}
-			selected = append(selected, currentNodeCompletionTarget{Edge: edge, Node: target})
+	group, groupAvailable := r.groups[facts.TransitionID]
+	if !groupAvailable || group.SourceNodeID != facts.Source.NodeID {
+		return approval, nil, nil
+	}
+	approval.Transition.Group = &group
+	edges := r.edges[group.ID]
+	selected := make([]currentNodeCompletionTarget, 0, len(edges))
+	for _, edge := range edges {
+		target, ok := r.nodes[edge.TargetNodeID]
+		if !ok {
+			return workflow.PendingApproval{}, nil, errors.New("pending approval target node is missing")
 		}
+		choice := workflow.PendingApprovalBranch{EdgeID: edge.ID, TransitionBranchKey: workflow.TransitionBranchKey(edge.Key)}
+		targetKey := currentNodeReferenceBranchKey(facts.Source)
+		if len(edges) > 1 {
+			targetKey = &choice.TransitionBranchKey
+		}
+		reference, err := workflow.NewCurrentNodeReference(facts.Source.TaskID, edge.TargetNodeID, targetKey)
+		if err != nil {
+			return workflow.PendingApproval{}, nil, err
+		}
+		choice.Target = &workflow.PendingApprovalTarget{Reference: reference, DisplayName: workflow.NodeDisplayLabel(target), NodeKind: target.Kind()}
+		selected = append(selected, currentNodeCompletionTarget{Edge: edge, Node: target})
 		approval.Branches = append(approval.Branches, choice)
 	}
 	return approval, selected, nil

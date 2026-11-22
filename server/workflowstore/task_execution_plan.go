@@ -384,7 +384,7 @@ func (s *Store) commitTaskExecution(
 	var empty workflow.CurrentNodeMutationResult
 	var attention TaskAttentionResolution
 	if plan.task.ID == "" || len(plan.sources) == 0 ||
-		(len(plan.targets) == 0 && plan.completion == nil) {
+		(len(plan.targets) == 0 && plan.completion == nil && plan.joinArrival == nil) {
 		return empty, attention, errors.New("task execution plan is invalid")
 	}
 	lease, err := s.graphSaves.AcquireShared(ctx, plan.task.WorkflowID)
