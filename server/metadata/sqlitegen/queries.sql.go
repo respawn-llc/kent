@@ -4598,11 +4598,12 @@ SELECT
 FROM task_pending_approval_branches choice INDEXED BY sqlite_autoindex_task_pending_approval_branches_1
 CROSS JOIN task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
   ON approval.id = choice.approval_id
-CROSS JOIN task_records task ON task.id = approval.source_task_id
+LEFT JOIN workflow_nodes source INDEXED BY sqlite_autoindex_workflow_nodes_1
+  ON source.id = approval.source_node_id
 LEFT JOIN workflow_edges edge INDEXED BY sqlite_autoindex_workflow_edges_1
   ON edge.id = choice.edge_id AND edge.transition_group_id = approval.transition_group_id
 LEFT JOIN workflow_nodes target
-  ON target.id = edge.target_node_id AND target.workflow_id = task.workflow_id
+  ON target.id = edge.target_node_id AND target.workflow_id = source.workflow_id
 WHERE choice.approval_id IN (
     SELECT CAST(value AS TEXT) FROM json_each(?1)
 )
@@ -4654,16 +4655,15 @@ func (q *Queries) ListPendingApprovalPresentationBranches(ctx context.Context, a
 const listPendingApprovalPresentationHeaders = `-- name: ListPendingApprovalPresentationHeaders :many
 SELECT
     approval.id, approval.source_task_id, approval.source_node_id, approval.source_transition_branch_key, approval.source_session_id, approval.transition_group_id, approval.commentary, approval.materialized_values_json, approval.created_at_unix_ms,
-    task.workflow_id,
+    source.workflow_id,
     source.node_key AS source_key,
     source.display_name AS source_name,
     transition.transition_id AS current_transition_key,
     transition.display_name AS current_transition_name,
     transition.description AS current_transition_description
 FROM task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
-CROSS JOIN task_records task ON task.id = approval.source_task_id
-LEFT JOIN workflow_nodes source
-  ON source.id = approval.source_node_id AND source.workflow_id = task.workflow_id
+LEFT JOIN workflow_nodes source INDEXED BY sqlite_autoindex_workflow_nodes_1
+  ON source.id = approval.source_node_id
 LEFT JOIN workflow_transition_groups transition INDEXED BY sqlite_autoindex_workflow_transition_groups_1
   ON transition.id = approval.transition_group_id AND transition.source_node_id = source.id
 WHERE approval.id IN (
@@ -4681,7 +4681,7 @@ type ListPendingApprovalPresentationHeadersParams struct {
 
 type ListPendingApprovalPresentationHeadersRow struct {
 	TaskPendingApproval          TaskPendingApproval
-	WorkflowID                   runtimeids.WorkflowID
+	WorkflowID                   *runtimeids.WorkflowID
 	SourceKey                    sql.NullString
 	SourceName                   sql.NullString
 	CurrentTransitionKey         sql.NullString

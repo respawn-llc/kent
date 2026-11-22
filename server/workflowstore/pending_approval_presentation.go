@@ -57,6 +57,8 @@ func (s *Store) pendingApprovalPresentations(ctx context.Context, taskID sql.Nul
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := s.queries.WithTx(tx)
+	// The current source Node anchors the Workflow identity. The projections
+	// must not join tasks: approval writers lock tasks before inserting approvals.
 	headers, err := q.ListPendingApprovalPresentationHeaders(ctx, sqlitegen.ListPendingApprovalPresentationHeadersParams{
 		TaskID: taskID, ApprovalIdsJson: encodedIDs,
 	})
@@ -101,7 +103,7 @@ func pendingApprovalPresentationFromRows(
 	if err != nil {
 		return workflow.PendingApproval{}, err
 	}
-	if !row.SourceKey.Valid {
+	if row.WorkflowID == nil || !row.SourceKey.Valid {
 		return workflow.PendingApproval{}, errors.New("pending approval source node is missing")
 	}
 	if len(branches) == 0 {
@@ -110,7 +112,7 @@ func pendingApprovalPresentationFromRows(
 	var group *workflow.TransitionGroup
 	if row.CurrentTransitionKey.Valid {
 		group = &workflow.TransitionGroup{
-			ID: facts.TransitionID, WorkflowID: row.WorkflowID, SourceNodeID: facts.Source.NodeID,
+			ID: facts.TransitionID, WorkflowID: *row.WorkflowID, SourceNodeID: facts.Source.NodeID,
 			TransitionID: workflow.TransitionID(row.CurrentTransitionKey.String),
 			DisplayName:  row.CurrentTransitionName.String, Description: row.CurrentTransitionDescription.String,
 		}
