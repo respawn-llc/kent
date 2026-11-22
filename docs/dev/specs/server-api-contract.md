@@ -116,7 +116,7 @@
 
 - External request values must be validated once at the earliest server request boundary before downstream server logic consumes them.
 - A shared authority, such as a database constraint used by several writers, must own its validation.
-- Clients other than mobile must run generated Protobuf constraints on server responses and events. Mobile may rely on the server for these field and message constraints. Mobile must enforce the same transport framing, decoding, and operation-result contracts as other clients.
+- Clients other than mobile must run generated Protobuf constraints on server responses and events. The mobile MVP must rely on the server for these field and message constraints without running them again on the device. Mobile must enforce the same transport framing, decoding, and operation-result contracts as other clients.
 - Platforms must centralize generated validation at their transport boundary.
 - Runtime Activity must retain one calculation-time contract check before publishing its read model. Update Status must retain its calculation-time contract check before caching the result, including its existing debug failure and production check-failed outcome.
 - Generated clients must carry unknown Protobuf fields unchanged.
