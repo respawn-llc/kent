@@ -28,7 +28,7 @@ For build and module decisions, see [Mobile architecture](../mobile-architecture
 
 - Inbox must list Task-scoped attention. Selecting an item must open Task Detail to view the Task, answer a Question, or respond to an Approval.
 - Standalone Session prompts belong in Session Chat.
-- When a user reopens a pending Question on the same server, the app must restore their unfinished answer, including after leaving Task Detail or restarting the app. Clearing the draft or resolving the Question ends draft restoration.
+- The app must keep an unfinished answer until the user explicitly clears it or the Question is resolved. After leaving Task Detail or restarting the app, the app must restore the draft only when the user reopens the same pending Question on the same server.
 
 ## Notifications and diagnostics
 
