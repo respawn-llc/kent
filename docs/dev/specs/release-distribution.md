@@ -1,7 +1,13 @@
 ## Release Identity
 
 - Every artifact in one release uses the same Kent version.
+- The release workflow must produce the server, Desktop, Android, and iOS artifacts for every Kent version, including platforms with no code changes. Client connections must follow the [protocol compatibility contract](server-api-contract.md#authority-and-compatibility).
 - Release tags use the normalized form `v<version>`.
+
+## Mobile beta distribution
+
+- The first mobile beta must include working Task attention pushes.
+- Kent must distribute iOS beta builds through TestFlight and Android beta builds through Google Play closed testing.
 
 ## Metadata Upgrades
 
