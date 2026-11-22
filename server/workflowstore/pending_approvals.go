@@ -275,11 +275,7 @@ func (r pendingApprovalResolver) resolve(facts pendingApprovalFacts) (workflow.P
 	if !ok {
 		return workflow.PendingApproval{}, nil, errors.New("pending approval source node is missing")
 	}
-	approval := workflow.PendingApproval{
-		ID: facts.ID, Source: facts.Source, SourceSessionID: facts.SourceSessionID,
-		Transition: workflow.PendingApprovalTransition{ID: facts.TransitionID, SourceDisplayName: workflow.NodeDisplayLabel(source)},
-		Commentary: facts.Commentary, OutputValues: facts.OutputValues, CreatedAt: facts.CreatedAt,
-	}
+	approval := facts.presentation(workflow.NodeDisplayLabel(source), nil)
 	group, groupAvailable := r.groups[facts.TransitionID]
 	if !groupAvailable || group.SourceNodeID != facts.Source.NodeID {
 		return approval, nil, nil
@@ -292,16 +288,13 @@ func (r pendingApprovalResolver) resolve(facts pendingApprovalFacts) (workflow.P
 		if !ok {
 			return workflow.PendingApproval{}, nil, errors.New("pending approval target node is missing")
 		}
-		choice := workflow.PendingApprovalBranch{EdgeID: edge.ID, TransitionBranchKey: workflow.TransitionBranchKey(edge.Key)}
-		targetKey := currentNodeReferenceBranchKey(facts.Source)
-		if len(edges) > 1 {
-			targetKey = &choice.TransitionBranchKey
-		}
-		reference, err := workflow.NewCurrentNodeReference(facts.Source.TaskID, edge.TargetNodeID, targetKey)
+		branch := pendingApprovalBranchFacts{EdgeID: edge.ID, TransitionBranchKey: workflow.TransitionBranchKey(edge.Key)}
+		choice := branch.choice()
+		resolvedTarget, err := branch.target(facts.Source, len(edges), edge.TargetNodeID, target.Kind(), workflow.NodeDisplayLabel(target))
 		if err != nil {
 			return workflow.PendingApproval{}, nil, err
 		}
-		choice.Target = &workflow.PendingApprovalTarget{Reference: reference, DisplayName: workflow.NodeDisplayLabel(target), NodeKind: target.Kind()}
+		choice.Target = resolvedTarget
 		selected = append(selected, currentNodeCompletionTarget{Edge: edge, Node: target})
 		approval.Branches = append(approval.Branches, choice)
 	}
