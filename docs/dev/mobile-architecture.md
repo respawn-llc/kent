@@ -8,7 +8,7 @@
 | Error handling | ApiResult |
 | API | Square Wire generates Kotlin DTOs from Kent’s Protobuf schemas into `commonMain`. |
 | Networking | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
-| Navigation | Open decision. |
+| Navigation | Decompose |
 | Local storage | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision. |
 | Background notifications | Firebase Cloud Messaging for Android and iOS. Push relay hosting and authorization are open decisions. |
 | Crash reporting | Firebase Crashlytics, enabled by default with an opt-out setting. |

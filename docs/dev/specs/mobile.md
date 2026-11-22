@@ -21,6 +21,8 @@ For build and module decisions, see [Mobile architecture](../mobile-architecture
 
 - Android and iOS must use one adaptive interface for phones, tablets, and foldables.
 - When space permits two panes, users must be able to open any page in the secondary pane with its own navigation stack.
+- When a vertical hinge separates the two panes, the app must place one pane on each side.
+- When the layout narrows to one pane with a secondary destination open, the app must show that destination full screen. Back must close it and reveal the destination that was on the primary pane.
 
 ## Inbox
 
