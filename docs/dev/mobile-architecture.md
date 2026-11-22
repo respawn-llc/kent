@@ -36,7 +36,7 @@ Use KSRC for Kotlin dependency source inspection. Write unit tests with Kotest w
 
 ## Gradle configuration
 
-Use `sh.kent.mobile` as the Android application ID and the iOS bundle identifier. A contributor must be able to build and run the debug app against their own server without Firebase configuration or release signing credentials. Configure Firebase to test push delivery or crash uploads.
+Use `sh.kent.mobile` as the Android application ID and the iOS bundle identifier. From a clean checkout, a contributor must be able to build and run the debug app against their own server without organization access, Firebase configuration, or release signing credentials. Configure Firebase to test push delivery or crash uploads.
 
 Pin Gradle with the wrapper in `apps/mobile`. Pin Kotlin and Android Gradle Plugin versions in `apps/mobile/gradle/libs.versions.toml`. Put shared build settings in `apps/mobile/gradle.properties`.
 
