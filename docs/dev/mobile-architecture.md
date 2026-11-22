@@ -2,11 +2,11 @@
 
 | Area | Choice |
 | --- | --- |
-| Platforms | Kotlin Multiplatform for Android and iOS |
+| Platforms | Kotlin Multiplatform for Android (minSdk 29) and iOS (deployment target 26.0) |
 | UI and screen state | Compose Multiplatform with Material 3. FlowMVI containers own screen state independently of Compose. |
 | Dependency injection | Metro |
 | Error handling | ApiResult |
-| API | Kotlin DTOs generated from Kent’s Protobuf schemas. The Kotlin generator is an open decision. |
+| API | Square Wire generates Kotlin DTOs from Kent’s Protobuf schemas into `commonMain`. |
 | Networking | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
 | Navigation | Open decision. |
 | Local storage | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision. |
@@ -25,7 +25,7 @@ Kent mobile uses one Kotlin Multiplatform build under `apps/mobile`, with shared
 
 ## API and storage
 
-Generate Kotlin DTOs from Kent's existing Protobuf schemas with an established library. Evaluate candidates against the [server API contract](specs/server-api-contract.md), including operation metadata and validation on iOS. If no library qualifies, a handwritten generator requires a separate architecture decision.
+Read operation metadata from the generated Protobuf descriptor set. Follow the [server API contract](specs/server-api-contract.md) for validation of responses and events on both platforms.
 
 Use ApiResult for structured recoverable errors. Use SQLDelight over SQLite when a feature requires relational storage.
 

@@ -4,6 +4,7 @@ For build and module decisions, see [Mobile architecture](../mobile-architecture
 
 - The mobile app must connect to one already configured and operational Kent server.
 - Users must be able to enter the server address manually and change it in Settings.
+- If the server is unreachable or its protocol version differs from the app's, the connection screen must explain the failure, let the user edit the address, and offer Retry.
 - After the first successful connection, the app must open Inbox.
 - Changing the configured server must restart the mobile app against the new address.
 - Users must provide network reachability and protection for their connection.
