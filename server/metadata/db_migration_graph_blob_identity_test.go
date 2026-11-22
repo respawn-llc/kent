@@ -49,7 +49,11 @@ func TestGraphBlobIdentityMigrationPreservesGraphReferences(t *testing.T) {
 			for i, query := range contentQueries {
 				before[i] = optionalNodeLabelMigrationRows(t, db, query)
 			}
-			if err := runMigrations(db); err != nil {
+			provider, err := newMetadataMigrationProvider(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := provider.UpTo(t.Context(), 103); err != nil {
 				t.Fatalf("upgrade 102 graph: %v", err)
 			}
 			for i, query := range contentQueries {
@@ -193,7 +197,11 @@ func TestGraphBlobIdentityMigrationPreservesNullJoinProviders(t *testing.T) {
 	}
 	seedGraphBlobIdentityMigration(t, db, ids)
 	execSeed(t, db, "null join providers", `UPDATE workflow_nodes SET join_input_providers_json = 'null' WHERE node_key = 'source'`)
-	if err := runMigrations(db); err != nil {
+	provider, err := newMetadataMigrationProvider(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(t.Context(), 103); err != nil {
 		t.Fatalf("upgrade graph with null join providers: %v", err)
 	}
 	var providers string

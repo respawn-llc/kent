@@ -700,7 +700,7 @@ func (s *Store) manualMoveValueEnvironment(
 		return manualMoveValueEnvironment{}, err
 	}
 	for _, row := range rows {
-		approval, err := pendingApprovalFromRow(ctx, q, pendingApprovalRecordFromListRow(row))
+		approval, err := pendingApprovalHeaderFromRow(row)
 		if err != nil {
 			return manualMoveValueEnvironment{}, err
 		}
@@ -710,17 +710,6 @@ func (s *Store) manualMoveValueEnvironment(
 		}
 		for outputName, value := range approval.OutputValues {
 			environment.add(workflow.NodeKey(source), outputName, value)
-		}
-		for _, branch := range approval.Branches {
-			if err := addManualMoveCurrentNodeValues(
-				definition,
-				wiring,
-				branch.Target.CurrentNode,
-				targetNodeID,
-				&environment,
-			); err != nil {
-				return manualMoveValueEnvironment{}, err
-			}
 		}
 	}
 	return environment, nil

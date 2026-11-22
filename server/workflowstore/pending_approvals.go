@@ -4,10 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
+	"core/server/metadata"
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
 	"core/shared/runtimeids"
@@ -21,214 +20,58 @@ type PendingApprovalApplyResult struct {
 	TaskAttentionResolution
 }
 
+type pendingApprovalFacts struct {
+	ID              workflow.ApprovalID
+	Source          workflow.CurrentNodeReference
+	SourceSessionID *runtimeids.SessionID
+	TransitionID    workflow.TransitionGroupID
+	Commentary      string
+	OutputValues    map[string]string
+	CreatedAt       time.Time
+}
+
+type pendingApprovalBranchFacts struct {
+	TransitionBranchKey workflow.TransitionBranchKey
+	EdgeID              workflow.EdgeID
+}
+
 func (r PendingApprovalApplyResult) Committed() bool {
 	return len(r.Mutation.Removed) != 0
-}
-
-type pendingApprovalTransitionSnapshot struct {
-	WorkflowID        runtimeids.WorkflowID      `json:"workflow_id"`
-	ID                workflow.TransitionGroupID `json:"id"`
-	SourceNodeID      workflow.NodeID            `json:"source_node_id"`
-	TransitionID      workflow.TransitionID      `json:"transition_id"`
-	DisplayName       string                     `json:"display_name"`
-	Description       string                     `json:"description"`
-	SourceDisplayName string                     `json:"source_display_name"`
-	Commentary        string                     `json:"commentary,omitempty"`
-}
-
-type pendingApprovalTargetSnapshot struct {
-	NodeID                  workflow.NodeID                      `json:"node_id"`
-	NodeKind                workflow.NodeKind                    `json:"node_kind"`
-	TransitionBranchKey     *workflow.TransitionBranchKey        `json:"transition_branch_key,omitempty"`
-	EnteredByEdgeID         *workflow.EdgeID                     `json:"entered_by_edge_id,omitempty"`
-	DisplayName             string                               `json:"display_name"`
-	CurrentInputValues      map[string]string                    `json:"current_input_values"`
-	PriorValues             workflow.MaterializedPriorValues     `json:"prior_values"`
-	SessionID               *string                              `json:"session_id,omitempty"`
-	SchedulingState         *workflow.CurrentNodeSchedulingState `json:"scheduling_state,omitempty"`
-	AgentExecutionSelection *workflow.AgentExecutionSelection    `json:"agent_execution_selection,omitempty"`
-}
-
-type pendingApprovalEffectiveEdgeSnapshot struct {
-	WorkflowID         runtimeids.WorkflowID        `json:"workflow_id"`
-	ID                 workflow.EdgeID              `json:"id"`
-	Key                workflow.ModelKey            `json:"key"`
-	TransitionGroupID  workflow.TransitionGroupID   `json:"transition_group_id"`
-	TargetNodeID       workflow.NodeID              `json:"target_node_id"`
-	AssigneeSelection  workflow.AssigneeSelection   `json:"assignee_selection"`
-	ThinkingSelection  workflow.ThinkingSelection   `json:"thinking_selection"`
-	ContextMode        workflow.ContextMode         `json:"context_mode"`
-	ContextSource      workflow.ContextSource       `json:"context_source"`
-	RequiresApproval   bool                         `json:"requires_approval"`
-	PromptTemplate     string                       `json:"prompt_template"`
-	Parameters         []workflow.Parameter         `json:"parameters"`
-	InputBindings      []workflow.InputBinding      `json:"input_bindings"`
-	OutputRequirements []workflow.OutputRequirement `json:"output_requirements"`
-}
-
-type pendingApprovalContextSourceResolutionSnapshot struct {
-	SessionID     *string                                  `json:"session_id,omitempty"`
-	TargetSession *workflow.TargetSessionIntent            `json:"target_session,omitempty"`
-	ActiveSource  *workflow.MaterializedContinuationSource `json:"active_source,omitempty"`
-}
-
-type pendingApprovalRecord struct {
-	ID                        string
-	SourceTaskID              string
-	SourceNodeID              []byte
-	SourceTransitionBranchKey sql.NullString
-	SourceSessionID           sql.NullString
-	WorkflowVersion           int64
-	TransitionSnapshotJSON    string
-	MaterializedValuesJSON    string
-	CreatedAtUnixMs           int64
-}
-
-func pendingApprovalRecordFromListRow(row sqlitegen.TaskPendingApproval) pendingApprovalRecord {
-	return pendingApprovalRecordFromValues(
-		row.ID,
-		row.SourceTaskID,
-		row.SourceNodeID,
-		row.SourceTransitionBranchKey,
-		row.SourceSessionID,
-		row.WorkflowVersion,
-		row.TransitionSnapshotJson,
-		row.MaterializedValuesJson,
-		row.CreatedAtUnixMs,
-	)
-}
-
-func pendingApprovalRecordFromGetRow(row sqlitegen.TaskPendingApproval) pendingApprovalRecord {
-	return pendingApprovalRecordFromValues(
-		row.ID,
-		row.SourceTaskID,
-		row.SourceNodeID,
-		row.SourceTransitionBranchKey,
-		row.SourceSessionID,
-		row.WorkflowVersion,
-		row.TransitionSnapshotJson,
-		row.MaterializedValuesJson,
-		row.CreatedAtUnixMs,
-	)
-}
-
-func pendingApprovalRecordFromValues(
-	id string,
-	sourceTaskID string,
-	sourceNodeID []byte,
-	sourceTransitionBranchKey sql.NullString,
-	sourceSessionID sql.NullString,
-	workflowVersion int64,
-	transitionSnapshotJSON string,
-	materializedValuesJSON string,
-	createdAtUnixMs int64,
-) pendingApprovalRecord {
-	return pendingApprovalRecord{
-		ID:                        id,
-		SourceTaskID:              sourceTaskID,
-		SourceNodeID:              sourceNodeID,
-		SourceTransitionBranchKey: sourceTransitionBranchKey,
-		SourceSessionID:           sourceSessionID,
-		WorkflowVersion:           workflowVersion,
-		TransitionSnapshotJSON:    transitionSnapshotJSON,
-		MaterializedValuesJSON:    materializedValuesJSON,
-		CreatedAtUnixMs:           createdAtUnixMs,
-	}
-}
-
-func (s *Store) ListPendingApprovals(ctx context.Context, taskID workflow.TaskID) ([]workflow.PendingApproval, error) {
-	if strings.TrimSpace(string(taskID)) == "" {
-		return nil, errors.New("task id is required")
-	}
-	rows, err := s.queries.ListTaskPendingApprovals(ctx, string(taskID))
-	if err != nil {
-		return nil, err
-	}
-	approvals := make([]workflow.PendingApproval, 0, len(rows))
-	for _, row := range rows {
-		approval, err := pendingApprovalFromRow(ctx, s.queries, pendingApprovalRecordFromListRow(row))
-		if err != nil {
-			return nil, err
-		}
-		approvals = append(approvals, approval)
-	}
-	return approvals, nil
-}
-
-func (s *Store) PendingApproval(ctx context.Context, approvalID workflow.ApprovalID) (workflow.PendingApproval, error) {
-	return pendingApprovalByID(ctx, s.queries, approvalID)
 }
 
 func (s *Store) IsCurrentNodeExecutionEligible(ctx context.Context, reference workflow.CurrentNodeReference) (bool, error) {
 	if _, err := s.currentNodeForReference(ctx, s.queries, reference); err != nil {
 		return false, err
 	}
-	_, pending, err := currentNodePendingApprovalID(ctx, s.queries, reference)
+	pending, err := s.CurrentNodeAwaitingApproval(ctx, reference)
+	return !pending, err
+}
+
+func pendingApprovalByID(ctx context.Context, q *sqlitegen.Queries, id workflow.ApprovalID) (pendingApprovalFacts, error) {
+	row, err := q.GetTaskPendingApproval(ctx, id.String())
 	if err != nil {
-		return false, err
+		return pendingApprovalFacts{}, err
 	}
-	return !pending, nil
+	return pendingApprovalHeaderFromRow(row)
 }
 
-func pendingApprovalByID(
-	ctx context.Context,
-	q *sqlitegen.Queries,
-	approvalID workflow.ApprovalID,
-) (workflow.PendingApproval, error) {
-	row, err := q.GetTaskPendingApproval(ctx, approvalID.String())
-	if err != nil {
-		return workflow.PendingApproval{}, err
-	}
-	return pendingApprovalFromRow(ctx, q, pendingApprovalRecordFromGetRow(row))
-}
-
-func pendingApprovalHandoff(approval workflow.PendingApproval) CompletionHandoff {
-	destination := workflow.DisplayLabel(approval.Transition.Group.DisplayName, string(approval.Transition.Group.TransitionID))
-	if len(approval.Branches) == 1 {
-		destination = approval.Branches[0].Target.DisplayName
-	}
-	return CompletionHandoff{
-		SourceNodeDisplayName:  approval.Transition.SourceDisplayName,
-		DestinationDisplayName: destination,
-	}
-}
-
-func validatePendingApprovalSequentialTarget(source workflow.CurrentNodeReference, target workflow.CurrentNodeReference) error {
-	sourceBranchKey, sourceBranchScoped := source.TransitionBranchKey()
-	targetBranchKey, targetBranchScoped := target.TransitionBranchKey()
-	if sourceBranchScoped != targetBranchScoped {
+func validatePendingApprovalSequentialTarget(source, target workflow.CurrentNodeReference) error {
+	sourceKey, sourceScoped := source.TransitionBranchKey()
+	targetKey, targetScoped := target.TransitionBranchKey()
+	if sourceScoped != targetScoped || sourceScoped && sourceKey != targetKey {
 		return errors.New("pending approval target scope must match its source")
-	}
-	if sourceBranchScoped && sourceBranchKey != targetBranchKey {
-		return errors.New("pending approval target branch must match its source branch")
 	}
 	return nil
 }
 
 func validatePendingApprovalFanoutTargets(source workflow.CurrentNodeReference, branches []workflow.PendingApprovalBranch) error {
-	if source.IsBranchScoped() {
-		return errors.New("branch-scoped pending approval cannot create a nested fanout")
+	if source.IsBranchScoped() || len(branches) < 2 {
+		return errors.New("fanout approval requires a serial source and multiple branches")
 	}
-	if len(branches) < 2 {
-		return errors.New("fanout pending approval requires multiple target branches")
-	}
-	seen := make(map[workflow.TransitionBranchKey]struct{}, len(branches))
 	for _, branch := range branches {
-		branchKey := workflow.TransitionBranchKey(strings.TrimSpace(string(branch.TransitionBranchKey)))
-		if branchKey == "" {
-			return errors.New("fanout pending approval branch key is required")
-		}
-		if _, exists := seen[branchKey]; exists {
-			return fmt.Errorf("fanout pending approval branch key %q is duplicated", branchKey)
-		}
-		seen[branchKey] = struct{}{}
-		target := branch.Target.CurrentNode
-		if target.Reference.TaskID != source.TaskID {
-			return errors.New("fanout pending approval target task must match its source")
-		}
-		targetBranchKey, branchScoped := target.Reference.TransitionBranchKey()
-		if !branchScoped || targetBranchKey != branchKey {
-			return errors.New("fanout pending approval target branch must match its frozen branch key")
+		key, scoped := branch.Target.Reference.TransitionBranchKey()
+		if !scoped || key != branch.TransitionBranchKey || branch.Target.Reference.TaskID != source.TaskID {
+			return errors.New("pending approval target scope does not match its branch")
 		}
 	}
 	return nil
@@ -236,7 +79,6 @@ func validatePendingApprovalFanoutTargets(source workflow.CurrentNodeReference, 
 
 func newPendingApproval(
 	source workflow.CurrentNode,
-	workflowVersion int64,
 	group workflow.TransitionGroup,
 	sourceDisplayName string,
 	edge workflow.Edge,
@@ -246,37 +88,20 @@ func newPendingApproval(
 	outputValues map[string]string,
 	createdAt time.Time,
 ) (workflow.PendingApproval, error) {
-	resolution, err := pendingApprovalContextSourceResolution(target.Kind(), targetCurrentNode)
-	if err != nil {
-		return workflow.PendingApproval{}, err
-	}
-	return newPendingApprovalWithBranches(
-		source,
-		workflowVersion,
-		group,
-		sourceDisplayName,
-		commentary,
-		outputValues,
+	return newPendingApprovalWithBranches(source, group, sourceDisplayName, commentary, outputValues,
 		[]workflow.PendingApprovalBranch{{
 			TransitionBranchKey: workflow.TransitionBranchKey(edge.Key),
-			Target: workflow.PendingApprovalTarget{
-				CurrentNode: targetCurrentNode,
-				DisplayName: workflow.NodeDisplayLabel(target),
-				NodeKind:    target.Kind(),
+			EdgeID:              edge.ID,
+			Target: &workflow.PendingApprovalTarget{
+				Reference: targetCurrentNode.Reference, DisplayName: workflow.NodeDisplayLabel(target), NodeKind: target.Kind(),
 			},
-			EffectiveEdge:           edge,
-			ContextSourceResolution: resolution,
-		}},
-		createdAt,
-	)
+		}}, createdAt)
 }
 
 func newPendingApprovalWithBranches(
 	source workflow.CurrentNode,
-	workflowVersion int64,
 	group workflow.TransitionGroup,
-	sourceDisplayName string,
-	commentary string,
+	sourceDisplayName, commentary string,
 	outputValues map[string]string,
 	branches []workflow.PendingApprovalBranch,
 	createdAt time.Time,
@@ -284,603 +109,227 @@ func newPendingApprovalWithBranches(
 	if err := source.Reference.Validate(); err != nil {
 		return workflow.PendingApproval{}, err
 	}
-	if workflowVersion < 1 {
-		return workflow.PendingApproval{}, errors.New("pending approval workflow version is required")
+	if group.ID == "" || len(branches) == 0 || createdAt.IsZero() {
+		return workflow.PendingApproval{}, errors.New("pending approval choice and creation time are required")
 	}
-	if strings.TrimSpace(string(group.ID)) == "" || strings.TrimSpace(string(group.TransitionID)) == "" {
-		return workflow.PendingApproval{}, errors.New("pending approval transition snapshot is invalid")
-	}
-	if createdAt.IsZero() || createdAt.UnixMilli() <= 0 {
-		return workflow.PendingApproval{}, errors.New("pending approval creation time is required")
-	}
-	if strings.TrimSpace(sourceDisplayName) == "" || len(branches) == 0 {
-		return workflow.PendingApproval{}, errors.New("pending approval handoff labels and branch snapshots are required")
-	}
-	seenBranchKeys := make(map[workflow.TransitionBranchKey]struct{}, len(branches))
+	seen := make(map[workflow.EdgeID]bool, len(branches))
 	for _, branch := range branches {
-		branchKey := workflow.TransitionBranchKey(strings.TrimSpace(string(branch.TransitionBranchKey)))
-		if branchKey == "" ||
-			strings.TrimSpace(branch.Target.DisplayName) == "" ||
-			strings.TrimSpace(string(branch.EffectiveEdge.Key)) == "" ||
-			workflow.TransitionBranchKey(branch.EffectiveEdge.Key) != branchKey {
-			return workflow.PendingApproval{}, errors.New("pending approval branch snapshot is invalid")
+		if branch.EdgeID == "" || seen[branch.EdgeID] {
+			return workflow.PendingApproval{}, errors.New("pending approval branch choice must be present and unique")
 		}
-		if err := branch.Target.CurrentNode.Reference.Validate(); err != nil {
+		seen[branch.EdgeID] = true
+		if err := branch.Target.Reference.Validate(); err != nil {
 			return workflow.PendingApproval{}, err
 		}
-		switch branch.Target.NodeKind {
-		case workflow.NodeKindAgent:
-			if branch.Target.CurrentNode.AgentExecutionSelection == nil {
-				return workflow.PendingApproval{}, errors.New("pending approval Agent target requires execution selection")
-			}
-		case workflow.NodeKindStart, workflow.NodeKindScript, workflow.NodeKindJoin, workflow.NodeKindTerminal:
-			if branch.Target.CurrentNode.AgentExecutionSelection != nil {
-				return workflow.PendingApproval{}, fmt.Errorf("pending approval %s target cannot carry Agent execution selection", branch.Target.NodeKind)
-			}
-		default:
-			return workflow.PendingApproval{}, errors.New("pending approval target node kind is invalid")
-		}
-		if _, exists := seenBranchKeys[branchKey]; exists {
-			return workflow.PendingApproval{}, fmt.Errorf("pending approval branch key %q is duplicated", branchKey)
-		}
-		seenBranchKeys[branchKey] = struct{}{}
 	}
-	approval := workflow.PendingApproval{
-		ID:              workflow.NewApprovalID(),
-		Source:          source.Reference,
-		SourceSessionID: clonePendingApprovalSessionID(source.SessionID),
-		WorkflowVersion: workflowVersion,
-		Transition: workflow.PendingApprovalTransition{
-			Group:             group,
-			SourceDisplayName: sourceDisplayName,
-		},
-		Commentary:   commentary,
-		OutputValues: cloneCurrentNodeOutputValues(outputValues),
-		Branches:     append([]workflow.PendingApprovalBranch(nil), branches...),
-		CreatedAt:    createdAt.UTC().Truncate(time.Millisecond),
-	}
-	return approval, nil
+	return workflow.PendingApproval{
+		ID: workflow.NewApprovalID(), Source: source.Reference, SourceSessionID: source.SessionID,
+		Transition: workflow.PendingApprovalTransition{ID: group.ID, Group: &group, SourceDisplayName: sourceDisplayName},
+		Commentary: commentary, OutputValues: cloneCurrentNodeOutputValues(outputValues),
+		Branches:  append([]workflow.PendingApprovalBranch(nil), branches...),
+		CreatedAt: createdAt.UTC().Truncate(time.Millisecond),
+	}, nil
 }
 
 func insertPendingApproval(ctx context.Context, q *sqlitegen.Queries, approval workflow.PendingApproval) error {
-	sourceNodeID, err := runtimeids.GraphEntityIDBlob(string(approval.Source.NodeID))
+	sourceID, err := runtimeids.GraphEntityIDBlob(string(approval.Source.NodeID))
 	if err != nil {
 		return err
 	}
-	transitionSnapshotJSON, err := workflow.MarshalString(pendingApprovalTransitionSnapshot{
-		WorkflowID:        approval.Transition.Group.WorkflowID,
-		ID:                approval.Transition.Group.ID,
-		SourceNodeID:      approval.Transition.Group.SourceNodeID,
-		TransitionID:      approval.Transition.Group.TransitionID,
-		DisplayName:       approval.Transition.Group.DisplayName,
-		Description:       approval.Transition.Group.Description,
-		SourceDisplayName: approval.Transition.SourceDisplayName,
-		Commentary:        approval.Commentary,
-	})
+	groupID, err := runtimeids.GraphEntityIDBlob(string(approval.Transition.ID))
 	if err != nil {
-		return fmt.Errorf("encode pending approval transition snapshot: %w", err)
+		return err
 	}
-	outputValuesJSON, err := workflow.MarshalString(approval.OutputValues)
+	values, err := workflow.MarshalString(approval.OutputValues)
 	if err != nil {
-		return fmt.Errorf("encode pending approval materialized values: %w", err)
+		return err
 	}
-	sourceBranchKey := sql.NullString{}
-	if branchKey, branchScoped := approval.Source.TransitionBranchKey(); branchScoped {
-		sourceBranchKey = sql.NullString{String: string(branchKey), Valid: true}
+	branchKey := sql.NullString{}
+	if key, scoped := approval.Source.TransitionBranchKey(); scoped {
+		branchKey = sql.NullString{String: string(key), Valid: true}
 	}
-	sourceSessionID := sql.NullString{}
+	sessionID := sql.NullString{}
 	if approval.SourceSessionID != nil {
-		sourceSessionID = sql.NullString{String: approval.SourceSessionID.String(), Valid: true}
+		sessionID = sql.NullString{String: approval.SourceSessionID.String(), Valid: true}
 	}
-	if err := q.InsertTaskPendingApproval(ctx, sqlitegen.InsertTaskPendingApprovalParams{
-		ID:                        approval.ID.String(),
-		SourceTaskID:              string(approval.Source.TaskID),
-		SourceNodeID:              sourceNodeID,
-		SourceTransitionBranchKey: sourceBranchKey,
-		SourceSessionID:           sourceSessionID,
-		WorkflowVersion:           approval.WorkflowVersion,
-		TransitionSnapshotJson:    transitionSnapshotJSON,
-		MaterializedValuesJson:    outputValuesJSON,
-		CreatedAtUnixMs:           approval.CreatedAt.UnixMilli(),
-	}); err != nil {
-		return err
-	}
-	for _, branch := range approval.Branches {
-		if err := insertPendingApprovalBranch(ctx, q, approval.ID, branch); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func insertPendingApprovalBranch(ctx context.Context, q *sqlitegen.Queries, approvalID workflow.ApprovalID, branch workflow.PendingApprovalBranch) error {
-	targetSnapshotJSON, err := pendingApprovalTargetSnapshotJSON(branch.Target)
-	if err != nil {
-		return err
-	}
-	edgeSnapshotJSON, err := workflow.MarshalString(pendingApprovalEffectiveEdgeSnapshot{
-		WorkflowID:         branch.EffectiveEdge.WorkflowID,
-		ID:                 branch.EffectiveEdge.ID,
-		Key:                branch.EffectiveEdge.Key,
-		TransitionGroupID:  branch.EffectiveEdge.TransitionGroupID,
-		TargetNodeID:       branch.EffectiveEdge.TargetNodeID,
-		AssigneeSelection:  workflow.CanonicalAssigneeSelection(branch.EffectiveEdge.AssigneeSelection),
-		ThinkingSelection:  workflow.CanonicalThinkingSelection(branch.EffectiveEdge.ThinkingSelection),
-		ContextMode:        branch.EffectiveEdge.ContextMode,
-		ContextSource:      workflow.CanonicalContextSource(branch.EffectiveEdge.ContextSource),
-		RequiresApproval:   branch.EffectiveEdge.RequiresApproval,
-		PromptTemplate:     branch.EffectiveEdge.PromptTemplate,
-		Parameters:         append([]workflow.Parameter(nil), branch.EffectiveEdge.Parameters...),
-		InputBindings:      append([]workflow.InputBinding(nil), branch.EffectiveEdge.InputBindings...),
-		OutputRequirements: append([]workflow.OutputRequirement(nil), branch.EffectiveEdge.OutputRequirements...),
-	})
-	if err != nil {
-		return fmt.Errorf("encode pending approval effective edge: %w", err)
-	}
-	contextResolutionJSON, err := pendingApprovalContextSourceResolutionJSON(branch)
-	if err != nil {
-		return err
-	}
-	return q.InsertTaskPendingApprovalBranch(ctx, sqlitegen.InsertTaskPendingApprovalBranchParams{
-		ApprovalID:                     approvalID.String(),
-		TransitionBranchKey:            string(branch.TransitionBranchKey),
-		TargetSnapshotJson:             targetSnapshotJSON,
-		EffectiveEdgeConfigurationJson: edgeSnapshotJSON,
-		ContextSourceResolutionJson:    contextResolutionJSON,
+	return q.InsertTaskPendingApproval(ctx, sqlitegen.InsertTaskPendingApprovalParams{
+		ID: approval.ID.String(), SourceTaskID: string(approval.Source.TaskID), SourceNodeID: sourceID,
+		SourceTransitionBranchKey: branchKey, SourceSessionID: sessionID,
+		TransitionGroupID: groupID, Commentary: sql.NullString{String: approval.Commentary, Valid: true},
+		MaterializedValuesJson: values, CreatedAtUnixMs: approval.CreatedAt.UnixMilli(),
 	})
 }
 
-func pendingApprovalFromRow(ctx context.Context, q *sqlitegen.Queries, row pendingApprovalRecord) (workflow.PendingApproval, error) {
-	approvalID, err := workflow.ParseApprovalID(row.ID)
+func pendingApprovalSourceFromRow(taskID string, node []byte, sourceBranchKey, sourceSessionID sql.NullString) (workflow.CurrentNodeReference, *runtimeids.SessionID, error) {
+	nodeID, err := runtimeids.GraphEntityIDText(node)
 	if err != nil {
-		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval id: %w", err)
-	}
-	var sourceBranchKey *workflow.TransitionBranchKey
-	if row.SourceTransitionBranchKey.Valid {
-		value := workflow.TransitionBranchKey(row.SourceTransitionBranchKey.String)
-		sourceBranchKey = &value
-	}
-	sourceNodeID, err := runtimeids.GraphEntityIDText(row.SourceNodeID)
-	if err != nil {
-		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval source node: %w", err)
-	}
-	source, err := workflow.NewCurrentNodeReference(workflow.TaskID(row.SourceTaskID), workflow.NodeID(sourceNodeID), sourceBranchKey)
-	if err != nil {
-		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval source: %w", err)
-	}
-	var sourceSessionID *runtimeids.SessionID
-	if row.SourceSessionID.Valid {
-		parsed, err := runtimeids.ParseSessionID(row.SourceSessionID.String)
-		if err != nil {
-			return workflow.PendingApproval{}, fmt.Errorf("decode pending approval source session: %w", err)
-		}
-		sourceSessionID = &parsed
-	}
-	var transitionSnapshot pendingApprovalTransitionSnapshot
-	if err := workflow.UnmarshalString(row.TransitionSnapshotJSON, &transitionSnapshot); err != nil {
-		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval transition snapshot: %w", err)
-	}
-	if strings.TrimSpace(string(transitionSnapshot.ID)) == "" || strings.TrimSpace(string(transitionSnapshot.TransitionID)) == "" || strings.TrimSpace(transitionSnapshot.SourceDisplayName) == "" {
-		return workflow.PendingApproval{}, errors.New("pending approval transition snapshot is invalid")
-	}
-	outputValues := map[string]string{}
-	if err := workflow.UnmarshalString(row.MaterializedValuesJSON, &outputValues); err != nil {
-		return workflow.PendingApproval{}, fmt.Errorf("decode pending approval materialized values: %w", err)
-	}
-	if outputValues == nil {
-		return workflow.PendingApproval{}, errors.New("pending approval materialized values are invalid")
-	}
-	rows, err := q.ListTaskPendingApprovalBranches(ctx, approvalID.String())
-	if err != nil {
-		return workflow.PendingApproval{}, err
-	}
-	branches := make([]workflow.PendingApprovalBranch, 0, len(rows))
-	for _, branchRow := range rows {
-		branch, err := pendingApprovalBranchFromRow(source.TaskID, branchRow)
-		if err != nil {
-			return workflow.PendingApproval{}, err
-		}
-		branches = append(branches, branch)
-	}
-	if len(branches) == 0 {
-		return workflow.PendingApproval{}, errors.New("pending approval has no branch snapshots")
-	}
-	return workflow.PendingApproval{
-		ID:              approvalID,
-		Source:          source,
-		SourceSessionID: sourceSessionID,
-		WorkflowVersion: row.WorkflowVersion,
-		Transition: workflow.PendingApprovalTransition{
-			Group: workflow.TransitionGroup{
-				WorkflowID:   transitionSnapshot.WorkflowID,
-				ID:           transitionSnapshot.ID,
-				SourceNodeID: transitionSnapshot.SourceNodeID,
-				TransitionID: transitionSnapshot.TransitionID,
-				DisplayName:  transitionSnapshot.DisplayName,
-				Description:  transitionSnapshot.Description,
-			},
-			SourceDisplayName: transitionSnapshot.SourceDisplayName,
-		},
-		Commentary:   transitionSnapshot.Commentary,
-		OutputValues: outputValues,
-		Branches:     branches,
-		CreatedAt:    time.UnixMilli(row.CreatedAtUnixMs).UTC(),
-	}, nil
-}
-
-func pendingApprovalBranchFromRow(taskID workflow.TaskID, row sqlitegen.TaskPendingApprovalBranch) (workflow.PendingApprovalBranch, error) {
-	branchKey := workflow.TransitionBranchKey(strings.TrimSpace(row.TransitionBranchKey))
-	if branchKey == "" {
-		return workflow.PendingApprovalBranch{}, errors.New("pending approval branch key is required")
-	}
-	var targetSnapshot pendingApprovalTargetSnapshot
-	if err := workflow.UnmarshalString(row.TargetSnapshotJson, &targetSnapshot); err != nil {
-		return workflow.PendingApprovalBranch{}, fmt.Errorf("decode pending approval target snapshot: %w", err)
-	}
-	if targetSnapshot.PriorValues.TransitionParameters == nil {
-		return workflow.PendingApprovalBranch{}, errors.New("pending approval target prior Transition parameters are invalid")
-	}
-	target, err := pendingApprovalTargetFromSnapshot(taskID, targetSnapshot)
-	if err != nil {
-		return workflow.PendingApprovalBranch{}, err
-	}
-	var edgeSnapshot pendingApprovalEffectiveEdgeSnapshot
-	if err := workflow.UnmarshalString(row.EffectiveEdgeConfigurationJson, &edgeSnapshot); err != nil {
-		return workflow.PendingApprovalBranch{}, fmt.Errorf("decode pending approval effective edge: %w", err)
-	}
-	if strings.TrimSpace(string(edgeSnapshot.ID)) == "" || strings.TrimSpace(string(edgeSnapshot.TargetNodeID)) == "" {
-		return workflow.PendingApprovalBranch{}, errors.New("pending approval effective edge is invalid")
-	}
-	var resolutionSnapshot pendingApprovalContextSourceResolutionSnapshot
-	if err := workflow.UnmarshalString(row.ContextSourceResolutionJson, &resolutionSnapshot); err != nil {
-		return workflow.PendingApprovalBranch{}, fmt.Errorf("decode pending approval context source resolution: %w", err)
-	}
-	resolution, activeSource, err := pendingApprovalContextSourceResolutionFromSnapshot(
-		resolutionSnapshot,
-		target,
-	)
-	if err != nil {
-		return workflow.PendingApprovalBranch{}, err
-	}
-	target.CurrentNode.SessionID = targetSessionIntentSessionID(resolution.TargetSession)
-	target.CurrentNode.ContinuationSource = activeSource
-	return workflow.PendingApprovalBranch{
-		TransitionBranchKey: branchKey,
-		Target:              target,
-		EffectiveEdge: workflow.Edge{
-			WorkflowID:         edgeSnapshot.WorkflowID,
-			ID:                 edgeSnapshot.ID,
-			Key:                edgeSnapshot.Key,
-			TransitionGroupID:  edgeSnapshot.TransitionGroupID,
-			TargetNodeID:       edgeSnapshot.TargetNodeID,
-			AssigneeSelection:  workflow.CanonicalAssigneeSelection(edgeSnapshot.AssigneeSelection),
-			ThinkingSelection:  workflow.CanonicalThinkingSelection(edgeSnapshot.ThinkingSelection),
-			ContextMode:        edgeSnapshot.ContextMode,
-			ContextSource:      workflow.CanonicalContextSource(edgeSnapshot.ContextSource),
-			RequiresApproval:   edgeSnapshot.RequiresApproval,
-			PromptTemplate:     edgeSnapshot.PromptTemplate,
-			Parameters:         append([]workflow.Parameter(nil), edgeSnapshot.Parameters...),
-			InputBindings:      append([]workflow.InputBinding(nil), edgeSnapshot.InputBindings...),
-			OutputRequirements: append([]workflow.OutputRequirement(nil), edgeSnapshot.OutputRequirements...),
-		},
-		ContextSourceResolution: resolution,
-	}, nil
-}
-
-func pendingApprovalTargetSnapshotJSON(target workflow.PendingApprovalTarget) (string, error) {
-	currentNode := target.CurrentNode
-	if err := currentNode.Reference.Validate(); err != nil {
-		return "", err
+		return workflow.CurrentNodeReference{}, nil, err
 	}
 	var branchKey *workflow.TransitionBranchKey
-	if value, present := currentNode.Reference.TransitionBranchKey(); present {
-		branchKey = &value
+	if sourceBranchKey.Valid {
+		branchKey = new(workflow.TransitionBranchKey(sourceBranchKey.String))
 	}
-	var enteredByEdgeID *workflow.EdgeID
-	if currentNode.EnteredByEdgeID != nil {
-		value := *currentNode.EnteredByEdgeID
-		enteredByEdgeID = &value
-	}
-	var schedulingState *workflow.CurrentNodeSchedulingState
-	if currentNode.Scheduling != nil {
-		if currentNode.Scheduling.Interruption != nil {
-			return "", errors.New("pending approval target snapshot cannot retain an interruption")
-		}
-		value := currentNode.Scheduling.State
-		schedulingState = &value
-	}
-	return workflow.MarshalString(pendingApprovalTargetSnapshot{
-		NodeID:                  currentNode.Reference.NodeID,
-		NodeKind:                target.NodeKind,
-		TransitionBranchKey:     branchKey,
-		EnteredByEdgeID:         enteredByEdgeID,
-		DisplayName:             target.DisplayName,
-		CurrentInputValues:      cloneCurrentNodeOutputValues(currentNode.CurrentInputValues),
-		PriorValues:             currentNode.PriorValues.Clone(),
-		SchedulingState:         schedulingState,
-		AgentExecutionSelection: cloneCurrentNodeExecutionSelection(currentNode.AgentExecutionSelection),
-	})
-}
-
-func pendingApprovalTargetFromSnapshot(taskID workflow.TaskID, snapshot pendingApprovalTargetSnapshot) (workflow.PendingApprovalTarget, error) {
-	if strings.TrimSpace(snapshot.DisplayName) == "" {
-		return workflow.PendingApprovalTarget{}, errors.New("pending approval target display name is required")
-	}
-	switch snapshot.NodeKind {
-	case workflow.NodeKindAgent:
-		if snapshot.AgentExecutionSelection == nil {
-			return workflow.PendingApprovalTarget{}, errors.New("pending approval Agent target requires execution selection")
-		}
-	case workflow.NodeKindStart, workflow.NodeKindScript, workflow.NodeKindJoin, workflow.NodeKindTerminal:
-		if snapshot.AgentExecutionSelection != nil {
-			return workflow.PendingApprovalTarget{}, errors.New("pending approval non-Agent target cannot carry execution selection")
-		}
-	default:
-		return workflow.PendingApprovalTarget{}, errors.New("pending approval target node kind is invalid")
-	}
-	reference, err := workflow.NewCurrentNodeReference(taskID, snapshot.NodeID, snapshot.TransitionBranchKey)
+	source, err := workflow.NewCurrentNodeReference(workflow.TaskID(taskID), workflow.NodeID(nodeID), branchKey)
 	if err != nil {
-		return workflow.PendingApprovalTarget{}, fmt.Errorf("decode pending approval target reference: %w", err)
+		return workflow.CurrentNodeReference{}, nil, err
 	}
 	var sessionID *runtimeids.SessionID
-	if snapshot.SessionID != nil {
-		parsed, err := runtimeids.ParseSessionID(*snapshot.SessionID)
+	if sourceSessionID.Valid {
+		parsed, err := runtimeids.ParseSessionID(sourceSessionID.String)
 		if err != nil {
-			return workflow.PendingApprovalTarget{}, fmt.Errorf("decode pending approval target session: %w", err)
+			return workflow.CurrentNodeReference{}, nil, err
 		}
 		sessionID = &parsed
 	}
-	var scheduling *workflow.CurrentNodeScheduling
-	if snapshot.SchedulingState != nil {
-		scheduling = &workflow.CurrentNodeScheduling{State: *snapshot.SchedulingState}
-	}
-	currentNode, err := workflow.NewCurrentNodeWithExecutionSelection(
-		reference,
-		snapshot.CurrentInputValues,
-		snapshot.PriorValues,
-		sessionID,
-		scheduling,
-		snapshot.AgentExecutionSelection,
-	)
+	return source, sessionID, nil
+}
+
+func pendingApprovalHeaderFromRow(row sqlitegen.TaskPendingApproval) (facts pendingApprovalFacts, err error) {
+	id, err := workflow.ParseApprovalID(row.ID)
 	if err != nil {
-		return workflow.PendingApprovalTarget{}, fmt.Errorf("decode pending approval target current node: %w", err)
+		return facts, err
 	}
-	currentNode.EnteredByEdgeID = snapshot.EnteredByEdgeID
-	return workflow.PendingApprovalTarget{
-		CurrentNode: currentNode,
-		DisplayName: snapshot.DisplayName,
-		NodeKind:    snapshot.NodeKind,
+	source, sessionID, err := pendingApprovalSourceFromRow(row.SourceTaskID, row.SourceNodeID, row.SourceTransitionBranchKey, row.SourceSessionID)
+	if err != nil {
+		return facts, err
+	}
+	groupID, err := runtimeids.GraphEntityIDText(row.TransitionGroupID)
+	if err != nil {
+		return facts, err
+	}
+	values := map[string]string{}
+	if err := workflow.UnmarshalString(row.MaterializedValuesJson, &values); err != nil {
+		return facts, err
+	}
+	if values == nil {
+		return facts, errors.New("pending approval submitted values must be an object")
+	}
+	commentary := ""
+	if value := metadata.OptionalString(row.Commentary); value != nil {
+		commentary = *value
+	}
+	return pendingApprovalFacts{
+		ID: id, Source: source, SourceSessionID: sessionID,
+		TransitionID: workflow.TransitionGroupID(groupID),
+		Commentary:   commentary, OutputValues: values, CreatedAt: time.UnixMilli(row.CreatedAtUnixMs).UTC(),
 	}, nil
 }
 
-func cloneCurrentNodeExecutionSelection(selection *workflow.AgentExecutionSelection) *workflow.AgentExecutionSelection {
-	if selection == nil {
-		return nil
-	}
-	cloned := selection.Clone()
-	return &cloned
+func pendingApprovalBranchFromRow(branchKey string, edge []byte) (pendingApprovalBranchFacts, error) {
+	edgeID, err := runtimeids.GraphEntityIDText(edge)
+	return pendingApprovalBranchFacts{TransitionBranchKey: workflow.TransitionBranchKey(branchKey), EdgeID: workflow.EdgeID(edgeID)}, err
 }
 
-func pendingApprovalContextSourceResolutionJSON(branch workflow.PendingApprovalBranch) (string, error) {
-	if err := validatePendingApprovalContextSourceResolution(
-		branch.Target.NodeKind,
-		branch.Target.CurrentNode,
-		branch.ContextSourceResolution,
-	); err != nil {
-		return "", err
+func (facts pendingApprovalFacts) presentation(sourceDisplayName string, group *workflow.TransitionGroup) workflow.PendingApproval {
+	return workflow.PendingApproval{
+		ID: facts.ID, Source: facts.Source, SourceSessionID: facts.SourceSessionID,
+		Transition: workflow.PendingApprovalTransition{ID: facts.TransitionID, Group: group, SourceDisplayName: sourceDisplayName},
+		Commentary: facts.Commentary, OutputValues: facts.OutputValues, CreatedAt: facts.CreatedAt,
 	}
-	targetSession := branch.ContextSourceResolution.TargetSession
-	activeSource := branch.ContextSourceResolution.ActiveSource
-	return workflow.MarshalString(pendingApprovalContextSourceResolutionSnapshot{
-		TargetSession: &targetSession,
-		ActiveSource:  &activeSource,
-	})
 }
 
-func pendingApprovalContextSourceResolutionFromSnapshot(
-	snapshot pendingApprovalContextSourceResolutionSnapshot,
-	target workflow.PendingApprovalTarget,
-) (
-	workflow.PendingApprovalContextSourceResolution,
-	workflow.MaterializedContinuationSource,
-	error,
-) {
-	typed := snapshot.TargetSession != nil || snapshot.ActiveSource != nil
-	if typed {
-		if snapshot.SessionID != nil || snapshot.TargetSession == nil || snapshot.ActiveSource == nil {
-			return workflow.PendingApprovalContextSourceResolution{},
-				workflow.MaterializedContinuationSource{},
-				errors.New("pending approval context source resolution snapshot mixes incompatible shapes")
-		}
-		if target.CurrentNode.SessionID != nil &&
-			snapshot.ActiveSource.Kind() != workflow.MaterializedContinuationSourceLegacy {
-			return workflow.PendingApprovalContextSourceResolution{},
-				workflow.MaterializedContinuationSource{},
-				errors.New("typed pending approval target snapshot duplicates Session authority")
-		}
-		resolution := workflow.PendingApprovalContextSourceResolution{
-			TargetSession: *snapshot.TargetSession,
-			ActiveSource:  *snapshot.ActiveSource,
-		}
-		reconstructed := target.CurrentNode
-		reconstructed.SessionID = targetSessionIntentSessionID(resolution.TargetSession)
-		reconstructed.ContinuationSource = resolution.ActiveSource
-		if err := validatePendingApprovalContextSourceResolution(target.NodeKind, reconstructed, resolution); err != nil {
-			return workflow.PendingApprovalContextSourceResolution{},
-				workflow.MaterializedContinuationSource{},
-				err
-		}
-		return resolution,
-			*snapshot.ActiveSource,
-			nil
+func (branch pendingApprovalBranchFacts) choice() workflow.PendingApprovalBranch {
+	return workflow.PendingApprovalBranch{EdgeID: branch.EdgeID, TransitionBranchKey: branch.TransitionBranchKey}
+}
+
+func (branch pendingApprovalBranchFacts) target(
+	source workflow.CurrentNodeReference, branchCount int, targetNodeID workflow.NodeID, targetKind workflow.NodeKind, targetLabel string,
+) (*workflow.PendingApprovalTarget, error) {
+	targetKey := currentNodeReferenceBranchKey(source)
+	if branchCount > 1 {
+		targetKey = &branch.TransitionBranchKey
 	}
-	var sessionID *runtimeids.SessionID
-	if snapshot.SessionID != nil {
-		parsed, err := runtimeids.ParseSessionID(*snapshot.SessionID)
+	reference, err := workflow.NewCurrentNodeReference(source.TaskID, targetNodeID, targetKey)
+	if err != nil {
+		return nil, err
+	}
+	return &workflow.PendingApprovalTarget{Reference: reference, DisplayName: targetLabel, NodeKind: targetKind}, nil
+}
+
+type pendingApprovalResolver struct {
+	groups map[workflow.TransitionGroupID]workflow.TransitionGroup
+	edges  map[workflow.TransitionGroupID][]workflow.Edge
+	nodes  map[workflow.NodeID]workflow.Node
+}
+
+func newPendingApprovalResolver(definition workflow.Definition) pendingApprovalResolver {
+	r := pendingApprovalResolver{
+		groups: make(map[workflow.TransitionGroupID]workflow.TransitionGroup, len(definition.TransitionGroups)),
+		edges:  make(map[workflow.TransitionGroupID][]workflow.Edge, len(definition.TransitionGroups)),
+		nodes:  make(map[workflow.NodeID]workflow.Node, len(definition.Nodes)),
+	}
+	for _, group := range definition.TransitionGroups {
+		r.groups[group.ID] = group
+	}
+	for _, edge := range definition.Edges {
+		r.edges[edge.TransitionGroupID] = append(r.edges[edge.TransitionGroupID], edge)
+	}
+	for _, node := range definition.Nodes {
+		r.nodes[workflow.NodeIDOf(node)] = node
+	}
+	return r
+}
+
+func (r pendingApprovalResolver) resolve(facts pendingApprovalFacts) (workflow.PendingApproval, []currentNodeCompletionTarget, error) {
+	source, ok := r.nodes[facts.Source.NodeID]
+	if !ok {
+		return workflow.PendingApproval{}, nil, errors.New("pending approval source node is missing")
+	}
+	approval := facts.presentation(workflow.NodeDisplayLabel(source), nil)
+	group, groupAvailable := r.groups[facts.TransitionID]
+	if !groupAvailable || group.SourceNodeID != facts.Source.NodeID {
+		return approval, nil, nil
+	}
+	approval.Transition.Group = &group
+	edges := r.edges[group.ID]
+	selected := make([]currentNodeCompletionTarget, 0, len(edges))
+	for _, edge := range edges {
+		target, ok := r.nodes[edge.TargetNodeID]
+		if !ok {
+			return workflow.PendingApproval{}, nil, errors.New("pending approval target node is missing")
+		}
+		branch := pendingApprovalBranchFacts{EdgeID: edge.ID, TransitionBranchKey: workflow.TransitionBranchKey(edge.Key)}
+		choice := branch.choice()
+		resolvedTarget, err := branch.target(facts.Source, len(edges), edge.TargetNodeID, target.Kind(), workflow.NodeDisplayLabel(target))
 		if err != nil {
-			return workflow.PendingApprovalContextSourceResolution{},
-				workflow.MaterializedContinuationSource{},
-				fmt.Errorf("decode pending approval context session: %w", err)
+			return workflow.PendingApproval{}, nil, err
 		}
-		sessionID = &parsed
+		choice.Target = resolvedTarget
+		selected = append(selected, currentNodeCompletionTarget{Edge: edge, Node: target})
+		approval.Branches = append(approval.Branches, choice)
 	}
-	var (
-		targetSession workflow.TargetSessionIntent
-		source        workflow.MaterializedContinuationSource
-	)
-	switch target.NodeKind {
-	case workflow.NodeKindAgent:
-		if target.CurrentNode.SessionID == nil {
-			targetSession = workflow.CreateTargetSessionIntent()
-			source = workflow.DeferredSelfMaterializedContinuationSource()
-		} else {
-			reused, err := workflow.NewReuseTargetSessionIntent(*target.CurrentNode.SessionID)
-			if err != nil {
-				return workflow.PendingApprovalContextSourceResolution{},
-					workflow.MaterializedContinuationSource{},
-					err
-			}
-			targetSession = reused
-			source = workflow.LegacyMaterializedContinuationSource()
-		}
-	case workflow.NodeKindScript, workflow.NodeKindJoin:
-		targetSession = workflow.NoAgentTargetSessionIntent()
-		source = workflow.LegacyMaterializedContinuationSource()
-	case workflow.NodeKindTerminal:
-		targetSession = workflow.NoAgentTargetSessionIntent()
-		source = workflow.AbsentMaterializedContinuationSource()
-	default:
-		return workflow.PendingApprovalContextSourceResolution{},
-			workflow.MaterializedContinuationSource{},
-			fmt.Errorf("pending approval target node kind %q is invalid", target.NodeKind)
-	}
-	resolution := workflow.PendingApprovalContextSourceResolution{
-		TargetSession: targetSession,
-		ActiveSource:  source,
-	}
-	if reused, ok := targetSession.SessionID(); ok {
-		if sessionID == nil || *sessionID != reused {
-			return workflow.PendingApprovalContextSourceResolution{},
-				workflow.MaterializedContinuationSource{},
-				errors.New("legacy pending approval target and context source sessions differ")
-		}
-	} else if sessionID != nil {
-		return workflow.PendingApprovalContextSourceResolution{},
-			workflow.MaterializedContinuationSource{},
-			errors.New("legacy pending approval context source Session is invalid for target")
-	}
-	return resolution, source, nil
+	return approval, selected, nil
 }
 
-func targetSessionIntentSessionID(intent workflow.TargetSessionIntent) *runtimeids.SessionID {
-	sessionID, reused := intent.SessionID()
-	if !reused {
-		return nil
-	}
-	return &sessionID
-}
-
-func pendingApprovalContextSourceResolution(
-	nodeKind workflow.NodeKind,
-	currentNode workflow.CurrentNode,
-) (workflow.PendingApprovalContextSourceResolution, error) {
-	targetSession := workflow.NoAgentTargetSessionIntent()
-	if nodeKind == workflow.NodeKindAgent {
-		if currentNode.SessionID == nil {
-			targetSession = workflow.CreateTargetSessionIntent()
-		} else {
-			reused, err := workflow.NewReuseTargetSessionIntent(*currentNode.SessionID)
-			if err != nil {
-				return workflow.PendingApprovalContextSourceResolution{}, err
-			}
-			targetSession = reused
-		}
-	}
-	resolution := workflow.PendingApprovalContextSourceResolution{
-		TargetSession: targetSession,
-		ActiveSource:  currentNode.ContinuationSource,
-	}
-	if err := validatePendingApprovalContextSourceResolution(nodeKind, currentNode, resolution); err != nil {
-		return workflow.PendingApprovalContextSourceResolution{}, err
-	}
-	return resolution, nil
-}
-
-func validatePendingApprovalContextSourceResolution(
-	nodeKind workflow.NodeKind,
-	currentNode workflow.CurrentNode,
-	resolution workflow.PendingApprovalContextSourceResolution,
-) error {
-	if err := resolution.TargetSession.Validate(); err != nil {
-		return fmt.Errorf("pending approval target Session intent: %w", err)
-	}
-	if err := resolution.ActiveSource.Validate(); err != nil {
-		return fmt.Errorf("pending approval active source: %w", err)
-	}
-	resolvedSessionID, reused := resolution.TargetSession.SessionID()
-	switch nodeKind {
-	case workflow.NodeKindAgent:
-		if resolution.TargetSession.Kind() == workflow.TargetSessionIntentNoAgent {
-			return errors.New("pending approval Agent target cannot omit Agent Session intent")
-		}
-	case workflow.NodeKindScript, workflow.NodeKindJoin, workflow.NodeKindTerminal:
-		if resolution.TargetSession.Kind() != workflow.TargetSessionIntentNoAgent {
-			return fmt.Errorf("pending approval %s target cannot carry Agent Session intent", nodeKind)
-		}
-	default:
-		return fmt.Errorf("pending approval target node kind %q is invalid", nodeKind)
-	}
-	if reused {
-		if currentNode.SessionID == nil || *currentNode.SessionID != resolvedSessionID {
-			return errors.New("pending approval target and context source Session intent differ")
-		}
-	} else if currentNode.SessionID != nil {
-		return errors.New("pending approval target duplicates a Session absent from context resolution")
-	}
-	if !sameMaterializedContinuationSource(currentNode.ContinuationSource, resolution.ActiveSource) {
-		return errors.New("pending approval target and context source active source differ")
-	}
-	return nil
-}
-
-func sameMaterializedContinuationSource(
-	left workflow.MaterializedContinuationSource,
-	right workflow.MaterializedContinuationSource,
-) bool {
+func sameMaterializedContinuationSource(left, right workflow.MaterializedContinuationSource) bool {
 	if left.Kind() != right.Kind() {
 		return false
 	}
-	leftSessionID, leftExact := left.ExactSessionID()
-	rightSessionID, rightExact := right.ExactSessionID()
-	return leftExact == rightExact && (!leftExact || leftSessionID == rightSessionID)
+	leftID, leftExact := left.ExactSessionID()
+	rightID, rightExact := right.ExactSessionID()
+	return leftExact == rightExact && (!leftExact || leftID == rightID)
 }
 
 func (s *Store) CurrentNodeAwaitingApproval(ctx context.Context, reference workflow.CurrentNodeReference) (bool, error) {
-	_, pending, err := currentNodePendingApprovalID(ctx, s.queries, reference)
-	return pending, err
+	return currentNodeHasPendingApproval(ctx, s.queries, reference)
 }
 
-func currentNodePendingApprovalID(ctx context.Context, q *sqlitegen.Queries, reference workflow.CurrentNodeReference) (workflow.ApprovalID, bool, error) {
+func currentNodeHasPendingApproval(ctx context.Context, q *sqlitegen.Queries, reference workflow.CurrentNodeReference) (bool, error) {
 	if err := reference.Validate(); err != nil {
-		return "", false, err
+		return false, err
 	}
 	nodeID, err := runtimeids.GraphEntityIDBlob(string(reference.NodeID))
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
-	branchKey := sql.NullString{}
-	if value, present := reference.TransitionBranchKey(); present {
-		branchKey = sql.NullString{String: string(value), Valid: true}
+	key := sql.NullString{}
+	if value, scoped := reference.TransitionBranchKey(); scoped {
+		key = sql.NullString{String: string(value), Valid: true}
 	}
 	pending, err := q.HasTaskPendingApprovalForCurrentNode(ctx, sqlitegen.HasTaskPendingApprovalForCurrentNodeParams{
-		TaskID:              string(reference.TaskID),
-		NodeID:              nodeID,
-		TransitionBranchKey: branchKey,
+		TaskID: string(reference.TaskID), NodeID: nodeID, TransitionBranchKey: key,
 	})
-	if err != nil {
-		return "", false, err
-	}
-	return "", pending, nil
+	return pending, err
 }
 
 func sameOptionalSessionID(left, right *runtimeids.SessionID) bool {
@@ -888,12 +337,4 @@ func sameOptionalSessionID(left, right *runtimeids.SessionID) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
-}
-
-func clonePendingApprovalSessionID(sessionID *runtimeids.SessionID) *runtimeids.SessionID {
-	if sessionID == nil {
-		return nil
-	}
-	cloned := *sessionID
-	return &cloned
 }

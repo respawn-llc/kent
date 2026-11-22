@@ -2,6 +2,7 @@ package workflowstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -20,7 +21,8 @@ func (p CurrentNodeCompletionPlan) StartContexts() []CurrentNodeStartContext {
 }
 
 type PendingApprovalPlan struct {
-	plan taskExecutionPlan
+	plan    taskExecutionPlan
+	handoff CompletionHandoff
 }
 
 func (p PendingApprovalPlan) StartContexts() []CurrentNodeStartContext {
@@ -60,7 +62,7 @@ func (s *Store) PlanCurrentNodeCompletion(ctx context.Context, request CurrentNo
 	if err != nil {
 		return plan, err
 	}
-	if _, pending, err := currentNodePendingApprovalID(ctx, s.queries, current.Reference); err != nil {
+	if pending, err := currentNodeHasPendingApproval(ctx, s.queries, current.Reference); err != nil {
 		return plan, err
 	} else if pending {
 		return plan, ErrCurrentNodePendingApproval
@@ -82,37 +84,19 @@ func (s *Store) PlanCurrentNodeCompletion(ctx context.Context, request CurrentNo
 	switch {
 	case len(targets) > 1:
 		result, err = planCurrentNodeFanout(ctx, s.queries, s.invariantPolicy, definition, source, current, targets,
-			req.Commentary, req.OutputValues, record.Version, group, s.roleResolver, s.resolveRetainedSessionSelection, s.now().UTC())
+			req.Commentary, req.OutputValues, group, s.roleResolver, s.resolveRetainedSessionSelection, s.now().UTC())
 	case targets[0].Node.Kind() == workflow.NodeKindJoin:
 		arrival = &sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams{}
-		joinBefore, err = s.queries.ListTaskActiveFanoutBranches(ctx, task.ID)
-		if err != nil {
-			return plan, err
-		}
-		result, err = planCurrentNodeJoinArrival(ctx, s.queries, s.invariantPolicy, definition, current, targets[0].Edge,
-			req.OutputValues, s.roleResolver, s.resolveRetainedSessionSelection, arrival, joinBefore)
+		result, joinBefore, err = s.planCompletionJoinArrival(ctx, definition, current, targets[0].Edge, req.OutputValues, arrival)
 	default:
-		result, err = s.planSequentialCompletion(ctx, definition, record.Version, group, source, current, targets[0], req)
+		result, err = s.planSequentialCompletion(ctx, definition, group, source, current, targets[0], req)
 	}
 	if err != nil {
 		return plan, err
 	}
-	handoffSource := source
-	destinationDisplayName := workflow.DisplayLabel(group.DisplayName, string(group.TransitionID))
-	if len(targets) == 1 {
-		handoffTarget := targets[0].Node
-		if handoffTarget.Kind() == workflow.NodeKindJoin && len(result.Mutation.Created) == 1 {
-			handoffSource = handoffTarget
-			handoffTarget, err = currentNodeDefinitionNode(definition, result.Mutation.Created[0].Reference.NodeID)
-			if err != nil {
-				return plan, err
-			}
-		}
-		destinationDisplayName = workflow.NodeDisplayLabel(handoffTarget)
-	}
-	result.Handoff = CompletionHandoff{
-		SourceNodeDisplayName:  workflow.NodeDisplayLabel(handoffSource),
-		DestinationDisplayName: destinationDisplayName,
+	result.Handoff, err = completionHandoff(definition, group, source, targets, result.Mutation.Created)
+	if err != nil {
+		return plan, err
 	}
 	result, err = completeCurrentNodePostTurnFacts(ctx, s.queries, definition, current, completionTargetEdges(targets), source.Kind() == workflow.NodeKindAgent, result)
 	if err != nil {
@@ -129,10 +113,40 @@ func (s *Store) PlanCurrentNodeCompletion(ctx context.Context, request CurrentNo
 	return CurrentNodeCompletionPlan{plan: execution}, nil
 }
 
+func (s *Store) planCompletionJoinArrival(ctx context.Context, definition workflow.Definition, current workflow.CurrentNode,
+	edge workflow.Edge, outputValues map[string]string, arrival *sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams,
+) (CurrentNodeCompletionResult, []sqlitegen.TaskActiveFanoutBranch, error) {
+	before, err := s.queries.ListTaskActiveFanoutBranches(ctx, string(current.Reference.TaskID))
+	if err != nil {
+		return CurrentNodeCompletionResult{}, nil, err
+	}
+	result, err := planCurrentNodeJoinArrival(ctx, s.queries, s.invariantPolicy, definition, current, edge,
+		outputValues, s.roleResolver, s.resolveRetainedSessionSelection, arrival, before)
+	return result, before, err
+}
+
+func completionHandoff(definition workflow.Definition, group workflow.TransitionGroup, source workflow.Node,
+	targets []currentNodeCompletionTarget, created []workflow.CurrentNode,
+) (CompletionHandoff, error) {
+	destination := workflow.DisplayLabel(group.DisplayName, string(group.TransitionID))
+	if len(targets) == 1 {
+		target := targets[0].Node
+		if target.Kind() == workflow.NodeKindJoin && len(created) == 1 {
+			source = target
+			var err error
+			target, err = currentNodeDefinitionNode(definition, created[0].Reference.NodeID)
+			if err != nil {
+				return CompletionHandoff{}, err
+			}
+		}
+		destination = workflow.NodeDisplayLabel(target)
+	}
+	return CompletionHandoff{SourceNodeDisplayName: workflow.NodeDisplayLabel(source), DestinationDisplayName: destination}, nil
+}
+
 func (s *Store) planSequentialCompletion(
 	ctx context.Context,
 	definition workflow.Definition,
-	version int64,
 	group workflow.TransitionGroup,
 	source workflow.Node,
 	current workflow.CurrentNode,
@@ -150,7 +164,7 @@ func (s *Store) planSequentialCompletion(
 		result.legacyFallbacks = append(result.legacyFallbacks, *materialized.LegacyFallback)
 	}
 	if target.Edge.RequiresApproval {
-		approval, err := newPendingApproval(current, version, group, workflow.NodeDisplayLabel(source), target.Edge, target.Node,
+		approval, err := newPendingApproval(current, group, workflow.NodeDisplayLabel(source), target.Edge, target.Node,
 			materialized.CurrentNode, req.Commentary, req.OutputValues, s.now().UTC())
 		if err != nil {
 			return CurrentNodeCompletionResult{}, err
@@ -199,15 +213,22 @@ func (s *Store) CommitCurrentNodeCompletion(ctx context.Context, prepared Curren
 	return outcome, nil
 }
 
-func (s *Store) PlanPendingApproval(ctx context.Context, id workflow.ApprovalID) (PendingApprovalPlan, error) {
-	approval, err := s.PendingApproval(ctx, id)
+func (s *Store) PlanPendingApproval(ctx context.Context, id workflow.ApprovalID) (prepared PendingApprovalPlan, resultErr error) {
+	facts, err := pendingApprovalByID(ctx, s.queries, id)
 	if err != nil {
 		return PendingApprovalPlan{}, err
 	}
-	if err := s.requireTaskContextSelectionResolved(ctx, s.queries, approval.Source.TaskID); err != nil {
+	defer func() {
+		var validation CompletionValidationError
+		var unavailable workflow.RetainedTargetUnavailableError
+		if errors.As(resultErr, &validation) || errors.As(resultErr, &unavailable) || errors.Is(resultErr, sql.ErrNoRows) {
+			resultErr = fmt.Errorf("%w: %w", &TaskContextSelectionRequiredError{TaskID: facts.Source.TaskID}, resultErr)
+		}
+	}()
+	if err := s.requireTaskContextSelectionResolved(ctx, s.queries, facts.Source.TaskID); err != nil {
 		return PendingApprovalPlan{}, err
 	}
-	task, err := s.queries.GetTask(ctx, string(approval.Source.TaskID))
+	task, err := s.queries.GetTask(ctx, string(facts.Source.TaskID))
 	if err != nil {
 		return PendingApprovalPlan{}, err
 	}
@@ -215,40 +236,76 @@ func (s *Store) PlanPendingApproval(ctx context.Context, id workflow.ApprovalID)
 	if err != nil {
 		return PendingApprovalPlan{}, err
 	}
+	approval, selected, err := newPendingApprovalResolver(definition).resolve(facts)
+	if err != nil {
+		return PendingApprovalPlan{}, err
+	}
+	if !approval.ChoiceAvailable() {
+		return PendingApprovalPlan{}, &TaskContextSelectionRequiredError{TaskID: approval.Source.TaskID}
+	}
 	current, err := s.currentNodeForReference(ctx, s.queries, approval.Source)
 	if err != nil {
 		return PendingApprovalPlan{}, err
 	}
-	targets := make([]workflow.CurrentNode, 0, len(approval.Branches))
-	for _, branch := range approval.Branches {
-		targets = append(targets, branch.Target.CurrentNode)
+	source, err := currentNodeDefinitionNode(definition, current.Reference.NodeID)
+	if err != nil {
+		return PendingApprovalPlan{}, err
 	}
-	if len(targets) == 0 {
+	if len(selected) == 0 {
 		return PendingApprovalPlan{}, errors.New("pending approval has no target branches")
 	}
-	if len(targets) == 1 {
-		if err := validatePendingApprovalSequentialTarget(approval.Source, targets[0].Reference); err != nil {
+	if len(selected) == 1 {
+		if err := validatePendingApprovalSequentialTarget(approval.Source, approval.Branches[0].Target.Reference); err != nil {
 			return PendingApprovalPlan{}, err
 		}
 	} else if err := validatePendingApprovalFanoutTargets(approval.Source, approval.Branches); err != nil {
 		return PendingApprovalPlan{}, err
 	}
-	// The approved incoming Transition is frozen; subsequent outgoing choices
-	// and other Workflow facts are resolved from the current definition.
-	for index := range definition.Edges {
-		for _, branch := range approval.Branches {
-			if definition.Edges[index].ID == branch.EffectiveEdge.ID {
-				definition.Edges[index] = branch.EffectiveEdge
-				break
-			}
+	issues, err := s.currentNodeCompletionOutputIssues(ctx, s.queries, definition, *approval.Transition.Group, source, selected, current, approval.OutputValues)
+	if err != nil {
+		return PendingApprovalPlan{}, err
+	}
+	if len(issues) != 0 {
+		return PendingApprovalPlan{}, CompletionValidationError{Issues: issues}
+	}
+	var targets []workflow.CurrentNode
+	var arrival *sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams
+	var joinBefore []sqlitegen.TaskActiveFanoutBranch
+	var fallbacks []legacyContinuationSourceFallbackDetail
+	if len(selected) == 1 && selected[0].Node.Kind() == workflow.NodeKindJoin {
+		arrival = &sqlitegen.UpdateTaskActiveFanoutBranchArrivalParams{}
+		result, before, err := s.planCompletionJoinArrival(ctx, definition, current, selected[0].Edge, approval.OutputValues, arrival)
+		if err != nil {
+			return PendingApprovalPlan{}, err
 		}
+		joinBefore = before
+		targets = result.Mutation.Created
+		fallbacks = result.legacyFallbacks
+	} else {
+		targets = make([]workflow.CurrentNode, 0, len(selected))
+		for index, target := range selected {
+			materialized, err := materializeCompletionTargetCurrentNode(ctx, s.queries, s.invariantPolicy, definition,
+				target.Edge, source, target.Node, s.roleResolver, s.resolveRetainedSessionSelection, current,
+				approval.OutputValues, approval.Commentary, currentNodeReferenceBranchKey(approval.Branches[index].Target.Reference))
+			if err != nil {
+				return PendingApprovalPlan{}, err
+			}
+			targets = append(targets, materialized.CurrentNode)
+		}
+	}
+	handoff, err := completionHandoff(definition, *approval.Transition.Group, source, selected, targets)
+	if err != nil {
+		return PendingApprovalPlan{}, err
 	}
 	plan, err := s.materializeTaskExecutionPlan(ctx, task, record, definition, []workflow.CurrentNode{current}, targets, nil)
 	if err != nil {
 		return PendingApprovalPlan{}, err
 	}
 	plan.approval = &approval
-	return PendingApprovalPlan{plan: plan}, nil
+	plan.joinArrival = arrival
+	plan.joinBefore = joinBefore
+	plan.legacyFallbacks = fallbacks
+	return PendingApprovalPlan{plan: plan, handoff: handoff}, nil
 }
 
 func (s *Store) CommitPendingApproval(ctx context.Context, prepared PendingApprovalPlan, sessions []PlannedCurrentNodeSession) (PendingApprovalApplyResult, error) {
@@ -261,7 +318,10 @@ func (s *Store) CommitPendingApproval(ctx context.Context, prepared PendingAppro
 	}
 	result := PendingApprovalApplyResult{
 		Mutation: mutation, ResolvedApproval: *prepared.plan.approval,
-		Handoff: pendingApprovalHandoff(*prepared.plan.approval), TaskAttentionResolution: attention,
+		Handoff: prepared.handoff, TaskAttentionResolution: attention,
+	}
+	for _, detail := range prepared.plan.legacyFallbacks {
+		reportLegacyContinuationSourceAfterCommit(s.invariantPolicy, detail)
 	}
 	for _, target := range mutation.Created {
 		if target.Scheduling != nil {

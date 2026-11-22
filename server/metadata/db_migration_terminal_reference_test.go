@@ -48,7 +48,7 @@ VALUES ('approval-terminal', 'done', json_object('entered_by_edge_id', ?, 'node_
 		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "node-done"),
 		workflowGraphSeedID(t, db, "edge-done-1"), workflowGraphSeedID(t, db, "group-done"), workflowGraphSeedID(t, db, "node-done"))
 	var pendingBefore string
-	const pendingContentQuery = `SELECT json_remove(target_snapshot_json, '$.node_id', '$.entered_by_edge_id') FROM task_pending_approval_branches`
+	const pendingContentQuery = `SELECT materialized_values_json FROM task_pending_approvals`
 	if err := db.QueryRow(pendingContentQuery).Scan(&pendingBefore); err != nil {
 		t.Fatal(err)
 	}
@@ -60,12 +60,13 @@ VALUES ('approval-terminal', 'done', json_object('entered_by_edge_id', ?, 'node_
 	if pendingAfter != pendingBefore {
 		t.Fatalf("pending target changed: %s -> %s", pendingBefore, pendingAfter)
 	}
-	var pendingNodeID, pendingEdgeID string
-	if err := store.db.QueryRow(`SELECT json_extract(target_snapshot_json, '$.node_id'), json_extract(target_snapshot_json, '$.entered_by_edge_id') FROM task_pending_approval_branches`).Scan(&pendingNodeID, &pendingEdgeID); err != nil {
+	queries := sqlitegen.New(store.db)
+	branches, err := queries.ListPendingApprovalPresentationBranches(t.Context(), `["approval-terminal"]`)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if pendingNodeID != workflowGraphSeedIDText(t, store.db, "node-done") || pendingEdgeID != workflowGraphSeedIDText(t, store.db, "edge-done-1") {
-		t.Fatal("pending target lost its Node or incoming Branch reference")
+	if len(branches) != 1 || !branches[0].TargetKey.Valid || branches[0].TargetKey.String != "done" || branches[0].TransitionBranchKey != "done" {
+		t.Fatalf("approval did not resolve its current terminal target: %+v", branches)
 	}
 	var title, body, comment, sessionOwner string
 	if err := store.db.QueryRow(`SELECT title, body FROM tasks WHERE id = 'task-done'`).Scan(&title, &body); err != nil {
@@ -95,21 +96,13 @@ FROM task_current_nodes WHERE task_id = ?`, task).Scan(&edge, &input, &prior); e
 			t.Fatalf("%s lost stored values: %s / %s", task, input, prior)
 		}
 	}
-	queries := sqlitegen.New(store.db)
-	// The shared Branch remains protected by the frozen Approval, not the
-	// completed Task. Once it is resolved, both graph-edit guards see no reference.
-	var edgeID []byte
-	if err := store.db.QueryRow(`SELECT id FROM workflow_edges WHERE edge_key = 'done'`).Scan(&edgeID); err != nil {
-		t.Fatal(err)
+	// Neither the completed Task nor the Approval makes the terminal Branch
+	// a current Task anchor. Removing it leaves the Approval pending.
+	if count, err := queries.CountTaskEdgeReferences(t.Context(), branches[0].EdgeID); err != nil || count != 0 {
+		t.Fatalf("terminal branch references = %d: %v", count, err)
 	}
-	if count, err := queries.CountTaskEdgeReferences(t.Context(), edgeID); err != nil || count != 1 {
-		t.Fatalf("pending removal references = %d: %v", count, err)
-	}
-	execSeed(t, store.db, "resolve pending approval", `DELETE FROM task_pending_approvals WHERE id = 'approval-terminal'`)
-	if count, err := queries.CountTaskEdgeReferences(t.Context(), edgeID); err != nil || count != 0 {
-		t.Fatalf("completed removal references = %d: %v", count, err)
-	}
-	if count, err := queries.CountAllTaskEdgeReferences(t.Context(), edgeID); err != nil || count != 0 {
-		t.Fatalf("completed retargeting references = %d: %v", count, err)
+	execSeed(t, store.db, "remove selected Transition", `DELETE FROM workflow_transition_groups WHERE id = ?`, workflowGraphSeedID(t, store.db, "group-done"))
+	if _, err := queries.GetTaskPendingApproval(t.Context(), "approval-terminal"); err != nil {
+		t.Fatalf("approval must remain pending after removing the selected Transition: %v", err)
 	}
 }

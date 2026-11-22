@@ -10,6 +10,7 @@
 ## Discovery and Project links
 
 - The global Workflow Library must list global Workflow files and a Recent files list.
+- Global Workflow discovery must use the active Kent persistence root's `workflows` directory.
 - Project Workflow discovery must browse one explicitly selected attached workspace at a time.
 - Workspace discovery must read that workspace's `.kent/workflows` directory without recursively scanning repositories or managed Worktrees.
 - Discovering a Workflow must not automatically link it to a Project.
@@ -96,7 +97,7 @@
 
 - New Workflow creation must offer a file location chooser.
 - Project-originated creation must default to the default workspace's `.kent/workflows` directory.
-- Global Library creation must default to `~/.kent/workflows`.
+- Global Library creation must default to the active Kent persistence root's `workflows` directory.
 - Users must be able to choose another location.
 - Project-originated creation must save and attach the file. It must make the Workflow the Project default only when that Project has no default.
 - Save copy must create a new Workflow UUID at definition revision 1 and leave existing links unchanged.
@@ -168,8 +169,13 @@
 - A Task awaiting Transition Approval must keep that pending Approval until the user approves it or manually moves the Task.
 - Approve must resolve the Transition against the current applied Workflow definition without a frozen definition or Approval-specific Workflow revision.
 - If the current Transition requires no Approval, the existing Approve action must allow that ordinary Transition to execute.
-- Approve must use the originally selected Transition when it exists.
+- Approve authorizes the Task to resume through the originally selected Transition at its source Node. Its current branches, targets and instructions apply, including branches added or replaced while the Task was paused.
 - If the submitted Parameters do not match the current Transition, Approve must leave the Task awaiting Approval and show an error Toast directing the user to manually move the Task.
+- If the selected Transition is absent from the source Node or has no branches, Kent must keep the Approval and its submitted inputs and show the choice as unavailable.
+- Approving an unavailable choice must leave the Approval pending and direct the user to manually move the Task.
+- Kent must reject new pending Approvals whose selected Transition or branches are missing.
+- A pending Approval must protect only its source Session from explicit deletion.
+- If current Approval context is unavailable, Approve must leave the Approval pending and direct the user to manually move the Task.
 
 ## Configuration context
 
@@ -182,8 +188,11 @@
 ## Initial migration
 
 - Kent must prevent use until the one-time migration from database-owned Workflow definitions finishes.
-- The initial migration must write Workflow files into the home Kent directory's `workflows` folder.
-- The initial migration must use destination filenames based on existing Workflow UUIDs.
+- The initial migration must write Workflow files into the active Kent persistence root's `workflows` folder.
+- The initial migration must derive readable filenames from normalized Workflow names, such as `main-software-engineering.kwf`.
+- Migrated filenames must avoid reserved operating-system filenames.
+- When Workflow names produce the same normalized filename, the migration must use numeric suffixes such as `main-software-engineering-2.kwf` and `main-software-engineering-3.kwf`.
+- The migration must use the Workflow UUID as the filename only when the name is missing or cannot produce a usable filename.
 - If a previous attempt wrote the expected file, the migration must reuse that identical file.
 - If a destination file has different content, the migration must stop without overwriting it and identify the path.
 - Resolving that collision must require moving the conflicting file aside before retrying.

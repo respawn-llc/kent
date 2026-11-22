@@ -53,10 +53,10 @@ export function approvalAttentionFixture(taskID: string) {
         approvalId: `approval-${taskID}`,
         message: "Approval required",
         approvalSnapshot: {
+          choiceAvailability: pb.ApprovalChoiceAvailability.AVAILABLE,
           sourceNodeDisplayName: "Review",
           targets: [{ displayName: "Done" }],
           commentary: "",
-          workflowRevisionSeen: 1n,
         },
       },
     },

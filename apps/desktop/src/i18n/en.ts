@@ -481,6 +481,7 @@ export const englishResources = {
       stopping: "Stopping",
     },
     task: {
+      approvalChoiceUnavailable: "The selected transition is unavailable. Move this Task to continue.",
       contextSelectionRequired:
         "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
       accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
@@ -606,8 +607,6 @@ export const englishResources = {
       targetUnavailable: "Target unavailable",
       targetNodes: "Target nodes",
       commentary: "Commentary",
-      staleApproval: "Stale",
-      staleApprovalBody: "Workflow changed since this approval was prepared.",
       status: "Status",
       statusKinds: {
         done: "Done",

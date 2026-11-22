@@ -147,11 +147,11 @@ const approval = {
   ...base,
   approvalID: "approval-1",
   approvalSnapshot: {
+    choiceAvailability: "available",
     commentary: "",
     outputValues: {},
     sourceNodeName: "Implement",
     targets: [],
-    version: 1,
   },
   kind: "approval",
   message: null,

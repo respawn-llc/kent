@@ -115,12 +115,8 @@ func evaluateWorkflowGraphSaveDynamicDecision(ctx context.Context, q *sqlitegen.
 			return workflowGraphSaveDynamicImpact{}, err
 		}
 		impact.NodeTaskReferenceCount += count
-		currentCount, err := q.CountCurrentTaskNodeAnchorReferences(ctx, id)
-		if err != nil {
-			return workflowGraphSaveDynamicImpact{}, err
-		}
-		impact.CurrentNodeTaskReferenceCount += currentCount
-		if currentCount > 0 {
+		impact.CurrentNodeTaskReferenceCount += count
+		if count > 0 {
 			evaluation.RemovedNodeTaskReferenceEntities = append(evaluation.RemovedNodeTaskReferenceEntities, WorkflowGraphEntityReference{
 				EntityType: WorkflowGraphEntityTypeNode,
 				EntityID:   string(nodeID),
@@ -174,7 +170,7 @@ func evaluateWorkflowGraphSaveDynamicDecision(ctx context.Context, q *sqlitegen.
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}
-		refCount, err := q.CountAllTaskEdgeReferences(ctx, id)
+		refCount, err := q.CountTaskEdgeReferences(ctx, id)
 		if err != nil {
 			return workflowGraphSaveDynamicImpact{}, err
 		}

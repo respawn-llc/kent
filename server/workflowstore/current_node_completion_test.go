@@ -456,6 +456,24 @@ func TestCompleteCurrentNodeFanoutPendingApprovalCarriesCommentary(t *testing.T)
 	if completed.PendingApproval.Commentary != "Both branches are ready for review." {
 		t.Fatalf("pending Approval commentary = %q", completed.PendingApproval.Commentary)
 	}
+	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
+		for index := range req.Edges {
+			req.Edges[index].RequiresApproval = false
+		}
+	})
+	applied, err := applyPendingApproval(t, store, ctx, completed.PendingApproval.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied.Mutation.Created) != 2 {
+		t.Fatalf("approved fanout = %+v, want two original branches", applied.Mutation)
+	}
+	for _, target := range applied.Mutation.Created {
+		key, scoped := target.Reference.TransitionBranchKey()
+		if !scoped || key != "split_a" && key != "split_b" || target.CurrentInputValues["summary"] != "plan complete" {
+			t.Fatalf("fanout lost original scope or values: %+v", target)
+		}
+	}
 }
 
 func TestCompleteCurrentNodeJoinContinuationReturnsTargetNodeKind(t *testing.T) {
@@ -811,7 +829,7 @@ func TestCompleteCurrentNodeRequiresTransitionIDForSeveralOutgoingTransitions(t 
 	}
 }
 
-func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *testing.T) {
+func TestCompleteCurrentNodeApprovalUsesCurrentSettingsAndRetainsSource(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)
 	definition, _, err := store.GetDefinition(ctx, workflowID)
@@ -826,10 +844,6 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 		edge.ContextMode = workflow.ContextModeContinueSession
 		edge.ContextSource = workflow.ContextSource{Kind: workflow.ContextSourceImmediateSource}
 	})
-	_, workflowRecord, err := store.GetDefinition(ctx, workflowID)
-	if err != nil {
-		t.Fatalf("GetDefinition after approval edit: %v", err)
-	}
 	linkWorkflow(t, ctx, store, binding.ProjectID, workflowID, true)
 	task := createDefaultTask(t, ctx, store, binding.ProjectID)
 	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
@@ -868,8 +882,8 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	if !approval.Source.Equal(source.Reference) || approval.SourceSessionID == nil || *approval.SourceSessionID != sourceSessionID {
 		t.Fatalf("approval source = %+v, want current source with session %q", approval, sourceSessionID)
 	}
-	if approval.WorkflowVersion != workflowRecord.Version || approval.Transition.Group.TransitionID != "review" {
-		t.Fatalf("approval transition snapshot = %+v, want workflow version %d and review transition", approval, workflowRecord.Version)
+	if approval.Transition.Group.TransitionID != "review" {
+		t.Fatalf("approval transition = %+v, want review transition", approval)
 	}
 	if approval.OutputValues["summary"] != "frozen plan" || len(approval.Branches) != 1 {
 		t.Fatalf("approval materialized values/branches = %+v, want one frozen target", approval)
@@ -878,13 +892,8 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 		t.Fatalf("approval commentary = %q, want trimmed frozen commentary", approval.Commentary)
 	}
 	branch := approval.Branches[0]
-	resolvedSessionID, reusedSession := branch.ContextSourceResolution.TargetSession.SessionID()
-	if branch.Target.CurrentNode.CurrentInputValues["summary"] != "frozen plan" ||
-		branch.Target.CurrentNode.SessionID == nil ||
-		*branch.Target.CurrentNode.SessionID != sourceSessionID ||
-		!reusedSession ||
-		resolvedSessionID != sourceSessionID {
-		t.Fatalf("approval branch snapshot = %+v, want frozen immediate-source target session and values", branch)
+	if branch.EdgeID != reviewEdgeID || branch.Target.Reference.NodeID != workflow.NodeIDOf(reviewNode) {
+		t.Fatalf("approval branch choice = %+v, want original review branch", branch)
 	}
 
 	currentNodes, err := store.ListCurrentNodes(ctx, task.ID)
@@ -904,27 +913,6 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	if eligible {
 		t.Fatal("pending approval source was eligible for execution")
 	}
-	currentDefinition, currentRecord, err := store.GetDefinition(ctx, workflowID)
-	if err != nil {
-		t.Fatalf("GetDefinition before frozen edge removal: %v", err)
-	}
-	edgeRemoval := NewWorkflowGraphSaveRequest(currentDefinition, currentRecord.Version)
-	edgeRemoval.Confirmed = true
-	edgeRemoval.Edges = removeWorkflowGraphSaveEdge(edgeRemoval.Edges, reviewEdgeID)
-	preview, err := store.PreviewWorkflowGraphSave(ctx, edgeRemoval)
-	if err != nil {
-		t.Fatalf("PreviewWorkflowGraphSave frozen target edge removal: %v", err)
-	}
-	if preview.Impact.EdgeTaskReferenceCount != 1 || workflowGraphSaveBlockerCount(preview.Blockers, "edge_task_references") != 1 {
-		t.Fatalf("frozen target edge removal preview = %+v, want one protected approval edge", preview)
-	}
-	saved, err := store.SaveWorkflowGraph(ctx, edgeRemoval)
-	if err != nil {
-		t.Fatalf("SaveWorkflowGraph frozen target edge removal: %v", err)
-	}
-	if saved.Saved || workflowGraphSaveBlockerCount(saved.Blockers, "edge_task_references") != 1 {
-		t.Fatalf("frozen target edge removal save = %+v, want blocked save", saved)
-	}
 	if _, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
 		Source:       source.Reference,
 		TransitionID: "review",
@@ -940,13 +928,15 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 		afterRestart[0].ID != approval.ID ||
 		!afterRestart[0].Source.Equal(source.Reference) ||
 		afterRestart[0].Commentary != "Ready to merge after approval." ||
-		afterRestart[0].Branches[0].Target.CurrentNode.CurrentInputValues["summary"] != "frozen plan" {
+		afterRestart[0].OutputValues["summary"] != "frozen plan" {
 		t.Fatalf("pending approvals after restart = %+v, want frozen approval", afterRestart)
 	}
 
 	saveWorkflowGraphFixture(t, ctx, store, workflowID, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
 		edge := workflowGraphSaveEdgeRecord(t, req.Edges, reviewEdgeID)
 		edge.PromptTemplate = "Changed after approval."
+		edge.ContextMode = workflow.ContextModeNewSession
+		edge.RequiresApproval = false
 	})
 	frozenAfterEdit, err := store.ListPendingApprovals(ctx, task.ID)
 	if err != nil {
@@ -954,8 +944,7 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	}
 	if len(frozenAfterEdit) != 1 ||
 		frozenAfterEdit[0].Commentary != "Ready to merge after approval." ||
-		frozenAfterEdit[0].Branches[0].EffectiveEdge.ContextMode != workflow.ContextModeContinueSession ||
-		frozenAfterEdit[0].Branches[0].EffectiveEdge.TargetNodeID != workflow.NodeIDOf(reviewNode) {
+		frozenAfterEdit[0].Branches[0].Target.Reference.NodeID != workflow.NodeIDOf(reviewNode) {
 		t.Fatalf("approval after graph edit = %+v, want frozen edge configuration", frozenAfterEdit)
 	}
 	applied, err := applyPendingApproval(t, store, ctx, approval.ID)
@@ -971,7 +960,7 @@ func TestCompleteCurrentNodeCreatesFrozenPendingApprovalAndRetainsSource(t *test
 	target := applied.Mutation.Created[0]
 	if target.Reference.NodeID != workflow.NodeIDOf(reviewNode) ||
 		target.SessionID == nil ||
-		*target.SessionID != sourceSessionID ||
+		*target.SessionID == sourceSessionID ||
 		target.CurrentInputValues["summary"] != "frozen plan" {
 		t.Fatalf("applied target = %+v, want frozen context and materialized values", target)
 	}
