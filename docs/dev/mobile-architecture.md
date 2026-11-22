@@ -26,7 +26,7 @@ Kent mobile uses one Kotlin Multiplatform build under `apps/mobile`, with shared
 
 ## API and storage
 
-Read operation metadata from the generated Protobuf descriptor set. Follow the [server API contract](specs/server-api-contract.md) for validation of responses and events on both platforms.
+Read operation metadata from the generated Protobuf descriptor set. Follow the [server API contract](specs/server-api-contract.md) when decoding responses and events. For fast feedback on user input, use KMP Utils and small Kotlin validators for checks such as UUID or URL syntax.
 
 Use ApiResult for structured recoverable errors. Use SQLDelight over SQLite when a feature requires relational storage.
 
