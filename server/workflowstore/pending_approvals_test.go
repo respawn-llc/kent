@@ -121,6 +121,53 @@ func TestPendingApprovalPreservesSubmittedAgentSelection(t *testing.T) {
 	}
 }
 
+func TestPendingApprovalCannotFollowTransitionMovedToAnotherSource(t *testing.T) {
+	ctx, store, binding := newTestStoreContext(t)
+	id := createMaterializedCurrentNodeWorkflow(t, ctx, store)
+	reviewEdge := testEdgeID("edge-review-" + id.String())
+	saveWorkflowGraphFixture(t, ctx, store, id, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
+		workflowGraphSaveEdgeRecord(t, req.Edges, reviewEdge).RequiresApproval = true
+		workflowGraphSaveEdgeRecord(t, req.Edges, testEdgeID("edge-audit-"+id.String())).PromptTemplate = "Audit."
+	})
+	linkWorkflow(t, ctx, store, binding.ProjectID, id, true)
+	task := createDefaultTask(t, ctx, store, binding.ProjectID)
+	source := startTask(t, ctx, store, task.ID).Mutation.Created[0]
+	completed, err := completeCurrentNode(t, store, ctx, CurrentNodeCompletionRequest{
+		Source: source.Reference, TransitionID: "review", OutputValues: map[string]string{"summary": "ready"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep a valid route from Plan to Review, but move the originally selected
+	// Transition (and its Branch) to Audit. Neither route is the pending choice.
+	saveWorkflowGraphFixture(t, ctx, store, id, func(_ workflow.Definition, req *WorkflowGraphSaveRequest) {
+		edge := *workflowGraphSaveEdgeRecord(t, req.Edges, reviewEdge)
+		for i, group := range req.TransitionGroups {
+			if group.ID != edge.TransitionGroupID {
+				continue
+			}
+			req.TransitionGroups[i].SourceNodeID = testNodeID("node-audit-" + id.String())
+			group.ID, group.TransitionID = testTransitionGroupID("replacement"), "replacement"
+			edge.ID, edge.TransitionGroupID, edge.Key = testEdgeID("replacement"), group.ID, "replacement"
+			req.TransitionGroups = append(req.TransitionGroups, group)
+			req.Edges = append(req.Edges, edge)
+			return
+		}
+		t.Fatal("missing review Transition")
+	})
+	approvalID := completed.PendingApproval.ID
+	_, err = applyPendingApproval(t, store, ctx, approvalID)
+	var manualMove *TaskContextSelectionRequiredError
+	if !errors.As(err, &manualMove) || manualMove.TaskID != task.ID {
+		t.Fatalf("approve moved Transition: got %v, want Manual Move for original Task", err)
+	}
+	pending, err := store.ListPendingApprovals(ctx, task.ID)
+	if err != nil || len(pending) != 1 || pending[0].ID != approvalID || pending[0].ChoiceAvailable() ||
+		!pending[0].Source.Equal(source.Reference) || pending[0].OutputValues["summary"] != "ready" {
+		t.Fatalf("original Approval should remain pending and unavailable: %+v, %v", pending, err)
+	}
+}
+
 func TestPendingApprovalInputMismatchKeepsOriginalChoicePending(t *testing.T) {
 	ctx, store, binding := newTestStoreContext(t)
 	workflowID := createMaterializedCurrentNodeWorkflow(t, ctx, store)

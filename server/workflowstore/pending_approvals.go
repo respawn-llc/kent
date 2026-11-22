@@ -335,6 +335,7 @@ func (r pendingApprovalResolver) resolve(facts pendingApprovalFacts) (workflow.P
 		Branches: make([]workflow.PendingApprovalBranch, 0, len(facts.Branches)),
 	}
 	group, groupAvailable := r.groups[facts.TransitionID]
+	groupAvailable = groupAvailable && group.SourceNodeID == facts.Source.NodeID
 	if groupAvailable {
 		approval.Transition.Group = &group
 	}
