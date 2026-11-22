@@ -87,6 +87,8 @@
 
 ## Home and navigation
 
+- All resizable Desktop windows must use a minimum content size of 320 × 213 logical pixels, regardless of which page is open.
+
 - Closing a Desktop window must close only that window. Desktop must exit when its last window closes.
 - While a Chat popup is open, the operator must be able to open the main Project list on macOS, Windows, and Linux.
 - On macOS, reopening Desktop from the Dock must show the main window.

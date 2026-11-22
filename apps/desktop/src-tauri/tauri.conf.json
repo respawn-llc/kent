@@ -17,8 +17,6 @@
         "title": "Kent",
         "width": 1280,
         "height": 860,
-        "minWidth": 960,
-        "minHeight": 640,
         "transparent": true,
         "dragDropEnabled": true,
         "titleBarStyle": "Overlay",

@@ -680,7 +680,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             settings::read_desktop_settings,
             settings::change_desktop_setting,
-            settings::desktop_launch_appearance,
+            main_window::dialog_window_defaults,
             settings::connect_desktop_server,
             main_window::open_main_window,
             main_window::complete_main_startup,
