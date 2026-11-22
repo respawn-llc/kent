@@ -1,13 +1,93 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, it, vi } from "bun:test";
-import { StrictMode } from "react";
+import { StrictMode, type ReactElement } from "react";
 
-import { TranscriptWindow } from "@/app-facade";
-import { TranscriptHarness } from "@/test-support/chat-runtime";
+import { TranscriptWindow, type TranscriptRenderSlots } from "@/app-facade";
+import { deferred, TranscriptHarness } from "@/test-support/chat-runtime";
 import { hydration, page, row, visit } from "@/test-support/transcript-window";
 import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
 import { StaticMarkdown, StreamingMarkdown } from "@/ui/markdown";
 import { TranscriptWindowView } from "./TranscriptWindowView";
+
+const scrollSlots: TranscriptRenderSlots<ReactElement | null> = {
+  user: (item) => <div>{item.value.Text}</div>,
+  assistant: () => null,
+  tool: () => null,
+  notice: () => null,
+  reasoning: () => null,
+  thinkingStatus: () => null,
+};
+
+it("loads pre-compaction history while live observation is unavailable", async () => {
+  const geometry = installVirtualizedScrollGeometry(600);
+  let hostCleanup: (() => void) | undefined;
+  let viewCleanup: (() => void) | undefined;
+  try {
+    const target = { projectID: "project", sessionID: "123e4567-e89b-42d3-a456-426614174000" };
+    const olderPage = deferred<ReturnType<typeof page>>();
+    const newestRows = Array.from({ length: 100 }, (_, index) => row(index + 301));
+    const getTranscriptPage = vi
+      .fn()
+      .mockResolvedValueOnce(page(newestRows, 300))
+      .mockReturnValue(olderPage.promise);
+    const host = new TranscriptHarness({ getTranscriptPage }, target, {
+      onContractFailure: vi.fn(),
+      onOpeningFailure: vi.fn(),
+      onScratchRehydration: vi.fn(),
+    });
+    hostCleanup = () => {
+      host.dispose();
+    };
+    await act(async () => {
+      host.open();
+      host.hydration("initial", hydration(newestRows, 1));
+    });
+    getTranscriptPage.mockClear();
+    const content = () => (
+      <TranscriptWindowView
+        snapshot={host.snapshot}
+        estimateSize={() => 40}
+        retryLabel="Retry"
+        boundaryErrorMessage={(error) => error.message}
+        onInput={host.view.result.current.dispatch}
+        tailFailure={<div>Live observation unavailable</div>}
+        slots={scrollSlots}
+      />
+    );
+    const view = render(content());
+    viewCleanup = view.unmount;
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    const list = screen.getByRole("list");
+    expect(list.scrollTop).toBeGreaterThan(0);
+    fireEvent.wheel(list, { deltaY: -100 });
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+    await waitFor(() => {
+      expect(getTranscriptPage).toHaveBeenCalledTimes(1);
+    });
+    expect(getTranscriptPage).toHaveBeenCalledWith(target, { direction: "older", value: 300 });
+    view.rerender(content());
+    expect(within(screen.getByTestId("virtual-boundary-previous")).getByRole("status")).toBeInTheDocument();
+    await act(async () => {
+      olderPage.resolve(page([row(299)], null, 300));
+    });
+    view.rerender(content());
+    expect(screen.queryByTestId("virtual-boundary-previous")).not.toBeInTheDocument();
+    expect(screen.getByText("Message 299")).toBeInTheDocument();
+  } finally {
+    try {
+      viewCleanup?.();
+    } finally {
+      try {
+        hostCleanup?.();
+      } finally {
+        geometry.restore();
+      }
+    }
+  }
+});
 
 it.each(["older", "newer"] as const)(
   "continues through equal-sized %s pages without another edge gesture",
@@ -41,14 +121,7 @@ it.each(["older", "newer"] as const)(
         retryLabel="Retry"
         boundaryErrorMessage={(error) => error.message}
         onInput={onInput}
-        slots={{
-          user: (item) => <div>{item.value.Text}</div>,
-          assistant: () => null,
-          tool: () => null,
-          notice: () => null,
-          reasoning: () => null,
-          thinkingStatus: () => null,
-        }}
+        slots={scrollSlots}
       />
     );
     const view = render(content());
