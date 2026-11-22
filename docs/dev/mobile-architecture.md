@@ -11,7 +11,7 @@
 | Networking               | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
 | Navigation               | Decompose                                                                                                    |
 | Local storage            | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision.      |
-| Background notifications | Firebase Cloud Messaging for Android and iOS. Push relay hosting and authorization are open decisions.       |
+| Background notifications | Firebase Cloud Messaging via a privately operated, closed-source push relay.                                 |
 | Crash reporting          | Firebase Crashlytics, enabled by default with an opt-out setting.                                            |
 | Unit tests and lint      | Kotest without mocks, Detekt for Kotlin, and Android Lint.                                                   |
 
@@ -36,7 +36,7 @@ Use KSRC for Kotlin dependency source inspection. Write unit tests with Kotest w
 
 ## Gradle configuration
 
-Use `sh.kent.mobile` as the Android application ID and the iOS bundle identifier. From a clean checkout, a contributor must be able to build and run the debug app against their own server without organization access, Firebase configuration, or release signing credentials. Configure Firebase to test push delivery or crash uploads.
+Use `sh.kent.mobile` as the official Android application ID and iOS bundle identifier. Supply app identifiers, Firebase project settings, and the push relay endpoint through build or deployment configuration. Supply privileged push credentials only to the relay for that deployment. From a clean checkout, a contributor must be able to build and run the debug app against their own server without organization access, Firebase configuration, or release signing credentials. Configure Firebase to test push delivery or crash uploads.
 
 Pin Gradle with the wrapper in `apps/mobile`. Pin Kotlin and Android Gradle Plugin versions in `apps/mobile/gradle/libs.versions.toml`. Put shared build settings in `apps/mobile/gradle.properties`.
 

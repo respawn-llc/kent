@@ -34,6 +34,7 @@ For build and module decisions, see [Mobile architecture](../mobile-architecture
 ## Notifications and diagnostics
 
 - Mobile must support background attention notifications on Android and iOS.
+- Official mobile builds must use the Kent-operated relay. Independently built apps and their paired servers must support a separately configured relay without relying on the official deployment or its credentials.
 - Enabling notifications must authorize the configured server to notify that installation without a separate pairing step or Kent account. Changing servers must revoke the former server's permission to send notifications to that installation.
 - If the beta relay exhausts its free allowance, push delivery must stop. Users must be able to open Inbox and respond to attention without push delivery.
 - Mobile must enable each push category only when its tap destination is available.
