@@ -909,11 +909,11 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 		switch event.Kind {
 		case EventToolCallStarted:
 			if event.ToolCall != nil {
-				starts[event.ToolCall.ID] = index
+				starts[string(event.ToolCall.ID)] = index
 			}
 		case EventToolCallCompleted:
 			if event.ToolResult != nil {
-				completions[event.ToolResult.CallID] = index
+				completions[string(event.ToolResult.CallID)] = index
 			}
 		case EventAssistantMessage:
 			if event.Message.Role == llm.RoleAssistant && event.Message.Phase != nil && *event.Message.Phase == llm.MessagePhaseFinal {
@@ -947,8 +947,8 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 		)
 	}
 	for _, call := range calls {
-		start, started := starts[call.ID]
-		completion, completed := completions[call.ID]
+		start, started := starts[string(call.ID)]
+		completion, completed := completions[string(call.ID)]
 		if !started || !completed || start >= completion || completion >= *reasoningIndex || *reasoningIndex >= finalIndex {
 			t.Fatalf(
 				"tool/reasoning/final order %s = start:%d completion:%d final:%d events:%+v",
@@ -1005,7 +1005,7 @@ func TestSubmitUserMessageFinalAnswerWithMixedToolCallsMaterializesAllToolsBefor
 		)
 	}
 	for _, call := range calls {
-		if completion, ok := recordCompletions[call.ID]; !ok ||
+		if completion, ok := recordCompletions[string(call.ID)]; !ok ||
 			completion >= *persistedReasoningIndex ||
 			*persistedReasoningIndex >= persistedFinalIndex {
 			t.Fatalf(

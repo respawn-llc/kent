@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -34,7 +35,7 @@ func (s *controllerStub) TriggerHandoff(_ context.Context, stepID string, active
 
 func callTriggerHandoffTool(t *testing.T, tool *TriggerHandoffTool, id string, input json.RawMessage, stepID string) Result {
 	t.Helper()
-	result, err := tool.Call(context.Background(), Call{ID: id, Name: toolspec.ToolTriggerHandoff, Input: input, StepID: stepID})
+	result, err := tool.Call(context.Background(), Call{ID: runtimeids.ToolCallID(id), Name: toolspec.ToolTriggerHandoff, Input: input, StepID: stepID})
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}

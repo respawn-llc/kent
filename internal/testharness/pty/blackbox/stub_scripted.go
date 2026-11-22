@@ -230,7 +230,7 @@ func (state *scriptedLineageState) seedHistoricalDeliveries(items []llm.Response
 
 func (state *scriptedLineageState) register(calls []llm.ToolCall) error {
 	for _, call := range calls {
-		callID := strings.TrimSpace(call.ID)
+		callID := strings.TrimSpace(string(call.ID))
 		name := strings.TrimSpace(call.Name)
 		if callID == "" || name == "" {
 			return errors.New("scripted response emitted a tool call without ID or name")

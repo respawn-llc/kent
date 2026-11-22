@@ -34,7 +34,6 @@ import (
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/tools/shell/postprocess"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/imagefileio"
 	"core/shared/jsoncontract"
@@ -669,7 +668,7 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 			)
 			ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
 				StepID:     "22222222-2222-4222-8222-222222222222",
-				ToolCallID: clientui.ToolCallID(toolCallID),
+				ToolCallID: runtimeids.ToolCallID(toolCallID),
 			})
 			ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
 			handler, ok := registry.Get(test.toolID)
@@ -678,7 +677,7 @@ func TestOutsideWorkspaceToolsInheritTypedApprovalBarrierFromCallContext(t *test
 			}
 
 			result, err := handler.Call(ctx, tools.Call{
-				ID:    toolCallID,
+				ID:    runtimeids.ToolCallID(toolCallID),
 				Name:  test.toolID,
 				Input: test.input,
 			})
@@ -1121,12 +1120,12 @@ func callRuntimeWireTool(t *testing.T, registry *tools.Registry, id toolspec.ID,
 	shortID := testsetup.ShellLogSessionShortID(t)
 	ctx := tools.WithExecutionIdentity(context.Background(), tools.ExecutionIdentity{
 		StepID:         "22222222-2222-4222-8222-222222222222",
-		ToolCallID:     clientui.ToolCallID(toolCallID),
+		ToolCallID:     runtimeids.ToolCallID(toolCallID),
 		SessionShortID: shortID,
 	})
 	ctx = tools.WithApprovalLifecycle(ctx, tools.NewApprovalLifecycle())
 	result, err := handler.Call(ctx, tools.Call{
-		ID:    toolCallID,
+		ID:    runtimeids.ToolCallID(toolCallID),
 		Name:  id,
 		Input: encoded,
 	})
@@ -1190,7 +1189,7 @@ func TestLocalToolRegistryBindingBindsExecutionCorrelationPerSuccessiveScope(t *
 			t.Fatalf("marshal exec_command input: %v", err)
 		}
 		result, err := handler.Call(executionfixture.ExecutionContext(t, context.Background(), callID), tools.Call{
-			ID:    callID,
+			ID:    runtimeids.ToolCallID(callID),
 			Name:  toolspec.ToolExecCommand,
 			Input: input,
 		})

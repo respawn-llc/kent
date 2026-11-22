@@ -400,14 +400,14 @@ func New(
 	return eng, nil
 }
 
-func (e *Engine) pendingRecoveryDanglingToolCallIDs() map[string]struct{} {
-	out := map[string]struct{}{}
+func (e *Engine) pendingRecoveryDanglingToolCallIDs() map[runtimeids.ToolCallID]struct{} {
+	out := map[runtimeids.ToolCallID]struct{}{}
 	chat := e.transcriptRuntimeState().chatProjection()
 	if chat == nil {
 		return out
 	}
 	for _, call := range chat.danglingToolCalls() {
-		callID := strings.TrimSpace(call.callID)
+		callID := call.callID
 		if callID != "" {
 			out[callID] = struct{}{}
 		}
@@ -967,7 +967,7 @@ type userShellOutcome struct {
 // waits on the Runtime FIFO, which is paused at an Agent Step Boundary.
 func (e *Engine) executeUserShell(ctx context.Context, stepID string, command runtimeinput.ShellCommand) (userShellOutcome, error) {
 	call := llm.ToolCall{
-		ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand),
+		ID: runtimeids.ToolCallID(uuid.NewString()), Name: string(toolspec.ToolExecCommand),
 		Input: mustJSON(map[string]string{"cmd": command.Command}),
 	}
 	_, registered := e.registry.Get(toolspec.ToolExecCommand)

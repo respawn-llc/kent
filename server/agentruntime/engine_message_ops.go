@@ -221,7 +221,7 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 	if r.ProviderItemOnly {
 		return nil
 	}
-	callID := strings.TrimSpace(r.CallID)
+	callID := r.CallID
 	if callID == "" {
 		return nil
 	}
@@ -231,7 +231,7 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 			continue
 		}
 		itemCallID, _ := textutil.FirstOptionalTrimmed(item.CallID, item.ID)
-		if itemCallID != callID {
+		if runtimeids.ToolCallID(itemCallID) != callID {
 			continue
 		}
 		copyItem := item
@@ -246,7 +246,7 @@ func (e *Engine) providerItemsForToolCompletion(r tools.Result) []llm.ResponseIt
 	}
 	return llm.PrepareResponsesInputItems([]llm.ResponseItem{{
 		Type:   llm.ToolOutputItemType(custom),
-		CallID: textutil.Value(callID),
+		CallID: (*string)(textutil.Value(callID)),
 		Name:   textutil.OptionalExactString(name),
 		Output: append(json.RawMessage(nil), r.Output...),
 	}})
@@ -347,11 +347,9 @@ func normalizeStoredLocalEntry(entry storedLocalEntry) (storedLocalEntry, error)
 	entry.DiagnosticKey = normalizeOptionalStoredLocalFact(entry.DiagnosticKey)
 	entry.NoticeID = normalizeOptionalStoredLocalFact(entry.NoticeID)
 	if entry.AfterToolCallID != nil {
-		callID := strings.TrimSpace(*entry.AfterToolCallID)
-		if callID == "" {
-			return storedLocalEntry{}, errors.New("after-tool call identity is required when present")
+		if err := entry.AfterToolCallID.Validate(); err != nil {
+			return storedLocalEntry{}, fmt.Errorf("after-tool call identity: %w", err)
 		}
-		entry.AfterToolCallID = &callID
 	}
 	if entry.Role == "" {
 		return storedLocalEntry{}, errors.New("role is required")
@@ -576,7 +574,7 @@ func (e *Engine) shouldEmitCommittedMessageEvent(msg llm.Message) bool {
 	if msg.Role != llm.RoleTool {
 		return true
 	}
-	callID, present := textutil.OptionalTrimmed(msg.ToolCallID)
+	callID, present := textutil.OptionalValue(msg.ToolCallID)
 	if !present {
 		return true
 	}

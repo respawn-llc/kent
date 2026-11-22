@@ -181,7 +181,7 @@ const (
 
 type askEvent struct {
 	prompt             *transcriptpb.Prompt
-	resolvedToolCallID clientui.ToolCallID
+	resolvedToolCallID runtimeids.ToolCallID
 	origin             promptDeliveryOrigin
 }
 

@@ -543,7 +543,7 @@ func testParallelToolCompletionsStayPendingUntilResultGroupClose(t *testing.T) {
 	for len(completedIDs) < 2 {
 		select {
 		case completed := <-toolCompleted:
-			completedIDs = append(completedIDs, completed.CallID)
+			completedIDs = append(completedIDs, string(completed.CallID))
 		case <-watchdog.Done():
 			t.Fatalf("timed out waiting for grouped completions: %v", watchdog.Err())
 		}

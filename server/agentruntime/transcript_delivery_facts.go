@@ -63,7 +63,7 @@ type TranscriptAssistantRowFact struct {
 
 type TranscriptToolRowFact struct {
 	ViewedImageKind     *transcript.ViewedImageKind
-	ToolCallID          string
+	ToolCallID          runtimeids.ToolCallID
 	ToolName            string
 	Text                string
 	IsError             bool
@@ -76,7 +76,7 @@ type TranscriptToolRowFact struct {
 }
 
 type TranscriptToolCallRowFact struct {
-	ToolCallID   string
+	ToolCallID   runtimeids.ToolCallID
 	ToolName     string
 	Presentation *transcript.ToolCallMeta
 }
@@ -308,7 +308,7 @@ func TranscriptToolStartFactsFromEventChecked(evt Event) ([]TranscriptLiveToolSt
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(start.ToolCallID) == "" {
+		if start.ToolCallID == "" {
 			return nil, nil
 		}
 		return []TranscriptLiveToolStart{start}, nil
@@ -541,7 +541,7 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 	case "tool_call":
 		return TranscriptCommittedRowFact{}, false
 	case "tool_result_ok", "tool_result_error":
-		if strings.TrimSpace(entry.ToolCallID) == "" {
+		if entry.ToolCallID == "" {
 			return transcriptNoticeRowFactFromChatEntry(entry)
 		}
 		integrity := transcriptToolEntryIntegrity(entry)
@@ -555,7 +555,7 @@ func transcriptCommittedRowFactFromChatEntryUnlocated(entry ChatEntry) (Transcri
 			Visibility: transcriptVisibilityForIntegrity(resolveTranscriptVisibility(visibility, transcript.EntryVisibilityOngoingCollapsed), integrity),
 			Integrity:  integrity,
 			Tool: &TranscriptToolRowFact{
-				ToolCallID:          strings.TrimSpace(entry.ToolCallID),
+				ToolCallID:          entry.ToolCallID,
 				ToolName:            toolName,
 				Text:                entry.Text,
 				IsError:             role == "tool_result_error",
@@ -914,16 +914,25 @@ func transcriptAcceptedToolCallFact(entry ChatEntry) TranscriptCommittedRowFact 
 }
 
 func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRowFact {
-	if strings.TrimSpace(result.CallID) == "" {
+	if result.CallID == "" {
 		entry := toolResultChatEntry(result)
 		fact, _ := transcriptNoticeRowFactFromChatEntry(entry)
 		return fact
 	}
+	return TranscriptCommittedRowFact{
+		Kind: TranscriptCommittedRowFactTool, Visibility: transcript.EntryVisibilityOngoingCollapsed,
+		Tool: projectToolResultRow(result),
+	}
+}
+
+// Both saved-history and live adapters consume the same completed outcome.
+// Provider output items remain separate inputs to the model-history projection.
+func projectToolResultRow(result tools.Result) *TranscriptToolRowFact {
 	resultSummary, _ := textutil.OptionalTrimmed(result.Summary)
 	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
 	content := projectToolResultContent(result)
-	return TranscriptCommittedRowFact{Kind: TranscriptCommittedRowFactTool, Visibility: transcript.EntryVisibilityOngoingCollapsed, Tool: &TranscriptToolRowFact{
-		ToolCallID:          strings.TrimSpace(result.CallID),
+	return &TranscriptToolRowFact{
+		ToolCallID:          result.CallID,
 		ToolName:            strings.TrimSpace(string(result.Name)),
 		Text:                content.text,
 		IsError:             content.isError,
@@ -934,7 +943,7 @@ func transcriptToolRowFactFromResult(result tools.Result) TranscriptCommittedRow
 		Presentation:        cloneTranscriptToolCallMeta(result.Presentation),
 		QuestionAnswer:      cloneAskQuestionAnswer(result.QuestionAnswer),
 		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
-	}}
+	}
 }
 
 func cloneAskQuestionAnswer(answer *tools.AskQuestionAnswer) *tools.AskQuestionAnswer {

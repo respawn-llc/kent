@@ -36,7 +36,7 @@ func TestForkedSessionPreservesHandoffHistoryWithoutResumingIt(t *testing.T) {
 	if pending := forked.handoffRuntimeState().RequestSnapshot(); pending != nil {
 		t.Fatal("fork resumed unfinished handoff")
 	}
-	assertBoundedTriggerHandoffCompletion(t, forkedStore, handoffCall.ID, false)
+	assertBoundedTriggerHandoffCompletion(t, forkedStore, string(handoffCall.ID), false)
 }
 
 func TestTriggerHandoffRejectsUnavailableAdmissionWithoutQueueing(t *testing.T) {

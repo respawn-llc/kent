@@ -43,7 +43,7 @@ func (a *recordingQuestionAttention) MarkTaskQuestionCleared(_ askquestion.AskQu
 }
 
 func (a *recordingQuestionAttention) MarkTaskQuestionSkipped(batch askquestion.AskQuestionBatchMetadata) {
-	a.skipped = append(a.skipped, batch.ToolCallID)
+	a.skipped = append(a.skipped, string(batch.ToolCallID))
 }
 
 func TestHandleTaskQuestionDeclineKeepsPreparedSuccessorsPending(t *testing.T) {

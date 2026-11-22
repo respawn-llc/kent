@@ -18,7 +18,6 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/runtimeids"
 	"core/shared/sessioncontract"
@@ -72,7 +71,7 @@ func TestTransitionSelectedQuestionsSurviveRetainedToolsAndCompaction(t *testing
 					t.Fatal(err)
 				}
 				results, err := f.authority.ResolvePromptBatch(t.Context(), id, stepID, []sessionruntime.PromptAnswerCommand{{
-					ToolCallID: clientui.ToolCallID(pending[0].Request.ToolCallID),
+					ToolCallID: runtimeids.ToolCallID(pending[0].Request.ToolCallID),
 					Payload:    sessionruntime.PromptQuestionAnswerCommand{Answer: tools.AskQuestionAnswer{Freeform: textutil.Value("continue")}},
 				}})
 				if err != nil || len(results) != 1 || results[0].Outcome != sessionruntime.PromptAnswerOutcomeResolved {

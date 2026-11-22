@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"core/shared/runtimeids"
 	"core/shared/toolspec"
 	"core/shared/transcriptmodel"
 )
@@ -51,7 +52,7 @@ type HostedToolOutput struct {
 }
 
 type HostedCall struct {
-	ID           string
+	ID           runtimeids.ToolCallID
 	Name         toolspec.ID
 	Input        json.RawMessage
 	ProviderItem json.RawMessage
@@ -132,6 +133,16 @@ func (d Definition) BuildToolCallMeta(ctx ToolCallContext, raw json.RawMessage) 
 		meta.OmitSuccessfulResult = true
 	}
 	return transcript.NormalizeToolCallMeta(meta)
+}
+
+// ReprojectToolCallMeta refreshes only the definition-owned Web Search family.
+// Saved input and result-specific presentation facts remain authoritative.
+func ReprojectToolCallMeta(meta transcript.ToolCallMeta) transcript.ToolCallMeta {
+	if def, ok := definitionForToolName(meta.ToolName); ok &&
+		def.contract.Transcript.Presentation == transcript.ToolPresentationWebSearch {
+		meta.Presentation = def.contract.Transcript.Presentation
+	}
+	return meta
 }
 
 func (d Definition) FormatToolInput(ctx ToolCallContext, raw json.RawMessage) (string, string) {

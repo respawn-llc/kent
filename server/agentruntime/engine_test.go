@@ -244,7 +244,7 @@ type serialPairProbeTool struct {
 }
 
 func (t *serialPairProbeTool) Call(_ context.Context, c tools.Call) (tools.Result, error) {
-	switch c.ID {
+	switch string(c.ID) {
 	case t.firstID:
 		close(t.firstStarted)
 		<-t.releaseFirst

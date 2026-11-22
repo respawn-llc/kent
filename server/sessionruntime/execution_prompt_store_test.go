@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -42,7 +41,7 @@ func resolveAuthorityQuestionForTest(
 	answer tools.AskQuestionAnswer,
 ) error {
 	_, err := authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []PromptAnswerCommand{{
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 		Payload:    PromptQuestionAnswerCommand{Answer: answer},
 	}})
 	return err
@@ -106,7 +105,7 @@ func TestExecutionPromptStoreCloseFinalizesEveryApprovalOnce(t *testing.T) {
 	waiters := []chan error{make(chan error, 1), make(chan error, 1)}
 	for index, id := range ids {
 		go func() {
-			_, err := store.Await(context.Background(), tools.AskQuestionRequest{ToolCallID: id, StepID: stepID.String(), Question: "Allow access?", Approval: true, ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}}})
+			_, err := store.Await(context.Background(), tools.AskQuestionRequest{ToolCallID: runtimeids.ToolCallID(id), StepID: stepID.String(), Question: "Allow access?", Approval: true, ApprovalOptions: []tools.AskQuestionApprovalOption{{Decision: tools.AskQuestionApprovalDecisionAllowOnce}}})
 			waiters[index] <- err
 		}()
 	}
@@ -135,7 +134,7 @@ func TestExecutionPromptStoreCloseFinalizesEveryApprovalOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stale Approval submissions: %v", err)
 	}
-	requirePromptBatchResultSet(t, results, map[clientui.ToolCallID]PromptAnswerOutcome{clientui.ToolCallID(ids[0]): PromptAnswerOutcomeSkipped, clientui.ToolCallID(ids[1]): PromptAnswerOutcomeSkipped})
+	requirePromptBatchResultSet(t, results, map[runtimeids.ToolCallID]PromptAnswerOutcome{runtimeids.ToolCallID(ids[0]): PromptAnswerOutcomeSkipped, runtimeids.ToolCallID(ids[1]): PromptAnswerOutcomeSkipped})
 	select {
 	case event := <-feed:
 		t.Fatalf("duplicate Approval publication: %+v", event)
@@ -166,14 +165,14 @@ func TestExecutionPromptStoreRejectsPromptWhenPendingPublicationFails(t *testing
 
 func batchedPromptRequest(id string, ordinal int) tools.AskQuestionRequest {
 	return tools.AskQuestionRequest{
-		ToolCallID: id,
+		ToolCallID: runtimeids.ToolCallID(id),
 		Question:   id,
 		Origin:     tools.AskQuestionOriginModelTool,
 		StepID:     "step-1",
 		QuestionBatch: &tools.AskQuestionBatchMetadata{
 			Origin:              tools.AskQuestionOriginModelTool,
 			StepID:              "step-1",
-			ToolCallID:          id,
+			ToolCallID:          runtimeids.ToolCallID(id),
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
 			CandidateOrdinal:    ordinal,
 			PreparedPromptCount: 2,

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,7 +28,7 @@ const missingToolOutputAfterCollapseInvariant = "compaction request still has a 
 // fabricating a successful one or silently erasing the call from history.
 const missingToolOutputInterruptedMessage = "Tool execution was interrupted before a result was produced. No output is available for this call."
 
-func missingToolOutputInterruptedResult(callID string, name toolspec.ID) tools.Result {
+func missingToolOutputInterruptedResult(callID runtimeids.ToolCallID, name toolspec.ID) tools.Result {
 	return toolErrorResult(tools.Call{ID: callID, Name: name}, missingToolOutputInterruptedMessage)
 }
 
@@ -66,7 +67,7 @@ func missingToolOutputPolicy(disposition missingToolOutputRepairDisposition) (mi
 
 // danglingToolCall identifies a persisted tool call that lacks an output.
 type danglingToolCall struct {
-	callID string
+	callID runtimeids.ToolCallID
 	name   string
 	stepID *string
 }
@@ -229,7 +230,7 @@ func itemsHaveDanglingToolCalls(items []llm.ResponseItem) bool {
 		if !present {
 			continue
 		}
-		if _, ok := materialized[callID]; ok {
+		if _, ok := materialized[runtimeids.ToolCallID(callID)]; ok {
 			continue
 		}
 		return true

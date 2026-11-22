@@ -179,7 +179,7 @@ func toolRole(meta toolMeta) StyleRole {
 	if meta.Presentation == transcript.ToolPresentationAskQuestion {
 		return StyleRoleToolQuestion
 	}
-	if isWebSearchTool(meta.ToolName) {
+	if meta.Presentation == transcript.ToolPresentationWebSearch {
 		return StyleRoleToolWebSearch
 	}
 	if meta.IsShell {
@@ -208,11 +208,11 @@ type toolDisplay struct {
 func toolDisplayText(row *transcriptpb.ToolRow, meta toolMeta, mode Mode) toolDisplay {
 	if mode == ModeOngoing || mode == ModeOngoingCollapsed || mode == ModeDetailCollapsed {
 		text := compactToolText(meta, firstNonEmpty(optionalString(row.CondensedText), row.Text))
-		if isWebSearchTool(meta.ToolName) && row.WebSearch != nil {
+		if meta.Presentation == transcript.ToolPresentationWebSearch && row.WebSearch != nil {
 			text = webActionDisplayText(row.WebSearch)
 		}
 		status := ""
-		if !isWebSearchTool(meta.ToolName) {
+		if meta.Presentation != transcript.ToolPresentationWebSearch {
 			resultSummary := optionalString(row.ResultSummary)
 			if isPatchTool(meta) && !meta.IsError {
 				return toolDisplay{Text: text}
@@ -324,8 +324,7 @@ func viewImageDisplayText(meta toolMeta) (string, bool) {
 }
 
 func webSearchDisplayText(meta toolMeta) (string, bool) {
-	toolID, ok := toolspec.ParseID(meta.ToolName)
-	if !ok || toolID != toolspec.ToolWebSearch {
+	if meta.Presentation != transcript.ToolPresentationWebSearch {
 		return "", false
 	}
 	query := strings.TrimSpace(meta.Command)
@@ -664,9 +663,4 @@ func wrapPatchSourceLine(kind patchformat.ChangedLineKind, source []Span, width 
 
 func isPatchTool(meta toolMeta) bool {
 	return transcript.IsPatchFamilyToolName(meta.ToolName)
-}
-
-func isWebSearchTool(toolName string) bool {
-	toolID, ok := toolspec.ParseID(toolName)
-	return ok && toolID == toolspec.ToolWebSearch
 }

@@ -27,7 +27,7 @@ const (
 
 func workflowCompletionOperatorDiagnostic(
 	diagnostic error,
-	afterToolCallID *string,
+	afterToolCallID *runtimeids.ToolCallID,
 ) storedLocalEntry {
 	if diagnostic == nil {
 		panic("workflow completion operator diagnostic requires an error")

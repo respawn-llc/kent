@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -39,7 +40,7 @@ func TestCompactionCacheObservationRequestBuildsExactConversationReplica(t *test
 	for _, message := range []llm.Message{
 		{Role: llm.RoleUser, Content: textutil.Value(seedContent)},
 		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}},
-		{Role: llm.RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"/tmp"}`)},
+		{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"/tmp"}`)},
 	} {
 		if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{message})); err != nil {
 			t.Fatalf("append transcript message: %v", err)
@@ -118,7 +119,7 @@ func TestRemoteCompactionCollapsesToolPayloadAfterOverflowAndPersistsCacheWarnin
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}})); err != nil {
 		t.Fatalf("append tool call: %v", err)
 	}
-	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)}})); err != nil {
+	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"` + strings.Repeat("x", 120_000) + `"}`)}})); err != nil {
 		t.Fatalf("append tool output: %v", err)
 	}
 
@@ -220,7 +221,7 @@ func TestRemoteCompactionDoesNotRepairUnsupportedViewImagePayload(t *testing.T) 
 		t.Fatalf("append view-image tool call: %v", err)
 	}
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
-		Role: llm.RoleTool, ToolCallID: textutil.Value("call-view-image-1"), Name: textutil.Value(string(toolspec.ToolViewImage)),
+		Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-view-image-1")), Name: textutil.Value(string(toolspec.ToolViewImage)),
 		Content: textutil.Value(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
 	}})); err != nil {
 		t.Fatalf("append view-image tool output: %v", err)

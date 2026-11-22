@@ -5,7 +5,7 @@ type TranscriptTool = NonNullable<ChatTranscriptCommittedRow["Tool"]>;
 type TranscriptToolPresentation = NonNullable<TranscriptTool["Presentation"]>;
 
 export type TranscriptNonQuestionToolPresentation = Omit<TranscriptToolPresentation, "Presentation"> &
-  Readonly<{ Presentation: "default" | "shell" }>;
+  Readonly<{ Presentation: "default" | "shell" | "web_search" }>;
 
 export type TranscriptToolCall = Omit<TranscriptToolStart, "Presentation"> &
   Readonly<{ Presentation?: TranscriptNonQuestionToolPresentation | null }>;

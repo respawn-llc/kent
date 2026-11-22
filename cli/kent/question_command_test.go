@@ -649,7 +649,7 @@ func TestQuestionByTaskApprovalReadsSuccessorQuestion(t *testing.T) {
 	attention := taskQuestionAttention(taskID, sessionID, "Implementer", toolCallID, "Allow access?", 1)
 	approval := clientui.PendingApproval{
 		CreatedAt:  time.Unix(1, 0),
-		ToolCallID: clientui.ToolCallID(toolCallID), SessionID: mustQuestionCommandSessionID(sessionID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID), SessionID: mustQuestionCommandSessionID(sessionID),
 		StepID: questionCommandStepID(),
 		Options: []clientui.ApprovalOption{
 			{Decision: clientui.ApprovalDecisionDeny},

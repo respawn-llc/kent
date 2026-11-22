@@ -2,6 +2,7 @@ package processview
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -525,7 +526,7 @@ func (f processViewFixture) startCommand(t *testing.T, id string, command string
 	}
 	identity.StepID = stepID
 	result, err := f.tool.Call(tools.WithExecutionIdentity(ctx, identity), tools.Call{
-		ID:     id,
+		ID:     runtimeids.ToolCallID(id),
 		Name:   toolspec.ToolExecCommand,
 		Input:  input,
 		StepID: stepID,
