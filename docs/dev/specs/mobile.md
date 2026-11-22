@@ -15,6 +15,7 @@ For build and module decisions, see [Mobile architecture](../mobile-architecture
 - Users must provide network reachability and protection for their connection.
 - Mobile must follow the [server API contract](server-api-contract.md).
 - Mobile must require a live connection for server operations.
+- Mobile must give users local feedback on invalid input when the check is fast and needs no server state. The server must validate submitted requests and check facts such as whether a referenced Task exists.
 - Mobile must keep unsent drafts across app restarts.
 
 ## Layout

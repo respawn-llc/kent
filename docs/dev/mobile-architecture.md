@@ -6,6 +6,7 @@
 | UI and screen state      | Compose Multiplatform with Material 3. FlowMVI containers own screen state independently of Compose.         |
 | Dependency injection     | Metro                                                                                                        |
 | Error handling           | ApiResult                                                                                                    |
+| Form validation          | KMP Utils `inputforms` for fast checks of user-entered values.                                               |
 | API                      | Square Wire generates Kotlin DTOs from Kent’s Protobuf schemas into `commonMain`.                            |
 | Networking               | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
 | Navigation               | Decompose                                                                                                    |
