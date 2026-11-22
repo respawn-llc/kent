@@ -385,7 +385,7 @@ func localCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem, e
 	}
 	calls := make([]llm.ToolCall, 0, len(resp.ToolCalls))
 	for _, call := range resp.ToolCalls {
-		if strings.TrimSpace(call.ID) == "" {
+		if call.ID == "" {
 			return nil, errLocalCompactionToolCallEmptyID
 		}
 		calls = append(calls, call)
@@ -399,7 +399,7 @@ func localCompactionToolCallRetryItems(resp llm.Response) ([]llm.ResponseItem, e
 		result := toolErrorResult(tools.Call{ID: call.ID, Name: toolspec.ID(call.Name)}, localCompactionToolsDisabledMessage)
 		items = append(items, llm.ResponseItem{
 			Type:   llm.ToolOutputItemType(call.Custom),
-			CallID: textutil.OptionalTrimmedString(call.ID),
+			CallID: textutil.OptionalTrimmedString(string(call.ID)),
 			Name:   textutil.OptionalExactString(call.Name),
 			Output: result.Output,
 		})

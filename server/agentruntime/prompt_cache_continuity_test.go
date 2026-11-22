@@ -748,9 +748,9 @@ func seq21To28ShapeRequest(t testing.TB, thirdCallInput json.RawMessage) llm.Req
 				},
 				ReasoningItems: []llm.ReasoningItem{{ID: "rs-seq21", EncryptedContent: "encrypted-seq21"}},
 			},
-			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-lines"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"42 docs/dev/specs/README.md"`)},
-			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-search"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"docs/dev/specs/README.md:1:# Product Specs"`)},
-			{Role: llm.RoleTool, ToolCallID: textutil.Value("call-status"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"M\tdocs/dev/specs/README.md"`)},
+			{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-lines")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"42 docs/dev/specs/README.md"`)},
+			{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-search")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"docs/dev/specs/README.md:1:# Product Specs"`)},
+			{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-status")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`"M\tdocs/dev/specs/README.md"`)},
 		}),
 		Tools: []llm.Tool{{Name: string(toolspec.ToolExecCommand), Description: "execute command", Schema: mustTestFunctionSchema(t)}}, ReasoningEffort: "high",
 	}

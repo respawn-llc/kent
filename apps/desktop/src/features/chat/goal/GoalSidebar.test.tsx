@@ -695,7 +695,9 @@ function newChatTarget() {
   return {
     kind: "new_chat" as const,
     projectID: "project-1",
-    workspaceID: "workspace-1",
+    workspace: { workspaceID: "workspace-1" },
+    name: null,
+    worktreeSelector: null,
     initialSettings: {
       agentRole: "default" as const,
       supervisor: "off" as const,

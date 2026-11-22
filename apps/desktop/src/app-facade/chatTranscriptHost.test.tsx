@@ -42,7 +42,9 @@ it("fulfills a pending Jump from replacement hydration and ignores its delayed n
   await act(async () =>
     view.fixture.handlers[0]?.onEvent({ sequence: 1, kind: "hydration", payload: hydration([row(50)], 1) }),
   );
-  expect(view.onReady).toHaveBeenCalledTimes(1);
+  await waitFor(() => {
+    expect(view.onReady).toHaveBeenCalledTimes(1);
+  });
   expect(view.owner.snapshot.jumpPending).toBe(false);
   await act(async () => {
     view.response.resolve(page([row(40)], 400));

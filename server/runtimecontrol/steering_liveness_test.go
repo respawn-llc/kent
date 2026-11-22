@@ -2,6 +2,7 @@ package runtimecontrol
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -104,7 +105,7 @@ func TestServiceRepeatedConcurrentSteersDrainWithoutInterrupt(t *testing.T) {
 				Phase: textutil.Value(llm.MessagePhaseCommentary),
 			},
 			ToolCalls: []llm.ToolCall{{
-				ID: fmt.Sprintf("call-%d", round), Name: string(toolspec.ToolExecCommand),
+				ID: runtimeids.ToolCallID(fmt.Sprintf("call-%d", round)), Name: string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":":"}`),
 			}},
 			Usage: llm.Usage{InputTokens: textutil.Value(inputTokens), WindowTokens: settings.ModelContextWindow, ContextUsage: &llm.ContextUsage{Tokens: inputTokens, MeasurementPoint: llm.ContextMeasurementInput}},

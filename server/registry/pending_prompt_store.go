@@ -48,7 +48,7 @@ func (s *pendingPromptStore) Prepare(resource runtimeids.SessionResourceRef, ste
 	}
 	unmaterialized := make(map[string]struct{}, len(toolCallIDs))
 	for _, id := range toolCallIDs {
-		if err := clientui.ToolCallID(id).Validate(); err != nil {
+		if err := runtimeids.ToolCallID(id).Validate(); err != nil {
 			return err
 		}
 		if _, exists := unmaterialized[id]; exists {
@@ -102,7 +102,7 @@ func (s *pendingPromptStore) projectBatchLocked(pending map[string]PendingPrompt
 }
 
 func (s *pendingPromptStore) Begin(sessionID string, resource runtimeids.SessionResourceRef, scopeID runtimeids.ExecutionScopeID, req askquestion.AskQuestionRequest, createdAt time.Time) (PendingPromptSnapshot, bool) {
-	id, toolCallID := strings.TrimSpace(sessionID), strings.TrimSpace(req.ToolCallID)
+	id, toolCallID := strings.TrimSpace(sessionID), strings.TrimSpace(string(req.ToolCallID))
 	snapshot := PendingPromptSnapshot{Request: req.Clone(), CreatedAt: createdAt, Resource: resource, ScopeID: scopeID}
 	s.mu.Lock()
 	pending := maps.Clone(s.load(id))

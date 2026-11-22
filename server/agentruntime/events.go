@@ -4,8 +4,8 @@ import (
 	"core/server/llm"
 	"core/server/sessionstore"
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/runtimeinput"
 	"core/shared/transcriptmodel"
 	"fmt"
@@ -156,7 +156,7 @@ type Event struct {
 	ModelResponse                *ModelResponseTrace
 	ToolCall                     *llm.ToolCall
 	PreparedQuestionBatch        *tools.AskQuestionBatchMetadata
-	FinishedQuestionCandidate    *clientui.ToolCallID
+	FinishedQuestionCandidate    *runtimeids.ToolCallID
 	ToolResult                   *tools.Result
 	ToolAbortReason              string
 	Compaction                   *CompactionStatus

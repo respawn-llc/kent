@@ -11,7 +11,6 @@ import (
 
 	"core/server/agentruntime"
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -466,7 +465,7 @@ func (s *executionPromptStore) Await(ctx context.Context, req tools.AskQuestionR
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	toolCallID := strings.TrimSpace(req.ToolCallID)
+	toolCallID := strings.TrimSpace(string(req.ToolCallID))
 	snapshot := ExecutionPromptSnapshot{
 		Scope:     s.scope,
 		Request:   req.Clone(),
@@ -630,7 +629,7 @@ func (s *executionPromptStore) pendingReferencesLocked() ([]PendingPromptReferen
 			return nil, errors.New("pending prompt store contains a nil entry")
 		}
 		reference := PendingPromptReference{
-			ToolCallID: clientui.ToolCallID(requestID),
+			ToolCallID: runtimeids.ToolCallID(requestID),
 		}
 		if entry.snapshot.Request.Approval {
 			reference.Kind = PendingPromptKindSessionApproval
@@ -659,7 +658,7 @@ func (s *executionPromptStore) publishResolved(snapshot ExecutionPromptSnapshot)
 	if s.feed == nil {
 		return nil
 	}
-	return s.feed.PromptResolvedScope(snapshot.Scope, snapshot.Request.ToolCallID)
+	return s.feed.PromptResolvedScope(snapshot.Scope, string(snapshot.Request.ToolCallID))
 }
 
 func (a *Authority) AwaitPromptResolution(

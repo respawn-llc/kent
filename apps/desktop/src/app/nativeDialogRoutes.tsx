@@ -4,8 +4,9 @@ import { z } from "zod";
 import { TaskDetailWindowRoute } from "@/features/task-detail";
 import { InvalidNativeDialogRoute } from "./InvalidNativeDialogRoute";
 import { taskDetailNativeDialogPath } from "./sidebarPopOut";
-import { nativeChatRoutePath } from "@/app-facade";
+import { nativeChatRoutePath, useAppNavigation } from "@/app-facade";
 import { NativeChatRoute } from "./NativeChatRoute";
+import { NewSessionShortcuts } from "./NewSessionShortcuts";
 
 const optionalSearchString = z.string().catch("");
 
@@ -43,12 +44,18 @@ export function createNativeDialogRoutes(rootRoute: RootRoute<Register>) {
   });
 
   function TaskDetailNativeRoute() {
+    const navigation = useAppNavigation();
     const search = taskDetailSearchSchema.parse(taskDetailWindowRoute.useSearch());
     const taskID = search.taskID.trim();
     if (taskID.length === 0) {
       return <InvalidNativeDialogRoute />;
     }
-    return <TaskDetailWindowRoute taskID={taskID} />;
+    return (
+      <>
+        <NewSessionShortcuts source={{ kind: "task", taskID }} openNewChat={navigation.openNewChat} />
+        <TaskDetailWindowRoute taskID={taskID} />
+      </>
+    );
   }
 
   return [taskDetailWindowRoute, chatRoute] as const;

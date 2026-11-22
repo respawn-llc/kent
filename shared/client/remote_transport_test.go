@@ -345,6 +345,7 @@ func TestRemoteControlConnectionIsolatesCancellationAndMalformedFrames(t *testin
 					reportHandlerError(handlerErrs, "send late first response: %w", err)
 					return
 				}
+				<-conn.Closed()
 				return
 			case rpcwire.FrameText:
 				reportHandlerError(handlerErrs, "unexpected frame kind %d", event.Frame.Kind)

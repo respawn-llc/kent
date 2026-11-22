@@ -71,6 +71,7 @@
 ## Core Tools And Runtime Integration
 
 - The core model tools are `exec_command`, `write_stdin`, `view_image`, `patch`, `ask_question`, and `trigger_handoff`.
+- The server must supply one shared typed Web Search presentation family to TUI and Desktop for saved and live rows. The current tool definition must determine this family. Clients must not infer this family from tool names. Deriving this family must not modify saved conversation or search results.
 - Outside Workflow-controlled Sessions, model-callable Goal, worktree, Task, and Workflow tools are unavailable. Adding a tool requires explicit human approval and a spec update.
 - Model/transcript-visible Session mutations follow the Active Session Runtime's accepted mutation order unless the Runtime Steering specification assigns the operation to an exact or direct owner.
 - Tool definitions advertise one canonical tool name and canonical parameter names. Their schemas allow only recognized parameters. Kent accepts the hidden aliases below only for incoming model tool calls, and they do not expand accepted configuration names.

@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, mock, vi } from "bun:test";
 import { useState } from "react";
+import {
+  createRootRoute,
+  createRouter,
+  createMemoryHistory,
+  RouterContextProvider,
+} from "@tanstack/react-router";
 import type { ChatSettingsOptions } from "@/features/chat";
 import { createTestServices, TestAppProviders } from "@/test-support/app-services";
 import { SidebarProvider } from "./sidebarProvider";
@@ -15,6 +21,7 @@ await mock.module("@tanstack/react-router", () => ({
   ...actualRouter,
   getRouteApi: () => ({
     useParams: () => ({ projectId: "project-1", sessionId: "session-1" }),
+    useSearch: () => ({}),
   }),
 }));
 await mock.module("@/app-facade", () => ({
@@ -63,12 +70,18 @@ it.each([ChatRoute, NewChatRoute])(
   "opens parent Task in the sidebar without leaving chat (%#)",
   async (Route) => {
     openTask.mockClear();
+    const router = createRouter({
+      routeTree: createRootRoute(),
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
     render(
       <TestAppProviders services={createTestServices([])}>
-        <SidebarProvider policy={sidebarDestinationPolicy}>
-          <Route />
-          <SidebarState />
-        </SidebarProvider>
+        <RouterContextProvider router={router}>
+          <SidebarProvider policy={sidebarDestinationPolicy}>
+            <Route />
+            <SidebarState />
+          </SidebarProvider>
+        </RouterContextProvider>
       </TestAppProviders>,
     );
     fireEvent.change(screen.getByRole("textbox", { name: "draft" }), { target: { value: "unsent draft" } });

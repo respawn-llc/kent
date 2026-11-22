@@ -2,11 +2,11 @@ package executionfixture
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"testing"
 
 	"core/internal/testharness/testsetup"
 	"core/server/tools"
-	"core/shared/clientui"
 
 	"github.com/google/uuid"
 )
@@ -17,7 +17,7 @@ func ExecutionContext(t testing.TB, ctx context.Context, callID string) context.
 	shortID := testsetup.ShellLogSessionShortID(t)
 	return tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
 		StepID:         uuid.NewString(),
-		ToolCallID:     clientui.ToolCallID(callID),
+		ToolCallID:     runtimeids.ToolCallID(callID),
 		SessionShortID: shortID,
 	})
 }

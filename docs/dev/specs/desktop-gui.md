@@ -1,5 +1,9 @@
 ## Authority, connection, and shared behavior
 
+- Desktop must support window-level New Chat shortcuts: Cmd+N and Cmd+Shift+N on macOS, and Ctrl+N and Ctrl+Shift+N on Linux and Windows. The current sidebar must take Project authority over the page behind it. If the current context does not identify one Project, the shortcuts must do nothing. Shortcut actions must run asynchronously without a loading spinner.
+- Desktop must queue shortcut presses in their window and execute them sequentially, checking the current destination before each action. The unshifted shortcut must do nothing on a not-yet-created New Chat page. On that page in the main window, the shifted shortcut may open a new Chat window. In a not-yet-created Chat popup, both shortcuts must do nothing. Queued presses must not open further windows after focus transfers to the new Chat window.
+- From Home with a selected Project, a Kanban board, or Task details, the unshifted shortcut must push an empty Chat with the default Agent onto the current window's navigation stack; the shifted shortcut must open it in a popup window. From an existing Session's Chat, the unshifted shortcut must push an empty Chat onto the current window's navigation stack so Back returns to the preceding Chat; the shifted shortcut must open it in a popup window. Both shortcuts must use that Session's Agent and that Agent's default settings, without copying other Session settings.
+
 - Tooltips must not intercept pointer or scroll input. Tooltips must dismiss when their containing scroll surface scrolls.
 
 - Across all destinations, the global sidebar owner selects shifting only when the measured main pane has at least 400 pixels after reserving the sidebar's preferred width and inset, and selects overlay otherwise. Destinations may explicitly require a mode. Home measures its inner main pane, excluding the Project catalog. A shifted sidebar cannot be widened far enough to reduce the main pane below 400 pixels. Any sidebar closes when its available width falls below 400 pixels. An open sidebar keeps its chosen mode until it closes.
@@ -83,6 +87,8 @@
 
 ## Home and navigation
 
+- All resizable Desktop windows must use a minimum content size of 320 × 213 logical pixels, regardless of which page is open.
+
 - Closing a Desktop window must close only that window. Desktop must exit when its last window closes.
 - While a Chat popup is open, the operator must be able to open the main Project list on macOS, Windows, and Linux.
 - On macOS, reopening Desktop from the Dock must show the main window.
@@ -150,6 +156,9 @@
 - After a workspace-catalog page-edge failure, loaded rows must be visible with Retry at that edge. A first-page failure uses the standard retryable error state.
 - Raw Project Settings catalog pages are not deduplicated or reconciled. Detach must refresh the loaded Workspace catalog from the server, including when the Workspace was already detached. Other Workspace mutations do not refresh loaded pages, which may overlap or be stale.
 - Workspace detach confirmation must use an in-window modal over the destination, outside the sidebar layout. Confirm must close the modal and submit the detach through Project Settings. Project Settings must show request progress and success, blocker, or error feedback in the main window.
+- Desktop must present every Workspace detach blocker in the existing failure notification with a localized explanation, a positive count when supplied, and a short next step. Retry must use the explicit unlink action without automatic cleanup or new navigation actions.
+- For known Workspace detach blockers, Desktop must use the remedies in [Detach blocker guidance](cli-commands.md#detach-blocker-guidance), phrased for Desktop without CLI commands.
+- For an unrecognized Workspace detach blocker, Desktop must show localized generic guidance, the blocker code, and any positive count. It must advise updating Desktop and server together without guessing a remedy.
 - A workspace row shows the shared shortened-path presentation, default status, and unlink action. Choosing an already attached path focuses its row or gives equivalent feedback.
 - Choosing an already attached path outside the loaded pages keeps the current list and scroll position and shows success-style feedback without adding or finding its row.
 - Project Settings loads Project metadata and the Workspace catalog independently.
@@ -373,6 +382,12 @@
 - Leaving the destination that owns queued Task Label edits must discard selections that are unsent when its scheduled local cleanup finishes. Queued selections may submit before cleanup finishes. Submitted requests must finish normally.
 
 ## Tasks
+
+- Ordinary navigation that opens or reopens Task Detail must start at the top, regardless of the Task's attention state or Comment scroll position.
+- Back and Forward that reopen Task Detail must start at the top without replaying an earlier focus request.
+- Clicking an already-open Task without an explicit target must be a no-op.
+- An explicit attention, Approval, or “view dependencies” action must jump to its requested target, including when the Task is already open or the operator has scrolled away from that target.
+- An explicit focus request must not affect later ordinary openings.
 
 - Task Detail must identify Current Nodes by their workflow display names in effective Agent and thinking labels and their tooltips, not by Node IDs.
 

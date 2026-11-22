@@ -183,7 +183,7 @@ func reviewerTranscriptMessagesFromMessage(message llm.Message) []llm.Message {
 		return reviewerMessagesFromChatEntries(visibleEntries)
 	}
 	if message.Role == llm.RoleTool {
-		if _, present := textutil.OptionalTrimmed(message.ToolCallID); !present {
+		if _, present := textutil.OptionalValue(message.ToolCallID); !present {
 			return nil
 		}
 	}

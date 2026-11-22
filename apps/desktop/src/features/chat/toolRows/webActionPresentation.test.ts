@@ -1,9 +1,37 @@
 import { expect, it, vi } from "bun:test";
 import { row } from "@/test-support/transcript-window";
 import { resolveToolPresentation, type ToolPresentationStrings } from "./toolPresentation";
-import type { TranscriptCommittedToolRow, TranscriptToolSlotItem } from "./toolSlotTypes";
+import type {
+  TranscriptCommittedToolRow,
+  TranscriptNonQuestionToolPresentation,
+  TranscriptToolSlotItem,
+} from "./toolSlotTypes";
 
-function fixture(action: NonNullable<TranscriptCommittedToolRow["Tool"]["WebSearch"]>["action"]) {
+function fixture(
+  action: NonNullable<TranscriptCommittedToolRow["Tool"]["WebSearch"]>["action"],
+  toolName = "web_search",
+  family: "web_search" | "default" = "web_search",
+) {
+  const meta: TranscriptNonQuestionToolPresentation = {
+    ToolName: toolName,
+    Presentation: family,
+    RenderBehavior: "default",
+    IsShell: false,
+    UserInitiated: false,
+    Command: "",
+    CompactText: "",
+    InlineMeta: "",
+    TimeoutLabel: "",
+    PatchPresentation: null,
+    Question: "",
+    Suggestions: [],
+    RecommendedOptionIndex: 0,
+    OmitSuccessfulResult: false,
+    RawOutputRequested: false,
+    OutputTruncated: false,
+    MovedToBackground: false,
+    ShellExitCode: null,
+  };
   const item: TranscriptToolSlotItem = {
     kind: "committed",
     row: {
@@ -11,7 +39,8 @@ function fixture(action: NonNullable<TranscriptCommittedToolRow["Tool"]["WebSear
       Kind: "tool",
       User: null,
       Tool: {
-        ToolName: "web_search",
+        ToolName: toolName,
+        Presentation: meta,
         ToolCallID: "web-activity",
         Text: "",
         IsError: false,
@@ -35,8 +64,17 @@ function fixture(action: NonNullable<TranscriptCommittedToolRow["Tool"]["WebSear
     viewedImage: (path: string) => path,
     formatPath: (path: string) => path,
   };
-  return { item, strings };
+  return { item, strings, meta };
 }
+
+it.each([
+  ["provider-display-name", "web_search", "web-search"],
+  ["web_search", "default", "generic"],
+  ["ordinary-tool", "default", "generic"],
+] as const)("selects the supplied family for %s", (name, family, expected) => {
+  const { item, strings } = fixture({ kind: "search", queries: [] }, name, family);
+  expect(resolveToolPresentation(item, strings).kind).toBe(expected);
+});
 
 function webPresentation(item: TranscriptToolSlotItem, strings: ToolPresentationStrings) {
   const presentation = resolveToolPresentation(item, strings);
@@ -70,12 +108,12 @@ it("keeps page text matching distinct from a web query", () => {
 });
 
 it("does not claim a query while a native web action is still unknown", () => {
-  const { strings } = fixture({ kind: "search", queries: [] });
+  const { strings, meta } = fixture({ kind: "search", queries: [] });
   const result = webPresentation(
     {
       kind: "call",
       activity: "active",
-      tool: { StepID: "step", ToolCallID: "web-activity", ToolName: "web_search" },
+      tool: { StepID: "step", ToolCallID: "web-activity", ToolName: "web_search", Presentation: meta },
     },
     strings,
   );

@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/server/authmanager"
 	"core/shared/config"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 	"encoding/json"
@@ -91,7 +92,7 @@ func TestBuildPayload_SerializesAssistantToolCalls(t *testing.T) {
 					{ID: "call-1", Name: "shell", Input: json.RawMessage(`{"command":"pwd"}`)},
 				},
 			},
-			{Role: RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value("shell"), Content: textutil.Value("{}")},
+			{Role: RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")), Name: textutil.Value("shell"), Content: textutil.Value("{}")},
 		}), ReasoningEffort: "high",
 	}, OpenAIAuthMode{}, requireProviderCapabilities(t, transport, OpenAIAuthMode{}))
 	if err != nil {
@@ -168,7 +169,7 @@ func TestItemsFromMessagesNormalizesEscapedHTMLToolArguments(t *testing.T) {
 func TestItemsFromMessagesReplaysCustomToolCallWithoutInventingProviderItemID(t *testing.T) {
 	items := ItemsFromMessages([]Message{
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call_patch", Name: "patch", Custom: true, CustomInput: textutil.Value("*** Begin Patch\n*** End Patch\n")}}},
-		{Role: RoleTool, MessageType: textutil.Value(MessageTypeCustomToolCallOutput), ToolCallID: textutil.Value("call_patch"), Content: textutil.Value(`{"ok":true}`)},
+		{Role: RoleTool, MessageType: textutil.Value(MessageTypeCustomToolCallOutput), ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call_patch")), Content: textutil.Value(`{"ok":true}`)},
 	})
 	input := mustMarshalItems(t, mustBuildResponsesInput(t, items))
 	if len(input) != 2 || input[0]["type"] != "custom_tool_call" || input[0]["call_id"] != "call_patch" || input[1]["call_id"] != "call_patch" {
@@ -275,7 +276,7 @@ func TestBuildResponsesInput_ToolOutputSupportsStructuredInputImageItems(t *test
 	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{
 			Role:       RoleTool,
-			ToolCallID: textutil.Value("call_1"),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call_1")),
 			Content:    textutil.Value(`[{"type":"input_image","image_url":"data:image/png;base64,abc","detail":"original"}]`),
 		},
 	}))
@@ -607,7 +608,7 @@ func TestBuildResponsesInput_MessageToolOutputPromotesPDFToInputMessage(t *testi
 	items := mustBuildResponsesInput(t, ItemsFromMessages([]Message{
 		{
 			Role:       RoleTool,
-			ToolCallID: textutil.Value("call_1"),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call_1")),
 			Name:       textutil.Value(string(toolspec.ToolViewImage)),
 			Content:    textutil.Value(`[{"type":"input_file","file_data":"data:application/pdf;base64,Zm9v","filename":"doc.pdf"}]`),
 		},

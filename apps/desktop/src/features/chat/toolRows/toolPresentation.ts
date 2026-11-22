@@ -8,7 +8,7 @@ import type {
 
 type ToolMeta = TranscriptNonQuestionToolPresentation;
 type PatchPresentation = NonNullable<ToolMeta["PatchPresentation"]>;
-type ChatToolIdentityKind = "edit" | "patch" | "shell-command" | "shell-input" | "view-image" | "web-search";
+type ChatToolIdentityKind = "edit" | "patch" | "shell-command" | "shell-input" | "view-image";
 type ChatToolIdentity = Readonly<{
   kind: ChatToolIdentityKind;
 }>;
@@ -181,20 +181,6 @@ const chatToolIdentities = new Map<string, ChatToolIdentity>([
     "replace-text",
     "replaceText",
   ]),
-  ...aliases("web-search", [
-    "web_search",
-    "web-search",
-    "webSearch",
-    "web_search_preview",
-    "web-search-preview",
-    "webSearchPreview",
-    "web_search_call",
-    "web-search-call",
-    "webSearchCall",
-    "search_web",
-    "search-web",
-    "searchWeb",
-  ]),
 ]);
 
 function aliases(
@@ -213,6 +199,9 @@ export function resolveToolPresentation(
   strings: ToolPresentationStrings,
 ): ToolPresentation {
   const context = resolutionContext(item);
+  if (context.meta?.Presentation === "web_search") {
+    return resolveWebSearch(context, strings);
+  }
   const identity = resolveChatToolIdentity(context.tool.ToolName);
   if (context.meta?.PatchPresentation != null) {
     return resolvePatch(context, strings, identity);
@@ -237,8 +226,6 @@ function resolveNonPatchTool(
   kind: Exclude<ChatToolIdentityKind, "edit" | "patch"> | undefined,
 ): ToolPresentation {
   switch (kind) {
-    case "web-search":
-      return resolveWebSearch(context, strings);
     case "view-image":
       return resolveViewImage(context, strings) ?? { ...resolveGeneric(context), copyPayload: undefined };
     case "shell-input":

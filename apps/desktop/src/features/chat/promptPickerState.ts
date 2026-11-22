@@ -208,10 +208,14 @@ function setCommentary(
   }
 }
 
-function invalidAnswer(selected: PickerDraft): "none" | "focus-field" | null {
+function invalidAnswer(
+  selected: PickerDraft,
+  commentary: "complete" | "recording" = "complete",
+): "none" | "focus-field" | null {
   if (selected.selection.kind === "none") return "none";
   if (
     (selected.selection.kind === "neither" || selected.selection.kind === "freeform") &&
+    commentary === "complete" &&
     selected.commentary.trim().length === 0
   )
     return "focus-field";
@@ -253,11 +257,14 @@ export function isPickerDraftComplete(draft: PickerDraft): boolean {
   return draft.status === "answered" || draft.status === "declined";
 }
 
-export function canConfirmPicker(state: PickerState): boolean {
+export function canConfirmPicker(
+  state: PickerState,
+  commentary: "complete" | "recording" = "complete",
+): boolean {
   const current = state.current === null ? undefined : state.drafts.get(state.current);
   if (current === undefined) return false;
   if ([...state.drafts.values()].every(isPickerDraftComplete)) return true;
-  return current.status !== "declined" && invalidAnswer(current) === null;
+  return current.status !== "declined" && invalidAnswer(current, commentary) === null;
 }
 
 export function sameSelection(left: PickerSelection, right: PickerSelection): boolean {

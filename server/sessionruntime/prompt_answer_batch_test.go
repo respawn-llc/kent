@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -88,7 +87,7 @@ func TestExecutionPromptStoreResolvePromptBatchResolvesMixedEntriesInCanonicalOr
 			if err != nil {
 				t.Fatalf("ResolvePromptBatch: %v", err)
 			}
-			requirePromptBatchResultSet(t, results, map[clientui.ToolCallID]PromptAnswerOutcome{
+			requirePromptBatchResultSet(t, results, map[runtimeids.ToolCallID]PromptAnswerOutcome{
 				"question-a": PromptAnswerOutcomeResolved,
 				"question-b": PromptAnswerOutcomeResolved,
 				"approval":   PromptAnswerOutcomeResolved,
@@ -228,7 +227,7 @@ func TestExecutionPromptStoreResolvePromptBatchDoesNotWaitForPreparedSuccessor(t
 	if err != nil {
 		t.Fatalf("ResolvePromptBatch: %v", err)
 	}
-	requirePromptBatchResultSet(t, results, map[clientui.ToolCallID]PromptAnswerOutcome{
+	requirePromptBatchResultSet(t, results, map[runtimeids.ToolCallID]PromptAnswerOutcome{
 		"first": PromptAnswerOutcomeResolved,
 	})
 }
@@ -244,7 +243,7 @@ func TestExecutionPromptStoreResolvesModelQuestionsInOriginalCallOrder(t *testin
 		entry.snapshot.Request.Origin = tools.AskQuestionOriginModelTool
 		entry.snapshot.Request.QuestionBatch = &tools.AskQuestionBatchMetadata{
 			Origin: tools.AskQuestionOriginModelTool, StepID: stepID.String(),
-			ToolCallID: id, BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
+			ToolCallID: runtimeids.ToolCallID(id), BatchToolCallIDs: ids, CandidateOrdinal: index, PreparedPromptCount: len(ids),
 		}
 		entries[index] = entry
 		commands[len(ids)-index-1] = promptDeclined(id)
@@ -339,7 +338,7 @@ func newPromptBatchStore(t *testing.T) (executionPromptStore, *promptBatchRecord
 
 func promptBatchQuestion(id string, stepID runtimeids.StepID, createdAt time.Time) *executionPromptEntry {
 	request := tools.AskQuestionRequest{
-		ToolCallID:  id,
+		ToolCallID:  runtimeids.ToolCallID(id),
 		StepID:      stepID.String(),
 		Question:    id,
 		Suggestions: []string{"one", "two"},
@@ -349,7 +348,7 @@ func promptBatchQuestion(id string, stepID runtimeids.StepID, createdAt time.Tim
 
 func promptBatchApproval(id string, stepID runtimeids.StepID, createdAt time.Time) *executionPromptEntry {
 	request := tools.AskQuestionRequest{
-		ToolCallID: id,
+		ToolCallID: runtimeids.ToolCallID(id),
 		StepID:     stepID.String(),
 		Question:   id,
 		Approval:   true,
@@ -378,7 +377,7 @@ func installPromptBatchEntries(store *executionPromptStore, entries ...*executio
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	for _, entry := range entries {
-		store.pending[entry.snapshot.Request.ToolCallID] = entry
+		store.pending[string(entry.snapshot.Request.ToolCallID)] = entry
 	}
 }
 
@@ -392,7 +391,7 @@ func clonePromptBatchEntries(entries ...*executionPromptEntry) []*executionPromp
 
 func promptQuestionAnswer(toolCallID string, selected *int, freeform *string) PromptAnswerCommand {
 	return PromptAnswerCommand{
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 		Payload: PromptQuestionAnswerCommand{
 			Answer: tools.AskQuestionAnswer{
 				SelectedOptionNumber: selected,
@@ -404,7 +403,7 @@ func promptQuestionAnswer(toolCallID string, selected *int, freeform *string) Pr
 
 func promptApprovalAnswer(toolCallID string, decision tools.AskQuestionApprovalDecision, commentary *string) PromptAnswerCommand {
 	return PromptAnswerCommand{
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 		Payload: PromptApprovalAnswerCommand{
 			Answer: tools.AskQuestionApproval{
 				Decision:   decision,
@@ -416,7 +415,7 @@ func promptApprovalAnswer(toolCallID string, decision tools.AskQuestionApprovalD
 
 func promptDeclined(toolCallID string) PromptAnswerCommand {
 	return PromptAnswerCommand{
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 		Payload:    PromptDeclinedCommand{},
 	}
 }
@@ -424,13 +423,13 @@ func promptDeclined(toolCallID string) PromptAnswerCommand {
 func requirePromptBatchResultSet(
 	t *testing.T,
 	results []PromptAnswerResult,
-	want map[clientui.ToolCallID]PromptAnswerOutcome,
+	want map[runtimeids.ToolCallID]PromptAnswerOutcome,
 ) {
 	t.Helper()
 	if len(results) != len(want) {
 		t.Fatalf("result count = %d, want %d: %+v", len(results), len(want), results)
 	}
-	seen := make(map[clientui.ToolCallID]struct{}, len(results))
+	seen := make(map[runtimeids.ToolCallID]struct{}, len(results))
 	for _, result := range results {
 		if _, exists := seen[result.ToolCallID]; exists {
 			t.Fatalf("duplicate result identity %q", result.ToolCallID)

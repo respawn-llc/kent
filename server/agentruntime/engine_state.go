@@ -852,7 +852,7 @@ type storedLocalEntry struct {
 	ConnectionsUnavailable *transcript.ConnectionsUnavailableNotice `json:"connections_unavailable,omitempty"`
 	// AfterToolCallID keeps atomically persisted operator feedback visually
 	// attached after the tool result that caused it.
-	AfterToolCallID *string `json:"after_tool_call_id,omitempty"`
+	AfterToolCallID *runtimeids.ToolCallID `json:"after_tool_call_id,omitempty"`
 }
 
 type historyReplacementPayload struct {
@@ -1086,21 +1086,21 @@ func eventMayInferCommittedEntryStart(kind EventKind) bool {
 	}
 }
 
-func (e *Engine) rememberPendingToolCallStarts(starts map[string]int) {
+func (e *Engine) rememberPendingToolCallStarts(starts map[runtimeids.ToolCallID]int) {
 	if e == nil {
 		return
 	}
 	e.pendingToolCallStartStore().Remember(starts)
 }
 
-func (e *Engine) pendingToolCallStart(callID string) (int, bool) {
+func (e *Engine) pendingToolCallStart(callID runtimeids.ToolCallID) (int, bool) {
 	if e == nil {
 		return 0, false
 	}
 	return e.pendingToolCallStartStore().Lookup(callID)
 }
 
-func (e *Engine) forgetPendingToolCallStart(callID string) {
+func (e *Engine) forgetPendingToolCallStart(callID runtimeids.ToolCallID) {
 	if e == nil {
 		return
 	}

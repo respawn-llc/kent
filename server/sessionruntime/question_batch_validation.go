@@ -1,6 +1,7 @@
 package sessionruntime
 
 import (
+	"core/shared/runtimeids"
 	"fmt"
 	"strings"
 
@@ -19,7 +20,7 @@ func validateQuestionBatchMetadata(request tools.AskQuestionRequest) (*validated
 		return nil, nil
 	}
 	invalid := func(detail string) (*validatedQuestionBatchDescriptor, error) {
-		return nil, PromptBatchInvariantError{ToolCallID: request.ToolCallID, Detail: detail}
+		return nil, PromptBatchInvariantError{ToolCallID: string(request.ToolCallID), Detail: detail}
 	}
 	if batch.Origin != tools.AskQuestionOriginModelTool {
 		return invalid(fmt.Sprintf("origin is %q", batch.Origin))
@@ -33,10 +34,10 @@ func validateQuestionBatchMetadata(request tools.AskQuestionRequest) (*validated
 	if !normalizedQuestionBatchID(batch.StepID) || batch.StepID != request.StepID {
 		return invalid(fmt.Sprintf("step id %q does not match request step id %q", batch.StepID, request.StepID))
 	}
-	if !normalizedQuestionBatchID(request.ToolCallID) {
+	if !normalizedQuestionBatchID(string(request.ToolCallID)) {
 		return invalid(fmt.Sprintf("request tool call id %q is blank or not normalized", request.ToolCallID))
 	}
-	if !normalizedQuestionBatchID(batch.ToolCallID) || batch.ToolCallID != request.ToolCallID {
+	if !normalizedQuestionBatchID(string(batch.ToolCallID)) || batch.ToolCallID != request.ToolCallID {
 		return invalid(fmt.Sprintf("metadata tool call id %q does not match request tool call id", batch.ToolCallID))
 	}
 	if batch.PreparedPromptCount != len(batch.BatchToolCallIDs) {
@@ -65,7 +66,7 @@ func validateQuestionBatchMetadata(request tools.AskQuestionRequest) (*validated
 		seen[toolCallID] = struct{}{}
 		toolCallIDs[index] = toolCallID
 	}
-	if toolCallIDs[batch.CandidateOrdinal] != request.ToolCallID {
+	if runtimeids.ToolCallID(toolCallIDs[batch.CandidateOrdinal]) != request.ToolCallID {
 		return invalid(fmt.Sprintf(
 			"tool call id at candidate ordinal %d is %q",
 			batch.CandidateOrdinal,
@@ -73,7 +74,7 @@ func validateQuestionBatchMetadata(request tools.AskQuestionRequest) (*validated
 		))
 	}
 	return &validatedQuestionBatchDescriptor{
-		toolCallID:       request.ToolCallID,
+		toolCallID:       string(request.ToolCallID),
 		candidateOrdinal: batch.CandidateOrdinal,
 		toolCallIDs:      toolCallIDs,
 	}, nil

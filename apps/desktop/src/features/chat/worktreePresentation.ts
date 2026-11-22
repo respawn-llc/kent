@@ -5,7 +5,7 @@ interface WorktreeBadge {
   tone: "danger" | "neutral" | "warning";
 }
 
-export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
+export function worktreeRow(entry: WorktreeListEntry, workspaceName: string, localSelector?: string | null) {
   const topology = entry.topology.topology;
   const projection = entry.projection;
   const facts = rowFacts(topology, workspaceName, projection.fallbackIdentity);
@@ -28,10 +28,37 @@ export function worktreeRow(entry: WorktreeListEntry, workspaceName: string) {
           },
     ref: ref === identity.title ? undefined : ref,
     badges: worktreeBadges(topologyIndicator, projection.isInUse),
-    selected: projection.isCurrent,
-    switch: projection.switch,
-    delete: projection.deletePreview,
+    selected: selectedWorktree(entry, localSelector),
+    ...rowActions(entry, git, localSelector),
   };
+}
+
+function rowActions(
+  entry: WorktreeListEntry,
+  git: ReturnType<typeof rowFacts>["git"],
+  localSelector: string | null | undefined,
+) {
+  const main = entry.topology.topology.case === "mainWorkspace";
+  return {
+    localSwitch:
+      git?.pathAvailable === true && !selectedWorktree(entry, localSelector)
+        ? { selector: main ? null : entry.projection.selector }
+        : undefined,
+    switch: git?.pathAvailable === true ? entry.projection.switch : undefined,
+    delete:
+      main || git?.isMainWorktree === true
+        ? undefined
+        : localSelector === undefined
+          ? entry.projection.deletePreview
+          : { selector: entry.projection.selector },
+  };
+}
+
+function selectedWorktree(entry: WorktreeListEntry, selector: string | null | undefined): boolean {
+  if (selector === undefined) return entry.projection.isCurrent;
+  return selector === null
+    ? entry.topology.topology.case === "mainWorkspace"
+    : selector === entry.projection.selector;
 }
 
 function worktreeBadges(indicator: "external" | "missing" | undefined, isInUse: boolean): WorktreeBadge[] {

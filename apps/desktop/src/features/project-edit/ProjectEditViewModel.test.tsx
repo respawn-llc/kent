@@ -4,9 +4,15 @@ import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { queryKeys } from "@/app-facade";
+import { queryKeys, type StatusController } from "@/app-facade";
 import { appI18n } from "@/i18n";
-import { createTestServices } from "@/test-support/app-services";
+import {
+  createRpcTransport,
+  installMockWebSocket,
+  mockRpcWebSockets,
+  respondToWorkspaceUnlink,
+} from "@/test-support/api";
+import { clientProtocolVersion, createTestApiClient, createTestServices } from "@/test-support/app-services";
 import { deferred } from "@/test-support/chat-runtime";
 import { createTestSidebarNavigator } from "@/test-support/sidebar";
 import { createProjectEditViewModel, useProjectEditActions } from "./ProjectEditViewModel";
@@ -40,7 +46,7 @@ function fixture(metadata = project) {
   const update = vi.spyOn(services.api, "updateProject").mockReturnValue(response.promise);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(queryKeys.projectEdit(project.projectID), metadata);
-  const push = vi.fn();
+  const push = vi.fn<StatusController["push"]>();
   const navigator = createTestSidebarNavigator();
   const openHome = vi.fn(async () => undefined);
   const model = createProjectEditViewModel({
@@ -328,13 +334,17 @@ it("reports Unlink blockers and permits an explicit retry", async () => {
   const unlink = vi.spyOn(view.services.api, "unlinkWorkspace").mockResolvedValue({
     projectID: project.projectID,
     workspaceID: "workspace-1",
-    blockers: [{ code: "in-use", message: "Workspace is in use" }],
+    blockers: [{ code: "active_sessions", count: 2 }],
   });
   const invalidate = vi.spyOn(view.client, "invalidateQueries");
   await act(async () => {
     view.result.current.unlink({ workspaceID: "workspace-1" });
   });
-  expect(view.push).toHaveBeenCalledWith(expect.objectContaining({ tone: "danger" }));
+  const blockerNotification = view.push.mock.calls
+    .map(([notification]) => notification)
+    .find((notification) => notification.id === "project-edit-workspace-unlink-blocked");
+  expect(blockerNotification).toMatchObject({ id: "project-edit-workspace-unlink-blocked", tone: "danger" });
+  expect(blockerNotification?.body).toContain("2");
   await act(async () => {
     view.result.current.unlink({ workspaceID: "workspace-1" });
   });
@@ -343,6 +353,89 @@ it("reports Unlink blockers and permits an explicit retry", async () => {
     expect.objectContaining({ queryKey: queryKeys.projectWorkspaceCatalog(project.projectID) }),
   );
 });
+
+it("reports every Unlink blocker with its typed count in one notification", async () => {
+  const view = setup();
+  vi.spyOn(view.services.api, "unlinkWorkspace").mockResolvedValue({
+    projectID: project.projectID,
+    workspaceID: "workspace-1",
+    blockers: [
+      { code: "active_sessions", count: 2 },
+      { code: "managed_owned_worktrees", count: 3 },
+    ],
+  });
+
+  await act(async () => {
+    view.result.current.unlink({ workspaceID: "workspace-1" });
+  });
+
+  expect(view.push).toHaveBeenCalledTimes(1);
+  const blockerNotification = view.push.mock.calls
+    .map(([notification]) => notification)
+    .find((notification) => notification.id === "project-edit-workspace-unlink-blocked");
+  expect(blockerNotification).toMatchObject({ id: "project-edit-workspace-unlink-blocked", tone: "danger" });
+  expect(blockerNotification?.body?.split("\n")).toHaveLength(2);
+  expect(blockerNotification?.body).toContain("2");
+  expect(blockerNotification?.body).toContain("3");
+});
+
+it.each([{ count: undefined }, { count: 4 }])(
+  "accepts and presents an unknown Unlink blocker through the descriptor response boundary with count $count",
+  async ({ count }) => {
+    const restoreWebSocket = installMockWebSocket();
+    const view = setup();
+    let socket: (typeof mockRpcWebSockets)[number] | undefined;
+    const reportInvalidResponse = vi.fn();
+    try {
+      const api = createTestApiClient(createRpcTransport("ws://127.0.0.1:53082/rpc", reportInvalidResponse));
+      vi.spyOn(view.services.api, "unlinkWorkspace").mockImplementation(api.unlinkWorkspace);
+
+      act(() => {
+        view.result.current.unlink({ workspaceID: "workspace-1" });
+      });
+      await waitFor(() => {
+        expect(mockRpcWebSockets).toHaveLength(1);
+      });
+      socket = mockRpcWebSockets[0];
+      if (socket === undefined) throw new Error("Mock RPC socket was not created.");
+      await respondToWorkspaceUnlink(socket, {
+        protocolVersion: clientProtocolVersion,
+        projectID: project.projectID,
+        workspaceID: "workspace-1",
+        blocker: {
+          code: "future_blocker",
+          ...(count === undefined ? {} : { count }),
+        },
+      });
+
+      await waitFor(() => {
+        expect(
+          view.push.mock.calls
+            .map(([notification]) => notification)
+            .find((notification) => notification.id === "project-edit-workspace-unlink-blocked"),
+        ).toBeDefined();
+      });
+      const blockerNotification = view.push.mock.calls
+        .map(([notification]) => notification)
+        .find((notification) => notification.id === "project-edit-workspace-unlink-blocked");
+      expect(blockerNotification).toMatchObject({ tone: "danger" });
+      expect(blockerNotification?.body).toContain("future_blocker");
+      if (count !== undefined) {
+        expect(blockerNotification?.body).toContain(String(count));
+      }
+      expect(
+        view.push.mock.calls.some(
+          ([notification]) => notification.id === "project-edit-workspace-unlink-error",
+        ),
+      ).toBe(false);
+      expect(reportInvalidResponse).not.toHaveBeenCalled();
+    } finally {
+      view.unmount();
+      socket?.close();
+      restoreWebSocket();
+    }
+  },
+);
 
 it("finishes Delete after navigation without taking over the replacement destination", async () => {
   const view = setup();

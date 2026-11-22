@@ -10,16 +10,20 @@ import type { ReactNode } from "react";
 
 import { createTestServices } from "@/test-support/app-services";
 import { processObservationFixtureRoute } from "@/test-support/api";
-import type { DesktopProcess } from "./processes";
+import type { DesktopProcess, ProcessScope } from "./processes";
 
-function fixture(startResult = processObservationFixtureRoute.startResult) {
+function fixture(
+  startResult = processObservationFixtureRoute.startResult,
+  target: ProcessScope = {
+    kind: "session",
+    projectID: "project-1",
+    sessionID: "11111111-1111-4111-8111-111111111111",
+  },
+) {
   const services = createTestServices([{ ...processObservationFixtureRoute, startResult }]);
   const received: (readonly DesktopProcess[])[] = [];
   const failed = vi.fn();
-  const stream = services.api.observeProcesses({
-    projectID: "project-1",
-    sessionID: "11111111-1111-4111-8111-111111111111",
-  });
+  const stream = services.api.observeProcesses(target);
   const observation = Atom.make(
     Stream.runForEach(stream, (list) =>
       Effect.sync(() => {
@@ -35,6 +39,22 @@ function fixture(startResult = processObservationFixtureRoute.startResult) {
   );
   return { ...services, received, failed, observation };
 }
+
+it("observes the exact Project without a Session target", async () => {
+  const context = fixture(undefined, {
+    kind: "project",
+    projectID: "project-1",
+    workspace: { workspaceID: "workspace-1" },
+  });
+  const view = mount(context);
+  await waitFor(() => {
+    expect(context.transport.descriptorSubscriptionStarts).toHaveLength(1);
+  });
+  expect(context.transport.descriptorSubscriptionStarts[0]?.request).toMatchObject({
+    scope: { case: "projectId", value: "project-1" },
+  });
+  view.unmount();
+});
 
 function mount(context: ReturnType<typeof fixture>) {
   return renderHook(() => useAtomValue(context.observation), {

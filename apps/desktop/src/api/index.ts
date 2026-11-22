@@ -21,7 +21,7 @@ export type {
 } from "./subscriptionUsage";
 export { SubscriptionReadError } from "./subscriptionUsage";
 export { sessionDisplayID, sessionDisplayTitle } from "./sessionIdentity";
-export type { DesktopProcess } from "./processes";
+export type { DesktopProcess, ProcessScope } from "./processes";
 export type {
   ChatSettingsAgent,
   ChatSettingsAgentChoice,

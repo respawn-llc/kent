@@ -49,7 +49,13 @@ export type InitialChatSettings = Readonly<{
 }>;
 export type ChatMutationTarget =
   | (ChatSessionTarget & Readonly<{ kind: "session" }>)
-  | (ChatProjectTarget & Readonly<{ kind: "new_chat"; initialSettings: InitialChatSettings }>);
+  | (ChatProjectTarget &
+      Readonly<{
+        kind: "new_chat";
+        initialSettings: InitialChatSettings;
+        name: string | null;
+        worktreeSelector: string | null;
+      }>);
 export type ChatActivation =
   | Readonly<{ kind: "text"; text: string }>
   | Readonly<{
@@ -204,6 +210,7 @@ export type ChatSettingsSnapshot = Readonly<{
 export type ChatSettingsObservation =
   Readonly<{ kind: "snapshot"; snapshot: ChatSettingsSnapshot }> | Readonly<{ kind: "error"; error: Error }>;
 export type ChatApi = Readonly<{
+  planNewChat(target: Extract<ChatMutationTarget, { kind: "new_chat" }>, draft: string): Promise<string>;
   subscribeSettings(
     target: ChatSessionTarget,
     reportOverflow: () => Promise<void>,

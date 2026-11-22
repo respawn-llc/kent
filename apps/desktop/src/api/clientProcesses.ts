@@ -14,13 +14,12 @@ import {
 import { timestampMillis } from "./clientTime";
 import { safeNumber } from "./chatWire";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import { ProcessObservationError, type DesktopProcess } from "./processes";
-import type { ChatSessionTarget } from "./chatTypes";
+import { ProcessObservationError, type DesktopProcess, type ProcessScope } from "./processes";
 import type { RpcTransport } from "./transport";
 
 export function observeProcesses(
   transport: RpcTransport,
-  target: ChatSessionTarget,
+  target: ProcessScope,
 ): Stream.Stream<readonly DesktopProcess[], ProcessObservationError> {
   return Stream.callback<readonly DesktopProcess[], ProcessObservationError>(
     (queue) =>
@@ -30,8 +29,13 @@ export function observeProcesses(
             const method = ViewService.method.observe;
             return transport.subscribeDescriptor({
               method,
-              request: create(method.input, { sessionId: target.sessionID }),
-              attachment: { sessionID: target.sessionID },
+              request: create(method.input, {
+                scope:
+                  target.kind === "session"
+                    ? { case: "sessionId", value: target.sessionID }
+                    : { case: "projectId", value: target.projectID },
+              }),
+              attachment: target,
               eventDescriptor: ListSuccessSchema,
               completionDescriptor: StreamCompletionSchema,
               onStart: (result) => {

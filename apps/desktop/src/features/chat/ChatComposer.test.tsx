@@ -480,13 +480,24 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
   } as const;
   const compact = vi.spyOn(services.api.chat, "compact").mockResolvedValue(rejected);
   const steer = vi.spyOn(services.api.chat, "steer");
+  const creationTarget = {
+    kind: "new_chat" as const,
+    projectID: target.projectID,
+    workspace: { workspaceID: "workspace-1" },
+    initialSettings,
+    name: null,
+    worktreeSelector: null,
+  };
   const { result } = renderHook(
     () =>
       useChatComposer({
         kind: "new_chat",
         projectID: target.projectID,
         workspace: { workspaceID: "workspace-1" },
-        submission: { kind: "ready", initialSettings },
+        submission: {
+          kind: "ready",
+          target: creationTarget,
+        },
         onDeliveredSession,
       }),
     {
@@ -502,34 +513,25 @@ it("delivers a rejected New Chat compaction's Session while preserving its exact
   await act(async () => {
     result.current.submit("send");
   });
-  expect(onDeliveredSession).toHaveBeenCalledWith(rejected, {
-    kind: "new_chat",
-    projectID: target.projectID,
-    workspace: { workspaceID: "workspace-1" },
-    initialSettings,
-  });
+  expect(onDeliveredSession).toHaveBeenCalledWith(rejected, creationTarget);
   expect(result.current.text).toBe("/compact \n keep decisions");
   expect(compact).toHaveBeenCalledTimes(1);
-  expect(compact).toHaveBeenCalledWith(
-    {
-      kind: "new_chat",
-      projectID: target.projectID,
-      workspace: { workspaceID: "workspace-1" },
-      initialSettings,
-    },
-    { token: "/compact", separatorWhitespace: " \n ", rawGuidance: "keep decisions" },
-  );
+  expect(compact).toHaveBeenCalledWith(creationTarget, {
+    token: "/compact",
+    separatorWhitespace: " \n ",
+    rawGuidance: "keep decisions",
+  });
   expect(steer).not.toHaveBeenCalled();
 });
 
 it.each([
-  { newChat: false, ctrlKey: false, text: "/worktree" },
-  { newChat: false, ctrlKey: true, text: "/wt status" },
-  { newChat: false, ctrlKey: true, text: "/wt ls" },
-  { newChat: true, ctrlKey: false, text: "/worktree" },
-  { newChat: true, ctrlKey: true, text: "/wt switch topic" },
-  { newChat: true, ctrlKey: true, text: "/worktree delete a b" },
-])("consumes Worktree commands locally: %j", async ({ newChat, ctrlKey, text }) => {
+  { newChat: false, ctrlKey: false, text: "/worktree", dispatch: true },
+  { newChat: false, ctrlKey: true, text: "/wt status", dispatch: true },
+  { newChat: false, ctrlKey: true, text: "/wt ls", dispatch: false },
+  { newChat: true, ctrlKey: false, text: "/worktree", dispatch: true },
+  { newChat: true, ctrlKey: true, text: "/wt switch topic", dispatch: true },
+  { newChat: true, ctrlKey: true, text: "/worktree delete a b", dispatch: false },
+])("consumes Worktree commands locally: %j", async ({ newChat, ctrlKey, text, dispatch }) => {
   const services = createTestServices([]);
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();
@@ -553,13 +555,20 @@ it.each([
           workspace: { workspaceID: "workspace-1" },
           submission: {
             kind: "ready" as const,
-            initialSettings: {
-              agentRole: "writer",
-              supervisor: "off" as const,
-              thinking: null,
-              fast: null,
-              questionsEnabled: true,
-              autoCompactionEnabled: false,
+            target: {
+              kind: "new_chat" as const,
+              projectID: target.projectID,
+              workspace: { workspaceID: "workspace-1" },
+              name: null,
+              worktreeSelector: null,
+              initialSettings: {
+                agentRole: "writer",
+                supervisor: "off" as const,
+                thinking: null,
+                fast: null,
+                questionsEnabled: true,
+                autoCompactionEnabled: false,
+              },
             },
           },
         }
@@ -597,7 +606,7 @@ it.each([
   await waitFor(() => {
     expect(editor).toHaveValue("");
   });
-  if (!newChat && text !== "/wt ls") {
+  if (dispatch) {
     expect(execute).toHaveBeenCalledTimes(1);
     await act(async () => {
       finish();
@@ -972,17 +981,27 @@ it("keeps New Chat typing while Settings load and delivers the identified Sessio
     result.current.submit("send");
   });
   expect(steer).not.toHaveBeenCalled();
-  rerender({ submission: { kind: "ready", initialSettings: settings } });
+  rerender({
+    submission: {
+      kind: "ready",
+      target: { ...newChat, initialSettings: settings, name: null, worktreeSelector: null },
+    },
+  });
   await act(async () => {
     result.current.submit("send");
   });
   expect(steer).toHaveBeenCalledWith(
-    { ...newChat, initialSettings: settings },
+    { ...newChat, initialSettings: settings, name: null, worktreeSelector: null },
     { kind: "text", text: "typed before settings" },
     expect.anything(),
   );
   expect(result.current.text).toBe("typed before settings");
-  expect(onDeliveredSession).toHaveBeenCalledWith(rejected, { ...newChat, initialSettings: settings });
+  expect(onDeliveredSession).toHaveBeenCalledWith(rejected, {
+    ...newChat,
+    initialSettings: settings,
+    name: null,
+    worktreeSelector: null,
+  });
   const readPending = vi.spyOn(services.api.chat, "listPendingWork").mockResolvedValue({
     items: [
       {

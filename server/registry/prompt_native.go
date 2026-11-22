@@ -38,8 +38,7 @@ func PendingApprovalFromSnapshot(sessionID runtimeids.SessionID, item PendingPro
 	}, nil
 }
 
-func pendingToolCallIdentity(rawToolCallID, rawStepID string) (clientui.ToolCallID, runtimeids.StepID, error) {
-	toolCallID := clientui.ToolCallID(rawToolCallID)
+func pendingToolCallIdentity(toolCallID runtimeids.ToolCallID, rawStepID string) (runtimeids.ToolCallID, runtimeids.StepID, error) {
 	stepID, err := runtimeids.StepIDFromProto(rawStepID)
 	if err != nil {
 		return "", runtimeids.StepID{}, err

@@ -330,7 +330,7 @@ func TestRuntimeRegistrySessionAttentionDoesNotReplayPendingPrompts(t *testing.T
 	registerReady(t, registry, engine.SessionID(), engine)
 	t.Cleanup(func() { closeRuntime(registry, engine.SessionID(), engine) })
 	for i := 0; i < 65; i++ {
-		projectPendingPromptForTest(registry, engine.SessionID(), askquestion.AskQuestionRequest{ToolCallID: fmt.Sprintf("ask-%d", i), StepID: registryTestStepID, Question: "Proceed?"})
+		projectPendingPromptForTest(registry, engine.SessionID(), askquestion.AskQuestionRequest{ToolCallID: runtimeids.ToolCallID(fmt.Sprintf("ask-%d", i)), StepID: registryTestStepID, Question: "Proceed?"})
 	}
 
 	sub, err := registry.SubscribeSessionAttentionNotifications(context.Background(), &attentionpb.SubscribeRequest{SessionId: engine.SessionID()})
@@ -404,13 +404,13 @@ func shortRegistryContext(t *testing.T) context.Context {
 func taskBatchAskRequest(sessionID, id string) askquestion.AskQuestionRequest {
 	currentNodeID := "node-1"
 	return askquestion.AskQuestionRequest{
-		ToolCallID: id,
+		ToolCallID: runtimeids.ToolCallID(id),
 		StepID:     registryTestStepID,
 		Question:   "Proceed?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
 			StepID:              registryTestStepID,
-			ToolCallID:          id,
+			ToolCallID:          runtimeids.ToolCallID(id),
 			BatchToolCallIDs:    []string{"ask-1", "ask-2"},
 			CandidateOrdinal:    0,
 			PreparedPromptCount: 2,

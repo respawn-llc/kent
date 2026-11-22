@@ -25,7 +25,7 @@ export { infiniteQueryReadActions, queryReadActions, queryAction, useQueryAction
 export { useProjectObservation, ProjectObservationFailure } from "./useProjectObservation";
 export * from "./formatters";
 export * from "./nativeHooks";
-export { nativeChatRoutePath, openNativeChat } from "./nativeChat";
+export { nativeChatRoutePath, openNativeChat, openNativeNewChat } from "./nativeChat";
 export { useNativeChatOpening } from "./nativeChatOpening";
 export * from "./navigation";
 export * from "./navigationTransitions";

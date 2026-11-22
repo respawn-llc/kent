@@ -52,8 +52,16 @@ import {
 export { worktreeCommandFixture, worktreeCommandFixtureRoutes } from "./worktreeCommandFixtures";
 export { StreamFailureCode } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 export { partialWorktreeDeletionError } from "./worktreeErrorFixtures";
+export {
+  installMockWebSocket,
+  MockWebSocket,
+  mockRpcWebSockets,
+  waitForMockWebSocketSent,
+} from "./mockWebSocket";
 export { processObservationFixture, processObservationFixtureRoute } from "./processFixtures";
-export { binaryAck } from "./rpcFrames";
+export { createRpcTransport } from "@/api/composition";
+export { binaryAck, binaryAckUnvalidated } from "./rpcFrames";
+export { respondToWorkspaceUnlink } from "./projectWorkspaceUnlink";
 
 export function branchCleanupOutcomeFixture(
   kind: BranchCleanupOutcomeKind,
@@ -142,6 +150,35 @@ export function worktreeBrowserFixtureRoute(worktrees: ListEntry[] = []) {
             effectiveWorkdir: "/repo",
           },
           worktrees,
+        },
+      },
+    }),
+  };
+}
+
+export function workspaceWorktreeBrowserFixtureRoute(
+  workspaceID = "workspace-1",
+  worktrees: readonly ListEntry[] = [],
+) {
+  return {
+    descriptor: ListService.method.listWorkspace,
+    result: create(ListService.method.listWorkspace.output, {
+      outcome: {
+        case: "success",
+        value: {
+          workspaceId: workspaceID,
+          worktrees: worktrees.map((entry) => {
+            if (entry.projection === undefined) throw new Error("Worktree fixture requires a projection");
+            return create(ListEntrySchema, {
+              ...entry,
+              projection: {
+                ...entry.projection,
+                isCurrent: false,
+                switch: undefined,
+                deletePreview: undefined,
+              },
+            });
+          }),
         },
       },
     }),

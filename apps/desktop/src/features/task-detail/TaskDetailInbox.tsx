@@ -133,13 +133,11 @@ function InboxItem({
   task: TaskDetail;
 }>) {
   const focusTargetRef = useRef<HTMLDivElement | null>(null);
-  const scrolledRef = useRef(false);
 
   useEffect(() => {
-    if (!focusOnMount || scrolledRef.current) {
+    if (!focusOnMount) {
       return;
     }
-    scrolledRef.current = true;
     let cancelAlignedScroll: (() => void) | undefined;
     const cancelScroll = scheduleScroll(() => {
       cancelAlignedScroll = scheduleScroll(() => {

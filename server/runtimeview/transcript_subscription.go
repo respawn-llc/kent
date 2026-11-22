@@ -165,7 +165,7 @@ func transcriptToolStartsFromRuntime(starts []runtime.TranscriptLiveToolStart) (
 		projected := &transcriptpb.ToolStart{
 			OutputIndex:  textutil.Pointer(start.OutputIndex),
 			StepId:       strings.TrimSpace(start.StepID),
-			ToolCallId:   strings.TrimSpace(start.ToolCallID),
+			ToolCallId:   strings.TrimSpace(string(start.ToolCallID)),
 			ToolName:     strings.TrimSpace(start.ToolName),
 			Presentation: presentation,
 		}
@@ -646,7 +646,7 @@ func transcriptToolAbortMessages(evt runtime.Event) ([]*transcriptpb.Event, erro
 	}
 	abort := &transcriptpb.ToolAbort{
 		StepId:     stepID,
-		ToolCallId: strings.TrimSpace(evt.ToolCall.ID),
+		ToolCallId: strings.TrimSpace(string(evt.ToolCall.ID)),
 		Reason:     reason,
 	}
 	if reason == transcriptpb.ToolAbortReason_TOOL_ABORT_REASON_FAILED {
@@ -829,7 +829,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			return nil, err
 		}
 		row.Row = &transcriptpb.CommittedRow_ToolCall{ToolCall: &transcriptpb.ToolStart{
-			StepId: stepID, ToolCallId: fact.ToolCall.ToolCallID, ToolName: fact.ToolCall.ToolName, Presentation: presentation,
+			StepId: stepID, ToolCallId: string(fact.ToolCall.ToolCallID), ToolName: fact.ToolCall.ToolName, Presentation: presentation,
 		}}
 	case runtime.TranscriptCommittedRowFactTool:
 		presentation, err := transcriptToolPresentation(fact.Tool.ToolName, fact.Tool.Presentation)
@@ -852,7 +852,7 @@ func transcriptRowFromFact(fact runtime.TranscriptCommittedRowFact, identities m
 			ViewedImageKind:          viewedImageKindToProto(fact.Tool.ViewedImageKind),
 			AnsweredBySessionShortId: answererShortID,
 			StepId:                   textutil.Pointer(fact.StepID),
-			ToolCallId:               textutil.OptionalTrimmedString(fact.Tool.ToolCallID),
+			ToolCallId:               textutil.OptionalTrimmedString(string(fact.Tool.ToolCallID)),
 			ToolName:                 textutil.OptionalTrimmedString(fact.Tool.ToolName),
 			Text:                     fact.Tool.Text,
 			IsError:                  fact.Tool.IsError,

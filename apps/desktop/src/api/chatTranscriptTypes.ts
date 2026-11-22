@@ -81,8 +81,8 @@ export type ChatPatchPresentation =
     }>;
 export type ChatToolPresentation = Readonly<{
   ToolName: string;
-  Presentation: "default" | "shell" | "ask_question";
-  RenderBehavior: string;
+  Presentation: "default" | "shell" | "ask_question" | "web_search";
+  RenderBehavior: "default" | "shell" | "ask_question";
   IsShell: boolean;
   UserInitiated: boolean;
   Command: string;

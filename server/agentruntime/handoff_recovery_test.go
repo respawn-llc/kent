@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"testing"
 
 	"core/server/llm"
@@ -270,7 +271,7 @@ func TestReopenedSessionAfterFailedTriggerHandoffDoesNotRequeuePendingHandoff(t 
 	}
 	for _, record := range window.Records {
 		completion, ok := mustSessionEventPayload(record).(session.ToolCompletionRecord)
-		if ok && completion.CallID == handoffCall.ID && completion.IsError {
+		if ok && completion.CallID == string(handoffCall.ID) && completion.IsError {
 			return
 		}
 	}
@@ -460,7 +461,7 @@ func assertNoTriggerHandoffProtocolItems(
 		default:
 			continue
 		}
-		if (item.CallID != nil && *item.CallID == handoffCall.ID) ||
+		if (item.CallID != nil && *item.CallID == string(handoffCall.ID)) ||
 			(item.Name != nil && *item.Name == handoffCall.Name) {
 			t.Fatalf("%s retained trigger-handoff protocol item: %+v", scope, item)
 		}
@@ -504,7 +505,7 @@ func persistSuccessfulTriggerHandoff(t *testing.T, engine *Engine, callID string
 	restore := setTestActiveStep(engine, "handoff")
 	defer restore()
 	handoffCall := llm.ToolCall{
-		ID:   callID,
+		ID:   runtimeids.ToolCallID(callID),
 		Name: string(toolspec.ToolTriggerHandoff),
 		Input: mustJSON(map[string]any{
 			"summarizer_prompt":    "summarize",

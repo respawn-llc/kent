@@ -1,7 +1,14 @@
 import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
-import type { CreatedTaskSummary, TaskDependencyDirection, TaskStatus } from "@/api";
+import type {
+  CreatedTaskSummary,
+  TaskDependencyDirection,
+  TaskStatus,
+  ChatMutationTarget,
+  WorktreeScope,
+  ProcessScope,
+} from "@/api";
 import type { ResolvedSidebarWidth, SidebarSizePreference } from "./sidebarSizing";
 
 export type SidebarMode = "overlay" | "shift";
@@ -42,13 +49,24 @@ export type TaskDetailInitialFocus =
 export type LinkWorkflowCompletion =
   Readonly<{ kind: "created"; workflowID: string }> | Readonly<{ kind: "linked"; workflowID: string }>;
 
+export type ChatWorktreeBinding = Readonly<{
+  scope: Atom.Atom<WorktreeScope | null>;
+  selector: Atom.Atom<string | null>;
+  workspaceName: Atom.Atom<string | null>;
+  creationTarget: Atom.Atom<ChatMutationTarget | null>;
+  draft: Atom.Atom<string>;
+  creationKey: readonly unknown[];
+  select(selector: string | null): void;
+  delivered(sessionID: string): Promise<void>;
+}>;
+
 export type SidebarDestination =
   | Readonly<{
       kind: "worktree";
       openSession(sessionID: string): void | Promise<void>;
       mode?: SidebarMode;
       projectID: string;
-      sessionID: string;
+      chat: ChatWorktreeBinding;
       page: "list" | "create";
     }>
   | (Readonly<{
@@ -117,8 +135,7 @@ export type SidebarDestination =
   | Readonly<{
       kind: "processes";
       mode?: SidebarMode;
-      projectID: string;
-      sessionID: string;
+      scope: ProcessScope;
     }>
   | Readonly<{
       kind: "custom";

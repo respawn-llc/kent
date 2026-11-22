@@ -1,7 +1,15 @@
-import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { createTestWorktreeBinding } from "@/test-support/sidebar";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterContextProvider,
+} from "@tanstack/react-router";
 import { RegistryProvider } from "@effect/atom-react";
 import { describe, expect, it, vi } from "bun:test";
+import userEvent from "@testing-library/user-event";
 
 import {
   useSidebarRoots,
@@ -10,7 +18,23 @@ import {
   type SidebarDestination,
   type SidebarDestinationPolicy,
   type SidebarPageNavigator,
+  type SidebarRootController,
+  type TaskDetailInitialFocus,
 } from "@/app-facade";
+import { appI18n } from "@/i18n";
+import { TestAppProviders } from "@/test-support/app-services";
+import { installVirtualizedScrollGeometry } from "@/test-support/resize-observer";
+import {
+  createTaskDetailTestServices,
+  emptyTaskAttentionResponse,
+  taskAttentionRoute,
+  taskAttentionResponse,
+  taskCommentPage,
+  taskCommentRoute,
+  taskDetailResponse,
+  taskGetRoute,
+  taskIdentityFixture,
+} from "@/test-support/task-detail";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { SidebarProvider } from "./sidebarProvider";
 import { useSidebarCurrentPage } from "./sidebarPageContext";
@@ -137,6 +161,164 @@ function requireNavigator(value: ReturnType<typeof useHarness>): SidebarPageNavi
   return navigator;
 }
 
+function installAttentionTargetScrollSpy() {
+  const focusTargets: HTMLElement[] = [];
+  const scrollIntoView = vi.fn(function (this: HTMLElement) {
+    focusTargets.push(this);
+  });
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
+  });
+  return {
+    focusTargets,
+    scrollIntoView,
+    restore() {
+      if (original === undefined) {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      } else {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      }
+    },
+  };
+}
+
+function mountSidebarTaskDetail(initialFocus: TaskDetailInitialFocus | undefined, strictMode = false) {
+  const otherTask = taskIdentityFixture(taskDetailResponse, "task-2", "Dependency target", "T-2");
+  const comments = taskCommentPage(
+    Array.from({ length: 20 }, (_value, index) => ({
+      id: `comment-${String(index)}`,
+      body: "Comment",
+      milliseconds: index,
+    })),
+  );
+  const services = createTaskDetailTestServices(taskDetailResponse, {
+    attention: taskAttentionResponse,
+    comments,
+    routes: [
+      taskGetRoute((taskID) => (taskID === "task-2" ? otherTask : taskDetailResponse)),
+      taskAttentionRoute((taskID) =>
+        taskID === "task-2" ? emptyTaskAttentionResponse : taskAttentionResponse,
+      ),
+      taskCommentRoute((taskID) => (taskID === "task-2" ? taskCommentPage([]) : comments)),
+    ],
+  });
+  const router = createRouter({
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    routeTree: createRootRoute(),
+  });
+  const destination = {
+    kind: "taskDetail",
+    taskID: "task-1",
+    ...(initialFocus === undefined ? {} : { initialFocus }),
+  } satisfies SidebarDestination;
+  let rootController: SidebarRootController | undefined;
+
+  function NavigationControls() {
+    const roots = useSidebarRoots();
+    const page = useSidebarCurrentPage();
+    useLayoutEffect(() => {
+      rootController = roots;
+    }, [roots]);
+
+    return (
+      <>
+        <button
+          data-testid="open-other-task"
+          onClick={() => {
+            page?.navigator.push({ kind: "taskDetail", taskID: "task-2" });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="open-task-ordinarily"
+          onClick={() => {
+            roots.open({ kind: "taskDetail", taskID: "task-1" });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="focus-question"
+          onClick={() => {
+            page?.navigator.replace({
+              kind: "taskDetail",
+              initialFocus: { kind: "question", askIDs: ["ask-1"] },
+              taskID: "task-1",
+            });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="focus-dependencies"
+          onClick={() => {
+            page?.navigator.replace({
+              kind: "taskDetail",
+              initialFocus: { kind: "dependencies" },
+              taskID: "task-1",
+            });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="open-question-target"
+          onClick={() => {
+            roots.open({
+              kind: "taskDetail",
+              initialFocus: { kind: "question", askIDs: ["ask-1"] },
+              taskID: "task-1",
+            });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="open-approval-target"
+          onClick={() => {
+            roots.open({
+              kind: "taskDetail",
+              initialFocus: { kind: "approval", approvalID: "approval-1" },
+              taskID: "task-1",
+            });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="open-original-task"
+          onClick={() => {
+            page?.navigator.push({ kind: "taskDetail", taskID: "task-1" });
+          }}
+          type="button"
+        />
+        <button
+          data-testid="return-to-task"
+          onClick={() => {
+            page?.navigator.back();
+          }}
+          type="button"
+        />
+      </>
+    );
+  }
+
+  const content = (
+    <RouterContextProvider router={router}>
+      <TestAppProviders services={services}>
+        <SidebarProvider policy={sidebarDestinationPolicy}>
+          <NavigationControls />
+          <SidebarHost />
+        </SidebarProvider>
+      </TestAppProviders>
+    </RouterContextProvider>
+  );
+  const view = render(strictMode ? <StrictMode>{content}</StrictMode> : content);
+  const roots = rootController;
+  if (roots === undefined) throw new Error("Expected sidebar root controls.");
+  act(() => {
+    roots.open(destination);
+  });
+  return { unmount: view.unmount };
+}
+
 function ShellHarness() {
   const roots = useSidebarRoots();
   const page = useSidebarCurrentPage();
@@ -192,12 +374,306 @@ function ShellHarness() {
 }
 
 describe("SidebarProvider stack", () => {
+  it("keeps the current Task root and transfers its lifecycle on an ordinary reopen", async () => {
+    const { result } = renderHook(useHarness, { wrapper: productionWrapper });
+    let original: ReturnType<typeof result.current.roots.open> | undefined;
+    let reopened: ReturnType<typeof result.current.roots.open> | undefined;
+
+    act(() => {
+      original = result.current.roots.open({ kind: "taskDetail", taskID: "task-1" });
+      reopened = result.current.roots.open({ kind: "taskDetail", taskID: "task-1" });
+    });
+    expect(result.current.shell.activeDestination).toMatchObject({ kind: "taskDetail", taskID: "task-1" });
+    const originalHandle = original;
+    const reopenedHandle = reopened;
+    if (originalHandle === undefined || reopenedHandle === undefined)
+      throw new Error("Expected Task root handles.");
+    expect(reopenedHandle.lifecycle).toBe(originalHandle.lifecycle);
+
+    act(() => {
+      originalHandle.release();
+    });
+    expect(result.current.shell.activeDestination).toMatchObject({ kind: "taskDetail", taskID: "task-1" });
+
+    act(() => {
+      reopenedHandle.release();
+    });
+    expect(result.current.shell.activeDestination).toBeNull();
+    expect(await reopenedHandle.lifecycle).toBe("released");
+  });
+
+  it("opens a history-restored Task at the top without replaying its earlier attention target", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const focus = installAttentionTargetScrollSpy();
+    const view = mountSidebarTaskDetail({ kind: "question", askIDs: ["ask-1"] });
+    try {
+      const user = userEvent.setup();
+      const questionLabel = appI18n.t("task.question");
+      await screen.findByLabelText(questionLabel);
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+
+      await user.click(screen.getByTestId("open-other-task"));
+      await screen.findByRole("button", { name: appI18n.t("app.back") });
+      await waitFor(() => {
+        expect(screen.queryByLabelText(questionLabel)).not.toBeInTheDocument();
+      });
+      await user.click(screen.getByTestId("return-to-task"));
+
+      await screen.findByLabelText(questionLabel);
+      await waitFor(() => {
+        expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      view.unmount();
+      geometry.restore();
+      focus.restore();
+    }
+  });
+
+  it("does not replay old focus when an ordinary Task link restores a prior sidebar entry", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const focus = installAttentionTargetScrollSpy();
+    const view = mountSidebarTaskDetail({ kind: "question", askIDs: ["ask-1"] });
+    try {
+      const user = userEvent.setup();
+      const questionLabel = appI18n.t("task.question");
+      await screen.findByLabelText(questionLabel);
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+
+      await user.click(screen.getByTestId("open-other-task"));
+      await screen.findByRole("button", { name: appI18n.t("app.back") });
+      await user.click(screen.getByTestId("open-original-task"));
+
+      await screen.findByLabelText(questionLabel);
+      await waitFor(() => {
+        expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      view.unmount();
+      geometry.restore();
+      focus.restore();
+    }
+  });
+
+  it("opens a Task with pending attention at the top after navigating to a different Task", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const focus = installAttentionTargetScrollSpy();
+    const view = mountSidebarTaskDetail(undefined);
+    try {
+      const user = userEvent.setup();
+      const questionLabel = appI18n.t("task.question");
+      await screen.findByLabelText(questionLabel);
+      const list = screen.getByTestId("task-detail-island-stack");
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
+      expect(list.scrollTop).toBeGreaterThan(0);
+
+      await user.click(screen.getByTestId("open-other-task"));
+      await screen.findByRole("button", { name: appI18n.t("app.back") });
+      await waitFor(() => {
+        expect(screen.queryByLabelText(questionLabel)).not.toBeInTheDocument();
+        expect(focus.scrollIntoView).not.toHaveBeenCalled();
+      });
+
+      await user.click(screen.getByTestId("return-to-task"));
+      await screen.findByLabelText(questionLabel);
+      await waitFor(() => {
+        expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
+        expect(focus.scrollIntoView).not.toHaveBeenCalled();
+      });
+    } finally {
+      view.unmount();
+      geometry.restore();
+      focus.restore();
+    }
+  });
+
+  it("leaves scrolling unchanged when an ordinary action opens the already-open Task", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const view = mountSidebarTaskDetail(undefined);
+    try {
+      const user = userEvent.setup();
+      await screen.findByLabelText(appI18n.t("task.question"));
+      const list = screen.getByTestId("task-detail-island-stack");
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
+      const scrollOffset = list.scrollTop;
+      expect(scrollOffset).toBeGreaterThan(0);
+
+      await user.click(screen.getByTestId("open-task-ordinarily"));
+      expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(scrollOffset);
+    } finally {
+      view.unmount();
+      geometry.restore();
+    }
+  });
+
+  it("repeats explicit Question navigation through root open and sidebar replace", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const focus = installAttentionTargetScrollSpy();
+    const view = mountSidebarTaskDetail(undefined, true);
+    try {
+      const user = userEvent.setup();
+      const questionLabel = appI18n.t("task.question");
+      const approvalLabel = appI18n.t("task.approval");
+      await screen.findByLabelText(questionLabel);
+
+      await user.click(screen.getByTestId("open-question-target"));
+      const question = await screen.findByLabelText(questionLabel);
+      const approval = screen.getByLabelText(approvalLabel);
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+      expect(focus.focusTargets[0]?.contains(question)).toBe(true);
+      expect(focus.focusTargets[0]?.contains(approval)).toBe(false);
+
+      const firstList = screen.getByTestId("task-detail-island-stack");
+      firstList.scrollTop = 1200;
+      fireEvent.scroll(firstList);
+      await user.click(screen.getByTestId("open-question-target"));
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(2);
+      });
+      expect(focus.focusTargets[1]?.contains(screen.getByLabelText(questionLabel))).toBe(true);
+      expect(focus.focusTargets[1]?.contains(screen.getByLabelText(approvalLabel))).toBe(false);
+
+      const secondList = screen.getByTestId("task-detail-island-stack");
+      secondList.scrollTop = 1200;
+      fireEvent.scroll(secondList);
+      await user.click(screen.getByTestId("focus-question"));
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(3);
+      });
+      expect(focus.focusTargets[2]?.contains(screen.getByLabelText(questionLabel))).toBe(true);
+      expect(focus.focusTargets[2]?.contains(screen.getByLabelText(approvalLabel))).toBe(false);
+    } finally {
+      view.unmount();
+      geometry.restore();
+      focus.restore();
+    }
+  });
+
+  it.each([
+    ["question", { kind: "question", askIDs: ["ask-1"] }, "task.question", "task.approval"],
+    ["approval", { kind: "approval", approvalID: "approval-1" }, "task.approval", "task.question"],
+  ] as const)(
+    "opens the requested %s target, then returns to the top on a later ordinary opening",
+    async (_target, initialFocus, requestedKey, otherKey) => {
+      const geometry = installVirtualizedScrollGeometry(600);
+      const focus = installAttentionTargetScrollSpy();
+      const view = mountSidebarTaskDetail(initialFocus, true);
+      try {
+        const user = userEvent.setup();
+        const requestedLabel = appI18n.t(requestedKey);
+        const otherLabel = appI18n.t(otherKey);
+        const requestedTarget = await screen.findByLabelText(requestedLabel);
+        const otherTarget = screen.getByLabelText(otherLabel);
+        await waitFor(() => {
+          expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+        });
+        expect(focus.focusTargets[0]?.contains(requestedTarget)).toBe(true);
+        expect(focus.focusTargets[0]?.contains(otherTarget)).toBe(false);
+
+        await user.click(screen.getByTestId("open-other-task"));
+        await screen.findByRole("button", { name: appI18n.t("app.back") });
+        await user.click(screen.getByTestId("open-task-ordinarily"));
+
+        await screen.findByLabelText(requestedLabel);
+        await waitFor(() => {
+          expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBe(0);
+          expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+        });
+      } finally {
+        view.unmount();
+        geometry.restore();
+        focus.restore();
+      }
+    },
+  );
+
+  it("repeats an explicit Approval jump after scrolling away from its target", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const focus = installAttentionTargetScrollSpy();
+    const view = mountSidebarTaskDetail(undefined, true);
+    try {
+      const user = userEvent.setup();
+      const approvalLabel = appI18n.t("task.approval");
+      const questionLabel = appI18n.t("task.question");
+      await screen.findByLabelText(questionLabel);
+
+      await user.click(screen.getByTestId("open-approval-target"));
+      const approval = await screen.findByLabelText(approvalLabel);
+      const question = screen.getByLabelText(questionLabel);
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+      expect(focus.focusTargets[0]?.contains(approval)).toBe(true);
+      expect(focus.focusTargets[0]?.contains(question)).toBe(false);
+
+      const list = screen.getByTestId("task-detail-island-stack");
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
+      await user.click(screen.getByTestId("open-approval-target"));
+      await waitFor(() => {
+        expect(focus.scrollIntoView).toHaveBeenCalledTimes(2);
+      });
+      expect(focus.focusTargets[1]?.contains(screen.getByLabelText(approvalLabel))).toBe(true);
+      expect(focus.focusTargets[1]?.contains(screen.getByLabelText(questionLabel))).toBe(false);
+    } finally {
+      view.unmount();
+      geometry.restore();
+      focus.restore();
+    }
+  });
+
+  it("repeats explicit dependency navigation after scrolling away from that section", async () => {
+    const geometry = installVirtualizedScrollGeometry(600);
+    const view = mountSidebarTaskDetail(undefined);
+    try {
+      const user = userEvent.setup();
+      await screen.findByLabelText(appI18n.t("task.question"));
+      const initialList = screen.getByTestId("task-detail-island-stack");
+      initialList.scrollTop = 1200;
+      fireEvent.scroll(initialList);
+      const scrolledOffset = initialList.scrollTop;
+      expect(scrolledOffset).toBeGreaterThan(0);
+
+      await user.click(screen.getByTestId("focus-dependencies"));
+      const dependenciesHeading = await screen.findByRole("heading", {
+        name: appI18n.t("task.dependencies"),
+      });
+      const list = screen.getByTestId("task-detail-island-stack");
+      await waitFor(() => {
+        expect(list.scrollTop).toBeLessThan(scrolledOffset);
+      });
+      expect(dependenciesHeading).toBeInTheDocument();
+
+      list.scrollTop = 1200;
+      fireEvent.scroll(list);
+      const repeatedScrolledOffset = list.scrollTop;
+      await user.click(screen.getByTestId("focus-dependencies"));
+      await waitFor(() => {
+        expect(screen.getByTestId("task-detail-island-stack").scrollTop).toBeLessThan(repeatedScrolledOffset);
+      });
+      expect(screen.getByRole("heading", { name: appI18n.t("task.dependencies") })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      geometry.restore();
+    }
+  });
+
   it("toggles the current Worktree root and replaces other roots without history", () => {
     const { result } = renderHook(useHarness, { wrapper: productionWrapper });
     const worktree = {
       kind: "worktree",
       projectID: "project-1",
-      sessionID: "session-1",
+      chat: createTestWorktreeBinding({ kind: "session", projectID: "project-1", sessionID: "session-1" }),
       page: "list",
       openSession: vi.fn(),
     } as const;
@@ -213,7 +689,10 @@ describe("SidebarProvider stack", () => {
     });
     expect(result.current.shell.phase).toBe("open");
     act(() => {
-      result.current.roots.toggle({ kind: "processes", projectID: "project-1", sessionID: "session-1" });
+      result.current.roots.toggle({
+        kind: "processes",
+        scope: { kind: "session", projectID: "project-1", sessionID: "session-1" },
+      });
     });
     expect(result.current.shell.activeDestination?.kind).toBe("processes");
     expect(result.current.shell.canGoBack).toBe(false);

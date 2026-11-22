@@ -2,19 +2,27 @@ import { useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { NativeMainNavigation } from "@app/native-bridge";
 import { useStableCallback } from "@/ui";
 import { ChatDestination } from "@/features/chat";
-import { SidebarRootOwner, useAppServices, openNativeChat, useStatusController } from "@/app-facade";
+import {
+  SidebarRootOwner,
+  useAppServices,
+  openNativeChat,
+  useStatusController,
+  useAppNavigation,
+} from "@/app-facade";
 import { errorMessage } from "@/api";
 import { useTranslation } from "react-i18next";
 import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { SidebarHost } from "./sidebar";
 import { WindowChromeFrame } from "./WindowChromeFrame";
+import { NewSessionShortcuts } from "./NewSessionShortcuts";
 
 export function NativeChatRoute({
   projectID,
   sessionID,
 }: Readonly<{ projectID: string; sessionID: string }>) {
   const { nativeBridge } = useAppServices();
+  const appNavigation = useAppNavigation();
   const mainPaneRef = useRef<HTMLDivElement>(null);
   const { push } = useStatusController();
   const { t } = useTranslation();
@@ -57,6 +65,10 @@ export function NativeChatRoute({
   );
   return (
     <SidebarProvider policy={sidebarDestinationPolicy} mainPaneRef={mainPaneRef}>
+      <NewSessionShortcuts
+        source={{ kind: "session", projectID, sessionID }}
+        openNewChat={appNavigation.openNewChat}
+      />
       <NativeChatFrame sessionID={sessionID} mainPaneRef={mainPaneRef}>
         <SidebarRootOwner>
           <ChatDestination

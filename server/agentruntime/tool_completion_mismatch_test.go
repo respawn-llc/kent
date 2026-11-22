@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -155,7 +156,7 @@ func TestToolCompletionDeletionMismatchAppliesCommittedFallbackAfterObserverErro
 type mismatchedDeletionTool struct{}
 
 func (mismatchedDeletionTool) Call(_ context.Context, call tools.Call) (tools.Result, error) {
-	return mismatchedDeletionResult(call.ID), nil
+	return mismatchedDeletionResult(string(call.ID)), nil
 }
 
 func TestExecuteToolCallsCommitsCompletionDiagnosticInResultGroup(t *testing.T) {
@@ -217,14 +218,14 @@ func mismatchedDeletionCompletion(t *testing.T, engine *Engine) tools.Result {
 	if _, err := engine.transcriptRuntimeState().RecordLiveToolStart(runtimeTestStepID("step-delete"), normalized); err != nil {
 		t.Fatalf("record live deletion call: %v", err)
 	}
-	return mismatchedDeletionResult(call.ID)
+	return mismatchedDeletionResult(string(call.ID))
 }
 
 func mismatchedDeletionResult(callID string) tools.Result {
 	received := patchformat.WholeFileDeletionOperationID{HunkOrdinal: 9}
 	group := patchformat.WholeFileDeletionGroupID{FirstOperation: received}
 	return tools.Result{
-		CallID: callID,
+		CallID: runtimeids.ToolCallID(callID),
 		Name:   toolspec.ToolPatch,
 		Output: json.RawMessage(`{"ok":true}`),
 		PresentationDelta: &transcript.ToolResultPresentationDelta{
@@ -285,7 +286,7 @@ func assertDeletionMismatchFallback(t *testing.T, engine *Engine, store *session
 		if item.Role != nil && *item.Role == llm.RoleDeveloper {
 			t.Fatalf("operator feedback leaked into provider items: %+v", item)
 		}
-		if isToolOutputItem(item.Type) && item.CallID != nil && *item.CallID == result.CallID {
+		if isToolOutputItem(item.Type) && item.CallID != nil && *item.CallID == string(result.CallID) {
 			outputCount++
 		}
 	}

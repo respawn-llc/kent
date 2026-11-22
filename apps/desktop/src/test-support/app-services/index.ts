@@ -22,7 +22,7 @@ import { MotionConfig } from "motion/react";
 import { createElement, useMemo, type ReactNode } from "react";
 import { I18nextProvider } from "react-i18next";
 
-import { ApiClient, protocolVersion } from "@/api/composition";
+import { ApiClient, protocolVersion, type RpcTransport } from "@/api/composition";
 import {
   AppServicesProvider,
   createAppLogger,
@@ -37,7 +37,7 @@ import {
 } from "@/app-facade";
 import { appI18n, initializeI18n } from "@/i18n";
 import { SpeechRecoveryProvider } from "@/shared/speech-input";
-import { FakeRpcTransport, type FakeRoute } from "../api";
+import { FakeRpcTransport, unexpectedProjectOverflow, type FakeRoute } from "../api";
 
 void initializeI18n();
 
@@ -53,6 +53,10 @@ export type TestLogger = AppObservationLogger &
   }>;
 
 export const clientProtocolVersion = protocolVersion;
+
+export function createTestApiClient(transport: RpcTransport) {
+  return new ApiClient(transport, unexpectedProjectOverflow);
+}
 
 export type TestAppServices = Omit<AppServices, "logger"> &
   Readonly<{

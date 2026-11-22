@@ -21,7 +21,7 @@ type concurrentSiblingTool struct {
 }
 
 func (h concurrentSiblingTool) Call(ctx context.Context, call tools.Call) (tools.Result, error) {
-	h.started <- call.ID
+	h.started <- string(call.ID)
 	select {
 	case <-h.release:
 		return tools.Result{Output: json.RawMessage(`{"ok":true}`)}, nil
@@ -171,7 +171,7 @@ func (h durableIntentToolHandler) Call(_ context.Context, call tools.Call) (tool
 			continue
 		}
 		for _, persistedCall := range message.ToolCalls {
-			if persistedCall.CallID == call.ID {
+			if persistedCall.CallID == string(call.ID) {
 				found = true
 			}
 		}
@@ -297,7 +297,7 @@ func TestExecuteSiblingToolCallsIndependentlyAdmitOneApprovalAndCommitOneGroup(t
 	}
 	facts := mustNewestTranscriptFacts(t, engine)
 	for _, call := range calls {
-		if rows := countHydratedToolRows(facts, call.ID); rows != 1 {
+		if rows := countHydratedToolRows(facts, string(call.ID)); rows != 1 {
 			t.Fatalf("projected tool rows for %s = %d, want 1", call.ID, rows)
 		}
 	}

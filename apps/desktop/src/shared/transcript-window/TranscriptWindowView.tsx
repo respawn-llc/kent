@@ -84,8 +84,8 @@ export function TranscriptWindowView({
   const emitInput = useStableCallback(onInput);
   const edges = windowEdges(snapshot);
   const { olderAvailable, newerAvailable, older, newer, opening, thinkingStatus } = edges;
-  const olderPage = transcriptPagination(older, tailFailure !== undefined);
-  const newerPage = transcriptPagination(newer, tailFailure !== undefined);
+  const olderPage = transcriptPagination(older);
+  const newerPage = transcriptPagination(newer);
   const following = atEnd && !newerAvailable;
   const nativeRequest = useTranscriptEndRequest(
     {
@@ -104,13 +104,13 @@ export function TranscriptWindowView({
   const previousBoundary = transcriptBoundary(
     older,
     "older",
-    { retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
+    { retryLabel, errorMessage: boundaryErrorMessage },
     emitInput,
   );
   const nextBoundary = transcriptBoundary(
     newer,
     "newer",
-    { retryLabel, errorMessage: boundaryErrorMessage, suppressed: tailFailure !== undefined },
+    { retryLabel, errorMessage: boundaryErrorMessage },
     emitInput,
   );
   const pinnedItemKeys = useMemo(
@@ -249,9 +249,9 @@ function ViewItemContent({
   }
 }
 
-function transcriptPagination(boundary: TranscriptWindowSnapshot["older"] | null, suppressed: boolean) {
+function transcriptPagination(boundary: TranscriptWindowSnapshot["older"] | null) {
   return {
-    available: !suppressed && boundary !== null && boundary.cursor !== null && boundary.kind !== "error",
+    available: boundary !== null && boundary.cursor !== null && boundary.kind !== "error",
     fetching: boundary?.kind === "loading",
     key: boundary?.cursor?.toString(),
   };
@@ -498,11 +498,10 @@ function transcriptBoundary(
   copy: Readonly<{
     retryLabel: string;
     errorMessage: (error: Error) => string;
-    suppressed: boolean;
   }>,
   onInput: (input: TranscriptWindowViewInput) => void,
 ): VirtualizedInfiniteListBoundaryState | undefined {
-  if (copy.suppressed || boundary === null) return undefined;
+  if (boundary === null) return undefined;
   switch (boundary.kind) {
     case "idle":
       return undefined;

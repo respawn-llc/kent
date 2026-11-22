@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { ApiService, ChatTranscriptPayloadByKind } from "@/api";
+import type { ApiService, ChatTranscriptPayloadByKind, WorktreeScope } from "@/api";
 import { replaceWorktreeListRead } from "./worktreeQueries";
+import { queryKeys } from "./queryKeys";
 import type { SidebarShellController } from "./sidebarContext";
 import type { StatusController } from "./statusContextValue";
 import type { TFunction } from "i18next";
@@ -10,22 +11,28 @@ export function createRefreshOpenWorktreeList(
   api: ApiService,
   currentSurface: SidebarShellController["currentSurface"],
 ) {
-  return async (sessionID: string) => {
+  return async (scope: WorktreeScope) => {
     const surface = currentSurface();
-    if (surface?.kind === "worktree" && surface.page === "list" && surface.sessionID === sessionID) {
-      await replaceWorktreeListRead(client, api, sessionID);
+    const inventory = client.getQueryCache().find({ queryKey: queryKeys.worktreeList(scope), exact: true });
+    if (
+      surface?.kind === "worktree" &&
+      surface.page === "list" &&
+      inventory !== undefined &&
+      inventory.getObserversCount() > 0
+    ) {
+      await replaceWorktreeListRead(client, api, scope);
     }
   };
 }
 
 export function worktreeTransitionOutcomeHandler(
-  refreshOpenWorktreeList: (sessionID: string) => void | Promise<void>,
+  refreshOpenWorktreeList: (scope: WorktreeScope) => void | Promise<void>,
   sessionID: string,
   push: StatusController["push"],
   t: TFunction,
 ) {
   return (outcome: ChatTranscriptPayloadByKind["worktree_transition_outcome"]) => {
-    void refreshOpenWorktreeList(sessionID);
+    void refreshOpenWorktreeList({ kind: "session", sessionID });
     if (outcome.State === "failed" && outcome.Failure != null) {
       push({
         id: outcome.OperationID,

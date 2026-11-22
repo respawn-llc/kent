@@ -70,7 +70,7 @@ type steeringMessage struct {
 
 type steeringAssistantCommit struct {
 	message           llm.Message
-	executableCallIDs map[string]struct{}
+	executableCallIDs map[runtimeids.ToolCallID]struct{}
 	result            *steeringAssistantCommitResult
 }
 
@@ -148,7 +148,7 @@ type steeringHistoryReplacement struct {
 
 type steeringResultGroupReport struct {
 	collector          *resultGroupCollector
-	callID             string
+	callID             runtimeids.ToolCallID
 	unit               *resultGroupUnit
 	operationalFailure error
 	outcome            **resultGroupReportOutcome
@@ -237,7 +237,7 @@ func steerMessagesWithPersistenceIntent(priority steeringPriority, eventPolicy s
 
 func steerAssistantCommitIntent(
 	msg llm.Message,
-	executableCallIDs map[string]struct{},
+	executableCallIDs map[runtimeids.ToolCallID]struct{},
 	result *steeringAssistantCommitResult,
 ) steeringIntent {
 	return steeringIntent{
@@ -309,7 +309,7 @@ func steerToolCompletionIntent(result tools.Result) steeringIntent {
 
 func steerResultGroupReportIntent(
 	collector *resultGroupCollector,
-	callID string,
+	callID runtimeids.ToolCallID,
 	unit resultGroupUnit,
 	outcome **resultGroupReportOutcome,
 ) steeringIntent {

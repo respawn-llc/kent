@@ -70,7 +70,7 @@ type taskQuestionSessionCandidate struct {
 }
 
 type questionCommandPendingQuestion struct {
-	ToolCallID             clientui.ToolCallID
+	ToolCallID             runtimeids.ToolCallID
 	SessionID              runtimeids.SessionID
 	ShortID                *runtimeids.SessionShortID
 	StepID                 runtimeids.StepID

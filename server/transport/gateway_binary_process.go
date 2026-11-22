@@ -15,11 +15,20 @@ func registerProcessGatewayBinaryBindings(bindings map[string]gatewayBinaryBindi
 	view := processpb.File_kent_api_process_process_proto.Services().ByName("ViewService")
 	control := processpb.File_kent_api_process_process_proto.Services().ByName("ControlService")
 	return errors.Join(
-		registerSessionBinarySubscription(bindings, view, "Observe",
+		registerGatewayBinarySubscription(bindings, view, "Observe",
 			func() *processpb.ObserveRequest { return &processpb.ObserveRequest{} },
+			func(request *processpb.ObserveRequest) (routeScopeParams, error) {
+				switch request.Scope.(type) {
+				case *processpb.ObserveRequest_SessionId, *processpb.ObserveRequest_ProjectId:
+					return routeScopeParams{processObservation: request}, nil
+				default:
+					return routeScopeParams{}, errors.New("process observation scope is required")
+				}
+			},
 			func(g *Gateway, ctx context.Context, request *processpb.ObserveRequest) (serverapi.ProcessObservationSubscription, error) {
 				return g.deps.ProcessObservationClient().ObserveProcesses(ctx, request)
-			}),
+			},
+			func(_ *processpb.ObserveRequest, err error) proto.Message { return binaryAuthReadinessFailure(err) }),
 		registerProcessUnary(bindings, view, "List", GatewayDependencies.ProcessViewClient,
 			func() *processpb.ListRequest { return &processpb.ListRequest{} },
 			func(request *processpb.ListRequest) (routeScopeParams, error) {

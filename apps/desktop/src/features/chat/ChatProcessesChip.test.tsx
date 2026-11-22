@@ -35,7 +35,7 @@ it("reveals only after sustained active processes and hides at zero without poll
     expect(screen.getByRole("button")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button"));
     expect(open).toHaveBeenCalledTimes(1);
-    expect(open).toHaveBeenCalledWith({ kind: "processes", ...target });
+    expect(open).toHaveBeenCalledWith({ kind: "processes", scope: { kind: "session", ...target } });
     view.rerender(renderChip(0));
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     view.rerender(renderChip(1));

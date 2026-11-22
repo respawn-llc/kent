@@ -53,7 +53,7 @@
 
 - Every route-reachable named scalar must be classified as open or validated text, identifier, or closed enum.
 - Closed enums must declare every supported value.
-- Message-local rules must be declared in the Protobuf contract and enforced through generated validation, except for the known error-code/detail relationships defined below.
+- Message-local rules must be declared in the Protobuf contract. Generated validation must enforce them at the boundaries specified under [Validation and decoding](#validation-and-decoding), except for the known error-code/detail relationships defined below.
 - The server-owned domain boundary must own rules that require server state.
 - Unclassified scalars and validators are invalid API contract state.
 - Kent-owned variant payloads must use typed Protobuf messages or explicit `oneof` branches.
@@ -116,7 +116,7 @@
 
 - External request values must be validated once at the earliest server request boundary before downstream server logic consumes them.
 - A shared authority, such as a database constraint used by several writers, must own its validation.
-- Clients must run generated Protobuf constraints on server responses and events.
+- Clients other than mobile must run generated Protobuf constraints on server responses and events. The mobile MVP must rely on the server for these field and message constraints without running them again on the device. Mobile must enforce the same transport framing, decoding, and operation-result contracts as other clients.
 - Platforms must centralize generated validation at their transport boundary.
 - Runtime Activity must retain one calculation-time contract check before publishing its read model. Update Status must retain its calculation-time contract check before caching the result, including its existing debug failure and production check-failed outcome.
 - Generated clients must carry unknown Protobuf fields unchanged.

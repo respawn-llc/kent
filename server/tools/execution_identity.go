@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"sync"
 
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
 type ExecutionIdentity struct {
 	StepID         string
-	ToolCallID     clientui.ToolCallID
+	ToolCallID     runtimeids.ToolCallID
 	SessionShortID *runtimeids.SessionShortID
 }
 

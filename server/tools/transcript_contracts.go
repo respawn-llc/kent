@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"core/shared/runtimeids"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -732,13 +733,13 @@ func decodeHostedWebSearchOutput(item HostedToolOutput) (HostedExecution, bool) 
 	}
 	return HostedExecution{
 		Call: HostedCall{
-			ID:           callID,
+			ID:           runtimeids.ToolCallID(callID),
 			Name:         toolspec.ToolWebSearch,
 			Input:        inputRaw,
 			ProviderItem: append(json.RawMessage(nil), raw...),
 		},
 		Result: Result{
-			CallID:           callID,
+			CallID:           runtimeids.ToolCallID(callID),
 			Name:             toolspec.ToolWebSearch,
 			Output:           output,
 			IsError:          isError,
@@ -780,8 +781,8 @@ func decodeHostedCustomToolOutput(item HostedToolOutput) (HostedExecution, bool)
 		return HostedExecution{}, false
 	}
 	return HostedExecution{
-		Call:   HostedCall{ID: callID, Name: toolspec.ID(name), Input: append(json.RawMessage(nil), input...), ProviderItem: append(json.RawMessage(nil), item.Raw...)},
-		Result: Result{CallID: callID, Name: toolspec.ID(name), Output: append(json.RawMessage(nil), item.Raw...), IsError: strings.EqualFold(payload.Status, "failed"), ProviderItemOnly: true},
+		Call:   HostedCall{ID: runtimeids.ToolCallID(callID), Name: toolspec.ID(name), Input: append(json.RawMessage(nil), input...), ProviderItem: append(json.RawMessage(nil), item.Raw...)},
+		Result: Result{CallID: runtimeids.ToolCallID(callID), Name: toolspec.ID(name), Output: append(json.RawMessage(nil), item.Raw...), IsError: strings.EqualFold(payload.Status, "failed"), ProviderItemOnly: true},
 	}, true
 }
 

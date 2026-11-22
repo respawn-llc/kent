@@ -10,6 +10,7 @@ import {
   type ChatSessionTarget,
   type ChatSettingsTarget,
   type ChatGoalSetResult,
+  type ChatMutationTarget,
 } from "@/api";
 import { queryAtom } from "@/app-facade";
 import type { ChatSettingsViewModel } from "../ChatSettingsViewModel";
@@ -40,6 +41,7 @@ export function createNewChatGoalBinding(
     api: Pick<ChatApi, "setGoal">;
     client: QueryClient;
     target: Atom.Atom<ChatSettingsTarget | null>;
+    creationTarget: Atom.Atom<ChatMutationTarget | null>;
     settings: Pick<ChatSettingsViewModel, "state">;
     draft: Pick<ComposerDraftViewModel, "text" | "begin" | "resume">;
   }>,
@@ -94,26 +96,18 @@ export function createNewChatGoalBinding(
     (input, get) =>
       Effect.gen(function* () {
         const { observer } = get(request);
-        const target = get(options.target);
-        const settings = get(options.settings.state);
+        const target = get(options.creationTarget);
         if (observer.getCurrentResult().isPending) {
           input.rejected(new ContractError("New Chat Goal creation is already pending."));
           return;
         }
-        if (
-          target?.kind !== "new_chat" ||
-          settings.kind !== "ready-new-chat" ||
-          !("workspaceID" in target.workspace)
-        ) {
+        if (target?.kind !== "new_chat") {
           input.rejected(new ContractError("New Chat Settings are not ready."));
           return;
         }
         const captured: GoalRequest = {
           target: {
-            kind: "new_chat",
-            projectID: target.projectID,
-            workspaceID: target.workspace.workspaceID,
-            initialSettings: settings.initialSettings,
+            ...target,
             initialInputDraft: get(options.draft.text),
           },
           objective: input.objective,

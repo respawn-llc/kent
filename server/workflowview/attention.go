@@ -15,7 +15,6 @@ import (
 	"core/server/metadata/sqlitegen"
 	"core/server/sessionruntime"
 	"core/server/workflow"
-	"core/shared/clientui"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
@@ -357,13 +356,13 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 			if err != nil {
 				return nil, err
 			}
-			promptsByID := make(map[clientui.ToolCallID]*promptpb.ObservationQuestion, len(prompts))
+			promptsByID := make(map[runtimeids.ToolCallID]*promptpb.ObservationQuestion, len(prompts))
 			for _, prompt := range prompts {
 				details, err := pendingPromptDetails(prompt)
 				if err != nil {
 					return nil, err
 				}
-				toolCallID := clientui.ToolCallID(details.GetToolCallId())
+				toolCallID := runtimeids.ToolCallID(details.GetToolCallId())
 				if _, duplicate := promptsByID[toolCallID]; duplicate {
 					return nil, fmt.Errorf("task %q session %q has duplicate pending prompt %q", taskID, execution.Agent.SessionID, toolCallID)
 				}
@@ -414,7 +413,7 @@ func (a *Attention) liveQuestionCandidates(ctx context.Context, taskFilter *stri
 func liveQuestionAttentionID(
 	sessionID runtimeids.SessionID,
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 ) string {
 	return "question:" + sessionID.String() + ":" + stepID.String() + ":" + string(toolCallID)
 }

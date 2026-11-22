@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
 	"sort"
@@ -28,9 +29,9 @@ import (
 // next non-tool event or end of stream) before its entries are emitted.
 type streamingTranscriptScan struct {
 	pageEntries          []ChatEntry
-	completions          map[string]tools.Result
-	completionProvenance map[string]*TranscriptCommittedRowProvenance
-	materialized         map[string]struct{}
+	completions          map[runtimeids.ToolCallID]tools.Result
+	completionProvenance map[runtimeids.ToolCallID]*TranscriptCommittedRowProvenance
+	materialized         map[runtimeids.ToolCallID]struct{}
 	cacheWarningMode     config.CacheWarningMode
 
 	turn turnBuffer
@@ -42,7 +43,7 @@ type turnBuffer struct {
 	assistant              *llm.Message
 	assistantProvenance    *TranscriptCommittedRowProvenance
 	assistantStepID        *string
-	callIDs                []string
+	callIDs                []runtimeids.ToolCallID
 	materialized           []llm.Message
 	materializedProvenance []*TranscriptCommittedRowProvenance
 	materializedSteps      []*string
@@ -53,9 +54,9 @@ type turnBuffer struct {
 
 func newStreamingTranscriptScan(cacheWarningMode config.CacheWarningMode) *streamingTranscriptScan {
 	return &streamingTranscriptScan{
-		completions:          make(map[string]tools.Result),
-		completionProvenance: make(map[string]*TranscriptCommittedRowProvenance),
-		materialized:         make(map[string]struct{}),
+		completions:          make(map[runtimeids.ToolCallID]tools.Result),
+		completionProvenance: make(map[runtimeids.ToolCallID]*TranscriptCommittedRowProvenance),
+		materialized:         make(map[runtimeids.ToolCallID]struct{}),
 		cacheWarningMode:     cacheWarningMode,
 	}
 }
@@ -101,7 +102,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 		if err != nil {
 			return fmt.Errorf("restore session tool completion record: %w", err)
 		}
-		callID := strings.TrimSpace(completion.CallID)
+		callID := completion.CallID
 		if callID == "" {
 			return nil
 		}
@@ -127,7 +128,7 @@ func (s *streamingTranscriptScan) ApplyPersistedEvent(record session.EventRecord
 			return fmt.Errorf("restore session local entry record: %w", err)
 		}
 		if entry.AfterToolCallID != nil {
-			callID := strings.TrimSpace(*entry.AfterToolCallID)
+			callID := *entry.AfterToolCallID
 			if callID == "" {
 				return errors.New("session local entry record: after-tool call identity is empty")
 			}
@@ -230,13 +231,13 @@ func (s *streamingTranscriptScan) applyReconstructedMessage(msg llm.Message, pro
 		s.turn.assistantStepID = cloneOptionalStepID(stepID)
 		s.turn.callIDs = s.turn.callIDs[:0]
 		for _, call := range msg.ToolCalls {
-			if callID := strings.TrimSpace(call.ID); callID != "" {
+			if callID := call.ID; callID != "" {
 				s.turn.callIDs = append(s.turn.callIDs, callID)
 			}
 		}
 		return
 	}
-	toolCallID, _ := textutil.OptionalTrimmed(msg.ToolCallID)
+	toolCallID, _ := textutil.OptionalValue(msg.ToolCallID)
 	if msg.Role == llm.RoleTool && s.turn.assistant != nil && s.turnOwnsCall(toolCallID) {
 		s.turn.materialized = append(s.turn.materialized, msg)
 		s.turn.materializedProvenance = append(s.turn.materializedProvenance, cloneTranscriptCommittedRowProvenance(provenance))
@@ -247,7 +248,7 @@ func (s *streamingTranscriptScan) applyReconstructedMessage(msg llm.Message, pro
 	s.applyMessage(msg, provenance, stepID)
 }
 
-func (s *streamingTranscriptScan) turnOwnsCall(callID string) bool {
+func (s *streamingTranscriptScan) turnOwnsCall(callID runtimeids.ToolCallID) bool {
 	if callID == "" {
 		return false
 	}
@@ -326,7 +327,7 @@ func (s *streamingTranscriptScan) closeTurn() {
 	}, len(materialized))
 	for index := range materialized {
 		provenance := materializedProvenance[index]
-		if callID, present := textutil.OptionalTrimmed(materialized[index].ToolCallID); present {
+		if callID, present := textutil.OptionalValue(materialized[index].ToolCallID); present {
 			if owner := s.completionProvenance[callID]; owner != nil {
 				provenance = owner
 			}
@@ -348,7 +349,7 @@ func (s *streamingTranscriptScan) closeTurn() {
 		)
 	})
 	for _, rm := range materialized {
-		if callID, present := textutil.OptionalTrimmed(rm.ToolCallID); present {
+		if callID, present := textutil.OptionalValue(rm.ToolCallID); present {
 			if assistant.NativeResponse != nil {
 				s.completions[callID] = resolvedToolResultForMessage(rm, s.completions)
 			} else {
@@ -358,7 +359,7 @@ func (s *streamingTranscriptScan) closeTurn() {
 	}
 	s.applyMessage(assistant, assistantProvenance, assistantStepID)
 	for index, entry := range localEntries {
-		callID := strings.TrimSpace(*entry.AfterToolCallID)
+		callID := *entry.AfterToolCallID
 		if _, materialized := s.materialized[callID]; materialized {
 			continue
 		}
@@ -368,9 +369,9 @@ func (s *streamingTranscriptScan) closeTurn() {
 		if assistant.NativeResponse == nil {
 			s.applyMessage(materializedEntry.message, materializedEntry.provenance, materializedEntry.stepID)
 		}
-		callID, _ := textutil.OptionalTrimmed(materializedEntry.message.ToolCallID)
+		callID, _ := textutil.OptionalValue(materializedEntry.message.ToolCallID)
 		for localIndex, entry := range localEntries {
-			if entry.AfterToolCallID == nil || strings.TrimSpace(*entry.AfterToolCallID) != callID {
+			if entry.AfterToolCallID == nil || *entry.AfterToolCallID != callID {
 				continue
 			}
 			s.appendLocalEntry(entry, localEntrySteps[localIndex], localEntryProvenance[localIndex])

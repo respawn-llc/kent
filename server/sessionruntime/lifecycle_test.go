@@ -365,8 +365,8 @@ func (c *lifecycleQuestionBarrierClient) Generate(
 			},
 			{
 				Type:   llm.ResponseItemTypeFunctionCall,
-				ID:     textutil.Value(question.ID),
-				CallID: textutil.Value(question.ID),
+				ID:     (*string)(textutil.Value(question.ID)),
+				CallID: (*string)(textutil.Value(question.ID)),
 			},
 		},
 		Usage: llm.Usage{WindowTokens: 200000},
@@ -773,7 +773,7 @@ func (p *startupRepairReadyProbe) ResourceReady(
 	if p.callID != "" {
 		if err := engine.WithTranscriptHydrationSnapshot(func(snapshot runtime.TranscriptHydrationSnapshot) error {
 			for _, live := range snapshot.InFlightTools {
-				if live.ToolCallID == p.callID {
+				if live.ToolCallID == runtimeids.ToolCallID(p.callID) {
 					return errors.New("ResourceReady observed a stale live tool start")
 				}
 			}

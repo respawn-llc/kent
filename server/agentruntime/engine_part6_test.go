@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -61,7 +62,7 @@ func TestAppendPersistedLocalEntryRejectsInvalidRecords(t *testing.T) {
 	tests := []storedLocalEntry{
 		{Text: "feedback"},
 		{Role: "system"},
-		{Role: "system", Text: "feedback", AfterToolCallID: &blankCallID},
+		{Role: "system", Text: "feedback", AfterToolCallID: (*runtimeids.ToolCallID)(&blankCallID)},
 	}
 	store := mustCreateTestSession(t)
 	eng := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
@@ -180,7 +181,7 @@ func TestBuildReviewerTranscriptMessagesIncludesConversationAndToolCalls(t *test
 			}},
 		},
 		{Role: llm.RoleAssistant, Content: textutil.Value("assistant response"), Phase: textutil.Value(llm.MessagePhaseFinal)},
-		{Role: llm.RoleTool, Name: textutil.Value("exec_command"), ToolCallID: textutil.Value("call-1"), Content: textutil.Value(`{"output":"ok"}`)},
+		{Role: llm.RoleTool, Name: textutil.Value("exec_command"), ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")), Content: textutil.Value(`{"output":"ok"}`)},
 		{Role: llm.RoleDeveloper, MessageType: textutil.Value(llm.MessageTypeEnvironment), Content: textutil.Value(environmentInjectedHeader + "\nOS: darwin")},
 	}
 

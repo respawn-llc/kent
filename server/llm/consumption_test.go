@@ -72,6 +72,25 @@ func TestConsumptionResolvesModelPricing(t *testing.T) {
 	}
 }
 
+func TestGPT62Consumption(t *testing.T) {
+	for _, test := range []struct {
+		model string
+		want  int64
+	}{
+		{"gpt-6.2-astra", 114_400},
+		{"gpt-6.2-sol", 28_600},
+	} {
+		t.Run(test.model, func(t *testing.T) {
+			score, err := llm.EstimateConsumption(test.model, llm.Usage{
+				InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(6), OutputTokens: textutil.Value(2),
+			})
+			if err != nil || score != test.want {
+				t.Fatalf("score = %d, want %d nanodollars, error = %v", score, test.want, err)
+			}
+		})
+	}
+}
+
 func TestTerra61Consumption(t *testing.T) {
 	score, err := llm.EstimateConsumption("gpt-6.1-terra", llm.Usage{
 		InputTokens: textutil.Value(10), CachedInputTokens: textutil.Value(6), OutputTokens: textutil.Value(2),
