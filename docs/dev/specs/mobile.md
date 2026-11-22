@@ -37,5 +37,6 @@ For build and module decisions, see [Mobile architecture](../mobile-architecture
 - Enabling notifications must authorize the configured server to notify that installation without a separate pairing step or Kent account. Changing servers must revoke the former server's permission to send notifications to that installation.
 - If the beta relay exhausts its free allowance, push delivery must stop. Users must be able to open Inbox and respond to attention without push delivery.
 - Mobile must enable each push category only when its tap destination is available.
+- Tapping a notification for a resolved Task Question must open the current Task Detail without an answer form for that Question.
 - Notification content and tap destinations must match the [Desktop attention contract](desktop-gui.md#inbox-questions-approvals-and-notifications).
 - Crash reporting must default to enabled and offer an opt-out setting.
