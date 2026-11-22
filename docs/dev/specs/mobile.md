@@ -1,3 +1,8 @@
+## Platform support
+
+- The Android app must support Android 10 (API level 29) and later.
+- The iOS app must support iOS 26.0 and later.
+
 ## Connection
 
 For build and module decisions, see [Mobile architecture](../mobile-architecture.md).
