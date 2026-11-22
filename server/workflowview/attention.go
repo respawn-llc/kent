@@ -126,9 +126,26 @@ func (a *Attention) durableCandidates(ctx context.Context, cursor attentionPageC
 	if err != nil {
 		return nil, err
 	}
+	var approvalIDs []workflow.ApprovalID
+	for _, row := range rows {
+		if row.Kind == "approval" {
+			if !row.ApprovalID.Valid {
+				return nil, fmt.Errorf("approval attention candidate %q has no approval id", row.ID)
+			}
+			id, err := workflow.ParseApprovalID(row.ApprovalID.String)
+			if err != nil {
+				return nil, err
+			}
+			approvalIDs = append(approvalIDs, id)
+		}
+	}
+	approvals, err := a.definitions.store.PendingApprovalsByID(ctx, approvalIDs)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]attentionCandidate, 0, len(rows))
 	for _, row := range rows {
-		item, err := a.durableCandidate(ctx, row)
+		item, err := durableCandidate(row, approvals)
 		if err != nil {
 			return nil, err
 		}
@@ -151,20 +168,13 @@ func (a *Attention) durableCandidateRows(ctx context.Context, cursor attentionPa
 	})
 }
 
-func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWorkflowDurableAttentionCandidatesRow) (*taskpb.AttentionItem, error) {
+func durableCandidate(row sqlitegen.ListWorkflowDurableAttentionCandidatesRow, approvals map[workflow.ApprovalID]workflow.PendingApproval) (*taskpb.AttentionItem, error) {
 	switch row.Kind {
 	case "approval":
-		if !row.ApprovalID.Valid {
-			return nil, fmt.Errorf("approval attention candidate %q has no approval id", row.ID)
-		}
-		parsedApprovalID, err := workflow.ParseApprovalID(strings.TrimSpace(row.ApprovalID.String))
-		if err != nil {
-			return nil, err
-		}
-		approvalID := parsedApprovalID.String()
-		approval, err := a.pendingApproval(ctx, workflow.TaskID(row.TaskID), approvalID)
-		if err != nil {
-			return nil, err
+		approvalID := row.ApprovalID.String
+		approval, ok := approvals[workflow.ApprovalID(approvalID)]
+		if !ok || approval.Source.TaskID != workflow.TaskID(row.TaskID) {
+			return nil, fmt.Errorf("approval attention candidate %q is no longer pending for task %q", approvalID, row.TaskID)
 		}
 		snapshot := approvalAttentionSnapshot(approval)
 		return &taskpb.AttentionItem{
@@ -214,19 +224,6 @@ func (a *Attention) durableCandidate(ctx context.Context, row sqlitegen.ListWork
 	default:
 		return nil, fmt.Errorf("unsupported durable workflow attention candidate kind %q", row.Kind)
 	}
-}
-
-func (a *Attention) pendingApproval(ctx context.Context, taskID workflow.TaskID, approvalID string) (workflow.PendingApproval, error) {
-	approvals, err := a.definitions.store.ListPendingApprovals(ctx, taskID)
-	if err != nil {
-		return workflow.PendingApproval{}, err
-	}
-	for _, approval := range approvals {
-		if approval.ID.String() == approvalID {
-			return approval, nil
-		}
-	}
-	return workflow.PendingApproval{}, fmt.Errorf("approval attention candidate %q is no longer pending for task %q", approvalID, taskID)
 }
 
 func approvalAttentionSnapshot(approval workflow.PendingApproval) *taskpb.ApprovalSnapshot {

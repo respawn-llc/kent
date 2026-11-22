@@ -182,19 +182,16 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 	if err := validateWorkflowGraphSaveIdentities(req); err != nil {
 		return WorkflowGraphSavePlan{}, err
 	}
-	currentPolicy := workflow.ExecutionTargetPolicy{
-		Mode:      workflow.ExecutionTargetMode(current.ExecutionTargetPolicy),
-		CustomRef: workflowCustomRefFromRow(current.ExecutionTargetCustomRef),
-	}.Canonical()
-	metadata, metadataChanged, err := prepareWorkflowGraphSaveMetadata(current.Name, current.Description, currentPolicy, req.Metadata)
+	record := workflowRecordFromGetWorkflow(current)
+	metadata, metadataChanged, err := prepareWorkflowGraphSaveMetadata(record.Name, record.Description, record.ExecutionTargetPolicy, req.Metadata)
 	if err != nil {
 		return WorkflowGraphSavePlan{}, err
 	}
-	displayName := current.Name
+	displayName := record.Name
 	if metadata != nil {
 		displayName = metadata.Name
 	}
-	executionTargetPolicy := currentPolicy
+	executionTargetPolicy := record.ExecutionTargetPolicy
 	if metadata != nil && metadata.ExecutionTargetPolicy != nil {
 		executionTargetPolicy = *metadata.ExecutionTargetPolicy
 	}
@@ -221,12 +218,8 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 		MetadataChanged: metadataChanged,
 		Structural:      structural,
 		Definition:      def,
+		Record:          record,
 	}
-	_, record, err := workflowDefinitionFromQueries(ctx, q, workflowID)
-	if err != nil {
-		return WorkflowGraphSavePlan{}, err
-	}
-	plan.Record = record
 	var evaluation workflowGraphSaveDynamicImpact
 	if (graphChanged || metadataChanged) && current.Version == req.ExpectedVersion {
 		evaluation, err = evaluateWorkflowGraphSaveDynamicImpact(ctx, q, workflowID, structural)
@@ -877,27 +870,44 @@ func applyWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, workflowI
 }
 
 func stageWorkflowGraphSaveKeyChanges(ctx context.Context, q *sqlitegen.Queries, current preparedWorkflowGraphSave) error {
+	// Free scoped keys for swaps without touching graph links or ordered collections.
 	for _, group := range current.nodeGroups {
-		group.Key = workflow.ModelKey(uuid.NewString())
-		if err := upsertWorkflowNodeGroup(ctx, q, group, "stage workflow node group key"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(group.ID)
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowNodeGroupKey(ctx, sqlitegen.UpdateWorkflowNodeGroupKeyParams{ID: id, GroupKey: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow node group key"); err != nil {
 			return err
 		}
 	}
 	for _, node := range current.nodes {
-		node.Key = workflow.ModelKey(uuid.NewString())
-		if err := upsertWorkflowNode(ctx, q, node, node.SortOrder, "stage workflow node key"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(node.ID))
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowNodeKey(ctx, sqlitegen.UpdateWorkflowNodeKeyParams{ID: id, NodeKey: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow node key"); err != nil {
 			return err
 		}
 	}
 	for _, group := range current.transitionGroups {
-		group.TransitionID = workflow.TransitionID(uuid.NewString())
-		if err := upsertWorkflowTransitionGroup(ctx, q, group, group.SortOrder, "stage workflow transition group id"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(group.ID))
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowTransitionGroupKey(ctx, sqlitegen.UpdateWorkflowTransitionGroupKeyParams{ID: id, TransitionID: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow transition group id"); err != nil {
 			return err
 		}
 	}
 	for _, edge := range current.edges {
-		edge.Key = workflow.ModelKey(uuid.NewString())
-		if err := upsertWorkflowEdge(ctx, q, edge, edge.SortOrder, "stage workflow edge key"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(edge.ID))
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowEdgeKey(ctx, sqlitegen.UpdateWorkflowEdgeKeyParams{ID: id, EdgeKey: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow edge key"); err != nil {
 			return err
 		}
 	}

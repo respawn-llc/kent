@@ -50,11 +50,31 @@ ALTER TABLE task_pending_approvals_current RENAME TO task_pending_approvals;
 ALTER TABLE task_pending_approval_branches_current RENAME TO task_pending_approval_branches;
 
 CREATE UNIQUE INDEX task_pending_approvals_parallel_source_unique_idx
-    ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key)
-    WHERE source_transition_branch_key IS NOT NULL;
+    ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key);
 CREATE UNIQUE INDEX task_pending_approvals_serial_source_unique_idx
     ON task_pending_approvals(source_task_id, source_node_id)
     WHERE source_transition_branch_key IS NULL;
+
+CREATE INDEX task_pending_approvals_task_order_idx
+    ON task_pending_approvals(source_task_id, created_at_unix_ms, id);
+CREATE INDEX task_pending_approvals_source_node_idx
+    ON task_pending_approvals(source_node_id);
+CREATE INDEX task_pending_approvals_source_session_idx
+    ON task_pending_approvals(source_session_id) WHERE source_session_id IS NOT NULL;
+CREATE INDEX task_pending_approval_branches_edge_idx
+    ON task_pending_approval_branches(edge_id);
+
+-- The full index handles both parallel and serial lookups with a nullable branch key.
+-- The separate serial index still enforces uniqueness for NULL branch keys.
+DROP INDEX task_current_nodes_parallel_branch_unique_idx;
+CREATE UNIQUE INDEX task_current_nodes_parallel_branch_unique_idx
+    ON task_current_nodes(task_id, transition_branch_key);
+CREATE INDEX task_current_nodes_node_idx
+    ON task_current_nodes(node_id);
+CREATE INDEX task_current_nodes_session_idx
+    ON task_current_nodes(session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX task_current_nodes_entered_by_edge_idx
+    ON task_current_nodes(entered_by_edge_id) WHERE entered_by_edge_id IS NOT NULL;
 
 -- +goose StatementBegin
 CREATE TRIGGER task_pending_approvals_choice_insert
@@ -89,9 +109,9 @@ CREATE TRIGGER task_pending_approval_branches_choice_insert
 BEFORE INSERT ON task_pending_approval_branches
 FOR EACH ROW
 WHEN NOT EXISTS (
-    SELECT 1 FROM workflow_edges edge
-    JOIN task_pending_approvals approval ON approval.id = NEW.approval_id
-    WHERE edge.id = NEW.edge_id AND edge.transition_group_id = approval.transition_group_id
+    SELECT 1 WHERE
+        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
+        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
@@ -103,9 +123,9 @@ CREATE TRIGGER task_pending_approval_branches_choice_update
 BEFORE UPDATE OF approval_id, edge_id ON task_pending_approval_branches
 FOR EACH ROW
 WHEN NOT EXISTS (
-    SELECT 1 FROM workflow_edges edge
-    JOIN task_pending_approvals approval ON approval.id = NEW.approval_id
-    WHERE edge.id = NEW.edge_id AND edge.transition_group_id = approval.transition_group_id
+    SELECT 1 WHERE
+        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
+        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
@@ -179,8 +199,8 @@ FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id
 ) OR EXISTS (
-    SELECT 1 FROM task_pending_approval_branches branch
-    JOIN workflow_edges edge ON edge.id = branch.edge_id
+    SELECT 1 FROM workflow_edges edge
+    CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
     WHERE edge.target_node_id = OLD.id
 )
 BEGIN
@@ -196,8 +216,8 @@ WHEN NEW.kind != OLD.kind AND (
     EXISTS (SELECT 1 FROM task_current_nodes current_node WHERE current_node.node_id = OLD.id)
     OR EXISTS (SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id)
     OR EXISTS (
-        SELECT 1 FROM task_pending_approval_branches branch
-        JOIN workflow_edges edge ON edge.id = branch.edge_id
+        SELECT 1 FROM workflow_edges edge
+        CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
         WHERE edge.target_node_id = OLD.id
     )
 )

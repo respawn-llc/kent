@@ -30,7 +30,6 @@ func TestGraphBlobIdentityMigrationPreservesGraphReferences(t *testing.T) {
 				}
 			}
 			seedGraphBlobIdentityMigration(t, db, ids)
-			execSeed(t, db, "empty legacy Join providers", `UPDATE workflow_nodes SET join_input_providers_json = 'null' WHERE node_key = 'source'`)
 			contentQueries := []string{
 				`SELECT rowid, workflow_id, group_key, display_name, sort_order FROM workflow_node_groups`,
 				`SELECT rowid, workflow_id, node_key, kind, display_name, subagent_role, sort_order, completion_mode, script_path FROM workflow_nodes ORDER BY rowid`,
@@ -198,7 +197,11 @@ func TestGraphBlobIdentityMigrationPreservesNullJoinProviders(t *testing.T) {
 	}
 	seedGraphBlobIdentityMigration(t, db, ids)
 	execSeed(t, db, "null join providers", `UPDATE workflow_nodes SET join_input_providers_json = 'null' WHERE node_key = 'source'`)
-	if err := runMigrations(db); err != nil {
+	provider, err := newMetadataMigrationProvider(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(t.Context(), 103); err != nil {
 		t.Fatalf("upgrade graph with null join providers: %v", err)
 	}
 	var providers string

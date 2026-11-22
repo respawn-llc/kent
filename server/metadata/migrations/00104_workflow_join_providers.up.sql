@@ -8,6 +8,9 @@ CREATE TABLE workflow_join_providers (
     PRIMARY KEY (node_id, sort_order)
 ) WITHOUT ROWID;
 
+CREATE INDEX workflow_join_providers_provider_edge_idx
+    ON workflow_join_providers(provider_edge_id);
+
 INSERT INTO workflow_join_providers (node_id, sort_order, input_name, provider_edge_id)
 SELECT node.id, provider.key, json_extract(provider.value, '$.input_name'),
        kent_migration_graph_entity_id_blob_v1(json_extract(provider.value, '$.provider_edge_id'), 'Transition Branch')

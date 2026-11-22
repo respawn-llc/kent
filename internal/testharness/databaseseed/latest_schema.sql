@@ -649,13 +649,21 @@ CREATE INDEX task_comments_task_activity_idx
 CREATE INDEX task_comments_task_created_idx
     ON task_comments(task_id, created_at_unix_ms DESC, id DESC);
 
+CREATE INDEX task_current_nodes_entered_by_edge_idx
+    ON task_current_nodes(entered_by_edge_id) WHERE entered_by_edge_id IS NOT NULL;
+
+CREATE INDEX task_current_nodes_node_idx
+    ON task_current_nodes(node_id);
+
 CREATE UNIQUE INDEX task_current_nodes_parallel_branch_unique_idx
-    ON task_current_nodes(task_id, transition_branch_key)
-    WHERE transition_branch_key IS NOT NULL;
+    ON task_current_nodes(task_id, transition_branch_key);
 
 CREATE UNIQUE INDEX task_current_nodes_serial_task_unique_idx
     ON task_current_nodes(task_id)
     WHERE transition_branch_key IS NULL;
+
+CREATE INDEX task_current_nodes_session_idx
+    ON task_current_nodes(session_id) WHERE session_id IS NOT NULL;
 
 CREATE INDEX task_dependencies_reverse_idx
     ON task_dependencies(blocked_task_id, blocker_task_id);
@@ -663,13 +671,24 @@ CREATE INDEX task_dependencies_reverse_idx
 CREATE INDEX task_label_assignments_label_task_idx
     ON task_label_assignments(label_id, task_id);
 
+CREATE INDEX task_pending_approval_branches_edge_idx
+    ON task_pending_approval_branches(edge_id);
+
 CREATE UNIQUE INDEX task_pending_approvals_parallel_source_unique_idx
-    ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key)
-    WHERE source_transition_branch_key IS NOT NULL;
+    ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key);
 
 CREATE UNIQUE INDEX task_pending_approvals_serial_source_unique_idx
     ON task_pending_approvals(source_task_id, source_node_id)
     WHERE source_transition_branch_key IS NULL;
+
+CREATE INDEX task_pending_approvals_source_node_idx
+    ON task_pending_approvals(source_node_id);
+
+CREATE INDEX task_pending_approvals_source_session_idx
+    ON task_pending_approvals(source_session_id) WHERE source_session_id IS NOT NULL;
+
+CREATE INDEX task_pending_approvals_task_order_idx
+    ON task_pending_approvals(source_task_id, created_at_unix_ms, id);
 
 CREATE UNIQUE INDEX task_search_documents_comment_unique
     ON task_search_documents(comment_id)
@@ -707,6 +726,9 @@ CREATE INDEX workflow_edges_target_node_idx
 
 CREATE INDEX workflow_edges_transition_group_sort_idx
     ON workflow_edges(transition_group_id, sort_order);
+
+CREATE INDEX workflow_join_providers_provider_edge_idx
+    ON workflow_join_providers(provider_edge_id);
 
 CREATE INDEX workflow_node_groups_workflow_sort_idx
     ON workflow_node_groups(workflow_id, sort_order);
@@ -1081,9 +1103,9 @@ CREATE TRIGGER task_pending_approval_branches_choice_insert
 BEFORE INSERT ON task_pending_approval_branches
 FOR EACH ROW
 WHEN NOT EXISTS (
-    SELECT 1 FROM workflow_edges edge
-    JOIN task_pending_approvals approval ON approval.id = NEW.approval_id
-    WHERE edge.id = NEW.edge_id AND edge.transition_group_id = approval.transition_group_id
+    SELECT 1 WHERE
+        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
+        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
@@ -1093,9 +1115,9 @@ CREATE TRIGGER task_pending_approval_branches_choice_update
 BEFORE UPDATE OF approval_id, edge_id ON task_pending_approval_branches
 FOR EACH ROW
 WHEN NOT EXISTS (
-    SELECT 1 FROM workflow_edges edge
-    JOIN task_pending_approvals approval ON approval.id = NEW.approval_id
-    WHERE edge.id = NEW.edge_id AND edge.transition_group_id = approval.transition_group_id
+    SELECT 1 WHERE
+        (SELECT transition_group_id FROM workflow_edges WHERE id = NEW.edge_id) =
+        (SELECT transition_group_id FROM task_pending_approvals WHERE id = NEW.approval_id)
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval branch must belong to its selected transition');
@@ -1459,8 +1481,8 @@ FOR EACH ROW
 WHEN EXISTS (
     SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id
 ) OR EXISTS (
-    SELECT 1 FROM task_pending_approval_branches branch
-    JOIN workflow_edges edge ON edge.id = branch.edge_id
+    SELECT 1 FROM workflow_edges edge
+    CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
     WHERE edge.target_node_id = OLD.id
 )
 BEGIN
@@ -1500,8 +1522,8 @@ WHEN NEW.kind != OLD.kind AND (
     EXISTS (SELECT 1 FROM task_current_nodes current_node WHERE current_node.node_id = OLD.id)
     OR EXISTS (SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id)
     OR EXISTS (
-        SELECT 1 FROM task_pending_approval_branches branch
-        JOIN workflow_edges edge ON edge.id = branch.edge_id
+        SELECT 1 FROM workflow_edges edge
+        CROSS JOIN task_pending_approval_branches branch ON branch.edge_id = edge.id
         WHERE edge.target_node_id = OLD.id
     )
 )

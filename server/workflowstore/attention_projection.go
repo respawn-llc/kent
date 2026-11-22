@@ -48,35 +48,42 @@ func (s *Store) PendingApprovalAttentionProjection(ctx context.Context, approval
 }
 
 func pendingApprovalAttentionProjection(ctx context.Context, q *sqlitegen.Queries, approvalID workflow.ApprovalID) (ApprovalAttentionProjection, bool, error) {
-	row, err := q.GetTaskPendingApproval(ctx, approvalID.String())
-	if errors.Is(err, sql.ErrNoRows) {
+	rows, err := q.ListPendingApprovalAttentionFacts(ctx, sqlitegen.ListPendingApprovalAttentionFactsParams{
+		ApprovalID: sql.NullString{String: approvalID.String(), Valid: true}, TaskIdsJson: "[]",
+	})
+	if err != nil {
+		return ApprovalAttentionProjection{}, false, err
+	}
+	if len(rows) == 0 {
 		return ApprovalAttentionProjection{}, false, nil
 	}
+	projection, err := approvalAttentionProjectionFromRow(rows[0])
+	return projection, err == nil, err
+}
+
+func approvalAttentionProjectionFromRow(row sqlitegen.ListPendingApprovalAttentionFactsRow) (ApprovalAttentionProjection, error) {
+	approvalID, err := workflow.ParseApprovalID(row.ID)
 	if err != nil {
-		return ApprovalAttentionProjection{}, false, err
+		return ApprovalAttentionProjection{}, err
 	}
-	approval, err := pendingApprovalFromRow(ctx, q, row)
+	source, sourceSession, err := pendingApprovalSourceFromRow(row.SourceTaskID, row.SourceNodeID, row.SourceTransitionBranchKey, row.SourceSessionID)
 	if err != nil {
-		return ApprovalAttentionProjection{}, false, err
-	}
-	task, err := q.GetTask(ctx, string(approval.Source.TaskID))
-	if err != nil {
-		return ApprovalAttentionProjection{}, false, err
+		return ApprovalAttentionProjection{}, err
 	}
 	sessionID := ""
-	if approval.SourceSessionID != nil {
-		sessionID = approval.SourceSessionID.String()
+	if sourceSession != nil {
+		sessionID = sourceSession.String()
 	}
 	return ApprovalAttentionProjection{
-		ApprovalID:       approval.ID,
-		Source:           approval.Source,
-		ProjectID:        task.ProjectID,
-		WorkflowID:       task.WorkflowID,
-		TaskShortID:      task.ShortID,
-		TaskTitle:        task.Title,
+		ApprovalID:       approvalID,
+		Source:           source,
+		ProjectID:        row.ProjectID,
+		WorkflowID:       row.WorkflowID,
+		TaskShortID:      row.ShortID,
+		TaskTitle:        row.Title,
 		SessionID:        sessionID,
-		OccurredAtUnixMs: approval.CreatedAt.UnixMilli(),
-	}, true, nil
+		OccurredAtUnixMs: row.CreatedAtUnixMs,
+	}, nil
 }
 
 func (s *Store) PendingInterruptedCurrentNodeAttentionProjection(ctx context.Context, reference workflow.CurrentNodeReference) (InterruptedCurrentNodeAttentionProjection, bool, error) {
@@ -94,80 +101,104 @@ func (s *Store) pendingInterruptedCurrentNodeAttentionProjection(ctx context.Con
 	if err != nil {
 		return InterruptedCurrentNodeAttentionProjection{}, false, err
 	}
-	if currentNode.Scheduling == nil || currentNode.Scheduling.State != workflow.CurrentNodeSchedulingInterrupted || currentNode.Scheduling.Interruption == nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, nil
-	}
-	reason := string(currentNode.Scheduling.Interruption.Reason)
-	if !attentionInterruptionRequiresNotification(reason) {
+	if !isAttentionInterruption(currentNode) {
 		return InterruptedCurrentNodeAttentionProjection{}, false, nil
 	}
 	task, err := q.GetTask(ctx, string(reference.TaskID))
 	if err != nil {
 		return InterruptedCurrentNodeAttentionProjection{}, false, err
 	}
-	detail, err := workflow.MarshalString(currentNode.Scheduling.Interruption.Detail)
+	projection, err := interruptionAttentionProjection(task, currentNode)
+	return projection, err == nil, err
+}
+
+func isAttentionInterruption(currentNode workflow.CurrentNode) bool {
+	return currentNode.Scheduling != nil &&
+		currentNode.Scheduling.State == workflow.CurrentNodeSchedulingInterrupted &&
+		currentNode.Scheduling.Interruption != nil &&
+		attentionInterruptionRequiresNotification(string(currentNode.Scheduling.Interruption.Reason))
+}
+
+func interruptionAttentionProjection(task sqlitegen.TaskRecord, currentNode workflow.CurrentNode) (InterruptedCurrentNodeAttentionProjection, error) {
+	interruption := currentNode.Scheduling.Interruption
+	detail, err := workflow.MarshalString(interruption.Detail)
 	if err != nil {
-		return InterruptedCurrentNodeAttentionProjection{}, false, fmt.Errorf("encode interrupted current node attention detail: %w", err)
+		return InterruptedCurrentNodeAttentionProjection{}, fmt.Errorf("encode interrupted current node attention detail: %w", err)
 	}
 	sessionID := ""
 	if currentNode.SessionID != nil {
 		sessionID = currentNode.SessionID.String()
 	}
 	return InterruptedCurrentNodeAttentionProjection{
-		CurrentNode:            reference,
+		CurrentNode:            currentNode.Reference,
 		ProjectID:              task.ProjectID,
 		WorkflowID:             task.WorkflowID,
 		TaskShortID:            task.ShortID,
 		TaskTitle:              task.Title,
 		SessionID:              sessionID,
-		InterruptionReason:     reason,
+		InterruptionReason:     string(interruption.Reason),
 		InterruptionDetailJSON: detail,
-		OccurredAtUnixMs:       currentNode.Scheduling.Interruption.OccurredAt.UnixMilli(),
-	}, true, nil
+		OccurredAtUnixMs:       interruption.OccurredAt.UnixMilli(),
+	}, nil
 }
 
 func (s *Store) taskAttentionResolution(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID) (TaskAttentionResolution, error) {
-	resolution, err := taskApprovalAttentionResolution(ctx, q, taskID)
+	approvals, err := taskApprovalAttentionResolutions(ctx, q, []string{string(taskID)})
 	if err != nil {
 		return TaskAttentionResolution{}, err
 	}
-	currentNodes, err := s.listTaskCurrentNodes(ctx, q, taskID)
-	if err != nil {
-		return TaskAttentionResolution{}, err
-	}
-	for _, currentNode := range currentNodes {
-		projection, found, err := s.pendingInterruptedCurrentNodeAttentionProjection(ctx, q, currentNode.Reference)
-		if err != nil {
-			return TaskAttentionResolution{}, err
-		}
-		if found {
-			resolution.InterruptedCurrentNodes = append(resolution.InterruptedCurrentNodes, projection)
-		}
-	}
-	return resolution, nil
+	interruptions, err := s.taskInterruptionAttentionResolutions(ctx, q, taskID)
+	return TaskAttentionResolution{Approvals: approvals, InterruptedCurrentNodes: interruptions}, err
 }
 
-func taskApprovalAttentionResolution(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID) (TaskAttentionResolution, error) {
-	approvals, err := q.ListTaskPendingApprovals(ctx, string(taskID))
+func (s *Store) taskInterruptionAttentionResolutions(ctx context.Context, q *sqlitegen.Queries, taskID workflow.TaskID) ([]InterruptedCurrentNodeAttentionProjection, error) {
+	currentNodes, err := s.listTaskCurrentNodes(ctx, q, taskID)
 	if err != nil {
-		return TaskAttentionResolution{}, err
+		return nil, err
 	}
-	resolution := TaskAttentionResolution{}
-	for _, row := range approvals {
-		approvalID, err := workflow.ParseApprovalID(row.ID)
+	var task *sqlitegen.TaskRecord
+	var projections []InterruptedCurrentNodeAttentionProjection
+	for _, currentNode := range currentNodes {
+		if !isAttentionInterruption(currentNode) {
+			continue
+		}
+		if task == nil {
+			row, err := q.GetTask(ctx, string(taskID))
+			if err != nil {
+				return nil, err
+			}
+			task = &row
+		}
+		projection, err := interruptionAttentionProjection(*task, currentNode)
 		if err != nil {
-			return TaskAttentionResolution{}, err
+			return nil, err
 		}
-		projection, found, err := pendingApprovalAttentionProjection(ctx, q, approvalID)
-		if err != nil {
-			return TaskAttentionResolution{}, err
-		}
-		if !found {
-			return TaskAttentionResolution{}, fmt.Errorf("pending approval %q disappeared during attention resolution", row.ID)
-		}
-		resolution.Approvals = append(resolution.Approvals, projection)
+		projections = append(projections, projection)
 	}
-	return resolution, nil
+	return projections, nil
+}
+
+func taskApprovalAttentionResolutions(ctx context.Context, q *sqlitegen.Queries, taskIDs []string) ([]ApprovalAttentionProjection, error) {
+	if len(taskIDs) == 0 {
+		return nil, nil
+	}
+	encodedIDs, err := workflow.MarshalString(taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.ListPendingApprovalAttentionFacts(ctx, sqlitegen.ListPendingApprovalAttentionFactsParams{TaskIdsJson: encodedIDs})
+	if err != nil {
+		return nil, err
+	}
+	var projections []ApprovalAttentionProjection
+	for _, row := range rows {
+		projection, err := approvalAttentionProjectionFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		projections = append(projections, projection)
+	}
+	return projections, nil
 }
 
 func (s *Store) workflowAttentionResolution(ctx context.Context, q *sqlitegen.Queries, workflowID runtimeids.WorkflowID) (TaskAttentionResolution, error) {
@@ -175,14 +206,17 @@ func (s *Store) workflowAttentionResolution(ctx context.Context, q *sqlitegen.Qu
 	if err != nil {
 		return TaskAttentionResolution{}, err
 	}
-	var resolution TaskAttentionResolution
+	approvals, err := taskApprovalAttentionResolutions(ctx, q, taskIDs)
+	if err != nil {
+		return TaskAttentionResolution{}, err
+	}
+	resolution := TaskAttentionResolution{Approvals: approvals}
 	for _, taskID := range taskIDs {
-		taskResolution, err := s.taskAttentionResolution(ctx, q, workflow.TaskID(taskID))
+		interruptions, err := s.taskInterruptionAttentionResolutions(ctx, q, workflow.TaskID(taskID))
 		if err != nil {
 			return TaskAttentionResolution{}, err
 		}
-		resolution.Approvals = append(resolution.Approvals, taskResolution.Approvals...)
-		resolution.InterruptedCurrentNodes = append(resolution.InterruptedCurrentNodes, taskResolution.InterruptedCurrentNodes...)
+		resolution.InterruptedCurrentNodes = append(resolution.InterruptedCurrentNodes, interruptions...)
 	}
 	return resolution, nil
 }

@@ -411,11 +411,12 @@ LIMIT sqlc.arg(page_limit)
 OFFSET sqlc.arg(page_offset);
 
 -- name: ListWorkflowOutputRequirements :many
+-- Start from the selected Workflow even when analyzed collection tables are sparse.
 SELECT requirement.edge_id, requirement.field_name
-FROM workflow_output_requirements requirement
-JOIN workflow_edges edge ON edge.id = requirement.edge_id
-JOIN workflow_transition_groups transition_group ON transition_group.id = edge.transition_group_id
-JOIN workflow_nodes source ON source.id = transition_group.source_node_id
+FROM workflow_nodes source
+CROSS JOIN workflow_transition_groups transition_group ON transition_group.source_node_id = source.id
+CROSS JOIN workflow_edges edge ON edge.transition_group_id = transition_group.id
+CROSS JOIN workflow_output_requirements requirement ON requirement.edge_id = edge.id
 WHERE source.workflow_id = sqlc.arg(workflow_id)
 ORDER BY requirement.edge_id, requirement.sort_order;
 
@@ -428,10 +429,10 @@ VALUES (sqlc.arg(edge_id), sqlc.arg(sort_order), sqlc.arg(field_name));
 
 -- name: ListWorkflowInputBindings :many
 SELECT binding.edge_id, binding.name, binding.source, binding.field
-FROM workflow_input_bindings binding
-JOIN workflow_edges edge ON edge.id = binding.edge_id
-JOIN workflow_transition_groups transition_group ON transition_group.id = edge.transition_group_id
-JOIN workflow_nodes source ON source.id = transition_group.source_node_id
+FROM workflow_nodes source
+CROSS JOIN workflow_transition_groups transition_group ON transition_group.source_node_id = source.id
+CROSS JOIN workflow_edges edge ON edge.transition_group_id = transition_group.id
+CROSS JOIN workflow_input_bindings binding ON binding.edge_id = edge.id
 WHERE source.workflow_id = sqlc.arg(workflow_id)
 ORDER BY binding.edge_id, binding.sort_order;
 
@@ -444,10 +445,10 @@ VALUES (sqlc.arg(edge_id), sqlc.arg(sort_order), sqlc.arg(name), sqlc.arg(source
 
 -- name: ListWorkflowParameters :many
 SELECT parameter.edge_id, parameter.parameter_key, parameter.description, parameter.purpose
-FROM workflow_parameters parameter
-JOIN workflow_edges edge ON edge.id = parameter.edge_id
-JOIN workflow_transition_groups transition_group ON transition_group.id = edge.transition_group_id
-JOIN workflow_nodes source ON source.id = transition_group.source_node_id
+FROM workflow_nodes source
+CROSS JOIN workflow_transition_groups transition_group ON transition_group.source_node_id = source.id
+CROSS JOIN workflow_edges edge ON edge.transition_group_id = transition_group.id
+CROSS JOIN workflow_parameters parameter ON parameter.edge_id = edge.id
 WHERE source.workflow_id = sqlc.arg(workflow_id)
 ORDER BY parameter.edge_id, parameter.sort_order;
 
@@ -460,8 +461,8 @@ VALUES (sqlc.arg(edge_id), sqlc.arg(sort_order), sqlc.arg(parameter_key), sqlc.a
 
 -- name: ListWorkflowJoinProviders :many
 SELECT provider.node_id, provider.input_name, provider.provider_edge_id
-FROM workflow_join_providers provider
-JOIN workflow_nodes node ON node.id = provider.node_id
+FROM workflow_nodes node
+CROSS JOIN workflow_join_providers provider ON provider.node_id = node.id
 WHERE node.workflow_id = sqlc.arg(workflow_id)
 ORDER BY provider.node_id, provider.sort_order;
 
@@ -504,6 +505,22 @@ WHERE id = sqlc.arg(id)
 
 -- name: DeleteWorkflowTransitionGroupByID :execrows
 DELETE FROM workflow_transition_groups
+WHERE id = sqlc.arg(id);
+
+-- name: UpdateWorkflowNodeGroupKey :execrows
+UPDATE workflow_node_groups SET group_key = sqlc.arg(group_key)
+WHERE id = sqlc.arg(id);
+
+-- name: UpdateWorkflowNodeKey :execrows
+UPDATE workflow_nodes SET node_key = sqlc.arg(node_key)
+WHERE id = sqlc.arg(id);
+
+-- name: UpdateWorkflowTransitionGroupKey :execrows
+UPDATE workflow_transition_groups SET transition_id = sqlc.arg(transition_id)
+WHERE id = sqlc.arg(id);
+
+-- name: UpdateWorkflowEdgeKey :execrows
+UPDATE workflow_edges SET edge_key = sqlc.arg(edge_key)
 WHERE id = sqlc.arg(id);
 
 -- name: UpsertWorkflowNodeGroup :execrows
@@ -4071,3 +4088,70 @@ LIMIT (SELECT limit_rows FROM args)
 OFFSET COALESCE((SELECT first_round_offset FROM page_window), 0);
 {{end}}
 {{if .IncludeTaskSearchPageDescriptors}}{{template "taskSearchPageDescriptors" .}}{{end}}
+
+-- name: ListPendingApprovalPresentationHeaders :many
+SELECT
+    sqlc.embed(approval),
+    task.workflow_id,
+    source.node_key AS source_key,
+    source.display_name AS source_name,
+    transition.transition_id AS current_transition_key,
+    transition.display_name AS current_transition_name,
+    transition.description AS current_transition_description
+FROM task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
+CROSS JOIN task_records task ON task.id = approval.source_task_id
+LEFT JOIN workflow_nodes source
+  ON source.id = approval.source_node_id AND source.workflow_id = task.workflow_id
+LEFT JOIN workflow_transition_groups transition INDEXED BY sqlite_autoindex_workflow_transition_groups_1
+  ON transition.id = approval.transition_group_id AND transition.source_node_id = source.id
+WHERE approval.id IN (
+    SELECT by_task.id FROM task_pending_approvals by_task WHERE by_task.source_task_id = sqlc.narg(task_id)
+    UNION ALL
+    SELECT CAST(value AS TEXT) FROM json_each(sqlc.arg(approval_ids_json))
+)
+ORDER BY approval.created_at_unix_ms, approval.id;
+
+-- name: ListPendingApprovalPresentationBranches :many
+SELECT
+    choice.approval_id,
+    choice.transition_branch_key,
+    choice.edge_id,
+    edge.target_node_id,
+    target.node_key AS target_key,
+    target.display_name AS target_name,
+    target.kind AS target_kind
+FROM task_pending_approval_branches choice INDEXED BY sqlite_autoindex_task_pending_approval_branches_1
+CROSS JOIN task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
+  ON approval.id = choice.approval_id
+CROSS JOIN task_records task ON task.id = approval.source_task_id
+LEFT JOIN workflow_edges edge INDEXED BY sqlite_autoindex_workflow_edges_1
+  ON edge.id = choice.edge_id AND edge.transition_group_id = approval.transition_group_id
+LEFT JOIN workflow_nodes target
+  ON target.id = edge.target_node_id AND target.workflow_id = task.workflow_id
+WHERE choice.approval_id IN (
+    SELECT CAST(value AS TEXT) FROM json_each(sqlc.arg(approval_ids_json))
+)
+ORDER BY choice.approval_id, choice.transition_branch_key;
+
+-- name: ListPendingApprovalAttentionFacts :many
+SELECT
+    approval.id,
+    approval.source_task_id,
+    approval.source_node_id,
+    approval.source_transition_branch_key,
+    approval.source_session_id,
+    approval.created_at_unix_ms,
+    task.project_id,
+    task.workflow_id,
+    task.short_id,
+    task.title
+FROM task_pending_approvals approval INDEXED BY sqlite_autoindex_task_pending_approvals_1
+CROSS JOIN task_records task ON task.id = approval.source_task_id
+WHERE approval.id IN (
+    SELECT by_id.id FROM task_pending_approvals by_id WHERE by_id.id = sqlc.narg(approval_id)
+    UNION ALL
+    SELECT by_task.id FROM task_pending_approvals by_task WHERE by_task.source_task_id IN (
+        SELECT CAST(value AS TEXT) FROM json_each(sqlc.arg(task_ids_json))
+    )
+)
+ORDER BY approval.source_task_id, approval.created_at_unix_ms, approval.id;

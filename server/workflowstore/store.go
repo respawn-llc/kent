@@ -578,16 +578,7 @@ func workflowDefinitionFromQueries(ctx context.Context, q *sqlitegen.Queries, wo
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
-	record := workflowRecordFromRow(workflowRecordRow{
-		ID:                       row.ID,
-		Name:                     row.Name,
-		Description:              row.Description,
-		Version:                  row.Version,
-		ExecutionTargetPolicy:    row.ExecutionTargetPolicy,
-		ExecutionTargetCustomRef: row.ExecutionTargetCustomRef,
-		CreatedAtUnixMs:          row.CreatedAtUnixMs,
-		UpdatedAtUnixMs:          row.UpdatedAtUnixMs,
-	})
+	record := workflowRecordFromGetWorkflow(row)
 	prepared, err := currentWorkflowGraphSavePrepared(ctx, q, workflowID)
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
@@ -602,6 +593,19 @@ func workflowDefinitionFromQueries(ctx context.Context, q *sqlitegen.Queries, wo
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
 	return definition, record, nil
+}
+
+func workflowRecordFromGetWorkflow(row sqlitegen.Workflow) WorkflowRecord {
+	return workflowRecordFromRow(workflowRecordRow{
+		ID:                       row.ID,
+		Name:                     row.Name,
+		Description:              row.Description,
+		Version:                  row.Version,
+		ExecutionTargetPolicy:    row.ExecutionTargetPolicy,
+		ExecutionTargetCustomRef: row.ExecutionTargetCustomRef,
+		CreatedAtUnixMs:          row.CreatedAtUnixMs,
+		UpdatedAtUnixMs:          row.UpdatedAtUnixMs,
+	})
 }
 
 type workflowRecordRow struct {

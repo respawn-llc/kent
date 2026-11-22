@@ -30,6 +30,12 @@ func TestJoinProviderCollectionMigrationPreservesOrderAndIdentity(t *testing.T) 
 	if violations := optionalNodeLabelMigrationRows(t, db, `PRAGMA foreign_key_check`); len(violations) != 0 {
 		t.Fatalf("foreign key violations: %v", violations)
 	}
+	execSeed(t, db, "unrelated provider edge", `INSERT INTO workflow_join_providers VALUES (?, 2, 'unrelated', ?)`, nodeID, workflowGraphSeedID(t, db, "edge-done-1"))
+	execSeed(t, db, "delete provider edge", `DELETE FROM workflow_edges WHERE id = ?`, workflowGraphSeedID(t, db, "edge-start-1"))
+	remaining := optionalNodeLabelMigrationRows(t, db, `SELECT input_name, sort_order FROM workflow_join_providers`)
+	if want := [][]any{{"unrelated", int64(2)}}; !reflect.DeepEqual(remaining, want) {
+		t.Fatalf("provider edge cascade removed wrong providers: got %v, want %v", remaining, want)
+	}
 }
 
 func TestParameterCollectionMigrationPreservesProtectedSettingsAndOrder(t *testing.T) {
