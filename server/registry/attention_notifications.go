@@ -93,22 +93,22 @@ func (r *RuntimeRegistry) publishAttentionPending(sessionID string, snapshot Pen
 	if req.QuestionBatch != nil && req.AttentionTarget != nil && req.AttentionTarget.Kind == clientui.AttentionNotificationTargetWorkflowTask {
 		stepID := questionBatchStepID(*req.QuestionBatch)
 		if err := r.PrepareTaskQuestionBatch(*req.QuestionBatch, sessionID, req.AttentionTarget, strings.TrimSpace(req.Question), snapshot.CreatedAt); err != nil {
-			logAttentionNotificationOperationFailure("prepare task question batch", sessionID, req.ToolCallID, err)
+			logAttentionNotificationOperationFailure("prepare task question batch", sessionID, string(req.ToolCallID), err)
 			return
 		}
-		if err := r.questionBatches.MarkMaterialized(stepID, req.ToolCallID); err != nil {
-			logAttentionNotificationOperationFailure("materialize task question batch", sessionID, req.ToolCallID, err)
+		if err := r.questionBatches.MarkMaterialized(stepID, string(req.ToolCallID)); err != nil {
+			logAttentionNotificationOperationFailure("materialize task question batch", sessionID, string(req.ToolCallID), err)
 		}
 		return
 	}
 	event, err := r.attentionPendingEventFromPrompt(sessionID, snapshot)
 	if err != nil {
-		logAttentionNotificationOperationFailure("resolve prompt navigation", sessionID, req.ToolCallID, err)
+		logAttentionNotificationOperationFailure("resolve prompt navigation", sessionID, string(req.ToolCallID), err)
 		return
 	}
 	if event.Pending != nil {
 		if err := r.attentionBroker.PublishPending(attentionScopeForRequest(sessionID, req), *event.Pending); err != nil {
-			logAttentionNotificationOperationFailure("publish pending prompt", sessionID, req.ToolCallID, err)
+			logAttentionNotificationOperationFailure("publish pending prompt", sessionID, string(req.ToolCallID), err)
 		}
 	}
 }
@@ -127,10 +127,10 @@ func (r *RuntimeRegistry) publishAttentionResolved(sessionID string, snapshot Pe
 	kind := promptNotificationKind(req)
 	id := clientui.AttentionNotificationID{
 		Kind: kind,
-		UUID: strings.TrimSpace(req.ToolCallID),
+		UUID: strings.TrimSpace(string(req.ToolCallID)),
 	}
 	if err := r.attentionBroker.PublishResolved(attentionScopeForRequest(sessionID, req), id, kind, time.Now().UTC()); err != nil {
-		logAttentionNotificationOperationFailure("publish resolved prompt", sessionID, req.ToolCallID, err)
+		logAttentionNotificationOperationFailure("publish resolved prompt", sessionID, string(req.ToolCallID), err)
 	}
 }
 
@@ -183,8 +183,8 @@ func (r *RuntimeRegistry) MarkTaskQuestionSkipped(batch askquestion.AskQuestionB
 	if r == nil || r.questionBatches == nil {
 		return
 	}
-	if err := r.questionBatches.MarkSkipped(questionBatchStepID(batch), batch.ToolCallID); err != nil {
-		logAttentionNotificationOperationFailure("mark task question skipped", "", batch.ToolCallID, err)
+	if err := r.questionBatches.MarkSkipped(questionBatchStepID(batch), string(batch.ToolCallID)); err != nil {
+		logAttentionNotificationOperationFailure("mark task question skipped", "", string(batch.ToolCallID), err)
 	}
 }
 
@@ -213,7 +213,7 @@ func (r *RuntimeRegistry) attentionPendingEventFromPrompt(sessionID string, snap
 	notification := clientui.AttentionNotification{
 		ID: clientui.AttentionNotificationID{
 			Kind: kind,
-			UUID: strings.TrimSpace(snapshot.Request.ToolCallID),
+			UUID: strings.TrimSpace(string(snapshot.Request.ToolCallID)),
 		},
 		Kind:       kind,
 		OccurredAt: snapshot.CreatedAt,

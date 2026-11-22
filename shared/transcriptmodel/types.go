@@ -22,6 +22,7 @@ const (
 	ToolPresentationDefault     ToolPresentationKind = "default"
 	ToolPresentationShell       ToolPresentationKind = "shell"
 	ToolPresentationAskQuestion ToolPresentationKind = "ask_question"
+	ToolPresentationWebSearch   ToolPresentationKind = "web_search"
 )
 
 type ToolCallRenderBehavior string
@@ -211,7 +212,7 @@ func (m *ToolCallMeta) Valid() bool {
 		return false
 	}
 	switch m.Presentation {
-	case ToolPresentationDefault, ToolPresentationShell, ToolPresentationAskQuestion:
+	case ToolPresentationDefault, ToolPresentationShell, ToolPresentationAskQuestion, ToolPresentationWebSearch:
 	default:
 		return false
 	}

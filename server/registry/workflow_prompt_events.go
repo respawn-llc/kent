@@ -34,7 +34,7 @@ func (r *RuntimeRegistry) publishTaskQuestionWaitingForScope(scope sessionruntim
 	projectID := strings.TrimSpace(ref.ProjectID)
 	taskID := strings.TrimSpace(string(ref.CurrentNode.TaskID))
 	sessionID := resource.SessionID().String()
-	askID := strings.TrimSpace(snapshot.Request.ToolCallID)
+	askID := strings.TrimSpace(string(snapshot.Request.ToolCallID))
 	switch {
 	case projectID == "":
 		return fmt.Errorf("workflow prompt scope %s has no project id", scope.ID())
@@ -66,7 +66,7 @@ func (r *RuntimeRegistry) publishTaskQuestionCleared(sessionID string, snapshot 
 	}
 	projectID := strings.TrimSpace(target.ProjectID)
 	taskID := strings.TrimSpace(target.TaskID)
-	toolCallID := strings.TrimSpace(snapshot.Request.ToolCallID)
+	toolCallID := strings.TrimSpace(string(snapshot.Request.ToolCallID))
 	targetSessionID := strings.TrimSpace(target.SessionID)
 	switch {
 	case projectID == "":

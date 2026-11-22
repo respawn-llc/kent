@@ -318,7 +318,7 @@ func TestWorkflowRejectsDuplicateCompletionBeforeExecutingMixedToolCalls(t *test
 	}
 	resultsByCallID := make(map[string]tools.Result, len(results))
 	for _, result := range results {
-		resultsByCallID[result.CallID] = result
+		resultsByCallID[string(result.CallID)] = result
 	}
 	if completion, ok := resultsByCallID["accepted-completion"]; !ok ||
 		completion.Name != toolspec.ToolCompleteNode ||
@@ -585,7 +585,7 @@ func TestRequestToolsUseActiveProviderCapabilitiesForPatchShape(t *testing.T) {
 
 func workflowCompleteNodeCall(id, input string) llm.ToolCall {
 	return llm.ToolCall{
-		ID:    id,
+		ID:    runtimeids.ToolCallID(id),
 		Name:  string(toolspec.ToolCompleteNode),
 		Input: json.RawMessage(input),
 	}

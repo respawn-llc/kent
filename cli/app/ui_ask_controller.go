@@ -8,6 +8,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"errors"
 	"fmt"
@@ -480,9 +481,9 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 		return false, false, nil
 	}
 	if answerToolCallID == "" {
-		resp.ToolCallID = clientui.ToolCallID(currentToolCallID)
+		resp.ToolCallID = runtimeids.ToolCallID(currentToolCallID)
 	} else {
-		resp.ToolCallID = clientui.ToolCallID(answerToolCallID)
+		resp.ToolCallID = runtimeids.ToolCallID(answerToolCallID)
 	}
 	active, cmd, deliveryErr := m.promptAnswers.delivery(m.ask.current.prompt, resp, err)
 	if deliveryErr != nil {

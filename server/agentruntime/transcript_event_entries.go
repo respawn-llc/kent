@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"fmt"
 	"strings"
 
@@ -15,7 +16,7 @@ func VisibleChatEntriesFromMessage(msg llm.Message) []ChatEntry {
 	return visibleChatEntriesFromMessage(msg, nil, nil)
 }
 
-func visibleChatEntriesFromMessage(msg llm.Message, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) []ChatEntry {
+func visibleChatEntriesFromMessage(msg llm.Message, completions map[runtimeids.ToolCallID]tools.Result, materializedToolCalls map[runtimeids.ToolCallID]struct{}) []ChatEntry {
 	if msg.NativeResponse != nil {
 		var entries []ChatEntry
 		for _, projected := range nativeResponseMessages(msg) {
@@ -79,8 +80,8 @@ func isToolCallEntryRole(role string) bool {
 	return role == "tool_call" || role == string(transcript.EntryRoleAcceptedToolCall)
 }
 
-func synthesizedToolResultForCall(call llm.ToolCall, completions map[string]tools.Result, materializedToolCalls map[string]struct{}) (tools.Result, bool) {
-	callID := strings.TrimSpace(call.ID)
+func synthesizedToolResultForCall(call llm.ToolCall, completions map[runtimeids.ToolCallID]tools.Result, materializedToolCalls map[runtimeids.ToolCallID]struct{}) (tools.Result, bool) {
+	callID := call.ID
 	if callID == "" {
 		return tools.Result{}, false
 	}
@@ -186,8 +187,8 @@ func TranscriptEntriesFromEvent(evt Event) []ChatEntry {
 	return entries
 }
 
-func resolvedToolResultForMessage(msg llm.Message, completions map[string]tools.Result) tools.Result {
-	callID, _ := textutil.OptionalTrimmed(msg.ToolCallID)
+func resolvedToolResultForMessage(msg llm.Message, completions map[runtimeids.ToolCallID]tools.Result) tools.Result {
+	callID, _ := textutil.OptionalValue(msg.ToolCallID)
 	if completion, ok := completions[callID]; ok {
 		// The model-visible message may decode a JSON scalar into plain text.
 		// Its locator belongs to the completion, so project that durable result.
@@ -210,30 +211,23 @@ func resolvedToolResultForMessage(msg llm.Message, completions map[string]tools.
 }
 
 func toolResultChatEntry(result tools.Result) ChatEntry {
-	content := projectToolResultContent(result)
+	row := projectToolResultRow(result)
 	role := "tool_result_ok"
-	if content.isError {
+	if row.IsError {
 		role = "tool_result_error"
 	}
-	presentation := result.Presentation
-	if presentation != nil {
-		normalized := transcript.NormalizeToolCallMeta(*presentation)
-		presentation = &normalized
-	}
-	condensedText, _ := textutil.OptionalTrimmed(result.CondensedText)
-	summary, _ := textutil.OptionalTrimmed(result.Summary)
 	return ChatEntry{
 		Visibility:          transcript.EntryVisibilityOngoingCollapsed,
 		Role:                role,
-		Text:                content.text,
-		WebSearch:           content.webSearch,
-		ViewedImageKind:     content.viewedImageKind,
-		CondensedText:       condensedText,
-		ToolCallID:          strings.TrimSpace(result.CallID),
-		ToolResultSummary:   summary,
-		ToolCall:            presentation,
-		QuestionAnswer:      cloneAskQuestionAnswer(result.QuestionAnswer),
-		AnsweredBySessionID: cloneOptionalRuntimeSessionID(result.AnsweredBySessionID),
+		Text:                row.Text,
+		WebSearch:           row.WebSearch,
+		ViewedImageKind:     row.ViewedImageKind,
+		CondensedText:       row.CondensedText,
+		ToolCallID:          row.ToolCallID,
+		ToolResultSummary:   row.ResultSummary,
+		ToolCall:            row.Presentation,
+		QuestionAnswer:      row.QuestionAnswer,
+		AnsweredBySessionID: row.AnsweredBySessionID,
 	}
 }
 

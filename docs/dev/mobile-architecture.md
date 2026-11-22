@@ -1,18 +1,18 @@
 ## Mobile stack
 
-| Area | Choice |
-| --- | --- |
-| Platforms | Kotlin Multiplatform for Android (minSdk 29) and iOS (deployment target 26.0) |
-| UI and screen state | Compose Multiplatform with Material 3. FlowMVI containers own screen state independently of Compose. |
-| Dependency injection | Metro |
-| Error handling | ApiResult |
-| API | Square Wire generates Kotlin DTOs from Kent’s Protobuf schemas into `commonMain`. |
-| Networking | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
-| Navigation | Decompose |
-| Local storage | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision. |
-| Background notifications | Firebase Cloud Messaging for Android and iOS. Push relay hosting and authorization are open decisions. |
-| Crash reporting | Firebase Crashlytics, enabled by default with an opt-out setting. |
-| Unit tests and lint | Kotest without mocks, Detekt for Kotlin, and Android Lint. |
+| Area                     | Choice                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Platforms                | Kotlin Multiplatform for Android (minSdk 29) and iOS (deployment target 26.0)                                |
+| UI and screen state      | Compose Multiplatform with Material 3. FlowMVI containers own screen state independently of Compose.         |
+| Dependency injection     | Metro                                                                                                        |
+| Error handling           | ApiResult                                                                                                    |
+| API                      | Square Wire generates Kotlin DTOs from Kent’s Protobuf schemas into `commonMain`.                            |
+| Networking               | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
+| Navigation               | Decompose                                                                                                    |
+| Local storage            | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision.      |
+| Background notifications | Firebase Cloud Messaging for Android and iOS. Push relay hosting and authorization are open decisions.       |
+| Crash reporting          | Firebase Crashlytics, enabled by default with an opt-out setting.                                            |
+| Unit tests and lint      | Kotest without mocks, Detekt for Kotlin, and Android Lint.                                                   |
 
 ## Build and module boundaries
 

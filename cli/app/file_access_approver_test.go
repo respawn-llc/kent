@@ -2,13 +2,13 @@ package app
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"testing"
 	"time"
 
 	"core/server/runtimewire"
 	askquestion "core/server/tools"
-	"core/shared/clientui"
 	"core/shared/textutil"
 )
 
@@ -35,7 +35,7 @@ func testFileAccessApprovalRequest() askquestion.FileAccessApprovalRequest {
 func testFileAccessApprovalContext(toolCallID string) context.Context {
 	ctx := askquestion.WithExecutionIdentity(context.Background(), askquestion.ExecutionIdentity{
 		StepID:     "22222222-2222-4222-8222-222222222222",
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 	})
 	return askquestion.WithApprovalLifecycle(ctx, askquestion.NewApprovalLifecycle())
 }

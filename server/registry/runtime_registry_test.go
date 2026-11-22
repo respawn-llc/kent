@@ -94,7 +94,7 @@ func projectPendingPromptForTest(registry *RuntimeRegistry, sessionID string, re
 
 func resolvePendingPromptForTest(registry *RuntimeRegistry, sessionID string, requestID string) {
 	for _, prompt := range registry.ListPendingPrompts(sessionID) {
-		if prompt.Request.ToolCallID == requestID {
+		if prompt.Request.ToolCallID == runtimeids.ToolCallID(requestID) {
 			resolvePendingPromptResourceForTest(registry, prompt.Resource, prompt.ScopeID, requestID)
 			return
 		}
@@ -921,7 +921,7 @@ func TestExecutionPromptProjectionRetainsExactAuthorityGeneration(t *testing.T) 
 	t.Cleanup(func() { _ = registry.ResourceDraining(context.Background(), registryTestResource(successor)) })
 	projectPendingPromptResourceForTest(registry, successor, successorScope, request, time.Now().UTC())
 	projectPendingPromptResourceForTest(registry, predecessor, predecessorScope, request, time.Now().UTC())
-	resolvePendingPromptResourceForTest(registry, predecessor, predecessorScope, request.ToolCallID)
+	resolvePendingPromptResourceForTest(registry, predecessor, predecessorScope, string(request.ToolCallID))
 
 	items := registry.ListPendingPrompts(sessionID.String())
 	if len(items) != 1 || items[0].Resource != successor || items[0].ScopeID != successorScope {
@@ -989,7 +989,7 @@ func TestResourceDrainingResolvesPendingPromptBeforeClosingStreams(t *testing.T)
 		t.Fatalf("pending prompts after draining = %+v, want none", prompts)
 	}
 
-	resolvePendingPromptResourceForTest(registry, ref, scopeID, request.ToolCallID)
+	resolvePendingPromptResourceForTest(registry, ref, scopeID, string(request.ToolCallID))
 }
 
 func TestPromptProjectionPreservesOrderedAccessTargets(t *testing.T) {

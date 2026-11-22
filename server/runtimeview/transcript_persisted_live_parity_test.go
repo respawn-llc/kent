@@ -400,7 +400,7 @@ func TestPersistedTranscriptParityAtIntermediateToolCommits(t *testing.T) {
 			}
 			events = append(events, event)
 			if result := event.ToolResult; event.Kind == runtime.EventToolCallCompleted && result != nil {
-				isError, exists := expectedOutcomes[result.CallID]
+				isError, exists := expectedOutcomes[string(result.CallID)]
 				if !exists || result.IsError != isError {
 					t.Errorf("tool outcome %q: failed=%t, expected known=%t failed=%t", result.CallID, result.IsError, exists, isError)
 				}

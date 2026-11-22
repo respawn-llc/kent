@@ -5,8 +5,28 @@ import (
 
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/transcriptmodel"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestWebSearchIsPresentationOnly(t *testing.T) {
+	message := &transcriptpb.ToolPresentation{
+		Presentation:   transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH,
+		RenderBehavior: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+	}
+	if err := protoapi.Validate(message); err != nil {
+		t.Fatal(err)
+	}
+	adapted := protoapi.ToolPresentationFromProto("supplied-display-name", message)
+	if adapted.Presentation != transcript.ToolPresentationWebSearch ||
+		adapted.RenderBehavior != transcript.ToolCallRenderBehaviorDefault {
+		t.Fatalf("decoded presentation = %+v", adapted)
+	}
+	message.RenderBehavior = transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH
+	if err := protoapi.Validate(message); err == nil {
+		t.Fatal("Web Search family was accepted as render behavior")
+	}
+}
 
 func TestToolPresentationPreservesServerPatchCounts(t *testing.T) {
 	message := &transcriptpb.ToolPresentation{

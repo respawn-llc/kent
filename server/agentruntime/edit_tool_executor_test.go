@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"testing"
 
@@ -237,7 +238,7 @@ func TestInvalidAliasedCallsPersistCanonicalHistoryAndProviderContext(t *testing
 				{
 					Assistant: llm.Message{Role: llm.RoleAssistant, Content: textutil.Value("working"), Phase: textutil.Value(llm.MessagePhaseCommentary)},
 					ToolCalls: []llm.ToolCall{{
-						ID:    test.callID,
+						ID:    runtimeids.ToolCallID(test.callID),
 						Name:  test.callName,
 						Input: json.RawMessage(test.input),
 					}},
@@ -262,7 +263,7 @@ func TestInvalidAliasedCallsPersistCanonicalHistoryAndProviderContext(t *testing
 			var continued *llm.ToolCall
 			for _, message := range requestMessages(client.calls[1]) {
 				for index := range message.ToolCalls {
-					if message.ToolCalls[index].ID == test.callID {
+					if message.ToolCalls[index].ID == runtimeids.ToolCallID(test.callID) {
 						call := message.ToolCalls[index]
 						continued = &call
 					}
@@ -286,7 +287,7 @@ func TestInvalidAliasedCallsPersistCanonicalHistoryAndProviderContext(t *testing
 					t.Fatalf("restore persisted message: %v", err)
 				}
 				for index := range restored.ToolCalls {
-					if restored.ToolCalls[index].ID == test.callID {
+					if restored.ToolCalls[index].ID == runtimeids.ToolCallID(test.callID) {
 						call := restored.ToolCalls[index]
 						persisted = &call
 					}
@@ -297,7 +298,7 @@ func TestInvalidAliasedCallsPersistCanonicalHistoryAndProviderContext(t *testing
 			}
 			foundSnapshot := false
 			for _, entry := range eng.ChatSnapshot().Entries {
-				if entry.ToolCallID == test.callID && entry.ToolCall != nil {
+				if entry.ToolCallID == runtimeids.ToolCallID(test.callID) && entry.ToolCall != nil {
 					foundSnapshot = true
 					if entry.ToolCall.ToolName != string(test.id) {
 						t.Fatalf("snapshot tool name = %q, want %s", entry.ToolCall.ToolName, test.id)

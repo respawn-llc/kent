@@ -8,7 +8,6 @@ import (
 
 	"core/server/agentruntime"
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -33,7 +32,7 @@ type PromptAnswerPayload interface {
 }
 
 type PromptAnswerCommand struct {
-	ToolCallID clientui.ToolCallID
+	ToolCallID runtimeids.ToolCallID
 	Payload    PromptAnswerPayload
 }
 
@@ -45,7 +44,7 @@ const (
 )
 
 type PromptAnswerResult struct {
-	ToolCallID clientui.ToolCallID
+	ToolCallID runtimeids.ToolCallID
 	Outcome    PromptAnswerOutcome
 }
 
@@ -116,7 +115,7 @@ func (s *executionPromptStore) resolvePromptBatch(
 		return nil, err
 	}
 	results := skippedPromptAnswerResults(commands)
-	resultIndexes := make(map[clientui.ToolCallID]int, len(results))
+	resultIndexes := make(map[runtimeids.ToolCallID]int, len(results))
 	for index, result := range results {
 		resultIndexes[result.ToolCallID] = index
 	}

@@ -305,16 +305,16 @@ func TestRestoreMessagesPreservesRecoveredMultiToolProviderOrder(t *testing.T) {
 	if len(items) != 4 {
 		t.Fatalf("expected 4 restored items, got %d (%+v)", len(items), items)
 	}
-	if items[0].Type != llm.ResponseItemTypeFunctionCall || items[0].CallID == nil || *items[0].CallID != call1.ID {
+	if items[0].Type != llm.ResponseItemTypeFunctionCall || items[0].CallID == nil || *items[0].CallID != string(call1.ID) {
 		t.Fatalf("unexpected restored item[0]: %+v", items[0])
 	}
-	if items[1].Type != llm.ResponseItemTypeFunctionCall || items[1].CallID == nil || *items[1].CallID != call2.ID {
+	if items[1].Type != llm.ResponseItemTypeFunctionCall || items[1].CallID == nil || *items[1].CallID != string(call2.ID) {
 		t.Fatalf("unexpected restored item[1]: %+v", items[1])
 	}
-	if items[2].Type != llm.ResponseItemTypeFunctionCallOutput || items[2].CallID == nil || *items[2].CallID != call1.ID {
+	if items[2].Type != llm.ResponseItemTypeFunctionCallOutput || items[2].CallID == nil || *items[2].CallID != string(call1.ID) {
 		t.Fatalf("unexpected restored item[2]: %+v", items[2])
 	}
-	if items[3].Type != llm.ResponseItemTypeFunctionCallOutput || items[3].CallID == nil || *items[3].CallID != call2.ID {
+	if items[3].Type != llm.ResponseItemTypeFunctionCallOutput || items[3].CallID == nil || *items[3].CallID != string(call2.ID) {
 		t.Fatalf("unexpected restored item[3]: %+v", items[3])
 	}
 }

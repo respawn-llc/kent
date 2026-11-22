@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"os"
@@ -72,7 +73,7 @@ func (c *persistedBoundaryClient) Generate(
 		toolCalls := make([]llm.ToolCall, len(c.callIDs))
 		for index, callID := range c.callIDs {
 			toolCalls[index] = llm.ToolCall{
-				ID:    callID,
+				ID:    runtimeids.ToolCallID(callID),
 				Name:  string(toolspec.ToolExecCommand),
 				Input: json.RawMessage(`{"cmd":"true"}`),
 			}
@@ -237,7 +238,7 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 	if _, found := engine.transcriptRuntimeState().ToolCompletionSnapshot(calls[1].ID); found {
 		t.Fatal("later in-memory result projected before the blocked prefix")
 	}
-	if _, _, found := completionRecordCount(t, store, calls[1].ID); found {
+	if _, _, found := completionRecordCount(t, store, string(calls[1].ID)); found {
 		t.Fatal("later in-memory result became durable before graceful close")
 	}
 
@@ -249,23 +250,23 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		tools.NewRegistry(),
 		Config{Model: "gpt-6-sol"},
 	)
-	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[0].ID)
-	assertFreshResourceRepairOnEngine(t, first, firstStore, calls[1].ID)
+	assertFreshResourceRepairOnEngine(t, first, firstStore, string(calls[0].ID))
+	assertFreshResourceRepairOnEngine(t, first, firstStore, string(calls[1].ID))
 	var hydrated []string
 	for _, row := range mustNewestTranscriptFacts(t, first) {
 		if row.Kind == TranscriptCommittedRowFactTool && row.Tool != nil {
 			if row.Tool.ToolCallID == calls[0].ID || row.Tool.ToolCallID == calls[1].ID {
-				hydrated = append(hydrated, row.Tool.ToolCallID)
+				hydrated = append(hydrated, string(row.Tool.ToolCallID))
 			}
 		}
 	}
 	if len(hydrated) != 2 ||
-		hydrated[0] != calls[0].ID ||
-		hydrated[1] != calls[1].ID {
-		t.Fatalf("crash recovery tool order = %v, want %v", hydrated, []string{calls[0].ID, calls[1].ID})
+		hydrated[0] != string(calls[0].ID) ||
+		hydrated[1] != string(calls[1].ID) {
+		t.Fatalf("crash recovery tool order = %v, want %v", hydrated, []string{string(calls[0].ID), string(calls[1].ID)})
 	}
 	for index, call := range calls {
-		_, outputKind, completion := repairCompletionTypedFacts(t, firstStore, call.ID)
+		_, outputKind, completion := repairCompletionTypedFacts(t, firstStore, string(call.ID))
 		wantKind := session.ToolOutputKindFunction
 		if index == 1 {
 			wantKind = session.ToolOutputKindCustom
@@ -293,8 +294,8 @@ func TestPersistedSessionCrashWithBlockedPrefixRepairsWholeUncommittedGroup(t *t
 		Config{Model: "gpt-6-sol"},
 	)
 	for _, call := range calls {
-		assertFreshResourceRepairOnEngine(t, second, secondStore, call.ID)
-		completions, warnings, found := completionRecordCount(t, secondStore, call.ID)
+		assertFreshResourceRepairOnEngine(t, second, secondStore, string(call.ID))
+		completions, warnings, found := completionRecordCount(t, secondStore, string(call.ID))
 		if !found || completions != 1 || warnings != 1 {
 			t.Fatalf(
 				"second crash recovery for %q = completions:%d warnings:%d found:%t",
@@ -359,7 +360,7 @@ func TestPersistedSessionGroupCommitPrecedesNextProviderAndStepCompletion(t *tes
 		if event.Kind == EventToolCallCompleted &&
 			event.ToolResult != nil {
 			for _, callID := range callIDs {
-				if event.ToolResult.CallID == callID {
+				if event.ToolResult.CallID == runtimeids.ToolCallID(callID) {
 					completed[callID] = index
 				}
 			}
@@ -490,13 +491,13 @@ func runPersistedEffectRecoveryCase(
 	assertFreshResourceRepairExactlyOnceWith(
 		t,
 		store,
-		fixture.call.ID,
+		string(fixture.call.ID),
 		func(restored *Engine, restoredStore *session.Store) {
 			assertHydratedToolRowsExactlyOnce(t, restored, "hosted")
 			_, outputKind, completion := repairCompletionTypedFacts(
 				t,
 				restoredStore,
-				fixture.call.ID,
+				string(fixture.call.ID),
 			)
 			if outputKind != fixture.outputKind {
 				t.Fatalf(
@@ -538,7 +539,7 @@ func newPersistedEffectFixture(
 			Question:   "Approve outside-workspace access?",
 			Approval:   true,
 			StepID:     identity.StepID,
-			ToolCallID: string(identity.ToolCallID),
+			ToolCallID: identity.ToolCallID,
 			ApprovalOptions: []tools.AskQuestionApprovalOption{{
 				Decision: tools.AskQuestionApprovalDecisionAllowOnce,
 			}},

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -494,7 +495,7 @@ func TestContextUsageDoesNotInflateInlineImagePayloadByBase64Length(t *testing.T
 	eng.setLastUsage(llm.Usage{InputTokens: textutil.Value(100), OutputTokens: textutil.Value(0), WindowTokens: 410_000, ContextUsage: &llm.ContextUsage{Tokens: 100, MeasurementPoint: llm.ContextMeasurementInput}})
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role:       llm.RoleTool,
-		ToolCallID: textutil.Value("call-1"),
+		ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")),
 		Name:       textutil.Value(string(toolspec.ToolViewImage)),
 		Content:    textutil.Value(`[{"type":"input_image","image_url":"data:image/png;base64,` + strings.Repeat("A", 24_000) + `"}]`),
 	}})); err != nil {

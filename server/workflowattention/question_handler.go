@@ -2,6 +2,7 @@ package workflowattention
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"fmt"
 	"strings"
@@ -72,9 +73,9 @@ func HandleTaskQuestion(ctx context.Context, awaiter QuestionAwaiter, attention 
 	askReq.AttentionTarget = TaskQuestionAttentionTarget(req.Context, *askReq.QuestionBatch)
 	resolution, askErr := awaiter.AwaitPromptResolution(ctx, req.Context.SessionID, askReq)
 	if attention != nil {
-		attention.MarkTaskQuestionCleared(*askReq.QuestionBatch, askReq.ToolCallID)
+		attention.MarkTaskQuestionCleared(*askReq.QuestionBatch, string(askReq.ToolCallID))
 		if askquestion.ShouldSkipRemainingQuestionBatch(askErr, context.Cause(ctx)) {
-			MarkTaskQuestionBatchSkipped(attention, *askReq.QuestionBatch, askReq.ToolCallID)
+			MarkTaskQuestionBatchSkipped(attention, *askReq.QuestionBatch, string(askReq.ToolCallID))
 		}
 	}
 	return resolution, askErr
@@ -91,11 +92,11 @@ func HandleTaskApprovalQuestion(ctx context.Context, awaiter QuestionAwaiter, at
 	if !askReq.Approval {
 		return nil, fmt.Errorf("workflow task approval question requires approval prompt: task_id=%s node_id=%s tool_call_id=%s", req.Context.Task.ID, req.Context.CurrentNode.NodeID, askReq.ToolCallID)
 	}
-	target := TaskApprovalQuestionAttentionTarget(req.Context, askReq.ToolCallID)
+	target := TaskApprovalQuestionAttentionTarget(req.Context, string(askReq.ToolCallID))
 	askReq.AttentionTarget = target
 	resolution, askErr := awaiter.AwaitPromptResolution(ctx, req.Context.SessionID, askReq)
 	if attention != nil {
-		attention.MarkTaskApprovalQuestionCleared(*target, askReq.ToolCallID)
+		attention.MarkTaskApprovalQuestionCleared(*target, string(askReq.ToolCallID))
 	}
 	return resolution, askErr
 }
@@ -123,7 +124,7 @@ func MarkTaskQuestionBatchSkipped(attention QuestionAttentionRegistry, batch ask
 		}
 		skipped := batch
 		skipped.BatchToolCallIDs = append([]string(nil), batch.BatchToolCallIDs...)
-		skipped.ToolCallID = askID
+		skipped.ToolCallID = runtimeids.ToolCallID(askID)
 		attention.MarkTaskQuestionSkipped(skipped)
 	}
 }

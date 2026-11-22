@@ -8,6 +8,7 @@ import (
 	"core/server/tools/shell/postprocess"
 	"core/shared/config"
 	"core/shared/jsoncontract"
+	"core/shared/runtimeids"
 	"core/shared/sessionenv"
 	"core/shared/toolspec"
 	"encoding/base64"
@@ -64,7 +65,7 @@ type shellToolCaller interface {
 func callShellTestTool(t *testing.T, tool shellToolCaller, id string, name toolspec.ID, input map[string]any) tools.Result {
 	t.Helper()
 	rawInput, _ := json.Marshal(input)
-	result, err := tool.Call(shellTestExecutionContext(t, context.Background(), id), tools.Call{ID: id, Name: name, Input: rawInput})
+	result, err := tool.Call(shellTestExecutionContext(t, context.Background(), id), tools.Call{ID: runtimeids.ToolCallID(id), Name: name, Input: rawInput})
 	if err != nil {
 		t.Fatalf("%s call error: %v", name, err)
 	}
@@ -625,7 +626,7 @@ func TestExecCommandEmptyDefaultWorkdirReturnsManagerErrorWithoutExecuting(t *te
 	if managerErr == nil {
 		t.Fatal("expected empty workdir manager error")
 	}
-	got, err := execTool.Call(shellTestExecutionContext(t, context.Background(), call.ID), call)
+	got, err := execTool.Call(shellTestExecutionContext(t, context.Background(), string(call.ID)), call)
 	if err != nil {
 		t.Fatalf("exec_command call returned transport error: %v", err)
 	}
@@ -694,9 +695,9 @@ func TestExecCommandWorkdirValidationErrors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal exec_command input: %v", err)
 			}
-			call := tools.Call{ID: tt.id, Name: toolspec.ToolExecCommand, Input: rawInput}
+			call := tools.Call{ID: runtimeids.ToolCallID(tt.id), Name: toolspec.ToolExecCommand, Input: rawInput}
 			manager := newBackgroundTestManager(t)
-			got, err := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})).Call(shellTestExecutionContext(t, context.Background(), call.ID), call)
+			got, err := NewExecCommandToolWithPostprocessor(workspace, 16_000, 200_000, manager, "", postprocessfixture.NewRunner(t, postprocess.Settings{Mode: config.ShellPostprocessingModeBuiltin})).Call(shellTestExecutionContext(t, context.Background(), string(call.ID)), call)
 			if err != nil {
 				t.Fatalf("exec_command call returned transport error: %v", err)
 			}
@@ -1121,7 +1122,7 @@ func TestExecCommandCancellationReturnsUndecoratedBaseError(t *testing.T) {
 		err    error
 	}
 	done := make(chan callResult, 1)
-	ctx = shellTestExecutionContext(t, ctx, call.ID)
+	ctx = shellTestExecutionContext(t, ctx, string(call.ID))
 	go func() {
 		result, err := execTool.Call(ctx, call)
 		done <- callResult{result: result, err: err}
@@ -1175,7 +1176,7 @@ func TestExecCommandReturnsClosedManagerErrorUnchanged(t *testing.T) {
 	if managerErr == nil {
 		t.Fatal("expected closed manager error")
 	}
-	got, err := execTool.Call(shellTestExecutionContext(t, context.Background(), call.ID), call)
+	got, err := execTool.Call(shellTestExecutionContext(t, context.Background(), string(call.ID)), call)
 	if err != nil {
 		t.Fatalf("exec_command call returned transport error: %v", err)
 	}

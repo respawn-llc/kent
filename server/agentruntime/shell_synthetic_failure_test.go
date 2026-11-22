@@ -59,7 +59,7 @@ func TestShellRepairOutputsArePlaintext(t *testing.T) {
 				if _, err := engine.SubmitUserMessage(context.Background(), "continue"); err != nil {
 					t.Fatal(err)
 				}
-				_, completion := repairCompletionRecord(t, store, call.ID)
+				_, completion := repairCompletionRecord(t, store, string(call.ID))
 				if !completion.IsError {
 					t.Fatal("repair did not record an error")
 				}
@@ -67,7 +67,7 @@ func TestShellRepairOutputsArePlaintext(t *testing.T) {
 				request := client.calls[len(client.calls)-1]
 				found := false
 				for _, item := range request.Items {
-					if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID != nil && *item.CallID == call.ID {
+					if item.Type == llm.ResponseItemTypeFunctionCallOutput && item.CallID != nil && *item.CallID == string(call.ID) {
 						assertPlaintextShellFailure(t, item.Output)
 						found = true
 					}
@@ -75,7 +75,7 @@ func TestShellRepairOutputsArePlaintext(t *testing.T) {
 				if !found {
 					t.Fatal("model request omitted repaired shell output")
 				}
-				if !fresh && repairRequestHasToolOutput(client.calls[0].Items, call.ID) {
+				if !fresh && repairRequestHasToolOutput(client.calls[0].Items, string(call.ID)) {
 					t.Fatal("repair mutated the previously sent request")
 				}
 			})

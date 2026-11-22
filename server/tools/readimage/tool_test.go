@@ -4,6 +4,7 @@ import (
 	"context"
 	"core/internal/testharness/runtimewirefixture"
 	"core/internal/testharness/testsetup"
+	"core/shared/runtimeids"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -46,7 +47,7 @@ func newReadImageTestTool(t *testing.T, workspace string, supported bool, opts .
 func callReadImageTool(t *testing.T, tool *Tool, id string, input string) tools.Result {
 	t.Helper()
 	result, err := tool.Call(context.Background(), tools.Call{
-		ID:    id,
+		ID:    runtimeids.ToolCallID(id),
 		Name:  toolspec.ToolViewImage,
 		Input: json.RawMessage(input),
 	})

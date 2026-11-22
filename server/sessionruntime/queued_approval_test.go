@@ -16,7 +16,6 @@ import (
 	"core/server/agentruntime"
 	"core/server/llm"
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -89,7 +88,7 @@ func TestQueuedImageApprovalKeepsOwnerWhileCompactionIsBusy(t *testing.T) {
 				t.Fatal("approval moved to a different execution")
 			}
 			results, err := h.authority.ResolvePromptBatch(h.ctx, h.sessionID, pending.stepID, []PromptAnswerCommand{{
-				ToolCallID: clientui.ToolCallID(pending.requestID),
+				ToolCallID: runtimeids.ToolCallID(pending.requestID),
 				Payload:    PromptApprovalAnswerCommand{Answer: tools.AskQuestionApproval{Decision: tools.AskQuestionApprovalDecisionAllowOnce}},
 			}})
 			if err != nil {

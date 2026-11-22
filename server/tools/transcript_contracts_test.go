@@ -227,7 +227,7 @@ func TestGrokHostedCustomOutputKeepsProviderToolIdentity(t *testing.T) {
 		{json.RawMessage(`{"type":"custom_tool_call","id":"ctc_x","call_id":"xs_search","name":"x_keyword_search","input":"{\"query\":\"kent\"}"}`), "xs_search", "x_keyword_search", `{"query":"kent"}`},
 	} {
 		executions := HostedExecutionsFromOutputs([]HostedToolOutput{{Raw: tc.raw}}, nil)
-		if len(executions) != 1 || executions[0].Call.ID != tc.callID || string(executions[0].Call.Name) != tc.name || string(executions[0].Call.Input) != tc.input || string(executions[0].Call.ProviderItem) != string(tc.raw) || !executions[0].Result.ProviderItemOnly {
+		if len(executions) != 1 || string(executions[0].Call.ID) != tc.callID || string(executions[0].Call.Name) != tc.name || string(executions[0].Call.Input) != tc.input || string(executions[0].Call.ProviderItem) != string(tc.raw) || !executions[0].Result.ProviderItemOnly {
 			t.Fatalf("hosted execution = %+v", executions)
 		}
 	}
@@ -275,6 +275,10 @@ func TestWebSearchCallMetadataKeepsQueryAsInput(t *testing.T) {
 		[]byte(`{"query":"`+query+`"}`),
 	)
 
+	if meta.Presentation != transcript.ToolPresentationWebSearch ||
+		meta.RenderBehavior != transcript.ToolCallRenderBehaviorDefault {
+		t.Fatalf("Web Search call family = %q, behavior = %q", meta.Presentation, meta.RenderBehavior)
+	}
 	if meta.Command != query {
 		t.Fatalf("web_search command = %q, want query %q", meta.Command, query)
 	}

@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"core/shared/runtimeids"
 	"slices"
 	"strings"
 
@@ -22,7 +23,7 @@ type EntryPayload struct {
 	SourcePath        string
 	CompactLabel      string
 	ToolResultSummary string
-	ToolCallID        string
+	ToolCallID        runtimeids.ToolCallID
 	NoticeID          string
 	ToolCall          *ToolCallMeta
 }
@@ -40,7 +41,7 @@ func EntryPayloadEqual(left, right EntryPayload) bool {
 		strings.TrimSpace(left.SourcePath) == strings.TrimSpace(right.SourcePath) &&
 		strings.TrimSpace(left.CompactLabel) == strings.TrimSpace(right.CompactLabel) &&
 		strings.TrimSpace(left.ToolResultSummary) == strings.TrimSpace(right.ToolResultSummary) &&
-		strings.TrimSpace(left.ToolCallID) == strings.TrimSpace(right.ToolCallID) &&
+		strings.TrimSpace(string(left.ToolCallID)) == strings.TrimSpace(string(right.ToolCallID)) &&
 		strings.TrimSpace(left.NoticeID) == strings.TrimSpace(right.NoticeID) &&
 		ToolCallMetaEqual(left.ToolCall, right.ToolCall)
 }

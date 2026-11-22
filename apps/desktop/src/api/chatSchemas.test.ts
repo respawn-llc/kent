@@ -127,9 +127,21 @@ it("carries hosted search facts through the generated boundary and Chat adaptati
       visibility: T.EntryVisibility.ONGOING_COLLAPSED,
       integrity: T.RowIntegrity.VALID,
       locator: { eventSequence: 1n, rowOrdinal: 1 },
-      row: { case: "tool", value: { toolCallId: "search-1", toolName: "web_search", webSearch } },
+      row: {
+        case: "tool",
+        value: {
+          toolCallId: "search-1",
+          toolName: "provider-display-name",
+          presentation: {
+            presentation: ToolPresentationKind.WEB_SEARCH,
+            renderBehavior: ToolPresentationKind.DEFAULT,
+          },
+          webSearch,
+        },
+      },
     });
     const adapted = committedRow(decode(T.CommittedRowSchema, encode(T.CommittedRowSchema, row)));
+    expect(adapted.Tool?.Presentation?.Presentation).toBe("web_search");
     expect(adapted.Tool?.WebSearch).toEqual(
       webSearch === undefined
         ? null
