@@ -11,7 +11,7 @@
 | Networking               | Ktor Client with OkHttp on Android and Darwin on iOS. Use Kent’s binary WebSocket protocol for API messages. |
 | Navigation               | Decompose                                                                                                    |
 | Local storage            | SQLDelight with SQLite for features that need relational storage. Draft storage is a separate decision.      |
-| Background notifications | Official builds use FCM via Kent’s private relay. Self-built iOS apps can use direct APNs.                   |
+| Background notifications | Official builds use FCM via Kent’s closed-source relay. Self-built iOS apps can use direct APNs.             |
 | Crash reporting          | Firebase Crashlytics, enabled by default with an opt-out setting.                                            |
 | Unit tests and lint      | Kotest without mocks, Detekt for Kotlin, and Android Lint.                                                   |
 
