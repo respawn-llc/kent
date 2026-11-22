@@ -4,10 +4,12 @@
 - The release workflow must produce the server, Desktop, Android, and iOS artifacts for every Kent version, including platforms with no code changes. Client connections must follow the [protocol compatibility contract](server-api-contract.md#authority-and-compatibility).
 - Release tags use the normalized form `v<version>`.
 
-## Mobile beta distribution
+## Mobile distribution
 
 - The first mobile beta must include working Task attention pushes.
-- Kent must distribute iOS beta builds through TestFlight and Android beta builds through Google Play closed testing.
+- Each GitHub release that includes mobile must provide a signed Android APK. GitHub publication must proceed independently of mobile store review or availability.
+- Android beta testers must install the APK from GitHub Releases. Kent must distribute iOS beta builds through TestFlight.
+- Starting with the first public mobile release, the app must notify users about updates and direct them to their installation channel when a compatible update is available.
 
 ## Metadata Upgrades
 
