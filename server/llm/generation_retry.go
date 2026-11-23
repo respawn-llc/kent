@@ -98,7 +98,9 @@ func GenerateWithRetry(ctx context.Context, attempt GenerationAttempt, options G
 				options.OnAttemptReset()
 			}
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		var socketReadTimeout *responsesSocketReadTimeout
+		if errors.Is(err, context.Canceled) ||
+			(errors.Is(err, context.DeadlineExceeded) && !errors.As(err, &socketReadTimeout)) {
 			reset()
 			return Response{}, err
 		}

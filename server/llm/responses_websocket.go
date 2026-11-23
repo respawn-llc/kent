@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -24,6 +25,13 @@ type responsesSocketEvent struct {
 	data   []byte
 	status *int
 }
+
+// The SDK reader outlives each generation. Its I/O deadline can expire while
+// the generation still has time to retry on a fresh socket.
+type responsesSocketReadTimeout struct{ cause error }
+
+func (e *responsesSocketReadTimeout) Error() string { return e.cause.Error() }
+func (e *responsesSocketReadTimeout) Unwrap() error { return e.cause }
 
 func decodeResponsesSocketEvent(data []byte) (responsesSocketEvent, error) {
 	var envelope struct {
@@ -173,6 +181,9 @@ func (t *HTTPTransport) generateWebsocket(ctx context.Context, request Responses
 	for {
 		event, err := t.socket.Recv(ctx)
 		if err != nil {
+			if ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				err = &responsesSocketReadTimeout{cause: err}
+			}
 			return result, &ProviderAPIError{ProviderID: preparation.variant.ProviderID,
 				Code: UnifiedErrorCodeUnknown, Message: err.Error(), Err: err}
 		}
