@@ -298,6 +298,7 @@
 - Run must present a pending Question or access Approval through the same Question presentation and directly targeted answer template as Run watch, including in quiet mode.
 - Run JSON output must distinguish a pending Question or access Approval from a Final answer and include the structured pending prompt and its Session answer target.
 - For an existing Session selected with `--continue` or `--session`, Run must steer already-active execution and wait for that execution's ordinary outcome. An idle Session must use ordinary continuation behavior.
+- A saved Goal must not block headless continuation. Its state follows ordinary Session behavior.
 - The server must coordinate active steering and idle continuation without returning a busy or retry error for a start/finish race. Steering acceptance and selection of the execution to observe must happen together. Run must observe the execution that accepted its message.
 - Active-target continuation must use ordinary Run progress, Final and pending-Question output, exit codes, completion timeout, and client-disconnection behavior. It must not introduce automatic replay after acceptance, crash recovery, or guaranteed message completion after Stop or failure.
 - When Run steers already-active execution, it must include `Note: session was already running, your message was steered instead` as a warning.

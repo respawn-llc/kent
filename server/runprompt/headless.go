@@ -27,8 +27,6 @@ import (
 	"core/shared/textutil"
 )
 
-var ErrHeadlessGoalSession = errors.New("headless runs cannot continue sessions with goals; clear the goal first")
-
 type promptHistoryStore interface {
 	RecordPromptHistoryEntry(ctx context.Context, entry metadata.PromptHistoryEntry) (metadata.PromptHistoryRecord, error)
 }
@@ -82,9 +80,6 @@ func (l *headlessPromptLauncher) prepareHeadlessPrompt(ctx context.Context, req 
 		return nil, err
 	}
 	plan := result.Plan
-	if plan.Goal != nil {
-		return nil, fmt.Errorf("%w", ErrHeadlessGoalSession)
-	}
 	agentSteer, err := l.steering.AgentSteerForCaller(ctx, req.CallerSessionID, req.Prompt)
 	if err != nil {
 		return nil, err
@@ -155,9 +150,6 @@ func (l *headlessPromptLauncher) prepareContinuation(ctx context.Context, req se
 		result, err := l.boot.SessionLaunch.PlanLaunchSession(ctx, launchReq)
 		if err != nil {
 			return nil, err
-		}
-		if result.Plan.Goal != nil {
-			return nil, ErrHeadlessGoalSession
 		}
 		steer.Identity = result.Identity
 		prepared, changed, err := l.prepareContinuationRuntime(ctx, result.Plan, progress, steer.AgentSteer)
