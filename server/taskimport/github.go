@@ -10,6 +10,7 @@ import (
 
 	"core/server/httpcompression"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
+	"core/shared/rpcwire"
 	"core/shared/serverapi"
 )
 
@@ -63,7 +64,7 @@ func (g *githubReader) get(ctx context.Context, path string, phase taskimportpb.
 	if g.token != nil {
 		request.Header.Set("Authorization", "Bearer "+*g.token)
 	}
-	response, err := g.client.Do(request)
+	response, err := g.do(request)
 	if err != nil {
 		return fmt.Errorf("GitHub request: %w", err)
 	}
@@ -86,6 +87,23 @@ func (g *githubReader) get(ctx context.Context, path string, phase taskimportpb.
 		return fmt.Errorf("decode GitHub response: %w", err)
 	}
 	return nil
+}
+
+func (g *githubReader) do(request *http.Request) (*http.Response, error) {
+	const maxAttempts = 3
+	ctx := request.Context()
+	for attempt := 1; ; attempt++ {
+		response, err := g.client.Do(request.Clone(ctx))
+		if attempt == maxAttempts || (err == nil && (response.StatusCode < 500 || response.StatusCode >= 600)) {
+			return response, err
+		}
+		if err == nil {
+			response.Body.Close()
+		}
+		if err := rpcwire.WaitForRetry(ctx, time.Duration(attempt)*250*time.Millisecond); err != nil {
+			return nil, err
+		}
+	}
 }
 
 func issueAPIPath(issue issueReference) string {

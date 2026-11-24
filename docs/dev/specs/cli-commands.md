@@ -506,6 +506,7 @@
 - When several distinct GitHub repositories are possible, import must require `--repo` or an issue URL. Repository and Project inference must be server-owned.
 - Import must use the existing Task creation rules for destination Project and Workflow selection.
 - Import must read GitHub without modifying GitHub issues.
+- Import must retry a GitHub request on network errors and HTTP 5xx responses, up to three total attempts per request. It must not retry other HTTP responses.
 - GitHub credential selection must prefer CLI environment, server environment, CLI GitHub login, then server GitHub login. Without credentials, import must use anonymous access.
 - Environment credentials must support `GH_TOKEN` and `GITHUB_TOKEN`, including the server environment file.
 - Kent must not persist supplied credentials or manage a separate GitHub credential store.

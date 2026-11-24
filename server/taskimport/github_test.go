@@ -2,6 +2,7 @@ package taskimport
 
 import (
 	"compress/gzip"
+	"context"
 	"core/internal/testharness/httpclient"
 	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
 	"core/shared/serverapi"
@@ -10,11 +11,78 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/proto"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 )
+
+func TestGitHubReadRetriesTransientFailures(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		statuses   []*int
+		wantStatus *int32
+	}{
+		{name: "network then server error", statuses: []*int{nil, new(http.StatusBadGateway), new(http.StatusOK)}},
+		{name: "exhausted", statuses: []*int{new(http.StatusInternalServerError), new(http.StatusBadGateway), new(http.StatusServiceUnavailable)}, wantStatus: proto.Int32(http.StatusServiceUnavailable)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			reader := newGitHubReader(&http.Client{Transport: httpclient.RoundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if request.Method != http.MethodGet || request.Header.Get("Authorization") != "Bearer fake" {
+					t.Errorf("unexpected GitHub request: %s %s", request.Method, request.URL.Path)
+				}
+				if calls >= len(test.statuses) {
+					t.Fatal("unexpected extra attempt")
+				}
+				status := test.statuses[calls]
+				calls++
+				if status == nil {
+					return nil, &net.OpError{Op: "read", Net: "tcp", Err: io.EOF}
+				}
+				response := httptest.NewRecorder()
+				response.WriteHeader(*status)
+				if *status == http.StatusOK {
+					if _, err := io.WriteString(response, `{"login":"developer"}`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return response.Result(), nil
+			})}, proto.String("fake"))
+			account, err := reader.account(t.Context())
+			if calls != len(test.statuses) {
+				t.Fatalf("attempts = %d, want %d; error: %v", calls, len(test.statuses), err)
+			}
+			if test.wantStatus == nil {
+				if err != nil || account.GetLogin() != "developer" {
+					t.Fatalf("account = %v, error = %v", account, err)
+				}
+			} else {
+				var failure *serverapi.TaskImportError
+				if !errors.As(err, &failure) || failure.Detail.GetHttpStatus() != *test.wantStatus ||
+					failure.Detail.GetPhase() != taskimportpb.FailurePhase_FAILURE_PHASE_CREDENTIALS {
+					t.Fatalf("last GitHub failure = %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestGitHubReadDoesNotRetryAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	calls := 0
+	reader := newGitHubReader(&http.Client{Transport: httpclient.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		cancel()
+		return nil, &net.OpError{Op: "read", Net: "tcp", Err: io.EOF}
+	})}, proto.String("fake"))
+	_, err := reader.account(ctx)
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("GitHub read returned %v after %d attempts", err, calls)
+	}
+}
 
 func TestGitHubFailuresAndAccount(t *testing.T) {
 	for _, test := range []struct {
