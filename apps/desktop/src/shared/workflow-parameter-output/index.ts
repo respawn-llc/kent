@@ -1,2 +1,2 @@
 export { WorkflowParameterOutput } from "./WorkflowParameterOutput";
-export type { WorkflowOutputRoot } from "./outputFileTarget";
+export type { WorkflowOutputRoot } from "./outputRoot";

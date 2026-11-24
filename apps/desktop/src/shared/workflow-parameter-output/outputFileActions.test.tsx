@@ -19,7 +19,7 @@ it("copies without native requests when native access or the managed execution r
     clipboard: { ...services.nativeBridge.clipboard, writeText: write },
     files: { ...services.nativeBridge.files, openDefault: open },
   };
-  await openOutputFile("../a%20#?.txt", { kind: "unavailable" }, native, translations.t);
+  await openOutputFile("../a%20#?.txt", undefined, native, translations.t);
   expect(open).not.toHaveBeenCalled();
   expect(write).toHaveBeenCalledWith("../a%20#?.txt");
 });
@@ -44,7 +44,7 @@ it("keeps an attempted open failure visible after a successful path copy", async
     },
   };
   render(<Toaster />);
-  await openOutputFile("/tmp/file.txt", { kind: "unavailable" }, native, translations.t);
+  await openOutputFile("/tmp/file.txt", { path: "/tmp/file.txt" }, native, translations.t);
   expect(write).toHaveBeenCalledWith("/tmp/file.txt");
   expect(await screen.findByText(failure.message)).toBeInTheDocument();
 });
@@ -74,7 +74,7 @@ it("reports both diagnostics when opening and copying fail", async () => {
     },
   };
   render(<Toaster />);
-  await openOutputFile("/tmp/file.txt", { kind: "unavailable" }, native, translations.t);
+  await openOutputFile("/tmp/file.txt", { path: "/tmp/file.txt" }, native, translations.t);
   await waitFor(() => {
     expect(screen.getByText(openFailure.message)).toBeInTheDocument();
     expect(screen.getByText(copyFailure.message)).toBeInTheDocument();

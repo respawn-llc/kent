@@ -21,21 +21,18 @@ export type NativeFileTarget = Readonly<{
   basePath?: string | undefined;
 }>;
 
-export type NativeFileInspection = Readonly<{
-  kind: "unavailable" | "missing" | "file" | "image" | "preview_ineligible";
-}>;
-
-export type NativeImagePreview =
-  | Readonly<{ kind: "unavailable" | "missing" | "preview_ineligible" }>
-  | Readonly<{ kind: "image"; url: string; release(): void }>;
+export type NativeOutputFile =
+  | Readonly<{ kind: "unavailable" }>
+  | Readonly<{ kind: "missing" }>
+  | Readonly<{ kind: "file" | "preview_ineligible"; target: NativeFileTarget }>
+  | Readonly<{ kind: "image"; target: NativeFileTarget; url: string; release(): void }>;
 
 export type NativeDirectoryBridge = Readonly<{
   selectDirectory(options: NativeDirectoryPickerOptions): Promise<NativeDirectorySelection>;
 }>;
 
 export type NativeFileBridge = Readonly<{
-  inspectOutputFile(target: NativeFileTarget): Promise<NativeFileInspection>;
-  readOutputImage(target: NativeFileTarget): Promise<NativeImagePreview>;
+  loadOutputFile(target: NativeFileTarget): Promise<NativeOutputFile>;
   selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection>;
   fileAvailable(target: NativeFileTarget): Promise<boolean>;
   openFile(target: NativeFileTarget): Promise<void>;
@@ -52,10 +49,7 @@ export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
 
 export function createBrowserFileBridge(): NativeFileBridge {
   return {
-    async inspectOutputFile() {
-      return { kind: "unavailable" };
-    },
-    async readOutputImage() {
+    async loadOutputFile() {
       return { kind: "unavailable" };
     },
     async selectFile(): Promise<NativeFileSelection> {
@@ -84,18 +78,18 @@ export function createTauriDirectoryBridge(): NativeDirectoryBridge {
 
 export function createTauriFileBridge(): NativeFileBridge {
   return {
-    async inspectOutputFile(target) {
-      return invoke<NativeFileInspection>("inspect_output_file", target);
-    },
-    async readOutputImage(target) {
-      const preview = await invoke<Exclude<NativeImagePreview, { kind: "image" }> | ArrayBuffer>(
-        "read_output_image",
-        target,
-      );
-      if (!(preview instanceof ArrayBuffer)) return preview;
-      const url = URL.createObjectURL(new Blob([preview]));
+    async loadOutputFile(target) {
+      const result = await invoke<
+        Readonly<{ kind: "unavailable" | "missing" | "file" | "preview_ineligible" }> | ArrayBuffer
+      >("load_output_file", target);
+      if (!(result instanceof ArrayBuffer)) {
+        if (result.kind === "file" || result.kind === "preview_ineligible") return { ...result, target };
+        return { kind: result.kind };
+      }
+      const url = URL.createObjectURL(new Blob([result]));
       return {
         kind: "image",
+        target,
         url,
         release: () => {
           URL.revokeObjectURL(url);

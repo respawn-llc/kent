@@ -54,8 +54,7 @@ export type {
   NativeFilePickerOptions,
   NativeFileSelection,
   NativeFileTarget,
-  NativeFileInspection,
-  NativeImagePreview,
+  NativeOutputFile,
 } from "./fileSystem";
 export type {
   DesktopSelfUpdate,

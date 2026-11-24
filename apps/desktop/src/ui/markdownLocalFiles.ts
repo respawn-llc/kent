@@ -36,7 +36,7 @@ function wholeValueFileTarget(value: string, root: MarkdownRoot): MarkdownLocalF
   if (wholePlainText(root) !== value || value === "") return undefined;
   if (URL.canParse(value)) {
     const target = markdownLinkTarget(value);
-    return target?.kind === "file" ? target : undefined;
+    if (target !== undefined) return target.kind === "file" ? target : undefined;
   }
   return { kind: "file", path: value };
 }

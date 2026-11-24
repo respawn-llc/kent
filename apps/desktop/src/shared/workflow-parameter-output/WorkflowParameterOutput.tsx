@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Atom from "effect/reactivity/Atom";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -7,11 +7,13 @@ import { useInView } from "motion/react";
 import { useTranslation } from "react-i18next";
 
 import { errorMessage } from "@/api";
-import { useAppServices } from "@/app-facade";
+import { useAppServices, type AppServices } from "@/app-facade";
 import { Spinner, showStatusToast } from "@/ui";
 import { StaticMarkdown, type MarkdownLocalFiles } from "@/ui/markdown";
-import { openOutputFile } from "./outputFileActions";
-import { outputFileTarget, type WorkflowOutputRoot } from "./outputFileTarget";
+import { openOutputFile, type OutputFileOpenTarget } from "./outputFileActions";
+import type { WorkflowOutputRoot } from "./outputRoot";
+
+type OutputFile = Awaited<ReturnType<AppServices["nativeBridge"]["files"]["loadOutputFile"]>>;
 
 class OutputFileFailure extends Error {
   readonly _tag = "OutputFileFailure";
@@ -43,84 +45,66 @@ export function WorkflowParameterOutput({
   return <StaticMarkdown key={value} value={value} localFiles={localFiles} />;
 }
 
-function OutputLocalFile({
-  children,
-  literal,
-  path,
-  root,
-}: Readonly<{
+type LocalFileProps = Readonly<{
   children: ReactNode;
   literal: boolean;
   path: string;
   root: WorkflowOutputRoot;
-}>) {
+}>;
+
+function OutputLocalFile(props: LocalFileProps) {
   const { nativeBridge } = useAppServices();
-  const resolved = outputFileTarget(path, root);
-  if (!nativeBridge.capabilities.files.stat || resolved.kind === "unavailable") {
-    return <>{literal ? children : <OutputFileAction path={path} root={root} />}</>;
+  if (!nativeBridge.capabilities.files.stat) {
+    return <>{props.literal ? props.children : <OutputFileAction path={props.path} target={undefined} />}</>;
   }
-  return (
-    <VisibleOutputFile path={path} root={root}>
-      {children}
-    </VisibleOutputFile>
-  );
+  return <VisibleOutputFile {...props} />;
 }
 
-function VisibleOutputFile({
-  children,
-  path,
-  root,
-}: Readonly<{ children: ReactNode; path: string; root: WorkflowOutputRoot }>) {
+function VisibleOutputFile(props: LocalFileProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const visible = useInView(ref);
   return (
     <span ref={ref} className="inline-grid min-w-0 max-w-full">
-      {visible ? (
-        <InspectedOutputFile path={path} root={root}>
-          {children}
-        </InspectedOutputFile>
-      ) : (
-        children
-      )}
+      {visible ? <LoadedOutputFile {...props} /> : props.children}
     </span>
   );
 }
 
-function InspectedOutputFile({
-  children,
-  path,
-  root,
-}: Readonly<{ children: ReactNode; path: string; root: WorkflowOutputRoot }>) {
+function LoadedOutputFile({ children, literal, path, root }: LocalFileProps) {
   const { nativeBridge } = useAppServices();
   const { t } = useTranslation();
-  const [unsupported, setUnsupported] = useState(false);
-  const inspection = useMemo(
+  const file = useMemo(
     () =>
       Atom.make(
-        Effect.tryPromise({
-          try: async () => {
-            const resolved = outputFileTarget(path, root);
-            if (resolved.kind === "unavailable") return { kind: "unavailable" } as const;
-            return nativeBridge.files.inspectOutputFile(resolved.target);
-          },
-          catch: (cause) => new OutputFileFailure(cause),
-        }).pipe(
+        Effect.acquireRelease(
+          Effect.tryPromise({
+            try: async () =>
+              nativeBridge.files.loadOutputFile(
+                root.kind === "unavailable" ? { path } : { path, basePath: root.path },
+              ),
+            catch: (cause) => new OutputFileFailure(cause),
+          }),
+          (result) =>
+            Effect.sync(() => {
+              if (result.kind === "image") result.release();
+            }),
+        ).pipe(
           Effect.catch((cause) =>
             Effect.sync(() => {
               showStatusToast({
-                id: "workflow-output-file-inspection-failed",
+                id: "workflow-output-file-load-failed",
                 title: t("app.filePreviewFailed"),
                 body: errorMessage(cause),
                 tone: "danger",
               });
-              return { kind: "preview_ineligible" } as const;
+              return { kind: "failed" } as const;
             }),
           ),
         ),
       ),
     [nativeBridge, path, root, t],
   );
-  const state = useAtomValue(inspection);
+  const state = useAtomValue(file);
   if (!AsyncResult.isSuccess(state))
     return (
       <span>
@@ -128,106 +112,63 @@ function InspectedOutputFile({
       </span>
     );
   const result = state.value;
-  if (result.kind === "missing" || result.kind === "unavailable") return <>{children}</>;
-  if (result.kind !== "image" || unsupported) return <OutputFileAction path={path} root={root} />;
-  return (
-    <OutputImagePreview
-      path={path}
-      root={root}
-      onUnsupported={() => {
-        setUnsupported(true);
-      }}
-    />
-  );
+  if (result.kind === "missing") return <>{children}</>;
+  if (result.kind === "unavailable")
+    return <>{literal ? children : <OutputFileAction path={path} target={undefined} />}</>;
+  if (result.kind === "failed") return <OutputFileAction path={path} target={undefined} />;
+  if (result.kind === "image") return <OutputImage file={result} path={path} />;
+  return <OutputFileAction path={path} target={result.target} />;
 }
 
-function OutputImagePreview({
+function OutputImage({
+  file,
   path,
-  root,
-  onUnsupported,
-}: Readonly<{
-  path: string;
-  root: WorkflowOutputRoot;
-  onUnsupported(): void;
-}>) {
-  const { nativeBridge } = useAppServices();
-  const { t } = useTranslation();
-  const [loaded, setLoaded] = useState(false);
-  const preview = useMemo(
-    () =>
-      Atom.make(
-        Effect.acquireRelease(
-          Effect.tryPromise({
-            try: async () => {
-              const resolved = outputFileTarget(path, root);
-              if (resolved.kind === "unavailable") return { kind: "unavailable" } as const;
-              return nativeBridge.files.readOutputImage(resolved.target);
-            },
-            catch: (cause) => new OutputFileFailure(cause),
-          }),
-          (image) =>
-            Effect.sync(() => {
-              if (image.kind === "image") image.release();
-            }),
-        ).pipe(
-          Effect.catch((cause) =>
-            Effect.sync(() => {
-              showStatusToast({
-                id: "workflow-output-file-preview-failed",
-                title: t("app.filePreviewFailed"),
-                body: errorMessage(cause),
-                tone: "danger",
-              });
-              return { kind: "preview_ineligible" } as const;
-            }),
-          ),
-        ),
-      ),
-    [nativeBridge, path, root, t],
-  );
-  const state = useAtomValue(preview);
-  if (!AsyncResult.isSuccess(state))
-    return (
-      <span>
-        <OutputFileAction path={path} root={root} /> <Spinner size="sm" />
-      </span>
-    );
-  const image = state.value;
-  if (image.kind !== "image") return <OutputFileAction path={path} root={root} />;
+}: Readonly<{ file: Extract<OutputFile, { kind: "image" }>; path: string }>) {
+  const [decoder, setDecoder] = useState<"loading" | "loaded" | "failed">("loading");
+  if (decoder === "failed") return <OutputFileAction path={path} target={file.target} />;
   return (
     <span className="inline-grid min-w-0 max-w-full gap-[var(--space-1)]">
-      {!loaded ? <Spinner size="sm" /> : null}
+      {decoder === "loading" ? <Spinner size="sm" /> : null}
       <img
-        src={image.url}
+        src={file.url}
         alt={path}
         className="max-h-[60vh] max-w-full object-contain"
         onLoad={() => {
-          setLoaded(true);
+          setDecoder("loaded");
         }}
-        onError={onUnsupported}
+        onError={() => {
+          setDecoder("failed");
+        }}
       />
-      <OutputFileAction path={path} root={root} />
+      <OutputFileAction path={path} target={file.target} />
     </span>
   );
 }
 
-function OutputFileAction({ path, root }: Readonly<{ path: string; root: WorkflowOutputRoot }>) {
+function OutputFileAction({
+  path,
+  target,
+}: Readonly<{ path: string; target: OutputFileOpenTarget | undefined }>) {
   const { nativeBridge } = useAppServices();
   const { t } = useTranslation();
   const action = useMemo(
-    () => Atom.fn(() => Effect.promise(async () => openOutputFile(path, root, nativeBridge, t))),
-    [path, root, nativeBridge, t],
+    () => Atom.fn(() => Effect.promise(async () => openOutputFile(path, target, nativeBridge, t))),
+    [path, target, nativeBridge, t],
   );
   const open = useAtomSet(action);
   const state = useAtomValue(action);
+  function activate(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.button <= 1) open();
+  }
   return (
     <button
       type="button"
       disabled={state.waiting}
       className="max-w-full break-all text-left font-mono text-[var(--color-primary)] underline-offset-2 hover:underline"
-      onClick={() => {
-        open();
-      }}
+      onClick={activate}
+      onAuxClick={activate}
     >
       {path} {state.waiting ? <Spinner size="sm" /> : null}
     </button>

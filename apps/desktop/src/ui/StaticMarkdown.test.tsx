@@ -9,6 +9,8 @@ import type { MarkdownLocalFiles } from "./markdownLocalFiles";
 
 it.each([
   { value: "/tmp/a%20#?.png", path: "/tmp/a%20#?.png" },
+  { value: "C:/work/result%20#?.png", path: "C:/work/result%20#?.png" },
+  { value: "C:\\work\\result%20#?.png", path: "C:\\work\\result%20#?.png" },
   { value: "file:///tmp/a%2520%23%3F.png", path: "/tmp/a%20#?.png" },
   { value: "https://example.com/file.png", path: null },
   { value: "See **this** file", path: null },

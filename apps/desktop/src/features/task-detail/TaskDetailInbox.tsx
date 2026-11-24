@@ -182,11 +182,7 @@ function InboxItem({
   if (attention.kind === "approval") {
     return (
       <div ref={focusTargetRef}>
-        <ApprovalBox
-          attention={attention}
-          mutations={mutations}
-          outputRoot={outputRoot}
-        />
+        <ApprovalBox attention={attention} mutations={mutations} outputRoot={outputRoot} />
       </div>
     );
   }

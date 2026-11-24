@@ -4,18 +4,18 @@ import { errorMessage } from "@/api";
 import type { AppServices } from "@/app-facade";
 import { writeClipboardText } from "@/shared/native-clipboard";
 import { showStatusToast } from "@/ui";
-import { outputFileTarget, type WorkflowOutputRoot } from "./outputFileTarget";
+
+export type OutputFileOpenTarget = Parameters<AppServices["nativeBridge"]["files"]["openDefault"]>[0];
 
 export async function openOutputFile(
   path: string,
-  root: WorkflowOutputRoot,
+  target: OutputFileOpenTarget | undefined,
   nativeBridge: AppServices["nativeBridge"],
   t: TFunction,
 ): Promise<void> {
-  const resolved = outputFileTarget(path, root);
-  if (nativeBridge.capabilities.files.open && resolved.kind === "resolvable") {
+  if (nativeBridge.capabilities.files.open && target !== undefined) {
     try {
-      await nativeBridge.files.openDefault(resolved.target);
+      await nativeBridge.files.openDefault(target);
       return;
     } catch (cause) {
       showStatusToast({
