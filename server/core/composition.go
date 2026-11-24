@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"core/server/metadata"
 	"core/server/nano"
 	"core/server/operation"
+	"core/server/taskimport"
 
 	"core/server/agentruntime"
 	"core/server/processview"
@@ -388,6 +390,10 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: service: %w", err)
 	}
+	imports := ownedTaskImport{
+		importer: taskimport.New(metadataStore, workflowService, gitInspector, http.DefaultClient, authSupport.Environment),
+		owner:    workflowController,
+	}
 	core := &Core{connectionRotation: connectionRotation, bundles: composeBundles(bundleCompositionInput{
 		settingsChanges: sessionlaunch.NewSettingsBroadcaster(func(id runtimeids.SessionID) error {
 			projectID, err := metadataStore.ResolveSessionProjectID(context.Background(), id.String())
@@ -423,6 +429,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		sessionLifecycleService: sessionLifecycleService,
 		updateStatusService:     updateStatusService,
 		workflowService:         workflowService,
+		taskImports:             imports,
 		workflowController:      workflowController,
 		workflowRuntimeStarter:  workflowRuntimeStarter,
 		worktreeService:         worktreeService,

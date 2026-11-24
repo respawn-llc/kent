@@ -184,6 +184,7 @@ export async function createTask(
       workflowId: input.workflowID,
       title: input.title,
       body: input.body,
+      sourceUrl: input.sourceURL,
       sourceWorkspaceId: input.sourceWorkspaceID,
       labelIds: [...input.labelIDs],
       dependencyIntents: input.dependencyIntents.map((intent) => ({

@@ -189,22 +189,7 @@ func writeTaskCreateError(stderr io.Writer, err error, commandContext taskCreate
 		fmt.Fprintln(stderr, projectionErr)
 		return
 	}
-	switch recovery.Kind {
-	case taskWorkflowRecoveryNoLinkedWorkflows:
-		fmt.Fprintln(stderr, "This project doesn't have any linked workflows yet. First, create a workflow or link an existing one, then retry.")
-	case taskWorkflowRecoveryWorkflowNotLinked:
-		fmt.Fprintln(stderr, "The selected workflow isn't linked to this project.")
-	case taskWorkflowRecoveryAmbiguousWithoutDefault:
-		fmt.Fprintf(
-			stderr,
-			"Tasks need both a project and a workflow binding, but your input leaves workflow choice ambiguous. Run `%s`, then retry with `--workflow <uuid>` or set a default with `%s`.\n",
-			commandString(recovery.Commands[0].Args),
-			commandString(recovery.Commands[2].Args),
-		)
-	}
-	for _, command := range recovery.Commands {
-		fmt.Fprintf(stderr, "  %s\n", commandString(command.Args))
-	}
+	writeTaskWorkflowSelectionRecovery(stderr, recovery)
 }
 
 func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
