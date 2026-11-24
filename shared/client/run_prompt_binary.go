@@ -3,82 +3,37 @@ package client
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"core/shared/protoapi"
 	runpromptpb "core/shared/protoapi/gen/kent/api/run_prompt"
-	sharedpb "core/shared/protoapi/gen/kent/api/shared"
-	"core/shared/rpcwire"
 	"core/shared/serverapi"
 	"core/shared/sessioncontract"
+	"google.golang.org/protobuf/proto"
 )
 
 func (c *Remote) RunPrompt(ctx context.Context, request *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error) {
 	method := bootstrapMethod(runpromptpb.File_kent_api_run_prompt_run_prompt_proto, "RunService", "Prompt")
-	progressOperation, err := protoapi.ResolveProgressOperation(method)
-	if err != nil {
-		return nil, err
-	}
 	result := &runpromptpb.Result{}
-	const correlation = "run-prompt"
-	frame, operation, err := binaryCallFrame(correlation, method, request, result)
-	if err != nil {
+	if err := c.callProgress(ctx, "run-prompt", method, request, result, func() proto.Message { return &runpromptpb.ProgressEvent{} }, func(event proto.Message) {
+		if progress != nil {
+			progress.PublishRunPromptProgress(event.(*runpromptpb.ProgressEvent))
+		}
+	}); err != nil {
 		return nil, err
 	}
-	conn, cleanup, err := c.openRPCConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
-	if err := conn.Send(ctx, frame); err != nil {
-		return nil, err
-	}
-	for {
-		frame, err := receiveFrame(ctx, conn)
-		if err != nil {
-			return nil, err
+	return decodeGeneratedResult(method, result, func(failure *runpromptpb.Error) error {
+		if rejected := failure.GetSelectionRejected(); rejected != nil {
+			return &serverapi.RunSelectionRejectedError{Reason: rejected.Reason}
 		}
-		if frame.Kind != rpcwire.FrameBinary {
-			return nil, fmt.Errorf("%s received a non-binary frame", operation.Name)
+		if details := failure.GetSubagentLaunchDenied(); details != nil {
+			return protoapi.SubagentLaunchDeniedFromProto(details)
 		}
-		envelope, err := protoapi.DecodeEnvelope(frame.Payload)
-		if err != nil {
-			return nil, err
+		if details := failure.GetCallerSessionNotFound(); details != nil {
+			return errors.Join(
+				&serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing},
+				&sessioncontract.SessionNotFoundError{SessionID: details.SessionId},
+			)
 		}
-		switch selected := envelope.GetFrame().(type) {
-		case *sharedpb.Envelope_NotificationEvent:
-			if selected.NotificationEvent.Operation != progressOperation.Name {
-				return nil, fmt.Errorf("unexpected progress operation %q", selected.NotificationEvent.Operation)
-			}
-			event := &runpromptpb.ProgressEvent{}
-			if err := protoapi.Decode(selected.NotificationEvent.Payload, event); err != nil {
-				return nil, err
-			}
-			if progress != nil {
-				progress.PublishRunPromptProgress(event)
-			}
-		case *sharedpb.Envelope_Result, *sharedpb.Envelope_TransportFailure:
-			response := &remoteBinaryResponse{result: envelope.GetResult(), failure: envelope.GetTransportFailure()}
-			if err := decodeBinaryResponse(operation, correlation, response, result); err != nil {
-				return nil, err
-			}
-			return decodeGeneratedResult(method, result, func(failure *runpromptpb.Error) error {
-				if rejected := failure.GetSelectionRejected(); rejected != nil {
-					return &serverapi.RunSelectionRejectedError{Reason: rejected.Reason}
-				}
-				if details := failure.GetSubagentLaunchDenied(); details != nil {
-					return protoapi.SubagentLaunchDeniedFromProto(details)
-				}
-				if details := failure.GetCallerSessionNotFound(); details != nil {
-					return errors.Join(
-						&serverapi.SubagentLaunchDeniedError{Kind: serverapi.SubagentLaunchDenialCallerMissing},
-						&sessioncontract.SessionNotFoundError{SessionID: details.SessionId},
-					)
-				}
-				return generatedOperationFailure(failure.Code)
-			})
-		default:
-			return nil, fmt.Errorf("%s received an unexpected frame %T", operation.Name, selected)
-		}
-	}
+		return generatedOperationFailure(failure.Code)
+	})
 }

@@ -53,6 +53,7 @@ const newTaskSchema = (projectID: string) =>
       .trim()
       .refine((title) => taskCreateTitleViolations(projectID, title).length === 0),
     body: z.string(),
+    sourceURL: z.string(),
     sourceWorkspaceID: z.string().trim().min(1).optional(),
   });
 
@@ -87,6 +88,7 @@ const newTaskRetainedStateSchema = z.object({
   formValues: z.object({
     title: z.string(),
     body: z.string(),
+    sourceURL: z.string(),
     sourceWorkspaceID: z.string().trim().min(1).optional(),
   }),
   selectedLabelIDs: z.array(z.string().min(1)),
@@ -205,6 +207,7 @@ function NewTaskFormContent({
     defaultValues: restored?.formValues ?? {
       title: "",
       body: "",
+      sourceURL: "",
       sourceWorkspaceID: undefined,
     },
   });
@@ -261,6 +264,7 @@ function NewTaskFormContent({
         ...(workflowID === undefined ? {} : { workflowID }),
         title: values.title,
         body: values.body,
+        sourceURL: values.sourceURL.trim().length === 0 ? undefined : values.sourceURL,
         sourceWorkspaceID,
         labelIDs: effectiveSelectedLabelIDs,
         dependencyIntents: preparedDependencies.map((dependency) => ({
@@ -328,6 +332,11 @@ function NewTaskFormContent({
         {...bodyField}
         ref={bodyEditor}
         floatingAction={speech.control}
+      />
+      <TextInput
+        label={t("task.sourceURL")}
+        placeholder={t("task.sourceURLPlaceholder")}
+        {...form.register("sourceURL")}
       />
       <NewTaskLabels
         onCreatePendingChange={setLabelCreatePending}

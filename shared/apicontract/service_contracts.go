@@ -21,6 +21,7 @@ import (
 	sessionpb "core/shared/protoapi/gen/kent/api/session"
 	sessionlaunchpb "core/shared/protoapi/gen/kent/api/session_launch"
 	speechpb "core/shared/protoapi/gen/kent/api/speech"
+	taskimportpb "core/shared/protoapi/gen/kent/api/task_import"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
 	workflowpb "core/shared/protoapi/gen/kent/api/workflow_definition"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -133,6 +134,10 @@ type PromptControlService interface {
 
 type RunPromptService interface {
 	RunPrompt(ctx context.Context, req *runpromptpb.Request, progress serverapi.RunPromptProgressSink) (*runpromptpb.Success, error)
+}
+
+type TaskImportService interface {
+	ImportTasks(ctx context.Context, req *taskimportpb.Request, progress serverapi.TaskImportProgressSink) (*taskimportpb.Success, error)
 }
 
 type ServerStatusService interface {

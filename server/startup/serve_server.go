@@ -571,6 +571,12 @@ func (d *startupGatewayDependencies) WorkflowClient() apicontract.WorkflowServic
 	}
 	return nil
 }
+func (d *startupGatewayDependencies) TaskImportClient() apicontract.TaskImportService {
+	if c := d.activeCore(); c != nil {
+		return c.TaskImportClient()
+	}
+	return nil
+}
 func (d *startupGatewayDependencies) SessionBelongsToProject(ctx context.Context, sessionID string, projectID string) error {
 	if c := d.activeCore(); c != nil {
 		return c.SessionBelongsToProject(ctx, sessionID, projectID)

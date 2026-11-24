@@ -18,6 +18,7 @@ require (
 	github.com/go-faster/jx v1.2.0
 	github.com/gofrs/flock v0.13.0
 	github.com/google/uuid v1.6.0
+	github.com/whilp/git-urls v1.0.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/joho/godotenv v1.6.0-pre.4
 	github.com/klauspost/compress v1.19.1

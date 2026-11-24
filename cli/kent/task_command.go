@@ -8,6 +8,7 @@ func taskSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		usage: taskUsage,
 		routes: map[string]commandHandler{
 			"create":       taskCreateSubcommand,
+			"import":       taskImportSubcommand,
 			"edit":         taskEditSubcommand,
 			"start":        taskStartSubcommand,
 			"interrupt":    taskInterruptSubcommand,

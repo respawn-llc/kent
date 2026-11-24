@@ -154,6 +154,7 @@ describe("ApiClient workflow labels", () => {
         workflowID: smallID,
         title: "New blocker",
         body: "",
+        sourceURL: "https://github.com/owner/repo/issues/42",
         sourceWorkspaceID: "workspace-origin",
         labelIDs: [],
         dependencyIntents: [
@@ -175,6 +176,7 @@ describe("ApiClient workflow labels", () => {
           workflowId: smallID,
           title: "New blocker",
           body: "",
+          sourceUrl: "https://github.com/owner/repo/issues/42",
           sourceWorkspaceId: "workspace-origin",
           labelIds: [],
           dependencyIntents: [
