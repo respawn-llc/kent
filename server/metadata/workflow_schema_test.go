@@ -46,7 +46,6 @@ func TestOpenCreatesWorkflowSchemaAndForeignKeys(t *testing.T) {
 		"task_active_fanouts",
 		"task_active_fanout_branches",
 		"task_pending_approvals",
-		"task_pending_approval_branches",
 		"session_workflow_node_associations",
 		"task_comments",
 		"project_labels",
@@ -85,9 +84,6 @@ func TestOpenCreatesWorkflowSchemaAndForeignKeys(t *testing.T) {
 	}
 	if !columnExists(t, store.db, "workflow_edges", "prompt_template") {
 		t.Fatal("workflow_edges.prompt_template should exist")
-	}
-	if !columnExists(t, store.db, "workflow_edges", "parameters_json") {
-		t.Fatal("workflow_edges.parameters_json should exist")
 	}
 	for _, column := range []string{"prompt_template", "input_fields_json", "output_fields_json"} {
 		if columnExists(t, store.db, "workflow_nodes", column) {
@@ -478,12 +474,11 @@ func TestWorkflowSchemaConstraints(t *testing.T) {
 	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, script_path) VALUES (?, ?, 'agent_script_path', 'agent', 'Agent Script Path', 'scripts/complete')`, newWorkflowGraphTestID(t), workflowID)
 	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `INSERT INTO workflow_nodes (id, workflow_id, node_key, kind, display_name, group_id) VALUES (?, ?, 'cross_group', 'agent', 'Cross Group', ?)`, newWorkflowGraphTestID(t), workflowID, groupOtherID)
 	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_TRIGGER, `UPDATE workflow_nodes SET group_id = ? WHERE id = ?`, groupOtherID, agentNodeID)
-	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, input_bindings_json, output_requirements_json) VALUES (?, ?, 'bad_bool', ?, 2, 'new_session', '{}', '{}')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
-	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES (?, ?, 'bad_context_empty', ?, 0, 'continue_session', 'selected_node', '', '{}', '{}')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
-	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES (?, ?, 'bad_context_key', ?, 0, 'continue_session', 'immediate_source', 'agent', '{}', '{}')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
-	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, parameters_json, input_bindings_json, output_requirements_json) VALUES (?, ?, 'bad_parameters_json', ?, 0, 'new_session', '{}', '{}', '{}')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
-	execSeed(t, store.db, "previous target context source edge", `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES (?, ?, 'previous_target_context', ?, 0, 'continue_session', 'previous_target', '', '{}', '{}')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
-	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key, input_bindings_json, output_requirements_json) VALUES (?, ?, 'bad_previous_target_context_key', ?, 0, 'continue_session', 'previous_target', 'agent', '{}', '{}')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
+	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode) VALUES (?, ?, 'bad_bool', ?, 2, 'new_session')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
+	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key) VALUES (?, ?, 'bad_context_empty', ?, 0, 'continue_session', 'selected_node', '')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
+	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key) VALUES (?, ?, 'bad_context_key', ?, 0, 'continue_session', 'immediate_source', 'agent')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
+	execSeed(t, store.db, "previous target context source edge", `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key) VALUES (?, ?, 'previous_target_context', ?, 0, 'continue_session', 'previous_target', '')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
+	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflow_edges (id, transition_group_id, edge_key, target_node_id, requires_approval, context_mode, context_source_kind, context_source_node_key) VALUES (?, ?, 'bad_previous_target_context_key', ?, 0, 'continue_session', 'previous_target', 'agent')`, newWorkflowGraphTestID(t), startTransitionID, agentNodeID)
 	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES (?, 'Bad', 1, -1, 1)`, runtimeids.NewWorkflowID())
 	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO workflows (id, name, version, created_at_unix_ms, updated_at_unix_ms) VALUES (?, 'Bad', 0, 1, 1)`, runtimeids.NewWorkflowID())
 	assertSQLiteConstraint(t, store.db, sqlite3.SQLITE_CONSTRAINT_CHECK, `INSERT INTO task_comments (id, task_id, body, author_kind, created_at_unix_ms, updated_at_unix_ms) VALUES ('comment-system-author', 'task-1', 'system note', 'system', 1, 1)`)

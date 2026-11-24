@@ -6,7 +6,7 @@ import * as Stream from "effect/Stream";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 
-import type { ApiService, ChatSessionTarget, DesktopProcess } from "@/api";
+import type { ApiService, ProcessScope, DesktopProcess } from "@/api";
 import { mutationPendingAtom, queryAtom, queryKeys } from "@/app-facade";
 
 type ObservationState =
@@ -16,8 +16,8 @@ export function createProcessesViewModel({
   api,
   client,
   target,
-}: Readonly<{ api: ApiService; client: QueryClient; target: ChatSessionTarget }>) {
-  const queryKey = queryKeys.processes(target.projectID, target.sessionID);
+}: Readonly<{ api: ApiService; client: QueryClient; target: ProcessScope }>) {
+  const queryKey = queryKeys.processes(target);
   const content = queryAtom(
     new QueryObserver<readonly DesktopProcess[]>(client, {
       queryKey,

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"encoding/json"
 	"strings"
 
@@ -54,7 +55,7 @@ func (w *responseItemMessageWalker) Apply(item llm.ResponseItem) {
 		callID, _ := textutil.FirstOptionalTrimmed(item.CallID, item.ID)
 		name, _ := textutil.OptionalTrimmed(item.Name)
 		call := llm.ToolCall{
-			ID:           callID,
+			ID:           runtimeids.ToolCallID(callID),
 			Name:         name,
 			Presentation: append(json.RawMessage(nil), item.ToolPresentation...),
 			Input:        normalizeRuntimeToolInput(string(item.Arguments)),
@@ -75,7 +76,7 @@ func (w *responseItemMessageWalker) Apply(item llm.ResponseItem) {
 		w.emit(llm.Message{
 			Role:        llm.RoleTool,
 			MessageType: llm.ToolOutputMessageType(item.Type == llm.ResponseItemTypeCustomToolOutput),
-			ToolCallID:  textutil.Value(callID),
+			ToolCallID:  (*runtimeids.ToolCallID)(textutil.Value(callID)),
 			Name:        textutil.Pointer(item.Name),
 			Content:     textutil.Value(stringFromJSONRawRuntime(item.Output)),
 		})
@@ -141,13 +142,13 @@ func normalizeRuntimeToolInput(arguments string) json.RawMessage {
 	return quoted
 }
 
-func collectMaterializedToolCalls(items []llm.ResponseItem) map[string]struct{} {
-	out := make(map[string]struct{})
+func collectMaterializedToolCalls(items []llm.ResponseItem) map[runtimeids.ToolCallID]struct{} {
+	out := make(map[runtimeids.ToolCallID]struct{})
 	walker := newResponseItemMessageWalker(func(msg llm.Message) {
 		if msg.Role != llm.RoleTool {
 			return
 		}
-		callID, present := textutil.OptionalTrimmed(msg.ToolCallID)
+		callID, present := textutil.OptionalValue(msg.ToolCallID)
 		if !present {
 			return
 		}

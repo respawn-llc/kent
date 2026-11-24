@@ -34,6 +34,45 @@ type Translate = (key: string) => string;
 type SurfaceOutcome = Readonly<{ status: "done" }> | Readonly<{ status: "retry" }>;
 export type SurfaceState = Atom.Writable<ReadonlyMap<string, SurfaceRecord>>;
 
+export const deliverAttentionNotification = Effect.fn("deliverAttentionNotification")(function* <A>({
+  delivery,
+  focused,
+  hasNativeNotifications,
+  notification,
+  notifications,
+  logger,
+  inApp,
+  beforeNative = Effect.void,
+}: Readonly<{
+  delivery: DesktopSettings["notifications"];
+  focused: boolean;
+  hasNativeNotifications: boolean;
+  notification: NativeNotification;
+  notifications: NativeNotifications;
+  logger: Logger;
+  inApp: Effect.Effect<A>;
+  beforeNative?: Effect.Effect<void>;
+}>): Effect.fn.Return<Readonly<{ status: "native" | "failed" }> | Readonly<{ status: "inApp"; value: A }>> {
+  if (attentionDelivery(delivery, focused, hasNativeNotifications) === "inApp") {
+    return { status: "inApp", value: yield* inApp };
+  }
+  yield* beforeNative;
+  return yield* Effect.tryPromise(async () => notifications.notify(notification)).pipe(
+    Effect.as({ status: "native" } as const),
+    Effect.catch((error) =>
+      Effect.promise(async () =>
+        recoverOrThrowDebugFailure({
+          context: { notificationID: notification.id },
+          error: error.cause,
+          logger,
+          message: "Native attention notification delivery failed.",
+          recover: () => undefined,
+        }),
+      ).pipe(Effect.as({ status: "failed" } as const)),
+    ),
+  );
+});
+
 export function setSurface(
   get: Atom.AtomContext,
   surfaced: SurfaceState,
@@ -109,15 +148,41 @@ export const deliverPendingSurface = Effect.fn("deliverPendingSurface")(function
   const latest = get.once(surfaced).get(attentionNotificationIDKey(notification.id));
   if (latest?.state !== "surfacing") return { status: "done" };
   if (latest.notification.revision !== notification.revision) return { status: "retry" };
-  if (attentionDelivery(delivery, focused, hasNativeNotifications) === "inApp") {
-    yield* removeActiveNotification(notifications, logger, attentionNotificationIDKey(notification.id));
-    if (get.once(surfaced).get(attentionNotificationIDKey(notification.id)) !== latest)
-      return { status: "retry" };
-    showToast(notification);
+  const outcome = yield* deliverAttentionNotification({
+    delivery,
+    focused,
+    hasNativeNotifications,
+    notification: nativeNotification(notification, t),
+    notifications,
+    logger,
+    beforeNative: Effect.sync(dismissToast),
+    inApp: Effect.gen(function* () {
+      yield* removeActiveNotification(notifications, logger, attentionNotificationIDKey(notification.id));
+      if (get.once(surfaced).get(attentionNotificationIDKey(notification.id)) !== latest) {
+        return { status: "retry" } as const;
+      }
+      showToast(notification);
+      return { status: "done" } as const;
+    }),
+  });
+  if (outcome.status === "inApp") return outcome.value;
+  if (outcome.status === "failed") {
+    if (get.once(surfaced).get(attentionNotificationIDKey(notification.id)) === latest)
+      setSurface(get, surfaced, attentionNotificationIDKey(notification.id), {
+        notification,
+        state: "dismissed",
+      });
     return { status: "done" };
   }
-  dismissToast();
-  return yield* deliverNativePendingSurface({ get, logger, notification, notifications, surfaced, t });
+  const id = attentionNotificationIDKey(notification.id);
+  const current = get.once(surfaced).get(id);
+  if (current?.state !== "surfacing") {
+    yield* removeActiveNotification(notifications, logger, id);
+    return { status: "done" };
+  }
+  if (current.notification.revision !== notification.revision) return { status: "retry" };
+  setSurface(get, surfaced, id, { notification, state: "native" });
+  return { status: "done" };
 });
 
 export function attentionDelivery(
@@ -209,7 +274,7 @@ export function attentionNotificationIDKey(id: AttentionNotificationID): string 
   return `k${String(id.kind.length)}_${id.kind}u${String(id.uuid.length)}_${id.uuid}`;
 }
 
-const resolveWindowFocus = Effect.fn("resolveWindowFocus")(function* (
+export const resolveWindowFocus = Effect.fn("resolveWindowFocus")(function* (
   windowControls: NativeWindow,
   focused: () => boolean | null,
   logger: Logger,
@@ -226,92 +291,6 @@ const resolveWindowFocus = Effect.fn("resolveWindowFocus")(function* (
     ),
   );
   return focused() ?? result;
-});
-
-const deliverNativePendingSurface = Effect.fn("deliverNativePendingSurface")(function* ({
-  get,
-  logger,
-  notification,
-  notifications,
-  surfaced,
-  t,
-}: Readonly<{
-  logger: Logger;
-  get: Atom.AtomContext;
-  notification: AttentionNotification;
-  notifications: NativeNotifications;
-  surfaced: SurfaceState;
-  t: Translate;
-}>): Effect.fn.Return<SurfaceOutcome> {
-  const id = attentionNotificationIDKey(notification.id);
-  yield* Effect.promise(async () =>
-    logger.append("info", "Sending native attention notification.", {
-      notificationID: id,
-      notificationKind: notification.kind,
-      notificationRevision: String(notification.revision),
-    }),
-  );
-  const delivered = yield* Effect.tryPromise(async () =>
-    notifications.notify(nativeNotification(notification, t)),
-  ).pipe(
-    Effect.as(true),
-    Effect.catch((error) =>
-      handleNativeDeliveryError({ get, error: error.cause, logger, notification, surfaced }).pipe(
-        Effect.as(false),
-      ),
-    ),
-  );
-  if (!delivered) return { status: "done" };
-  yield* Effect.promise(async () =>
-    logger.append("info", "Native attention notification accepted.", {
-      notificationID: id,
-      notificationKind: notification.kind,
-      notificationRevision: String(notification.revision),
-    }),
-  );
-  const latest = get.once(surfaced).get(id);
-  if (latest?.state !== "surfacing") {
-    yield* removeActiveNotification(notifications, logger, id);
-    return { status: "done" };
-  }
-  if (latest.notification.revision !== notification.revision) {
-    return { status: "retry" };
-  }
-  setSurface(get, surfaced, id, { notification, state: "native" });
-  return { status: "done" };
-});
-
-const handleNativeDeliveryError = Effect.fn("handleNativeDeliveryError")(function* ({
-  get,
-  error,
-  logger,
-  notification,
-  surfaced,
-}: Readonly<{
-  error: unknown;
-  get: Atom.AtomContext;
-  logger: Logger;
-  notification: AttentionNotification;
-  surfaced: SurfaceState;
-}>) {
-  const id = attentionNotificationIDKey(notification.id);
-  const latest = get.once(surfaced).get(id);
-  if (latest?.state !== "surfacing") {
-    return;
-  }
-  yield* Effect.promise(async () =>
-    recoverOrThrowDebugFailure({
-      context: {
-        notificationID: id,
-      },
-      error,
-      logger,
-      message: "Native attention notification delivery failed.",
-      recover() {
-        setSurface(get, surfaced, id, { notification: latest.notification, state: "dismissed" });
-      },
-    }),
-  );
 });
 
 function nativeNotification(notification: AttentionNotification, t: Translate): NativeNotification {

@@ -15,16 +15,13 @@ export { QuestionBox } from "./TaskDetailQuestionForm";
 
 export function ApprovalBox({
   attention,
-  currentVersion,
   mutations,
 }: Readonly<{
   attention: ApprovalAttentionItem;
-  currentVersion: number;
   mutations: TaskDetailLifecycle;
 }>) {
   const { t } = useTranslation();
   const snapshot = attention.approvalSnapshot;
-  const stale = snapshot.version !== currentVersion;
   function approve(): void {
     mutations.approve(attention.approvalID);
   }
@@ -64,10 +61,8 @@ export function ApprovalBox({
             <p className="m-0 whitespace-pre-wrap text-sm text-[var(--color-muted)]">{snapshot.commentary}</p>
           ) : null}
           <ApprovalOutputValues outputValues={snapshot.outputValues} />
-          {stale ? (
-            <p className="m-0 text-sm text-[var(--color-warning)]">
-              <strong>{t("task.staleApproval")}</strong> {t("task.staleApprovalBody")}
-            </p>
+          {snapshot.choiceAvailability === "unavailable" ? (
+            <p className="m-0 text-sm text-[var(--color-warning)]">{t("task.approvalChoiceUnavailable")}</p>
           ) : null}
         </div>
       </Island>

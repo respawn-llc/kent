@@ -143,7 +143,6 @@ export type ProjectMutationResponse = Readonly<{
 
 export type WorkspaceUnlinkBlocker = Readonly<{
   code: string;
-  message: string;
   count?: number;
 }>;
 
@@ -635,11 +634,11 @@ export type BoardNodeCardsPage = Readonly<{
 }>;
 
 export type ApprovalSnapshot = Readonly<{
+  choiceAvailability: "available" | "unavailable";
   sourceNodeName: string;
   targets: readonly Readonly<{ displayName: string }>[];
   commentary: string;
   outputValues: Readonly<Record<string, string>>;
-  version: number;
 }>;
 
 export type AttentionPage = Readonly<{

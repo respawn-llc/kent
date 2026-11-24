@@ -29,7 +29,6 @@ func planCurrentNodeFanout(
 	targets []currentNodeCompletionTarget,
 	commentary string,
 	outputValues map[string]string,
-	workflowVersion int64,
 	group workflow.TransitionGroup,
 	catalog workflow.TargetAgentCatalog,
 	resolveRetainedSessionSelection func(context.Context, runtimeids.SessionID) (*workflow.AgentExecutionSelection, error),
@@ -73,26 +72,20 @@ func planCurrentNodeFanout(
 			Node:           target.Node,
 			LegacyFallback: materializedTarget.LegacyFallback,
 		})
-		contextResolution, err := pendingApprovalContextSourceResolution(target.Node.Kind(), targetCurrentNode)
-		if err != nil {
-			return CurrentNodeCompletionResult{}, err
-		}
 		approvalBranches = append(approvalBranches, workflow.PendingApprovalBranch{
 			TransitionBranchKey: branchKey,
-			Target: workflow.PendingApprovalTarget{
-				CurrentNode: targetCurrentNode,
+			Target: &workflow.PendingApprovalTarget{
+				Reference:   targetCurrentNode.Reference,
 				DisplayName: workflow.NodeDisplayLabel(target.Node),
 				NodeKind:    target.Node.Kind(),
 			},
-			EffectiveEdge:           target.Edge,
-			ContextSourceResolution: contextResolution,
+			EdgeID: target.Edge.ID,
 		})
 		requiresApproval = requiresApproval || target.Edge.RequiresApproval
 	}
 	if requiresApproval {
 		approval, err := newPendingApprovalWithBranches(
 			currentSource,
-			workflowVersion,
 			group,
 			workflow.NodeDisplayLabel(source),
 			commentary,

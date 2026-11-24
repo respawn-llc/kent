@@ -30,9 +30,12 @@ fn save_image(image: arboard::ImageData<'_>) -> Result<String, String> {
         Path::new("/tmp").to_path_buf()
     } else {
         std::env::temp_dir()
-    };
+    }
+    .join("kent");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|error| format!("Create clipboard image directory failed: {error}"))?;
     let mut file = tempfile::Builder::new()
-        .prefix("kent-clipboard-")
+        .prefix("clip-")
         .suffix(".png")
         .tempfile_in(temp_dir)
         .map_err(|error| format!("Create clipboard image failed: {error}"))?;
@@ -64,6 +67,19 @@ mod tests {
         })
         .unwrap();
         assert!(Path::new(&path).is_absolute());
+        let directory = if cfg!(unix) {
+            Path::new("/tmp").to_path_buf()
+        } else {
+            std::env::temp_dir()
+        }
+        .join("kent");
+        assert_eq!(Path::new(&path).parent().unwrap(), directory);
+        assert!(Path::new(&path)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("clip-"));
         let decoded = image::open(&path).unwrap().into_rgba8();
         assert_eq!(decoded.dimensions(), (2, 1));
         assert_eq!(decoded.as_raw(), &pixels);

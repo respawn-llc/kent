@@ -25,6 +25,78 @@ sql:
               import: "core/shared/runtimeids"
               type: "WorkflowID"
               pointer: true
+          - column: "workflow_nodes.group_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_join_providers.node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_parameters.edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_input_bindings.edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_output_requirements.edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_join_providers.provider_edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_node_groups.id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_nodes.id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_transition_groups.id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_transition_groups.source_node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_edges.id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_edges.transition_group_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "workflow_edges.target_node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "task_current_nodes.node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "task_current_nodes.entered_by_edge_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "task_pending_approvals.source_node_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "task_pending_approvals.transition_group_id"
+            go_type:
+              type: "byte"
+              slice: true
+          - column: "session_workflow_node_associations.node_id"
+            go_type:
+              type: "byte"
+              slice: true
           - column: "project_default_workflow_identity.workflow_id"
             go_type:
               import: "core/shared/runtimeids"

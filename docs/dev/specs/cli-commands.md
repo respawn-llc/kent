@@ -470,23 +470,31 @@
 
 ### Workflow selection and discovery
 
-- Workflow selectors are bare canonical UUID v4 values. Workflow display names and prefixed identifiers are not selectors.
+- Workflow selection must follow the [file-path contract](declarative-workflows.md#agent-authoring).
+- CLI Workflow Apply must follow the [publication contract](declarative-workflows.md#agent-authoring).
 - Workflow authoring must allow operators to omit Node Group names. Optional Group names follow [Workflow rules](workflow-orchestration.md).
-- Every command that accepts a Workflow selector uses the same syntax and emits copyable bare UUIDs in human and JSON output.
-- `kent workflow list` is paginated.
-- `--project <path-or-id>` filters Workflow list to Workflows linked to the resolved Project.
-- Project-filtered Workflow discovery is paginated. It performs no per-Workflow graph validation.
-- Project-filtered results are ordered with the Project default first, then by Project-local Task activity, then by Workflow name.
-- Project-filtered human results use the global one-line format and append default/link status plus Execution Target Policy.
-- Project-filtered JSON includes the resolved Project ID once and adds only the default-link fact to each Workflow record.
-- `kent workflow inspect <uuid> --summary` returns only global Workflow metadata: name, bare UUID, description, version, and Execution Target Policy.
+- Path-based Workflow commands must use the same path syntax and report their selected file location.
+- `kent workflow list` must list only Workflows linked to the resolved Project, using database metadata and remembered source paths without reading Workflow files or scanning directories.
+- `--project <path-or-id>` must select that Project. Its default must be the current workspace's Project, as for `kent task list`.
+- If the current Project cannot be resolved, the command must report the failure and require an explicit `--project`.
+- Workflow list must be paginated. It must not offer a global listing mode.
+- CLI help must explain that Workflow list excludes filesystem files that have not been attached to the Project.
+- Workflow list must perform no per-Workflow graph validation.
+- Results must be ordered with the Project default first, then by Project-local Task activity, then by Workflow name.
+- Human results must use the one-line format and append default/link status plus Execution Target Policy.
+- JSON must include the resolved Project ID once and add only the default-link fact to each Workflow record.
+- `kent workflow inspect <path>` must inspect only that file. Path inspection must never substitute applied content.
+- `kent workflow inspect <uuid>` must inspect only the internal applied definition for that Workflow UUID.
+- CLI help must explain the distinct meanings of path and UUID inspection.
+- Workflow inspection with `--summary` must return a plaintext summary of Workflow name, file location, description, revision, and Execution Target Policy.
+- Full inspection must use plaintext and identify the authored graph and Protected Parameter purposes. Inspection must offer no JSON or YAML output.
 - Summary inspection accepts no Project context. Full inspection includes the Workflow graph.
-- `kent task show` accepts no Workflow selector and reports the selected Task's actual Workflow with a bare UUID.
+- `kent task show` accepts no Workflow selector and must report the selected Task's Workflow file location.
 - Task creation without an explicit Workflow uses the Project default.
 - If no default exists and exactly one Workflow is linked, Task creation uses that Workflow.
 - Task creation with no linked Workflows explains that a Workflow must be created or linked before retrying.
 - Task creation with several linked Workflows and no default omits the candidate enumeration.
-- It directs the operator to paginated Project Workflow discovery, an explicit `--workflow <uuid>` retry, or default selection.
+- It must direct the operator to paginated Project Workflow discovery, an explicit `--workflow <path>` retry, or default selection.
 
 ### GitHub issue import
 
@@ -543,44 +551,12 @@
 
 ### Workflow and Task mutation
 
-- Agents can build and edit complete Workflow definitions through high-level commands and graph inspect/apply.
-- Every CLI topology mutation submits one complete Workflow Draft graph through the server's authoritative graph-save operation. Kent never persists a partial intermediate graph for one CLI mutation.
-- `kent workflow graph inspect <workflow> [--json]` always emits the graph editing JSON. `--json` has no effect on its output.
-- Graph inspect emits every graph collection in authored order.
-- `kent workflow graph apply <path-or-dash>` reads graph editing JSON from the selected file. A selector of `-` reads standard input.
-- Graph apply changes the complete authored Workflow graph, including graph-owned configuration. `kent workflow update` is the CLI authority for Workflow name, description, and Execution Target Policy.
-- Graph apply requires canonical bare UUID v4 text for each new Node, Node Group, Transition Group, and Transition Branch. It rejects prefixed identities, other UUID versions, non-canonical spellings, and surrounding whitespace for additions. Existing graph entity identities must be unchanged. Graph apply never assigns temporary or persistent identities.
-- Node membership in graph editing JSON uses `group_id` only. Graph inspect never emits `group_key`, and graph apply rejects `group_key` rather than treating it as an alternate membership reference.
-- Graph apply ignores unknown JSON object fields. Kent omits unknown or misspelled authored fields when saving the complete submitted graph.
-- Graph apply uses the installed JSON library's duplicate-field semantics. It rejects trailing JSON values and missing required fields before it contacts the server.
-- Graph apply loads the current Workflow and compares Workflow Version before it classifies graph entity identities. A mismatch returns `blocked` with `version_changed`, including when a persisted noncanonical identity in the stale document is absent or belongs to another entity type.
-- For a current-version document, graph apply uses submitted identities unchanged when they match existing graph entities of the same type. It uses submitted collection order and rejects additions without canonical bare UUID v4 identities before save.
-- Graph apply submits the document to the server's graph-save operation. A non-destructive graph that has no blocker saves immediately.
-- When confirmation is required, an unconfirmed graph apply reports the impact and changes nothing. With `--confirm`, the command confirms the impact returned by that invocation and retries the save.
-- A Workflow Version or impact-count change before the confirmed save rejects the save and changes nothing.
-- Graph-save impact lists every removed graph entity by stable entity type and persistent identity. It reports Task references as aggregate counts and never materializes an unbounded Task-reference collection.
-- Graph-save blockers identify every affected graph entity by stable entity type and persistent identity.
-- Removed Node Groups appear in impact and aggregate counts. Removing a Node Group alone requires no confirmation.
-- Removing Nodes, Transition Groups, or Transition Branches requires graph-save confirmation according to the reported removal impact.
-- Saved Sessions and completed Session-to-Node provenance do not own a deleted Node's lifetime. Current Node and Pending Approval references are graph-edit blockers.
-- Graph apply rejects a stale expected Workflow Version even when the submitted graph equals the current graph. A metadata-only Workflow update makes an earlier graph editing document stale.
-- Applying a graph that equals the current authored graph returns `unchanged` and exits successfully without incrementing Workflow Version.
-- In JSON mode, graph apply emits one outcome envelope with `saved`, `unchanged`, `confirmation_required`, `blocked`, `invalid_document`, or `request_failed`.
-- A stale Workflow Version uses outcome `blocked` and blocker code `version_changed`.
-- Graph apply exits `0` for `saved` or `unchanged`, `1` when no save occurs for a typed product or operational outcome, and `2` for invalid command usage.
-- High-level Node and Edge commands use graph save for their non-destructive operations with their defined success output contracts. When one requires destructive confirmation, it changes nothing and directs the caller to graph apply.
+- Agents must edit Workflow files directly under the [agent-authoring contract](declarative-workflows.md#agent-authoring).
 - `kent workflow delete <workflow>` reports deletion impact and makes no changes unless `--confirm` is present.
-- A confirmed deletion submits the previewed Workflow Version and affected Project, Project Workflow Link, and Task counts.
+- Workflow deletion must follow the [Project-scoped deletion contract](declarative-workflows.md#deletion).
 - If impact changes or deletion has blockers, Kent deletes nothing and reports the blockers.
-- `kent workflow edge add|update` accepts `--assignee-selection configured|previous_node` and `--thinking-selection configured|previous_node` for one Edge.
-- Omission on add means `configured`.
-- `previous_node` initializes a missing default Protected Parameter. With `configured`, an existing Protected Parameter is dormant.
-- `kent workflow edge add|update` accepts `--target-assignee-param <key>=<description>` and `--target-thinking-param <key>=<description>` to create or edit the corresponding Protected Parameter while enabling it in the same command or while it is already enabled.
-- An empty description after `=` is valid.
-- Repeatable `--param <key>=<description>` and `--clear-params` mutate ordinary Parameters only and never delete or convert Protected Parameters.
-- Workflow Node mutation requires the Agent Node's configured Assignee and uses `--agent`. It must not enable selection for incoming Edges.
-- Workflow inspection identifies Protected Parameter purposes.
 - Human and JSON `kent task show` expose effective Assignee and thinking for Agent Current Nodes and omit them for non-Agent Current Nodes.
+- `kent task move <task> <target-node-key>` must resolve the destination in the Task's Workflow unless `--workflow <path>` selects another Workflow linked to the same Project.
 - `kent task move` accepts an optional Transition Key plus structured values keyed by Node Key and output name through inline JSON or a JSON file.
 - Task move selects the Transition automatically when exactly one is usable.
 - Flat `name=value` Task move input is unavailable because it cannot distinguish same-named outputs from different Nodes.

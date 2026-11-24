@@ -15,6 +15,7 @@ import (
 	"core/shared/config"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	"core/shared/protocol"
+	"core/shared/runtimeids"
 	"core/shared/serverapi"
 	"core/shared/toolspec"
 	"encoding/json"
@@ -61,7 +62,7 @@ func newAppTestModelServer(t *testing.T, steps ...appTestModelStep) *modelstub.R
 				if err != nil {
 					t.Fatalf("marshal %s tool arguments: %v", call.Name, err)
 				}
-				calls[callIndex] = llm.ToolCall{ID: call.ID, Name: string(call.Name), Input: input}
+				calls[callIndex] = llm.ToolCall{ID: runtimeids.ToolCallID(call.ID), Name: string(call.Name), Input: input}
 			}
 			script[index] = modelstub.ToolBatch("", calls...)
 		}

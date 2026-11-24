@@ -43,7 +43,7 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 			facts := TranscriptCommittedRowFactsFromEvent(event)
 			for _, fact := range facts {
 				if fact.Tool != nil && fact.Tool.ToolCallID == result.CallID {
-					liveLocators[result.CallID] = fact.Locator
+					liveLocators[string(result.CallID)] = fact.Locator
 				}
 			}
 		}
@@ -63,12 +63,12 @@ func TestToolCompletionLocatorOwnerSurvivesRoleToolMaterializationAndReopen(t *t
 	for _, event := range events {
 		for _, fact := range TranscriptCommittedRowFactsFromEvent(event) {
 			if fact.Tool != nil {
-				liveToolRows[fact.Tool.ToolCallID]++
+				liveToolRows[string(fact.Tool.ToolCallID)]++
 			}
 		}
 	}
 	for _, result := range results {
-		if got, want := liveToolRows[result.CallID], 1; got != want {
+		if got, want := liveToolRows[string(result.CallID)], 1; got != want {
 			t.Fatalf("live tool row count for %s = %d, want %d", result.CallID, got, want)
 		}
 	}
@@ -208,7 +208,7 @@ func assertToolFactsFollowLocatorOrder(t *testing.T, facts []TranscriptCommitted
 func findToolFact(t *testing.T, facts []TranscriptCommittedRowFact, callID string) TranscriptCommittedRowFact {
 	t.Helper()
 	for _, fact := range facts {
-		if fact.Tool != nil && fact.Tool.ToolCallID == callID {
+		if fact.Tool != nil && fact.Tool.ToolCallID == runtimeids.ToolCallID(callID) {
 			return fact
 		}
 	}

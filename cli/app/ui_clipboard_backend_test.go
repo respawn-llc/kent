@@ -160,8 +160,11 @@ func TestSystemClipboardImagePasterLinuxWaylandUsesWLPaste(t *testing.T) {
 	if err != nil {
 		t.Fatalf("paste image: %v", err)
 	}
-	if filepath.Dir(path) != dir {
-		t.Fatalf("expected temp path under %q, got %q", dir, path)
+	if want := filepath.Join(dir, "kent"); filepath.Dir(path) != want {
+		t.Fatalf("expected temp path under %q, got %q", want, path)
+	}
+	if matched, err := filepath.Match("clip-*.png", filepath.Base(path)); err != nil || !matched {
+		t.Fatalf("clipboard image path = %q, want clip-*.png: %v", path, err)
 	}
 	data, readErr := os.ReadFile(path)
 	if readErr != nil {

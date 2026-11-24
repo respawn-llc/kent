@@ -97,13 +97,6 @@ pub fn read_desktop_settings(
 }
 
 #[tauri::command]
-pub fn desktop_launch_appearance(
-    launch: tauri::State<'_, DesktopLaunch>,
-) -> Option<LaunchAppearance> {
-    launch.appearance
-}
-
-#[tauri::command]
 pub fn change_desktop_setting(
     app: tauri::AppHandle,
     owner: tauri::State<'_, SettingsOwner>,

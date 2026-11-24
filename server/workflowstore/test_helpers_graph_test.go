@@ -19,6 +19,15 @@ import (
 
 var testGraphEntityIDs sync.Map
 
+func testGraphEntityIDBlob(t *testing.T, id string) []byte {
+	t.Helper()
+	value, err := runtimeids.GraphEntityIDBlob(id)
+	if err != nil {
+		t.Fatalf("encode graph identity: %v", err)
+	}
+	return value
+}
+
 func testGraphEntityID(alias string) string {
 	if _, err := runtimeids.GraphEntityIDBlob(alias); err == nil {
 		return alias
@@ -546,14 +555,21 @@ func newScriptExecutionFixture(t *testing.T, scriptPath string, contents []byte)
 
 func (f scriptExecutionFixture) requireLiveSummary(t *testing.T) {
 	t.Helper()
-	parameters, err := marshalJSONArray([]workflow.Parameter{{Key: "summary", Description: "Live summary.", Purpose: workflow.ParameterPurposeOrdinary}})
-	if err != nil {
-		t.Fatalf("marshal parameters: %v", err)
-	}
 	// Intentional direct graph mutation: graph-edit policy is owned separately;
 	// these tests isolate the execution contract once the live graph has changed.
-	if _, err := f.store.db.ExecContext(f.ctx, `UPDATE workflow_edges SET parameters_json = ? WHERE id = ?`, parameters, "edge-done-"+f.workflowID.String()); err != nil {
-		t.Fatalf("force live script output contract: %v", err)
+	replaceTestParameters(t, f.store, testGraphEntityID("edge-done-"+f.workflowID.String()), []workflow.Parameter{{Key: "summary", Description: "Live summary.", Purpose: workflow.ParameterPurposeOrdinary}})
+}
+
+func replaceTestParameters(t *testing.T, store *Store, edgeID string, parameters []workflow.Parameter) {
+	t.Helper()
+	id := testGraphEntityIDBlob(t, edgeID)
+	if _, err := store.db.ExecContext(t.Context(), `DELETE FROM workflow_parameters WHERE edge_id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	for index, parameter := range parameters {
+		if _, err := store.db.ExecContext(t.Context(), `INSERT INTO workflow_parameters (edge_id, sort_order, parameter_key, description, purpose) VALUES (?, ?, ?, ?, ?)`, id, index, parameter.Key, parameter.Description, parameter.Purpose); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

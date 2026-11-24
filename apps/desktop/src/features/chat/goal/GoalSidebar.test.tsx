@@ -570,43 +570,57 @@ describe("Goal sidebar", () => {
     expect(setGoal).not.toHaveBeenCalled();
   });
 
-  it("delivers New Chat Session/Goal before one warning while the sidebar is Loading", async () => {
-    const services = createTestServices([]);
-    const order: string[] = [];
-    const notice = vi.spyOn(ui, "showStatusToast").mockImplementation((value) => {
-      if (value.tone === "warning") order.push("warning");
-    });
-    const hostDelivery = vi.fn<(delivery: NewChatGoalHostDelivery) => void>(() => {
-      order.push("host");
-    });
-    const subscribeGoal: GoalRegister = () => ({ close: vi.fn() });
-    const api = createGoalSidebarApi({
-      goal: null,
-      subscribeGoal,
-    });
-    const owner = createGoalFixtureOwner({
-      api: { setGoal: vi.fn(async () => goalSetResult("New Chat Goal", "goal-new-chat")) },
-      target: newChatTarget(),
-    });
-    render(
-      <TestAppProviders skipAnimations services={services}>
-        <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
-      </TestAppProviders>,
-    );
+  it.each([false, true])(
+    "delivers New Chat Save before one warning with non-focusing pointer buttons: %s",
+    async (nonFocusingButton) => {
+      const services = createTestServices([]);
+      const order: string[] = [];
+      const notice = vi.spyOn(ui, "showStatusToast").mockImplementation((value) => {
+        if (value.tone === "warning") order.push("warning");
+      });
+      const hostDelivery = vi.fn<(delivery: NewChatGoalHostDelivery) => void>(() => {
+        order.push("host");
+      });
+      const subscribeGoal: GoalRegister = () => ({ close: vi.fn() });
+      const api = createGoalSidebarApi({
+        goal: null,
+        subscribeGoal,
+      });
+      const owner = createGoalFixtureOwner({
+        api: { setGoal: vi.fn(async () => goalSetResult("New Chat Goal", "goal-new-chat")) },
+        target: newChatTarget(),
+      });
+      render(
+        <TestAppProviders skipAnimations services={services}>
+          <GoalFixturePage api={api} owner={owner} delivered={hostDelivery} />
+        </TestAppProviders>,
+      );
 
-    const user = userEvent.setup();
-    await user.type(screen.getByRole("textbox", { name: "Goal" }), "New Chat Goal");
-    await user.click(screen.getByTestId("goal-save"));
+      const user = userEvent.setup();
+      const editor = screen.getByRole("textbox", { name: "Goal" });
+      await user.type(editor, "New Chat Goal");
+      const save = screen.getByTestId("goal-save");
+      if (nonFocusingButton) {
+        save.addEventListener("mousedown", (event) => {
+          if (!event.defaultPrevented) editor.blur();
+        });
+      }
+      await user.pointer({ target: save, keys: "[MouseLeft>]" });
+      expect(editor).toBeInTheDocument();
+      expect(hostDelivery).not.toHaveBeenCalled();
+      await user.pointer({ target: save, keys: "[/MouseLeft]" });
 
-    await waitFor(() => {
-      expect(notice.mock.calls.filter(([value]) => value.tone === "warning")).toHaveLength(1);
-    });
-    expect(order).toEqual(["host", "warning"]);
-    const delivered = hostDelivery.mock.calls[0]?.[0];
-    expect(delivered?.target).toEqual(exactTarget());
-    expect(delivered?.goal).toMatchObject({ objective: "New Chat Goal", status: "active" });
-    expect(screen.getByTestId("loading-state")).toBeInTheDocument();
-  });
+      await waitFor(() => {
+        expect(notice.mock.calls.filter(([value]) => value.tone === "warning")).toHaveLength(1);
+      });
+      expect(order).toEqual(["host", "warning"]);
+      expect(hostDelivery).toHaveBeenCalledTimes(1);
+      const delivered = hostDelivery.mock.calls[0]?.[0];
+      expect(delivered?.target).toEqual(exactTarget());
+      expect(delivered?.goal).toMatchObject({ objective: "New Chat Goal", status: "active" });
+      expect(screen.getByTestId("loading-state")).toBeInTheDocument();
+    },
+  );
 
   it("delivers New Chat completion after closure and isolates a replacement opening", async () => {
     const services = createTestServices([]);
@@ -681,7 +695,9 @@ function newChatTarget() {
   return {
     kind: "new_chat" as const,
     projectID: "project-1",
-    workspaceID: "workspace-1",
+    workspace: { workspaceID: "workspace-1" },
+    name: null,
+    worktreeSelector: null,
     initialSettings: {
       agentRole: "default" as const,
       supervisor: "off" as const,

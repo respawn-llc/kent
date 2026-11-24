@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"encoding/json"
 	"testing"
 
@@ -122,7 +123,7 @@ func TestPersistedTranscriptScanRestoresMaterializedToolResultFromCompletion(t *
 			}},
 		}),
 		appendPersistedTranscriptRecord(t, store, llm.Message{
-			Role: llm.RoleTool, ToolCallID: textutil.Value(callID),
+			Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value(callID)),
 			Name: textutil.Value(string(toolspec.ToolExecCommand)),
 		}),
 	}

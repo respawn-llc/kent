@@ -2,6 +2,7 @@ package appfixture
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -252,7 +253,7 @@ func scriptStep(spec StepFile) (scriptedllm.Step, error) {
 			if call.ID == "" || call.Name == "" || len(call.Input) == 0 {
 				return scriptedllm.Step{}, fmt.Errorf("tool step requires id, name, and input")
 			}
-			calls = append(calls, llm.ToolCall{ID: call.ID, Name: call.Name, Input: call.Input, Custom: call.Custom})
+			calls = append(calls, llm.ToolCall{ID: runtimeids.ToolCallID(call.ID), Name: call.Name, Input: call.Input, Custom: call.Custom})
 		}
 		step = scriptedllm.ToolBatch(spec.Commentary, calls...)
 	case spec.Final != "":
@@ -443,7 +444,7 @@ func seedToolResult(workspaceRoot string, entry SeedTranscriptEntryFile) (sessio
 	return completion, llm.Message{
 		Role:           llm.RoleTool,
 		Name:           optionalText(toolName),
-		ToolCallID:     optionalText(callID),
+		ToolCallID:     (*runtimeids.ToolCallID)(optionalText(callID)),
 		Content:        optionalText(string(output)),
 		MessageType:    seedToolMessageType(entry.ToolCustom),
 		CompactContent: optionalTrimmedText(entry.ToolCondensed),

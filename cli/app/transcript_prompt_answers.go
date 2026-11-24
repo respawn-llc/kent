@@ -29,7 +29,7 @@ type promptBatchAnswerer interface {
 type transcriptPromptKey struct {
 	sessionID  runtimeids.SessionID
 	stepID     runtimeids.StepID
-	toolCallID clientui.ToolCallID
+	toolCallID runtimeids.ToolCallID
 }
 
 type activePromptAnswerDelivery struct {
@@ -167,7 +167,7 @@ func newTranscriptPromptKey(prompt *transcriptpb.Prompt) (transcriptPromptKey, e
 	return transcriptPromptKey{
 		sessionID:  sessionID,
 		stepID:     stepID,
-		toolCallID: clientui.ToolCallID(rawToolCallID),
+		toolCallID: runtimeids.ToolCallID(rawToolCallID),
 	}, nil
 }
 

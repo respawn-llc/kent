@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 )
 
@@ -174,10 +173,10 @@ func (s *executionPromptStore) finalizeApproval(entry *executionPromptEntry) {
 	<-entry.publicationDone
 	s.mu.Lock()
 	var publicationErr error
-	if s.removePromptEntryLocked(entry.snapshot.Request.ToolCallID, entry) {
+	if s.removePromptEntryLocked(string(entry.snapshot.Request.ToolCallID), entry) {
 		s.resolvePromptFollowUpLocked(
 			lifecycle.stepID,
-			clientui.ToolCallID(entry.snapshot.Request.ToolCallID),
+			entry.snapshot.Request.ToolCallID,
 			lifecycle.questionBatch,
 		)
 		publicationErr = s.publishResolved(entry.snapshot)

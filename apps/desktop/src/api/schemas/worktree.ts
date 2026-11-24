@@ -4,15 +4,24 @@ import type {
   ListEntryValid as ListEntry,
   SwitchOperation,
   SelectorResolveSuccessValid as SelectorResolveSuccess,
+  ListSuccessValid,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
 
 import type { SetupOperationID } from "../setupOperationID";
 
 export type {
   ListEntryValid as WorktreeListEntry,
-  ListSuccessValid as WorktreeList,
   DeletePreviewOperation as WorktreeDeletePreviewOperation,
 } from "@app/server-api-contract/gen/kent/api/worktree/worktree_pb";
+
+export type WorktreeScope =
+  | Readonly<{ kind: "session"; sessionID: string }>
+  | Readonly<{ kind: "workspace"; projectID: string; workspaceID: string }>;
+export type WorktreeList = Readonly<{
+  worktrees: ListSuccessValid["worktrees"];
+  target: ListSuccessValid["target"] | null;
+  branchSuggestion?: string | undefined;
+}>;
 
 type DeepReadonly<Value> = Value extends (...args: never[]) => unknown
   ? Value

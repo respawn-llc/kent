@@ -242,6 +242,36 @@ it("smooths distinct native frequency bins in the recording meter", async () => 
   f.client.clear();
 });
 
+it("retains a silent native recording after a successful local no-op", async () => {
+  const f = nativeRecordingFixture();
+  const discard = vi.spyOn(f.services.speech, "discard").mockResolvedValue();
+  act(() => {
+    f.view.result.current.actions.start();
+  });
+  await waitFor(() => {
+    expect(f.start).toHaveBeenCalled();
+  });
+  act(() => {
+    f.emit({ kind: "ready" });
+    f.emit({ kind: "meter", power: 0, frequencyBins: silentFrequencyBins });
+  });
+  await waitFor(() => {
+    expect(f.view.result.current.state.phase).toBe("recording");
+  });
+  let finished: boolean | undefined;
+  await act(async () => {
+    finished = await f.view.result.current.actions.finish();
+  });
+  expect(finished).toBe(true);
+  expect(f.capture.finalize).toHaveBeenCalled();
+  expect(f.capture.result).not.toHaveBeenCalled();
+  expect(discard).not.toHaveBeenCalled();
+  expect(f.recover).not.toHaveBeenCalled();
+  expect(f.view.result.current.state.phase).toBe("idle");
+  f.view.unmount();
+  f.client.clear();
+});
+
 it("leaves native preparation after acquisition fails without hanging destination cleanup", async () => {
   const f = nativeRecordingFixture();
   f.start.mockRejectedValueOnce(new Error("native acquisition failed"));
@@ -278,7 +308,7 @@ it("reports denied native microphone access without offering recovery for an emp
     expect(f.report).toHaveBeenCalled();
   });
   expect(f.recover).not.toHaveBeenCalled();
-  expect(discard).toHaveBeenCalledTimes(1);
+  expect(discard).not.toHaveBeenCalled();
   expect(f.view.result.current.state.phase).toBe("idle");
   f.view.unmount();
   f.client.clear();

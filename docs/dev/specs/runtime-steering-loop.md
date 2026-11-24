@@ -284,6 +284,8 @@
 
 ## Worktree Ownership And Deletion
 
+- When a Worktree's source Workspace directory is missing, Kent must permit removal of the orphaned Worktree record subject to the existing activity blockers and Session retargeting rules. Kent must preserve any surviving Worktree folder and report its path.
+
 - Worktree management completely owns Worktree create. Creation must not change a Session target.
 - Active-Runtime Worktree enter and leave use Pending Work and follow the priority and non-preemption rules in this specification.
 - Worktree deletion never obtains permission by joining Session mutation order.

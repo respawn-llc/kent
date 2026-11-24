@@ -127,8 +127,6 @@ export const englishResources = {
       edit: "Edit in a new Session",
       editFailed: "Could not create an edited Session.",
       editUnknownFailure: "Could not create an edited Session ({{code}}).",
-      editFailureRecovery:
-        "Your draft is unchanged. Try Edit again. If it keeps failing, report these details:\n\n{{diagnostic}}",
       reviewerSuggestions_one: "Supervisor made {{count}} suggestion",
       reviewerSuggestions_other: "Supervisor made {{count}} suggestions",
       notice: {
@@ -325,6 +323,24 @@ export const englishResources = {
       projectSaved: "Project saved.",
       defaultWorkspaceSaved: "Default workspace saved.",
       workspaceUnlinkBlocked: "Workspace cannot be unlinked yet.",
+      workspaceUnlinkBlockers: {
+        defaultWorkspace:
+          "This is the Project's default Workspace. Set another attached Workspace as default, then retry.",
+        activeSessions:
+          "Active Sessions use this Workspace ({{count}}). Stop active runs or rebind the Sessions to another Workspace, then retry.",
+        nonTerminalTasks:
+          "Non-terminal Tasks use this Workspace ({{count}}). Move editable Backlog Tasks to another source Workspace; complete, manually move, or delete dependent Tasks, then retry.",
+        executableCurrentNodes:
+          "Tasks with executable Current Nodes use this Workspace ({{count}}). Stop execution, then move, complete, or delete those Tasks before retrying.",
+        managedOwnedWorktrees:
+          "Managed Worktrees depend on this Workspace ({{count}}). Delete the Worktrees or their owning quiescent Tasks, then retry.",
+        missingHistorySnapshot:
+          "Historical references without saved Workspace details remain ({{count}}). Re-save an editable Task's source Workspace; if that history cannot be edited, keep this Workspace attached and report the issue.",
+        unknown:
+          "Workspace unlink is blocked by an unfamiliar reason ({{code}}). Update Desktop and server together, then retry.",
+        unknownCount:
+          "Workspace unlink is blocked by an unfamiliar reason ({{code}}; reported count {{count}}). Update Desktop and server together, then retry.",
+      },
       unlinkWorkspace: "Unlink {{path}}",
       unlinkTitle: "Unlink workspace?",
       unlinkBody:
@@ -455,7 +471,7 @@ export const englishResources = {
     processes: {
       activeCount_one: "{{count}} shell",
       activeCount_other: "{{count}} shells",
-      sessionRequired: "Create a Session before opening its processes.",
+      projectTitle: "Project processes",
       title: "Processes",
       loadFailed: "Processes could not be loaded",
       emptyTitle: "No background processes",
@@ -465,6 +481,7 @@ export const englishResources = {
       stopping: "Stopping",
     },
     task: {
+      approvalChoiceUnavailable: "The selected transition is unavailable. Move this Task to continue.",
       contextSelectionRequired:
         "Move this Task and choose its context to continue. Move replaces all parallel positions and Join progress; existing conversations and files are preserved.",
       accessApprovalIntro: "Agent wants to access a batch of files, but {{count}} are outside workspace dir:",
@@ -572,6 +589,7 @@ export const englishResources = {
       submitAnswer: "Submit",
       submittingAnswer: "Submitting…",
       optionNumber: "Option number",
+      selectOptionShortcut: "Select option ({{shortcut}})",
       recommended: "Recommended",
       recommendedByAgent: "Recommended by the agent",
       neitherOption: "Neither",
@@ -591,8 +609,6 @@ export const englishResources = {
       targetUnavailable: "Target unavailable",
       targetNodes: "Target nodes",
       commentary: "Commentary",
-      staleApproval: "Stale",
-      staleApprovalBody: "Workflow changed since this approval was prepared.",
       status: "Status",
       statusKinds: {
         done: "Done",

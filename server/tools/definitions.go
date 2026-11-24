@@ -121,7 +121,7 @@ var catalogEntries = []CatalogEntry{
 		Description: "Search the web for up-to-date external information. Use this when local workspace context is insufficient, the fact could be stale, or for information beyond your model knowledge cutoff. Prefer primary and official sources.",
 		Contract: hostedContract(
 			RequestExposure{Enabled: false},
-			transcript.ToolPresentationDefault,
+			transcript.ToolPresentationWebSearch,
 			transcript.ToolCallRenderBehaviorDefault,
 			false,
 			true,

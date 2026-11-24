@@ -297,7 +297,7 @@ func TestChatAdmissionAcknowledgesInputsDuringContinuingGoal(t *testing.T) {
 				answer, err := promptcontrol.NewPromptControlService(authority, metadata, metadata).AnswerPromptBatch(ctx, &promptpb.AnswerBatchRequest{
 					SessionId: protoapi.SessionSelectorToProto(id), StepId: pending.StepID,
 					Entries: []*promptpb.AnswerBatchEntry{{
-						ToolCallId: pending.ToolCallID,
+						ToolCallId: string(pending.ToolCallID),
 						Answer:     &promptpb.AnswerBatchEntry_QuestionAnswer{QuestionAnswer: &promptpb.QuestionAnswer{Freeform: textutil.Value("continue")}},
 					}},
 				})

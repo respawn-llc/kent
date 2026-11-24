@@ -169,7 +169,7 @@ func TestSpeculativeCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.
 	assertRequestsPreserveCacheIdentity(t, client.calls[1], client.calls[2])
 	for _, call := range firstRejectedCalls {
 		assertRequestHasCompactionToolError(t, client.calls[1], call)
-		if repairRequestHasToolOutput(client.calls[0].Items, call.ID) {
+		if repairRequestHasToolOutput(client.calls[0].Items, string(call.ID)) {
 			t.Fatal("compaction rejection mutated the previously sent request")
 		}
 	}
@@ -192,7 +192,7 @@ func TestSpeculativeCompactionLocalRetriesWhenModelAttemptsToolCalls(t *testing.
 func assertRequestHasCompactionToolError(t *testing.T, request llm.Request, call llm.ToolCall) {
 	t.Helper()
 	for _, item := range request.Items {
-		if item.Type != llm.ToolOutputItemType(call.Custom) || item.CallID == nil || *item.CallID != call.ID {
+		if item.Type != llm.ToolOutputItemType(call.Custom) || item.CallID == nil || *item.CallID != string(call.ID) {
 			continue
 		}
 		assertSyntheticFailureOutput(t, item.Output, call.Name, localCompactionToolsDisabledMessage)

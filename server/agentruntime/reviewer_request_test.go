@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"errors"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func TestBuildReviewerTranscriptMessagesSummarizesViewImagePayloads(t *testing.T
 		},
 		{
 			Role:       llm.RoleTool,
-			ToolCallID: textutil.Value("call-view-image-1"),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-view-image-1")),
 			Name:       textutil.Value(string(toolspec.ToolViewImage)),
 			Content:    textutil.Value(`[{"type":"input_file","filename":"page.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQKJUVPRg=="}]`),
 		},

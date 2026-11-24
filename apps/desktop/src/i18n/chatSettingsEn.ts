@@ -5,6 +5,7 @@ export const chatSettingsEnglish = {
   switchAgentWarning:
     "Switching the role now will invalidate caches, causing ~10x cost for the next request and may lose model reasoning, degrading intelligence",
   sessionConnection: "Session Connection: {{id}} ({{mode}})",
+  sessionID: "Session ID: {{id}}",
   connectionModes: {
     subscription: "Subscription",
     api_key: "API Key",

@@ -386,8 +386,14 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	name := strings.TrimSpace(req.Name)
 	description := strings.TrimSpace(req.Description)
 	workflowID := runtimeids.NewWorkflowID()
-	startID := runtimeids.NewGraphEntityID()
-	doneID := runtimeids.NewGraphEntityID()
+	startID, err := runtimeids.GraphEntityIDBlob(runtimeids.NewGraphEntityID())
+	if err != nil {
+		return WorkflowRecord{}, err
+	}
+	doneID, err := runtimeids.GraphEntityIDBlob(runtimeids.NewGraphEntityID())
+	if err != nil {
+		return WorkflowRecord{}, err
+	}
 	policy := workflow.DefaultExecutionTargetPolicy()
 	if err := q.InsertWorkflow(ctx, sqlitegen.InsertWorkflowParams{
 		ID:                    workflowID,
@@ -400,10 +406,10 @@ func insertWorkflow(ctx context.Context, q *sqlitegen.Queries, now int64, req Cr
 	}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert workflow: %w", err)
 	}
-	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", JoinInputProvidersJson: "[]", SortOrder: 0}); err != nil {
+	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: startID, WorkflowID: workflowID, NodeKey: "backlog", Kind: string(workflow.NodeKindStart), DisplayName: "Backlog", SortOrder: 0}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert backlog node: %w", err)
 	}
-	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", JoinInputProvidersJson: "[]", SortOrder: 1000}); err != nil {
+	if err := q.InsertWorkflowNode(ctx, sqlitegen.InsertWorkflowNodeParams{ID: doneID, WorkflowID: workflowID, NodeKey: "done", Kind: string(workflow.NodeKindTerminal), DisplayName: "Done", SortOrder: 1000}); err != nil {
 		return WorkflowRecord{}, fmt.Errorf("insert done node: %w", err)
 	}
 	return WorkflowRecord{ID: workflowID, Name: name, Description: description, Version: 1, ExecutionTargetPolicy: policy}, nil
@@ -572,16 +578,7 @@ func workflowDefinitionFromQueries(ctx context.Context, q *sqlitegen.Queries, wo
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
-	record := workflowRecordFromRow(workflowRecordRow{
-		ID:                       row.ID,
-		Name:                     row.Name,
-		Description:              row.Description,
-		Version:                  row.Version,
-		ExecutionTargetPolicy:    row.ExecutionTargetPolicy,
-		ExecutionTargetCustomRef: row.ExecutionTargetCustomRef,
-		CreatedAtUnixMs:          row.CreatedAtUnixMs,
-		UpdatedAtUnixMs:          row.UpdatedAtUnixMs,
-	})
+	record := workflowRecordFromGetWorkflow(row)
 	prepared, err := currentWorkflowGraphSavePrepared(ctx, q, workflowID)
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
@@ -596,6 +593,19 @@ func workflowDefinitionFromQueries(ctx context.Context, q *sqlitegen.Queries, wo
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
 	return definition, record, nil
+}
+
+func workflowRecordFromGetWorkflow(row sqlitegen.Workflow) WorkflowRecord {
+	return workflowRecordFromRow(workflowRecordRow{
+		ID:                       row.ID,
+		Name:                     row.Name,
+		Description:              row.Description,
+		Version:                  row.Version,
+		ExecutionTargetPolicy:    row.ExecutionTargetPolicy,
+		ExecutionTargetCustomRef: row.ExecutionTargetCustomRef,
+		CreatedAtUnixMs:          row.CreatedAtUnixMs,
+		UpdatedAtUnixMs:          row.UpdatedAtUnixMs,
+	})
 }
 
 type workflowRecordRow struct {

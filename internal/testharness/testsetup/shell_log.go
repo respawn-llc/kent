@@ -12,7 +12,7 @@ import (
 )
 
 // ShellLogSessionShortID isolates shell logs and removes only this fixture's session directory.
-func ShellLogSessionShortID(t testing.TB) runtimeids.SessionShortID {
+func ShellLogSessionShortID(t testing.TB) *runtimeids.SessionShortID {
 	t.Helper()
 	value, err := rand.Int(rand.Reader, big.NewInt(runtimeids.MaxSessionShortID))
 	if err != nil {
@@ -22,14 +22,26 @@ func ShellLogSessionShortID(t testing.TB) runtimeids.SessionShortID {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cleanupShellLogs(t, id.String())
+	return &id
+}
+
+func ShellLogSessionID(t testing.TB) runtimeids.SessionID {
+	t.Helper()
+	id := runtimeids.NewSessionID()
+	cleanupShellLogs(t, id.String())
+	return id
+}
+
+func cleanupShellLogs(t testing.TB, id string) {
+	t.Helper()
 	t.Cleanup(func() {
 		root := "/tmp"
 		if runtime.GOOS == "windows" {
 			root = os.TempDir()
 		}
-		if err := os.RemoveAll(filepath.Join(root, "kent", id.String())); err != nil {
+		if err := os.RemoveAll(filepath.Join(root, "kent", id)); err != nil {
 			t.Errorf("remove test session logs: %v", err)
 		}
 	})
-	return id
 }

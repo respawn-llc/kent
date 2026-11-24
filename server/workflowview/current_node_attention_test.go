@@ -9,7 +9,6 @@ import (
 	"core/server/tools"
 	"core/server/workflow"
 	"core/server/workflowstore"
-	"core/shared/clientui"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
@@ -183,6 +182,96 @@ func TestAttentionPaginatesDurableCurrentStateAndScopesTaskQuery(t *testing.T) {
 	}
 }
 
+func TestAttentionProjectsUnavailableAndAvailableApprovalsOnTheSamePage(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, true)
+	submit := func(task startedCurrentNodeViewTask, commentary string, createdAt int64) *workflow.PendingApproval {
+		t.Helper()
+		result, err := workflowfixture.CompleteCurrentNode(t, fixture.ctx, fixture.metadata, fixture.store, workflowstore.CurrentNodeCompletionRequest{
+			Source: task.currentNode, TransitionID: "done", Commentary: commentary,
+		})
+		if err != nil || result.PendingApproval == nil {
+			t.Fatalf("complete %s: approval=%+v err=%v", task.task.ID, result.PendingApproval, err)
+		}
+		fixture.setApprovalCreatedAt(t, result.PendingApproval.ID.String(), createdAt)
+		return result.PendingApproval
+	}
+	staleTask := fixture.startTask(t, "Original approval")
+	stale := submit(staleTask, "Original submission", 1_000)
+	const renamedSource, renamedTarget = "Updated source", "Updated target"
+	workflowfixture.SaveStoreGraph(t, fixture.ctx, fixture.store, fixture.workflowID, func(_ workflow.Definition, req *workflowstore.WorkflowGraphSaveRequest) {
+		for i := range req.Nodes {
+			switch req.Nodes[i].Kind {
+			case workflow.NodeKindAgent:
+				req.Nodes[i].DisplayName = renamedSource
+			case workflow.NodeKindTerminal:
+				req.Nodes[i].DisplayName = renamedTarget
+			}
+		}
+		alternateNode := workflow.NodeID(runtimeids.NewGraphEntityID())
+		req.Nodes = append(req.Nodes, workflowstore.NodeRecord{
+			ID: alternateNode, WorkflowID: fixture.workflowID, Key: "alternate",
+			Kind: workflow.NodeKindAgent, DisplayName: "Alternate", SubagentRole: "coder",
+		})
+		replacementGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+		alternateGroup := workflow.TransitionGroupID(runtimeids.NewGraphEntityID())
+		for i := range req.TransitionGroups {
+			group := req.TransitionGroups[i]
+			if group.ID == stale.Transition.ID {
+				req.TransitionGroups[i].SourceNodeID = alternateNode
+				req.TransitionGroups[i].TransitionID = "alternate_done"
+				group.ID = replacementGroup
+				req.TransitionGroups = append(req.TransitionGroups, group, workflowstore.TransitionGroupRecord{
+					ID: alternateGroup, WorkflowID: fixture.workflowID, SourceNodeID: fixture.agentNodeID,
+					TransitionID: "alternate", DisplayName: "Alternate",
+				})
+				break
+			}
+		}
+		for _, edge := range req.Edges {
+			if edge.ID != stale.Branches[0].EdgeID {
+				continue
+			}
+			edge.ID, edge.TransitionGroupID = workflow.EdgeID(runtimeids.NewGraphEntityID()), replacementGroup
+			alternate := edge
+			alternate.ID, alternate.TransitionGroupID = workflow.EdgeID(runtimeids.NewGraphEntityID()), alternateGroup
+			alternate.Key, alternate.TargetNodeID, alternate.PromptTemplate = "alternate", alternateNode, "Continue."
+			req.Edges = append(req.Edges, edge, alternate)
+			return
+		}
+		t.Fatal("original approval Branch missing")
+	})
+	currentTask := fixture.startTask(t, "Replacement approval")
+	current := submit(currentTask, "Replacement submission", 2_000)
+	attention := fixture.attention(t)
+
+	check := func(item *taskpb.AttentionItem, approval *workflow.PendingApproval, availability taskpb.ApprovalChoiceAvailability, targetNames ...string) {
+		t.Helper()
+		detail := item.GetApproval()
+		snapshot := detail.GetApprovalSnapshot()
+		if item.TaskId != string(approval.Source.TaskID) || detail.GetApprovalId() != approval.ID.String() ||
+			snapshot.GetChoiceAvailability() != availability || snapshot.GetCommentary() != approval.Commentary ||
+			snapshot.GetSourceNodeDisplayName() != renamedSource || len(snapshot.GetTargets()) != len(targetNames) {
+			t.Fatalf("approval attention = %+v; want %s (%v), %d targets", item, approval.ID, availability, len(targetNames))
+		}
+		for i, name := range targetNames {
+			if snapshot.Targets[i].DisplayName != name {
+				t.Errorf("target %d = %q; want current label %q", i, snapshot.Targets[i].DisplayName, name)
+			}
+		}
+	}
+	first, err := attention.List(fixture.ctx, &taskpb.AttentionListRequest{PageSize: 2})
+	if err != nil || len(first.GetItems()) != 2 {
+		t.Fatalf("inbox = %+v, %v; want both pending approvals", first, err)
+	}
+	check(first.Items[0], current, taskpb.ApprovalChoiceAvailability_APPROVAL_CHOICE_AVAILABILITY_AVAILABLE, renamedTarget)
+	check(first.Items[1], stale, taskpb.ApprovalChoiceAvailability_APPROVAL_CHOICE_AVAILABILITY_UNAVAILABLE)
+	scoped, err := attention.ListTask(fixture.ctx, &taskpb.TaskAttentionListRequest{TaskId: string(staleTask.task.ID)})
+	if err != nil || len(scoped.GetItems()) != 1 {
+		t.Fatalf("task inbox = %+v, %v; want only the scoped approval", scoped, err)
+	}
+	check(scoped.Items[0], stale, taskpb.ApprovalChoiceAvailability_APPROVAL_CHOICE_AVAILABILITY_UNAVAILABLE)
+}
+
 func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	fixture := newCurrentNodeViewFixture(t, false)
 	started := fixture.startTask(t, "Question")
@@ -229,7 +318,7 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	prompts := currentNodeViewPrompts{bySession: map[string][]*promptpb.ObservationQuestion{
 		question.sessionID.String(): {{
 			Question: &promptpb.ObservationQuestion_Ask{Ask: &promptpb.Question{
-				ToolCallId:             question.request.ToolCallID,
+				ToolCallId:             string(question.request.ToolCallID),
 				SessionId:              question.sessionID.String(),
 				StepId:                 question.request.StepID,
 				CreatedAt:              timestamppb.New(time.UnixMilli(4_000)),
@@ -276,7 +365,7 @@ func TestAttentionAndDetailProjectLiveQuestionFromExactScope(t *testing.T) {
 	}
 	if prompt == nil || ask.Question != question.request.Question ||
 		prompt.GetSessionName() != "Current Node session" || prompt.Question == nil ||
-		ask.ToolCallId != question.request.ToolCallID ||
+		ask.ToolCallId != string(question.request.ToolCallID) ||
 		ask.SessionId != question.sessionID.String() ||
 		ask.StepId != mustWorkflowViewStepID(t, question.request.StepID).String() ||
 		prompt.CurrentNode == nil || prompt.CurrentNode.SessionId != nil ||
@@ -327,7 +416,7 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	prompts := currentNodeViewPrompts{bySession: map[string][]*promptpb.ObservationQuestion{
 		prompt.sessionID.String(): {{
 			Question: &promptpb.ObservationQuestion_Approval{Approval: &promptpb.Approval{
-				ToolCallId: request.ToolCallID,
+				ToolCallId: string(request.ToolCallID),
 				SessionId:  prompt.sessionID.String(),
 				StepId:     request.StepID,
 				CreatedAt:  timestamppb.New(time.UnixMilli(4_000)),
@@ -367,7 +456,7 @@ func TestAttentionProjectsLiveSessionApprovalFromExactScope(t *testing.T) {
 	question := item.GetQuestion()
 	approval := question.Question.GetApproval()
 	if question == nil || question.Question == nil ||
-		approval.ToolCallId != request.ToolCallID ||
+		approval.ToolCallId != string(request.ToolCallID) ||
 		approval.SessionId != prompt.sessionID.String() ||
 		approval.StepId != mustWorkflowViewStepID(t, request.StepID).String() ||
 		approval.Question != nil ||
@@ -394,7 +483,7 @@ func mustWorkflowViewStepID(t *testing.T, raw string) runtimeids.StepID {
 
 func TestMergeAttentionCandidatesPreservesQuestionStepIdentity(t *testing.T) {
 	sessionID := runtimeids.NewSessionID()
-	toolCallID := clientui.ToolCallID("shared-prompt")
+	toolCallID := runtimeids.ToolCallID("shared-prompt")
 	ids := []string{
 		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "11111111-1111-4111-8111-111111111111"), toolCallID),
 		liveQuestionAttentionID(sessionID, mustWorkflowViewStepID(t, "22222222-2222-4222-8222-222222222222"), toolCallID),

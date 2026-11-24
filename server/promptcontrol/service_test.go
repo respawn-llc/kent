@@ -12,7 +12,6 @@ import (
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
 	askquestion "core/server/tools"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -32,7 +31,7 @@ type stubPromptResponder struct {
 	followUpCalls    int
 	followUpSession  runtimeids.SessionID
 	followUpStep     runtimeids.StepID
-	followUpToolCall clientui.ToolCallID
+	followUpToolCall runtimeids.ToolCallID
 	followUp         serverapi.PromptFollowUpSubscription
 	followUpErr      error
 }
@@ -54,7 +53,7 @@ func (s *stubPromptResponder) SubscribePromptFollowUp(
 	_ context.Context,
 	sessionID runtimeids.SessionID,
 	stepID runtimeids.StepID,
-	toolCallID clientui.ToolCallID,
+	toolCallID runtimeids.ToolCallID,
 ) (serverapi.PromptFollowUpSubscription, error) {
 	s.followUpCalls++
 	s.followUpSession = sessionID

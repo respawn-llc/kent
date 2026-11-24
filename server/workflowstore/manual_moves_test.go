@@ -765,8 +765,8 @@ func TestManualMoveRepairsCurrentNodeWhoseEnteringEdgeWasRetargetedToRequestedTa
 UPDATE workflow_edges
 SET target_node_id = ?
 WHERE id = ?`,
-		string(workflow.NodeIDOf(gate)),
-		string(*implementation.EnteredByEdgeID),
+		testGraphEntityIDBlob(t, string(workflow.NodeIDOf(gate))),
+		testGraphEntityIDBlob(t, string(*implementation.EnteredByEdgeID)),
 	); err != nil {
 		t.Fatalf("retarget entering Edge: %v", err)
 	}

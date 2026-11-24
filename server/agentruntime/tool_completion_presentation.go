@@ -1,8 +1,8 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"fmt"
-	"strings"
 
 	"core/server/llm"
 	"core/server/tools"
@@ -12,7 +12,7 @@ import (
 )
 
 type toolCompletionPresentationPanic struct {
-	CallID   string
+	CallID   runtimeids.ToolCallID
 	ToolName toolspec.ID
 	Mismatch *patchformat.WholeFileDeletionFactMismatch
 }
@@ -87,7 +87,7 @@ func (e *Engine) finalizeLiveToolCompletion(result tools.Result) finalizedToolCo
 	result.PresentationDelta = nil
 	fallback := transcript.NormalizeToolCallMeta(*callMeta)
 	result.Presentation = &fallback
-	callID := strings.TrimSpace(result.CallID)
+	callID := result.CallID
 	if callID == "" {
 		panic(fmt.Sprintf(
 			"tool completion presentation fallback requires a call identity (tool=%q)",

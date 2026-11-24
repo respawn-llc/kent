@@ -11,13 +11,13 @@ import { createTestServices } from "@/test-support/app-services";
 import { processObservationFixture, processObservationFixtureRoute } from "@/test-support/api";
 import { createProcessesViewModel } from "./ProcessesViewModel";
 
-const target = { projectID: "project-1", sessionID: "session-1" };
+const target = { kind: "session" as const, projectID: "project-1", sessionID: "session-1" };
 
 function setup() {
   const services = createTestServices([processObservationFixtureRoute]);
   const observation = processObservationFixture(services.transport);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(queryKeys.processes(target.projectID, target.sessionID), []);
+  client.setQueryData(queryKeys.processes(target), []);
   const view = renderHook(
     (selected) => {
       const model = useMemo(
@@ -63,11 +63,9 @@ it("replaces all content in server order, including removal of previous rows", a
     view.observation.publish("c", "a");
   });
   expect(view.result.current.state).toMatchObject({ kind: "ready", processes: [{ id: "c" }, { id: "a" }] });
-  expect(
-    view.client.getQueryData<readonly DesktopProcess[]>(
-      queryKeys.processes(target.projectID, target.sessionID),
-    ),
-  ).toEqual(view.result.current.state.kind === "ready" ? view.result.current.state.processes : undefined);
+  expect(view.client.getQueryData<readonly DesktopProcess[]>(queryKeys.processes(target))).toEqual(
+    view.result.current.state.kind === "ready" ? view.result.current.state.processes : undefined,
+  );
   expect(view.transport.descriptorCalls).toHaveLength(0);
 });
 
@@ -163,7 +161,9 @@ it("switches observation with the selected Session and releases it on close with
   await waitFor(() => {
     expect(view.transport.descriptorSubscriptions).toHaveLength(1);
   });
-  expect(view.transport.descriptorSubscriptionStarts[1]?.request).toMatchObject({ sessionId: "session-2" });
+  expect(view.transport.descriptorSubscriptionStarts[1]?.request).toMatchObject({
+    scope: { case: "sessionId", value: "session-2" },
+  });
   view.unmount();
   await waitFor(() => {
     expect(view.transport.descriptorSubscriptions).toHaveLength(0);

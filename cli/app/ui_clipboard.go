@@ -504,7 +504,11 @@ func (p *systemClipboardPaster) newTempPNGPath() (string, *uiClipboardTempImage,
 	if p.preferredTempDir != nil {
 		dir = p.preferredTempDir()
 	}
-	file, err := p.createTemp(dir, "kent-clipboard-*.png")
+	dir = filepath.Join(dir, "kent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", nil, &uiClipboardPasteError{Kind: uiClipboardPasteErrorFailed, Message: "Could not create clipboard image directory", Err: err}
+	}
+	file, err := p.createTemp(dir, "clip-*.png")
 	if err != nil {
 		return "", nil, &uiClipboardPasteError{Kind: uiClipboardPasteErrorFailed, Message: "Could not create a clipboard image temp file", Err: err}
 	}

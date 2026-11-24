@@ -2,6 +2,7 @@ package runtimewire
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"io"
@@ -474,7 +475,7 @@ func TestUsageFallbackSavesReplacementBeforeOrdinaryFailure(t *testing.T) {
 
 func TestUsageFallbackKeepsCompletedToolWork(t *testing.T) {
 	tool, err := blackbox.StartScriptedResponsesStub(scriptedllm.Script{Steps: []scriptedllm.Step{
-		scriptedllm.ToolBatch("", llm.ToolCall{ID: uuid.NewString(), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker","shell":"/bin/sh","login":false}`)}),
+		scriptedllm.ToolBatch("", llm.ToolCall{ID: runtimeids.ToolCallID(uuid.NewString()), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"cmd":"printf x >> fallback-marker","shell":"/bin/sh","login":false}`)}),
 	}})
 	if err != nil {
 		t.Fatal(err)

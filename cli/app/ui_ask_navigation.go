@@ -6,6 +6,39 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func (c uiAskController) handleChoiceShortcut(msg tea.KeyMsg) bool {
+	m := c.model
+	if (m.ask.freeform && m.askHasAnswerFocus()) ||
+		msg.Type != tea.KeyRunes || msg.Paste || msg.Alt || len(msg.Runes) != 1 {
+		return false
+	}
+	digit := msg.Runes[0]
+	if digit < '0' || digit > '9' {
+		return false
+	}
+	option := int(digit - '1')
+	if digit == '0' {
+		if !askHasFreeformSelectionOption(m.ask.current.prompt) {
+			return false
+		}
+		option = len(askVisibleOptions(m.ask.current.prompt))
+	}
+	if option >= askOptionCount(m.ask.current.prompt) {
+		return false
+	}
+	m.ask.freeform = false
+	m.ask.selectedOption = &option
+	c.chooseFocusedApproval()
+	if presentation := m.ask.dedicated; presentation != nil {
+		presentation.freeformReturn = nil
+		presentation.focus = askFocusAnswer
+		document := m.layout().askDocument(m.layout().effectiveWidth())
+		presentation.row = document.options[option].start
+		c.revealAskRow(document, askDocumentCapacity(m.layout().effectiveHeight()))
+	}
+	return true
+}
+
 func (c uiAskController) handleDedicatedNavigation(msg tea.KeyMsg) bool {
 	m := c.model
 	presentation := m.ask.dedicated

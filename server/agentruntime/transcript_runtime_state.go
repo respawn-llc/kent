@@ -26,7 +26,7 @@ type transcriptRuntimeState struct {
 	reasoning               *transcriptReasoningAggregate
 	latestRollbackCandidate *rollbacktarget.CandidateLocator
 	connectionReplacement   *config.ConnectionReplacement
-	nativeCallLocators      map[string]transcript.CommittedRowLocator
+	nativeCallLocators      map[runtimeids.ToolCallID]transcript.CommittedRowLocator
 	now                     func() time.Time
 }
 
@@ -48,7 +48,7 @@ func (s *transcriptRuntimeState) correlateNativeToolEvent(evt *Event) {
 			continue
 		}
 		if s.nativeCallLocators == nil {
-			s.nativeCallLocators = make(map[string]transcript.CommittedRowLocator)
+			s.nativeCallLocators = make(map[runtimeids.ToolCallID]transcript.CommittedRowLocator)
 		}
 		s.nativeCallLocators[row.ToolCall.ToolCallID] = row.Locator
 	}
@@ -154,7 +154,7 @@ func (s *transcriptRuntimeState) RecordLiveToolStart(stepID string, call llm.Too
 	return false, nil
 }
 
-func (s *transcriptRuntimeState) CompleteLiveTool(callID string) {
+func (s *transcriptRuntimeState) CompleteLiveTool(callID runtimeids.ToolCallID) {
 	if ledger := s.liveToolLedger(); ledger != nil {
 		ledger.Complete(callID)
 	}
@@ -166,7 +166,7 @@ func (s *transcriptRuntimeState) SeedLiveTools(starts []TranscriptLiveToolStart)
 	}
 }
 
-func (s *transcriptRuntimeState) ToolCallSnapshot(callID string) (llm.ToolCall, bool, error) {
+func (s *transcriptRuntimeState) ToolCallSnapshot(callID runtimeids.ToolCallID) (llm.ToolCall, bool, error) {
 	if ledger := s.liveToolLedger(); ledger != nil {
 		if start, ok := ledger.Lookup(callID); ok && start.Presentation != nil {
 			presentation, err := transcript.TryEncodeToolCallMeta(*start.Presentation)
@@ -511,11 +511,11 @@ func (s *transcriptRuntimeState) EstimatedProviderTokens() int {
 	return 0
 }
 
-func (s *transcriptRuntimeState) ToolCompletionSnapshot(callID string) (tools.Result, bool) {
+func (s *transcriptRuntimeState) ToolCompletionSnapshot(callID runtimeids.ToolCallID) (tools.Result, bool) {
 	if chat := s.chatProjection(); chat != nil {
 		chat.mu.Lock()
 		defer chat.mu.Unlock()
-		result, ok := chat.toolCompletions[strings.TrimSpace(callID)]
+		result, ok := chat.toolCompletions[callID]
 		if !ok {
 			return tools.Result{}, false
 		}

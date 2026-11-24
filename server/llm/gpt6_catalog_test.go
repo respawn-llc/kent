@@ -13,6 +13,8 @@ func TestGPT6Catalog(t *testing.T) {
 		efforts             []string
 		subscriptionContext int
 	}{
+		{"gpt-6.2-astra", time.May, []string{"low", "medium", "high", "xhigh", "max"}, 272_000},
+		{"gpt-6.2-sol", time.June, []string{"low", "medium", "high", "xhigh", "max"}, 500_000},
 		{"gpt-6-astra", time.April, []string{"low", "medium", "high", "xhigh", "max"}, 272_000},
 		{"gpt-6.1-sol", time.April, []string{"low", "medium", "high", "xhigh", "max"}, 272_000},
 		{"gpt-6.1-terra", time.June, []string{"none", "low", "medium", "high", "xhigh", "max"}, 500_000},

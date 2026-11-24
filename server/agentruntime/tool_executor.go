@@ -2,17 +2,16 @@ package runtime
 
 import (
 	"context"
+
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"core/server/llm"
 	"core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/server/workflowruntime"
-	"core/shared/clientui"
 	"core/shared/textutil"
 	"core/shared/toolspec"
 )
@@ -133,7 +132,7 @@ func (t *defaultToolExecutor) ExecuteToolCalls(
 				&outcome,
 			)
 			if askBatch != nil {
-				id := clientui.ToolCallID(tc.ID)
+				id := tc.ID
 				event := Event{Kind: EventQuestionCandidateFinished, StepID: exactStepIDPointer(stepID), FinishedQuestionCandidate: &id}
 				report.items = append([]steeringItem{{event: &event}}, report.items...)
 			}
@@ -257,7 +256,7 @@ func (e *Engine) executePreparedToolCall(
 	askBatch *tools.AskQuestionBatchMetadata,
 ) (tools.Result, bool, error) {
 	ctx = tools.WithExecutionIdentity(ctx, tools.ExecutionIdentity{
-		StepID: stepID, ToolCallID: clientui.ToolCallID(call.ID),
+		StepID: stepID, ToolCallID: call.ID,
 		SessionShortID: e.store.Identity().ShortID,
 	})
 	approvalLifecycle := tools.NewApprovalLifecycle()
@@ -335,10 +334,10 @@ func prepareExecutorToolCalls(engine *Engine, stepID string, workflowActive bool
 	registeredTools := registeredToolIDs(engine)
 	for i := range calls {
 		call := calls[i]
-		if strings.TrimSpace(call.ID) == "" {
+		if call.ID == "" {
 			return nil, fmt.Errorf("%w (tool=%s)", ErrMissingProviderToolCallID, call.Name)
 		}
-		if err := clientui.ToolCallID(call.ID).Validate(); err != nil {
+		if err := call.ID.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid provider tool call id (tool=%s): %w", call.Name, err)
 		}
 		toolID, knownTool := toolspec.ResolveModelToolName(call.Name, registeredTools)
@@ -383,7 +382,7 @@ func prepareExecutorToolCalls(engine *Engine, stepID string, workflowActive bool
 			continue
 		}
 		askCandidateIndexes = append(askCandidateIndexes, len(prepared)-1)
-		askCandidateToolCallIDs = append(askCandidateToolCallIDs, executableCall.ID)
+		askCandidateToolCallIDs = append(askCandidateToolCallIDs, string(executableCall.ID))
 	}
 	if len(askCandidateIndexes) == 0 {
 		return prepared, nil

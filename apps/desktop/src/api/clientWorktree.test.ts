@@ -20,6 +20,7 @@ import {
   ListEntrySchema,
   ListResultSchema,
   ListService,
+  WorkspaceListResultSchema,
   SelectorResolveResultSchema,
   SelectorService,
   StatusProblemKind,
@@ -115,6 +116,99 @@ afterEach(() => {
 });
 
 describe("Desktop Worktree client", () => {
+  it("lists an exact Workspace without attaching a Session", async () => {
+    const workspaceEntry = create(ListEntrySchema, { topology, projection: { selector: "feature" } });
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: ListService.method.listWorkspace,
+        result: create(WorkspaceListResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              workspaceId: "workspace-1",
+              worktrees: [workspaceEntry],
+            },
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const result = await client.listWorktrees({
+      kind: "workspace",
+      projectID: "project-1",
+      workspaceID: "workspace-1",
+    });
+    expect(result.worktrees[0]?.projection.switch).toBeUndefined();
+    expect(transport.attachedSessionCalls).toHaveLength(0);
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+    });
+  });
+  it("previews Workspace deletion without Session selector resolution", async () => {
+    const preview = await resolvePreview(DirtyStateKind.DIRTY_STATE_CLEAN, topology);
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: DeletePreviewService.method.get,
+        result: create(DeletePreviewResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              deletionSelector: preview.deletionSelector,
+              worktree: topology,
+              cleanliness: { kind: DirtyStateKind.DIRTY_STATE_CLEAN },
+            },
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const scope = { kind: "workspace", projectID: "project-1", workspaceID: "workspace-1" } as const;
+    expect(await client.previewWorktreeDelete(scope, "feature")).toEqual(preview);
+    expect(transport.attachedSessionCalls).toHaveLength(0);
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({
+      scope: {
+        scope: {
+          case: "workspace",
+          value: { target: { projectId: "project-1", workspaceId: "workspace-1" } },
+        },
+      },
+      selector: "feature",
+    });
+  });
+  it("resolves a Create target in its exact Workspace without Session selector resolution", async () => {
+    const transport = new FakeRpcTransport([
+      {
+        descriptor: CreateTargetService.method.resolve,
+        result: create(CreateTargetResolveResultSchema, {
+          outcome: {
+            case: "success",
+            value: {
+              resolution: {
+                input: "topic",
+                kind: CreateTargetResolutionKind.WORKTREE_CREATE_TARGET_RESOLUTION_KIND_NEW_BRANCH,
+              },
+            },
+          },
+        }),
+      },
+    ]);
+    const client = new ApiClient(transport, unexpectedProjectOverflow);
+    const scope = { kind: "workspace", projectID: "project-1", workspaceID: "workspace-1" } as const;
+    const result = await client.resolveWorktreeCreateTarget(scope, "topic");
+    expect(result.resolution.input).toBe("topic");
+    expect(transport.attachedSessionCalls).toHaveLength(0);
+    expect(transport.attachedProjectDescriptorCalls[0]?.selector).toEqual({ workspaceID: "workspace-1" });
+    expect(transport.descriptorCalls[0]?.request).toMatchObject({
+      scope: {
+        scope: {
+          case: "workspace",
+          value: { target: { projectId: "project-1", workspaceId: "workspace-1" } },
+        },
+      },
+      target: "topic",
+    });
+  });
   it("preserves completed moves and blocking Sessions when deletion stops", async () => {
     const clean = await resolvePreview(DirtyStateKind.DIRTY_STATE_CLEAN, topology);
     const result = create(DeleteResultSchema, {
@@ -140,7 +234,11 @@ describe("Desktop Worktree client", () => {
       unexpectedProjectOverflow,
     );
     const failure = await client
-      .deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm")
+      .deleteWorktree(
+        { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+        clean,
+        "confirm",
+      )
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(WorktreeError);
     if (!(failure instanceof WorktreeError)) throw new Error("Expected a partial-deletion Worktree error.");
@@ -171,7 +269,7 @@ describe("Desktop Worktree client", () => {
       unexpectedProjectOverflow,
     );
     const failure = await client
-      .listWorktrees("55555555-5555-4555-8555-555555555555")
+      .listWorktrees({ kind: "session", sessionID: "55555555-5555-4555-8555-555555555555" })
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(RpcError);
     if (!(failure instanceof RpcError)) throw new Error("Expected a typed missing-Workspace RPC error.");
@@ -231,7 +329,9 @@ describe("Desktop Worktree client", () => {
       worktree: { recordedRoot: "/repo" },
       problems,
     });
-    expect(client.listWorktrees("33333333-3333-4333-8333-333333333333")).resolves.toMatchObject({
+    expect(
+      client.listWorktrees({ kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" }),
+    ).resolves.toMatchObject({
       worktrees: [
         {
           projection: {
@@ -363,10 +463,11 @@ describe("Desktop Worktree client", () => {
     await invokeCreate(detached, null, setupIDs[2]);
     await client.switchWorktree("33333333-3333-4333-8333-333333333333", enter);
     await client.switchWorktree("33333333-3333-4333-8333-333333333333", leave);
-    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", dirty, "confirm_and_branch");
-    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm");
-    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", unknown, "confirm");
-    await client.deleteWorktree("33333333-3333-4333-8333-333333333333", clean, "confirm_without_branch");
+    const scope = { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" } as const;
+    await client.deleteWorktree(scope, dirty, "confirm_and_branch");
+    await client.deleteWorktree(scope, clean, "confirm");
+    await client.deleteWorktree(scope, unknown, "confirm");
+    await client.deleteWorktree(scope, clean, "confirm_without_branch");
 
     for (const method of [
       CreateService.method.create,
@@ -467,7 +568,11 @@ describe("Desktop Worktree client", () => {
       ]),
     ).rejects.toThrow("decoded authority");
     expect(
-      client.deleteWorktree("66666666-6666-4666-8666-666666666666", branchless, "confirm_and_branch"),
+      client.deleteWorktree(
+        { kind: "session", sessionID: "66666666-6666-4666-8666-666666666666" },
+        branchless,
+        "confirm_and_branch",
+      ),
     ).rejects.toThrow(TypeError);
     expect(transport.descriptorCalls).toHaveLength(callsBeforeForgery);
   });
@@ -606,8 +711,12 @@ async function resolveTarget(kind: CreateTargetResolutionKind, input: string, re
     },
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
-  const resolution = (await client.resolveWorktreeCreateTarget("33333333-3333-4333-8333-333333333333", input))
-    .resolution;
+  const resolution = (
+    await client.resolveWorktreeCreateTarget(
+      { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+      input,
+    )
+  ).resolution;
   expect(transport.attachedSessionCalls).toContainEqual({
     sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(CreateTargetService.method.resolve),
@@ -656,7 +765,10 @@ async function resolvePreview(
     },
   ]);
   const client = new ApiClient(transport, unexpectedProjectOverflow);
-  const preview = await client.previewWorktreeDelete("33333333-3333-4333-8333-333333333333", "feature");
+  const preview = await client.previewWorktreeDelete(
+    { kind: "session", sessionID: "33333333-3333-4333-8333-333333333333" },
+    "feature",
+  );
   expect(transport.attachedSessionCalls).toContainEqual({
     sessionID: "33333333-3333-4333-8333-333333333333",
     method: operationName(DeletePreviewService.method.get),

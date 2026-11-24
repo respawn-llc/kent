@@ -40,12 +40,12 @@
 - When a Project has more than one attached Workspace, Kent must include a typed Workspaces reminder in fresh Session context and in fresh post-compaction context before model work. This requirement includes Workflow Sessions and Sessions targeting Worktrees.
 - Reopening a Session, retrying a prepared request, or changing attachments during the current context must not add another Workspaces reminder or rewrite historical context.
 - The reminder must use the Project Workspace catalog order defined in [Projects And Workspaces](project-workspaces.md#api).
-- The reminder must consider only the first five catalog rows. Kent must check only those paths for availability and omit a row when its path is missing, is not a directory, or its directory lookup fails. Kent must not backfill omitted rows or inspect directory contents, Git, or read/write access.
+- The reminder must list up to five available Workspaces in catalog order. Kent must skip a row when its path is missing, is not a directory, or its directory lookup fails and continue through the catalog until five available Workspaces are found or the catalog ends. Kent must not inspect directory contents, Git, or read/write access.
 - The reminder must report the total attached Workspace count even when it omits unavailable paths. Availability filtering must not change the Workspace catalog or command listings.
 - The reminder heading must be `This project <ProjectName> has <WorkspaceCount> workspaces:`.
 - Each included Workspace must appear as a path bullet. The Project default Workspace must have the suffix ` (default)`, independently of the Session's Main Workspace or Worktree.
 - Reminder paths under home must use `~` shortening. Reminder paths must not use Working Directory-relative shortening. Paths outside home must be absolute.
-- When more than five Workspaces are attached, the reminder must end with the bullet ``<WorkspaceCount minus 5> more. `kent project workspaces` to list all``. Otherwise it must omit that bullet.
+- When attached Workspaces are omitted, the reminder must end with the bullet ``<WorkspaceCount minus the number of listed Workspaces> more. `kent project workspaces` to list all``. Otherwise it must omit that bullet.
 - A Project or catalog read failure must prevent request preparation and surface the failure for explicit retry. An individual directory lookup failure must only omit that Workspace.
 - Client presentation is defined in [TUI Transcript](tui-transcript.md) and [Desktop Chat](desktop-chat.md).
 
@@ -71,6 +71,7 @@
 ## Core Tools And Runtime Integration
 
 - The core model tools are `exec_command`, `write_stdin`, `view_image`, `patch`, `ask_question`, and `trigger_handoff`.
+- The server must supply one shared typed Web Search presentation family to TUI and Desktop for saved and live rows. The current tool definition must determine this family. Clients must not infer this family from tool names. Deriving this family must not modify saved conversation or search results.
 - Outside Workflow-controlled Sessions, model-callable Goal, worktree, Task, and Workflow tools are unavailable. Adding a tool requires explicit human approval and a spec update.
 - Model/transcript-visible Session mutations follow the Active Session Runtime's accepted mutation order unless the Runtime Steering specification assigns the operation to an exact or direct owner.
 - Tool definitions advertise one canonical tool name and canonical parameter names. Their schemas allow only recognized parameters. Kent accepts the hidden aliases below only for incoming model tool calls, and they do not expand accepted configuration names.
@@ -148,6 +149,7 @@ You can use `kent run steer <source-session-id> "message"` to respond.
 
 ## Command Execution
 
+- Sessions without a Session Short ID must be able to execute shell commands. Their shell logs must use the Session UUID in place of the absent Short ID.
 - A user-run shell command must execute without invoking the model and must enter model context as a User Message, not as an assistant Tool Call or tool output.
 - The User Message must contain `User ran a shell command:`, a newline, `<command>` followed by the command and `</command>`, a newline, and the shell tool's plaintext result. Failures must include their plaintext diagnostics.
 - A user-run shell command must appear as a compact shell command in ongoing and collapsed transcript views. Its full User Message text and output must appear only in expanded Desktop or expanded detail views. It must not become a prompt-history entry or a Rollback Target.
@@ -299,6 +301,8 @@ Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-r
 - Sessions can stop and resume. The persistence root is configurable and defaults to `~/.kent`. Their durable location model is Project, Workspace, then Worktree.
 - A user-driven Edit or Fork must create a new interactive main Session with a new Session ID and no Task ownership, Workflow execution, inherited Agent-role continuation, or parent-agent ancestry. It must never continue the source Workflow.
 - A user fork must resolve fresh interactive settings, including model, provider, prompt, and completion settings captured in the source snapshot. It must inherit the source execution location, Worktree reminder, previous-Session provenance, complete Goal, and current desired Thinking selection unchanged. Goal and Thinking inheritance do not confer Workflow ownership.
+- A user fork must use the source Session's saved Project when creating the child, including when the workspace path belongs to several Projects.
+- If Session creation loses its required Project scope, Kent must panic in debug mode. In production, Kent must report the original failure and diagnostics.
 - A user fork must leave the parent unchanged. The copied conversation prefix must follow the fork history rules without changes. Historical Workflow instructions may appear in that history. They must not confer Workflow ownership or authorize Workflow execution in the child.
 - Workflow-internal clones are separate from user-driven forks and must follow the Workflow context-preservation contract.
 - Session rebinds must follow the execution-target transition rules below for every caller, including cross-Project moves.
@@ -604,6 +608,7 @@ Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-r
 - That terminal cascade must observe only the Goal already durable when completion commits. A Goal mutation must persist during its admission, including within the same Agent Step.
 - A same-Step Goal mutation that leaves an active Goal after terminal Workflow completion must not start Goal continuation from that completion boundary. The Goal is active and idle until later explicit human input starts ordinary work.
 - With an Active Session Runtime, Goal mutations must persist immediately and atomically in Goal admission order. Their model-facing notices must enter the Engine Intent Queue in the same order and wait for the next Step Boundary.
+- Outside Workflow-controlled execution, when a Goal is set before startup context has been prepared, the first Goal-set notice must prepare that context and occupy its Goal reminder slot. Startup context must not add a separate Goal nudge for that notice. Existing transcript history must remain unchanged.
 - Without an Active Session Runtime, the dormant Goal owner persists the durable Goal update and corresponding model-facing notice without starting a Runtime.
 - Goal mutation requests from every client must return the persisted Goal result without waiting for a Step Boundary or model-visible reminder delivery. An allowed agent `goal set` or confirmed `goal complete` must validate the current Exact Execution Scope and Live Execution's Step ID and persist the mutation within that admission.
 - If the originating Agent Step ends first, the agent Goal mutation must reject without changing the Goal. If admission completes first, it must return the committed Goal, including its identity and timestamps. Terminal Workflow completion earlier in that open Step must not by itself reject or revoke the Goal admission.

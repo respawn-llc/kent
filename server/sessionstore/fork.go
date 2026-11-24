@@ -121,10 +121,10 @@ func (b *forkReplayBatch) validateDrained() error {
 // userMessageSeq. It returns the forked store and the 1-based ordinal of that
 // user message among the parent's visible user messages (for naming/display).
 // User-driven forks select a fresh interactive contract, not a continuation.
-func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking) (*Store, int, error) {
+func ForkAtUserMessage(parentLog MaterializedEventLog, userMessageSeq int64, forkName string, category sessioncontract.SessionCategory, thinking ForkThinking, options ...StoreOption) (*Store, int, error) {
 	return streamChildFromParent(parentLog, forkName, category, ChildContextOptions{
 		InheritGoal: true,
-	}, userMessageSeq, thinking)
+	}, userMessageSeq, thinking, options...)
 }
 
 // CloneSession creates a child session that replays the parent's entire
@@ -160,6 +160,7 @@ func streamChildFromParent(
 	contextOptions ChildContextOptions,
 	targetSeq int64,
 	thinking ForkThinking,
+	options ...StoreOption,
 ) (_ *Store, _ int, resultErr error) {
 	if err := ValidateOriginalThinkingEffort(&thinking.Desired); err != nil {
 		return nil, 0, err
@@ -170,7 +171,8 @@ func streamChildFromParent(
 	}
 	parentMeta := parent.Meta()
 	containerDir := filepath.Dir(parent.Dir())
-	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, category, parent.options)
+	childOptions := append([]StoreOption{func(options *storeOptions) { *options = parent.options }}, options...)
+	child, err := newLazyWithStoreOptions(containerDir, parentMeta.WorkspaceContainer, parentMeta.WorkspaceRoot, category, normalizeStoreOptions(childOptions...))
 	if err != nil {
 		return nil, 0, err
 	}

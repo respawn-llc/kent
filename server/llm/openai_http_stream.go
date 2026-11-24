@@ -207,6 +207,7 @@ func (a *responseStreamAccumulator) assistantPresentation(item ResponseItem) (st
 		return text, nil, nil
 	}
 	if !completedAssistantTextReconcilesStream(streamed, text) {
+		a.attempt.assistantTextConflict(item.OutputIndex, streamed, text)
 		return "", nil, fmt.Errorf("completed assistant item %d conflicts with streamed assistant content", item.OutputIndex)
 	}
 	display := reconciledCompletedAssistantText(streamed, text)

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -38,7 +39,7 @@ func streamScanTestEventAtSequence(t *testing.T, sequence int64, kind string, pa
 			t.Fatalf("tool completion payload has type %T", payload)
 		}
 		record = session.ToolCompletionRecord{
-			CallID:        completion.CallID,
+			CallID:        string(completion.CallID),
 			Name:          completion.Name,
 			OutputKind:    session.ToolOutputKindFunction,
 			IsError:       completion.IsError,
@@ -118,7 +119,7 @@ func streamScanRepresentativeEvents(t *testing.T) []session.EventRecord {
 			},
 		}),
 		streamScanTestEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"files"}`)}),
-		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"files"}`)}),
+		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"files"}`)}),
 		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("done two")}),
 		streamScanTestEvent(t, "local_entry", storedLocalEntry{Visibility: transcript.EntryVisibilityAuto, Role: "system", Text: "a local note"}),
 		streamScanTestEvent(t, sessionEventCacheWarning, transcript.CacheWarning{}),
@@ -140,8 +141,8 @@ func streamScanRepresentativeEvents(t *testing.T) []session.EventRecord {
 		}),
 		streamScanTestEvent(t, "tool_completed", storedToolCompletion{CallID: "call-2", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"a-out"}`)}),
 		streamScanTestEvent(t, "tool_completed", storedToolCompletion{CallID: "call-3", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(`{"output":"b-out"}`)}),
-		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-2"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"a-out"}`)}),
-		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-3"), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"b-out"}`)}),
+		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-2")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"a-out"}`)}),
+		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-3")), Name: textutil.Value(string(toolspec.ToolExecCommand)), Content: textutil.Value(`{"output":"b-out"}`)}),
 		streamScanTestEvent(t, "message", llm.Message{Role: llm.RoleAssistant, Phase: textutil.Value(llm.MessagePhaseFinal), Content: textutil.Value("final answer")}),
 	}
 }
@@ -252,17 +253,17 @@ func TestStreamingTranscriptScanKeepsToolAttachedLocalEntryAfterMaterializedOutp
 			Role: llm.RoleAssistant,
 			ToolCalls: []llm.ToolCall{
 				{
-					ID:   fallbackCallID,
+					ID:   runtimeids.ToolCallID(fallbackCallID),
 					Name: string(toolspec.ToolPatch),
 				},
 				{
-					ID:   ordinaryCallID,
+					ID:   runtimeids.ToolCallID(ordinaryCallID),
 					Name: string(toolspec.ToolExecCommand),
 				},
 			},
 		}),
 		streamScanTestEvent(t, "tool_completed", storedToolCompletion{
-			CallID:       fallbackCallID,
+			CallID:       runtimeids.ToolCallID(fallbackCallID),
 			Name:         string(toolspec.ToolPatch),
 			Output:       json.RawMessage(`{"ok":true}`),
 			Presentation: &fallbackPresentation,
@@ -270,24 +271,24 @@ func TestStreamingTranscriptScanKeepsToolAttachedLocalEntryAfterMaterializedOutp
 		streamScanTestEvent(t, "local_entry", storedLocalEntry{
 			Role:            string(transcript.EntryRoleDeveloperErrorFeedback),
 			Text:            "presentation fallback",
-			AfterToolCallID: &fallbackCallID,
+			AfterToolCallID: (*runtimeids.ToolCallID)(&fallbackCallID),
 		}),
 		streamScanTestEvent(t, "tool_completed", storedToolCompletion{
-			CallID:       ordinaryCallID,
+			CallID:       runtimeids.ToolCallID(ordinaryCallID),
 			Name:         string(toolspec.ToolExecCommand),
 			Output:       json.RawMessage(`{"output":"done"}`),
 			Presentation: &ordinaryPresentation,
 		}),
 		streamScanTestEvent(t, "message", llm.Message{
 			Role:        llm.RoleTool,
-			ToolCallID:  textutil.Value(fallbackCallID),
+			ToolCallID:  (*runtimeids.ToolCallID)(textutil.Value(fallbackCallID)),
 			Name:        textutil.Value(string(toolspec.ToolPatch)),
 			Content:     textutil.Value(`{"ok":true}`),
 			MessageType: llm.ToolOutputMessageType(true),
 		}),
 		streamScanTestEvent(t, "message", llm.Message{
 			Role:       llm.RoleTool,
-			ToolCallID: textutil.Value(ordinaryCallID),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value(ordinaryCallID)),
 			Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 			Content:    textutil.Value(`{"output":"done"}`),
 		}),
@@ -302,19 +303,19 @@ func TestStreamingTranscriptScanKeepsToolAttachedLocalEntryAfterMaterializedOutp
 	if got := len(snapshot.Entries); got != 6 {
 		t.Fatalf("entry count = %d, want two tool calls, two tool results, one operator row, and one assistant row: %+v", got, snapshot.Entries)
 	}
-	if got := snapshot.Entries[0]; got.Role != "tool_call" || got.ToolCallID != fallbackCallID {
+	if got := snapshot.Entries[0]; got.Role != "tool_call" || got.ToolCallID != runtimeids.ToolCallID(fallbackCallID) {
 		t.Fatalf("entry[0] = %+v, want fallback tool call row", got)
 	}
-	if got := snapshot.Entries[1]; got.Role != "tool_call" || got.ToolCallID != ordinaryCallID {
+	if got := snapshot.Entries[1]; got.Role != "tool_call" || got.ToolCallID != runtimeids.ToolCallID(ordinaryCallID) {
 		t.Fatalf("entry[1] = %+v, want ordinary tool call row", got)
 	}
-	if got := snapshot.Entries[2]; got.Role != "tool_result_ok" || got.ToolCallID != fallbackCallID || got.ToolCall == nil || !reflect.DeepEqual(*got.ToolCall, expectedFallbackPresentation) {
+	if got := snapshot.Entries[2]; got.Role != "tool_result_ok" || got.ToolCallID != runtimeids.ToolCallID(fallbackCallID) || got.ToolCall == nil || !reflect.DeepEqual(*got.ToolCall, expectedFallbackPresentation) {
 		t.Fatalf("entry[2] = %+v, want one finalized fallback tool result row", got)
 	}
 	if got := snapshot.Entries[3]; got.Role != string(transcript.EntryRoleDeveloperErrorFeedback) {
 		t.Fatalf("entry[3] = %+v, want operator feedback immediately after its tool output", got)
 	}
-	if got := snapshot.Entries[4]; got.Role != "tool_result_ok" || got.ToolCallID != ordinaryCallID {
+	if got := snapshot.Entries[4]; got.Role != "tool_result_ok" || got.ToolCallID != runtimeids.ToolCallID(ordinaryCallID) {
 		t.Fatalf("entry[4] = %+v, want later ordinary tool result row", got)
 	}
 	if got := snapshot.Entries[5]; got.Role != "assistant" {
@@ -417,13 +418,13 @@ func TestStreamingTranscriptScanOrdersMaterializedToolsByCompletionProvenance(t 
 		}),
 		streamScanTestEventAtSequence(t, 4, "message", llm.Message{
 			Role:       llm.RoleTool,
-			ToolCallID: textutil.Value("call-a"),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-a")),
 			Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 			Content:    textutil.Value(`{"output":"a"}`),
 		}),
 		streamScanTestEventAtSequence(t, 5, "message", llm.Message{
 			Role:       llm.RoleTool,
-			ToolCallID: textutil.Value("call-b"),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-b")),
 			Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 			Content:    textutil.Value(`{"output":"b"}`),
 		}),
@@ -449,7 +450,7 @@ func TestStreamingTranscriptScanOrdersMaterializedToolsByCompletionProvenance(t 
 		{index: 3, callID: "call-a", seq: 3},
 	} {
 		entry := page.Entries[test.index]
-		if entry.Role != "tool_result_ok" || entry.ToolCallID != test.callID {
+		if entry.Role != "tool_result_ok" || entry.ToolCallID != runtimeids.ToolCallID(test.callID) {
 			t.Fatalf("entry %d = %+v, want tool result for %s", test.index, entry, test.callID)
 		}
 		if entry.CommittedProvenance == nil || entry.CommittedProvenance.EventSequence != test.seq {

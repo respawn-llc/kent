@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"io"
@@ -95,7 +96,7 @@ func TestSpeculativeRemoteCompactionRetries413OverflowByCollapsingToolOutput(t *
 	}
 	if err := engine.steer(runtimeTestStepID("input"), steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventNone, true, []llm.Message{{
 		Role:       llm.RoleTool,
-		ToolCallID: textutil.Value("call-1"),
+		ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")),
 		Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 		Content:    textutil.Value(`{"output":"` + strings.Repeat("x", 4_000) + `"}`),
 	}})); err != nil {
@@ -169,7 +170,7 @@ func TestMalformedRemoteCompactionFallbackUsesOverflowRepairedInput(t *testing.T
 		true,
 		[]llm.Message{{
 			Role:       llm.RoleTool,
-			ToolCallID: textutil.Value("call-1"),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")),
 			Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 			Content:    textutil.Value(`{"output":"` + strings.Repeat("x", 4_000) + `"}`),
 		}},
@@ -230,7 +231,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 	})
 	for _, callID := range []string{"call-1", "call-2"} {
 		steerDanglingToolCall(t, engine, "step", llm.ToolCall{
-			ID:    callID,
+			ID:    runtimeids.ToolCallID(callID),
 			Name:  string(toolspec.ToolExecCommand),
 			Input: json.RawMessage(`{"command":"pwd"}`),
 		})
@@ -240,7 +241,7 @@ func TestMalformedRemoteCompactionCombinesRemoteAndLocalOverflowRepairFacts(t *t
 			true,
 			[]llm.Message{{
 				Role:       llm.RoleTool,
-				ToolCallID: textutil.Value(callID),
+				ToolCallID: (*runtimeids.ToolCallID)(textutil.Value(callID)),
 				Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 				Content:    textutil.Value(`{"output":"` + strings.Repeat("x", 4_000) + `"}`),
 			}},

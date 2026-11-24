@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"core/shared/runtimeids"
 	"encoding/json"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestPersistedTranscriptScanEnrichesToolResultFromCompletion(t *testing.T) {
 	events := []session.EventRecord{
 		mustPersistedScanEvent(t, "tool_completed", storedToolCompletion{CallID: "call-1", Name: string(toolspec.ToolExecCommand), Output: json.RawMessage(toolOutput)}),
 		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call-1", Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{"command":"pwd"}`)}}}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-1"), Name: textutil.Value(string(toolspec.ToolExecCommand))}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-1")), Name: textutil.Value(string(toolspec.ToolExecCommand))}),
 	}
 	for _, evt := range events {
 		if err := scan.ApplyPersistedEvent(evt); err != nil {
@@ -140,9 +141,9 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 			Custom:      true,
 			CustomInput: textutil.Value(rawPatch),
 		}}}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-patch-single"), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-patch-multi"), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
-		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: textutil.Value("call-patch-raw"), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-patch-single")), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-patch-multi")), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
+		mustPersistedScanEvent(t, "message", llm.Message{Role: llm.RoleTool, ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-patch-raw")), Name: textutil.Value(string(toolspec.ToolPatch)), MessageType: textutil.Value(llm.MessageTypeCustomToolCallOutput), Content: textutil.Value(`{}`)}),
 	}
 	for _, evt := range events {
 		if err := scan.ApplyPersistedEvent(evt); err != nil {
@@ -174,7 +175,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 			}
 			continue
 		}
-		want, ok := wantFiles[entry.ToolCallID]
+		want, ok := wantFiles[string(entry.ToolCallID)]
 		if !ok {
 			t.Fatalf("unexpected patch call id %q", entry.ToolCallID)
 		}
@@ -183,7 +184,7 @@ func TestPersistedTranscriptScanProjectsCurrentPatchPresentation(t *testing.T) {
 			len(presentation.Changes.Files) != want {
 			t.Fatalf("unexpected Patch changes for %s: %+v", entry.ToolCallID, presentation)
 		}
-		delete(wantFiles, entry.ToolCallID)
+		delete(wantFiles, string(entry.ToolCallID))
 	}
 	if len(wantFiles) != 0 {
 		t.Fatalf("missing persisted patch calls: %+v", wantFiles)

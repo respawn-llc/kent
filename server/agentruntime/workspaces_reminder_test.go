@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -99,56 +100,60 @@ func TestFreshModelRequestOmitsProjectWorkspacesContextForSingleWorkspace(t *tes
 	}
 }
 
-func TestProjectWorkspaceContextOmitsUnavailableFirstFiveWithoutBackfill(t *testing.T) {
+func TestProjectWorkspaceContextListsAvailablePathsAcrossCatalogPages(t *testing.T) {
 	t.Parallel()
-	metadataStore, store, _ := newWorkspaceReminderSession(t, 6)
-	projectID, err := metadataStore.ResolveSessionProjectID(t.Context(), store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("resolve Session Project: %v", err)
-	}
-	page, err := metadataStore.ListProjectWorkspaceCatalogPage(
-		t.Context(),
-		projectID,
-		0,
-		metadata.ProjectWorkspaceContextLimit,
-	)
-	if err != nil {
-		t.Fatalf("list first catalog page: %v", err)
-	}
-	missing := page.Workspaces[1].CanonicalRoot
-	if err := os.RemoveAll(missing); err != nil {
-		t.Fatalf("remove first unavailable Workspace fixture: %v", err)
-	}
-	notDirectory := page.Workspaces[2].CanonicalRoot
-	if err := os.RemoveAll(notDirectory); err != nil {
-		t.Fatalf("remove non-directory Workspace fixture: %v", err)
-	}
-	if err := os.WriteFile(notDirectory, []byte("not a directory"), 0o600); err != nil {
-		t.Fatalf("replace Workspace path with a file: %v", err)
-	}
-	lookupFailure := page.Workspaces[3].CanonicalRoot
-	if err := os.Rename(lookupFailure, lookupFailure+".retained"); err != nil {
-		t.Fatalf("move Workspace directory for lookup failure: %v", err)
-	}
-	if err := os.Symlink(lookupFailure, lookupFailure); err != nil {
-		t.Fatalf("create Workspace symlink loop: %v", err)
-	}
+	for _, count := range []int{6, 8} {
+		t.Run(fmt.Sprintf("%d attachments", count), func(t *testing.T) {
+			metadataStore, store, _ := newWorkspaceReminderSession(t, count)
+			projectID, err := metadataStore.ResolveSessionProjectID(t.Context(), store.Meta().SessionID)
+			if err != nil {
+				t.Fatalf("resolve Session Project: %v", err)
+			}
+			page, err := metadataStore.ListProjectWorkspaceCatalogPage(
+				t.Context(),
+				projectID,
+				0,
+				count,
+			)
+			if err != nil {
+				t.Fatalf("list first catalog page: %v", err)
+			}
+			missing := page.Workspaces[1].CanonicalRoot
+			if err := os.RemoveAll(missing); err != nil {
+				t.Fatalf("remove first unavailable Workspace fixture: %v", err)
+			}
+			notDirectory := page.Workspaces[2].CanonicalRoot
+			if err := os.RemoveAll(notDirectory); err != nil {
+				t.Fatalf("remove non-directory Workspace fixture: %v", err)
+			}
+			if err := os.WriteFile(notDirectory, []byte("not a directory"), 0o600); err != nil {
+				t.Fatalf("replace Workspace path with a file: %v", err)
+			}
+			lookupFailure := page.Workspaces[3].CanonicalRoot
+			if err := os.Rename(lookupFailure, lookupFailure+".retained"); err != nil {
+				t.Fatalf("move Workspace directory for lookup failure: %v", err)
+			}
+			if err := os.Symlink(lookupFailure, lookupFailure); err != nil {
+				t.Fatalf("create Workspace symlink loop: %v", err)
+			}
 
-	got, err := loadProjectWorkspacesContext(t.Context(), metadataStore, store.Meta().SessionID)
-	if err != nil {
-		t.Fatalf("load Project Workspace context: %v", err)
-	}
-	if got.WorkspaceCount != 6 {
-		t.Fatalf("Workspace count after unavailable paths = %d, want all 6 attachments", got.WorkspaceCount)
-	}
-	want := []metadata.ProjectWorkspaceCatalogRow{page.Workspaces[0], page.Workspaces[4]}
-	if len(got.Workspaces) != len(want) {
-		t.Fatalf("available Workspace rows = %d, want %d without backfilling", len(got.Workspaces), len(want))
-	}
-	for index, workspace := range want {
-		if got.Workspaces[index] != workspace {
-			t.Fatalf("available Workspace row %d = %+v, want %+v", index, got.Workspaces[index], workspace)
-		}
+			got, err := loadProjectWorkspacesContext(t.Context(), metadataStore, store.Meta().SessionID)
+			if err != nil {
+				t.Fatalf("load Project Workspace context: %v", err)
+			}
+			if got.WorkspaceCount != int64(count) {
+				t.Fatalf("Workspace count after unavailable paths = %d, want all %d attachments", got.WorkspaceCount, count)
+			}
+			want := append([]metadata.ProjectWorkspaceCatalogRow{page.Workspaces[0], page.Workspaces[4]}, page.Workspaces[5:]...)
+			if len(got.Workspaces) != len(want) {
+				t.Fatalf("available Workspace rows = %d, want %d", len(got.Workspaces), len(want))
+			}
+			for index, workspace := range want {
+				if got.Workspaces[index] != workspace {
+					t.Fatalf("available Workspace row %d = %+v, want %+v", index, got.Workspaces[index], workspace)
+				}
+			}
+		})
 	}
 }
 

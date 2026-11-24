@@ -331,7 +331,7 @@ WHERE session_id = ?
   AND node_id = ?
   AND transition_branch_key IS NULL`,
 		sessionID.String(),
-		string(started.Mutation.Created[0].Reference.NodeID),
+		testGraphEntityIDBlob(t, string(started.Mutation.Created[0].Reference.NodeID)),
 	).Scan(&rowCount); err != nil {
 		t.Fatalf("count serial associations: %v", err)
 	}
@@ -387,7 +387,7 @@ WHERE session_id = ?
   AND node_id = ?
   AND transition_branch_key IS NOT NULL`,
 		sessionID.String(),
-		string(started.Mutation.Created[0].Reference.NodeID),
+		testGraphEntityIDBlob(t, string(started.Mutation.Created[0].Reference.NodeID)),
 	).Scan(&rowCount); err != nil {
 		t.Fatalf("count branch associations: %v", err)
 	}

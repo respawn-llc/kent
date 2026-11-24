@@ -16,8 +16,7 @@ import (
 const (
 	defaultLimit                       = 16_000
 	headTailSize                       = 1000
-	truncationBannerTemplate           = "\n\n...[Output is very large, omitted %d bytes. Consider using more targeted commands to reduce output size]...\n\n"
-	backgroundTruncationBannerTemplate = "\n\n...[Omitted %d bytes, read log file for details]...\n\n"
+	truncationBannerTemplate           = "\n\n...[Omitted %d bytes]...\n\n"
 	existingWorkingDirectoryHint       = "Please select an existing working directory"
 	missingWorkingDirectoryReason      = "does not exist, so the shell command was not executed."
 	nonDirectoryWorkingDirectoryReason = "is not a directory, so the shell command was not executed."

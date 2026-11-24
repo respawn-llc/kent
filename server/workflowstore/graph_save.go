@@ -179,19 +179,19 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 		plan.Blockers = workflowGraphSaveVersionChangedBlockers(current.Version)
 		return plan, nil
 	}
-	currentPolicy := workflow.ExecutionTargetPolicy{
-		Mode:      workflow.ExecutionTargetMode(current.ExecutionTargetPolicy),
-		CustomRef: workflowCustomRefFromRow(current.ExecutionTargetCustomRef),
-	}.Canonical()
-	metadata, metadataChanged, err := prepareWorkflowGraphSaveMetadata(current.Name, current.Description, currentPolicy, req.Metadata)
+	if err := validateWorkflowGraphSaveIdentities(req); err != nil {
+		return WorkflowGraphSavePlan{}, err
+	}
+	record := workflowRecordFromGetWorkflow(current)
+	metadata, metadataChanged, err := prepareWorkflowGraphSaveMetadata(record.Name, record.Description, record.ExecutionTargetPolicy, req.Metadata)
 	if err != nil {
 		return WorkflowGraphSavePlan{}, err
 	}
-	displayName := current.Name
+	displayName := record.Name
 	if metadata != nil {
 		displayName = metadata.Name
 	}
-	executionTargetPolicy := currentPolicy
+	executionTargetPolicy := record.ExecutionTargetPolicy
 	if metadata != nil && metadata.ExecutionTargetPolicy != nil {
 		executionTargetPolicy = *metadata.ExecutionTargetPolicy
 	}
@@ -218,12 +218,8 @@ func (s *Store) planWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries,
 		MetadataChanged: metadataChanged,
 		Structural:      structural,
 		Definition:      def,
+		Record:          record,
 	}
-	_, record, err := workflowDefinitionFromQueries(ctx, q, workflowID)
-	if err != nil {
-		return WorkflowGraphSavePlan{}, err
-	}
-	plan.Record = record
 	var evaluation workflowGraphSaveDynamicImpact
 	if (graphChanged || metadataChanged) && current.Version == req.ExpectedVersion {
 		evaluation, err = evaluateWorkflowGraphSaveDynamicImpact(ctx, q, workflowID, structural)
@@ -807,28 +803,44 @@ func applyWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, workflowI
 		return err
 	}
 	for _, edgeID := range removed.edges {
-		if deleted, err := q.DeleteWorkflowEdge(ctx, string(edgeID)); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(edgeID))
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowEdge(ctx, id); err != nil {
 			return fmt.Errorf("delete removed workflow edge: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
 		}
 	}
 	for _, groupID := range removed.transitionGroups {
-		if deleted, err := q.DeleteWorkflowTransitionGroupByID(ctx, string(groupID)); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(groupID))
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowTransitionGroupByID(ctx, id); err != nil {
 			return fmt.Errorf("delete removed workflow transition group: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
 		}
 	}
 	for _, nodeID := range removed.nodes {
-		if deleted, err := q.DeleteWorkflowNode(ctx, string(nodeID)); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(nodeID))
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowNode(ctx, id); err != nil {
 			return fmt.Errorf("delete removed workflow node: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
 		}
 	}
 	for _, groupID := range removed.nodeGroups {
-		if deleted, err := q.DeleteWorkflowNodeGroup(ctx, sqlitegen.DeleteWorkflowNodeGroupParams{ID: groupID, WorkflowID: workflowID}); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(groupID)
+		if err != nil {
+			return err
+		}
+		if deleted, err := q.DeleteWorkflowNodeGroup(ctx, sqlitegen.DeleteWorkflowNodeGroupParams{ID: id, WorkflowID: workflowID}); err != nil {
 			return fmt.Errorf("delete removed workflow node group: %w", err)
 		} else if deleted != 1 {
 			return sql.ErrNoRows
@@ -858,27 +870,44 @@ func applyWorkflowGraphSave(ctx context.Context, q *sqlitegen.Queries, workflowI
 }
 
 func stageWorkflowGraphSaveKeyChanges(ctx context.Context, q *sqlitegen.Queries, current preparedWorkflowGraphSave) error {
+	// Free scoped keys for swaps without touching graph links or ordered collections.
 	for _, group := range current.nodeGroups {
-		group.Key = workflow.ModelKey(uuid.NewString())
-		if err := upsertWorkflowNodeGroup(ctx, q, group, "stage workflow node group key"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(group.ID)
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowNodeGroupKey(ctx, sqlitegen.UpdateWorkflowNodeGroupKeyParams{ID: id, GroupKey: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow node group key"); err != nil {
 			return err
 		}
 	}
 	for _, node := range current.nodes {
-		node.Key = workflow.ModelKey(uuid.NewString())
-		if err := upsertWorkflowNode(ctx, q, node, node.SortOrder, "stage workflow node key"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(node.ID))
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowNodeKey(ctx, sqlitegen.UpdateWorkflowNodeKeyParams{ID: id, NodeKey: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow node key"); err != nil {
 			return err
 		}
 	}
 	for _, group := range current.transitionGroups {
-		group.TransitionID = workflow.TransitionID(uuid.NewString())
-		if err := upsertWorkflowTransitionGroup(ctx, q, group, group.SortOrder, "stage workflow transition group id"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(group.ID))
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowTransitionGroupKey(ctx, sqlitegen.UpdateWorkflowTransitionGroupKeyParams{ID: id, TransitionID: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow transition group id"); err != nil {
 			return err
 		}
 	}
 	for _, edge := range current.edges {
-		edge.Key = workflow.ModelKey(uuid.NewString())
-		if err := upsertWorkflowEdge(ctx, q, edge, edge.SortOrder, "stage workflow edge key"); err != nil {
+		id, err := runtimeids.GraphEntityIDBlob(string(edge.ID))
+		if err != nil {
+			return err
+		}
+		updated, err := q.UpdateWorkflowEdgeKey(ctx, sqlitegen.UpdateWorkflowEdgeKeyParams{ID: id, EdgeKey: uuid.NewString()})
+		if err := expectAffectedRowCount(updated, err, "stage workflow edge key"); err != nil {
 			return err
 		}
 	}
@@ -893,8 +922,12 @@ func normalizeNodeGroupName(name *string) *string {
 }
 
 func upsertWorkflowNodeGroup(ctx context.Context, q *sqlitegen.Queries, group NodeGroupRecord, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(group.ID)
+	if err != nil {
+		return err
+	}
 	updated, err := q.UpsertWorkflowNodeGroup(ctx, sqlitegen.UpsertWorkflowNodeGroupParams{
-		ID:          group.ID,
+		ID:          id,
 		WorkflowID:  group.WorkflowID,
 		GroupKey:    string(group.Key),
 		DisplayName: metadata.NullableString(group.DisplayName),
@@ -904,36 +937,64 @@ func upsertWorkflowNodeGroup(ctx context.Context, q *sqlitegen.Queries, group No
 }
 
 func upsertWorkflowNode(ctx context.Context, q *sqlitegen.Queries, node NodeRecord, sortOrder int64, op string) error {
-	if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
-		return err
-	}
-	joinProviders, err := workflow.MarshalString(node.JoinInputProviders)
+	id, err := runtimeids.GraphEntityIDBlob(string(node.ID))
 	if err != nil {
 		return err
 	}
+	groupID, err := nullableGraphIdentityArgument(node.GroupID)
+	if err != nil {
+		return err
+	}
+	if err := validateNodeCompletionMode(node.Kind, node.CompletionMode); err != nil {
+		return err
+	}
 	updated, err := q.UpsertWorkflowNode(ctx, sqlitegen.UpsertWorkflowNodeParams{
-		ID:                     string(node.ID),
-		WorkflowID:             node.WorkflowID,
-		NodeKey:                string(node.Key),
-		Kind:                   string(node.Kind),
-		DisplayName:            strings.TrimSpace(node.DisplayName),
-		SubagentRole:           strings.TrimSpace(node.SubagentRole),
-		CompletionMode:         nodeCompletionMode(node),
-		ScriptPath:             nullableString(node.ScriptPath),
-		JoinInputProvidersJson: joinProviders,
-		GroupID:                metadata.NullableString(node.GroupID),
-		SortOrder:              sortOrder,
+		ID:             id,
+		WorkflowID:     node.WorkflowID,
+		NodeKey:        string(node.Key),
+		Kind:           string(node.Kind),
+		DisplayName:    strings.TrimSpace(node.DisplayName),
+		SubagentRole:   strings.TrimSpace(node.SubagentRole),
+		CompletionMode: nodeCompletionMode(node),
+		ScriptPath:     nullableString(node.ScriptPath),
+		GroupID:        groupID,
+		SortOrder:      sortOrder,
 	})
 	if err != nil {
 		return fmt.Errorf("%s %q: %w", op, node.ID, err)
 	}
-	return expectAffectedRowCount(updated, err, op)
+	if err := expectAffectedRowCount(updated, err, op); err != nil {
+		return err
+	}
+	if err := q.DeleteWorkflowJoinProviders(ctx, id); err != nil {
+		return err
+	}
+	for index, provider := range node.JoinInputProviders {
+		edgeID, err := runtimeids.GraphEntityIDBlob(string(provider.ProviderEdgeID))
+		if err != nil {
+			return err
+		}
+		if err := q.InsertWorkflowJoinProvider(ctx, sqlitegen.InsertWorkflowJoinProviderParams{
+			NodeID: id, SortOrder: int64(index), InputName: provider.InputName, ProviderEdgeID: edgeID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func upsertWorkflowTransitionGroup(ctx context.Context, q *sqlitegen.Queries, group TransitionGroupRecord, sortOrder int64, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(string(group.ID))
+	if err != nil {
+		return err
+	}
+	sourceNodeID, err := runtimeids.GraphEntityIDBlob(string(group.SourceNodeID))
+	if err != nil {
+		return err
+	}
 	updated, err := q.UpsertWorkflowTransitionGroup(ctx, sqlitegen.UpsertWorkflowTransitionGroupParams{
-		ID:           string(group.ID),
-		SourceNodeID: string(group.SourceNodeID),
+		ID:           id,
+		SourceNodeID: sourceNodeID,
 		TransitionID: strings.TrimSpace(string(group.TransitionID)),
 		DisplayName:  strings.TrimSpace(group.DisplayName),
 		Description:  strings.TrimSpace(group.Description),
@@ -944,23 +1005,19 @@ func upsertWorkflowTransitionGroup(ctx context.Context, q *sqlitegen.Queries, gr
 }
 
 func upsertWorkflowEdge(ctx context.Context, q *sqlitegen.Queries, edge EdgeRecord, sortOrder int64, op string) error {
+	id, err := runtimeids.GraphEntityIDBlob(string(edge.ID))
+	if err != nil {
+		return err
+	}
+	groupID, err := runtimeids.GraphEntityIDBlob(string(edge.TransitionGroupID))
+	if err != nil {
+		return err
+	}
+	targetNodeID, err := runtimeids.GraphEntityIDBlob(string(edge.TargetNodeID))
+	if err != nil {
+		return err
+	}
 	contextSource := workflow.CanonicalContextSource(edge.ContextSource)
-	canonicalParameters := make([]workflow.Parameter, 0, len(edge.Parameters))
-	for _, parameter := range edge.Parameters {
-		canonicalParameters = append(canonicalParameters, parameter.Canonical())
-	}
-	parameters, err := marshalJSONArray(canonicalParameters)
-	if err != nil {
-		return err
-	}
-	inputs, err := workflow.MarshalString(edge.InputBindings)
-	if err != nil {
-		return err
-	}
-	requirements, err := workflow.MarshalString(edge.OutputRequirements)
-	if err != nil {
-		return err
-	}
 	requiresApproval := int64(0)
 	if edge.RequiresApproval {
 		requiresApproval = 1
@@ -968,24 +1025,57 @@ func upsertWorkflowEdge(ctx context.Context, q *sqlitegen.Queries, edge EdgeReco
 	assigneeSelection := workflow.DefaultAssigneeSelection(edge.AssigneeSelection)
 	thinkingSelection := workflow.DefaultThinkingSelection(edge.ThinkingSelection)
 	updated, err := q.UpsertWorkflowEdge(ctx, sqlitegen.UpsertWorkflowEdgeParams{
-		ID:                     string(edge.ID),
-		TransitionGroupID:      string(edge.TransitionGroupID),
-		EdgeKey:                string(edge.Key),
-		TargetNodeID:           string(edge.TargetNodeID),
-		AssigneeSelection:      string(assigneeSelection),
-		ThinkingSelection:      string(thinkingSelection),
-		RequiresApproval:       requiresApproval,
-		ContextMode:            string(edge.ContextMode),
-		ContextSourceKind:      string(contextSource.Kind),
-		ContextSourceNodeKey:   string(contextSource.NodeKey),
-		PromptTemplate:         strings.TrimSpace(edge.PromptTemplate),
-		ParametersJson:         parameters,
-		InputBindingsJson:      inputs,
-		OutputRequirementsJson: requirements,
-		SortOrder:              sortOrder,
-		WorkflowID:             edge.WorkflowID,
+		ID:                   id,
+		TransitionGroupID:    groupID,
+		EdgeKey:              string(edge.Key),
+		TargetNodeID:         targetNodeID,
+		AssigneeSelection:    string(assigneeSelection),
+		ThinkingSelection:    string(thinkingSelection),
+		RequiresApproval:     requiresApproval,
+		ContextMode:          string(edge.ContextMode),
+		ContextSourceKind:    string(contextSource.Kind),
+		ContextSourceNodeKey: string(contextSource.NodeKey),
+		PromptTemplate:       strings.TrimSpace(edge.PromptTemplate),
+		SortOrder:            sortOrder,
+		WorkflowID:           edge.WorkflowID,
 	})
-	return expectAffectedRowCount(updated, err, op)
+	if err := expectAffectedRowCount(updated, err, op); err != nil {
+		return err
+	}
+	if err := q.DeleteWorkflowParameters(ctx, id); err != nil {
+		return err
+	}
+	for index, parameter := range edge.Parameters {
+		parameter = parameter.Canonical()
+		if err := q.InsertWorkflowParameter(ctx, sqlitegen.InsertWorkflowParameterParams{
+			EdgeID: id, SortOrder: int64(index), ParameterKey: parameter.Key,
+			Description: parameter.Description, Purpose: string(parameter.Purpose),
+		}); err != nil {
+			return err
+		}
+	}
+	if err := q.DeleteWorkflowInputBindings(ctx, id); err != nil {
+		return err
+	}
+	for index, binding := range edge.InputBindings {
+		if err := q.InsertWorkflowInputBinding(ctx, sqlitegen.InsertWorkflowInputBindingParams{
+			EdgeID: id, SortOrder: int64(index), Name: binding.Name,
+			Source: string(binding.Source), Field: binding.Field,
+		}); err != nil {
+			return err
+		}
+	}
+	if err := q.DeleteWorkflowOutputRequirements(ctx, id); err != nil {
+		return err
+	}
+	for index, requirement := range edge.OutputRequirements {
+		if err := q.InsertWorkflowOutputRequirement(ctx, sqlitegen.InsertWorkflowOutputRequirementParams{
+			EdgeID: id, SortOrder: int64(index), FieldName: requirement.FieldName,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func expectAffectedRowCount(count int64, err error, op string) error {

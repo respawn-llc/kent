@@ -18,7 +18,6 @@ import {
   type AppNavigation,
   type SidebarRootController,
   type StatusController,
-  recoverOrThrowDebugFailure,
   type DesktopSettings,
 } from "@/app-facade";
 import {
@@ -26,11 +25,13 @@ import {
   attentionNotificationIDKey,
   attentionToastID,
   deliverPendingSurface,
+  deliverAttentionNotification,
   dismissSurface,
   notificationBody,
   notificationTitle,
   readCurrentPendingSurface,
   removeActiveNotification,
+  resolveWindowFocus,
   setSurface,
   taskDetailInitialFocus,
   type SurfaceRecord,
@@ -152,8 +153,9 @@ export function createAttentionViewModel({
       { concurrent: true, initialValue: null },
     );
     const suppress = (get: Atom.AtomContext, notification: AttentionNotification): boolean => {
-      const { focused, picker } = inputs();
+      const { focused, picker, delivery } = inputs();
       if (
+        delivery !== "automatic" ||
         notification.target.kind !== "session_prompt" ||
         focused !== true ||
         picker?.projectID !== notification.target.projectID ||
@@ -270,7 +272,7 @@ export function createAttentionViewModel({
                 body: t("app.attention.sessionNamingFailureHelp"),
                 target: event.target,
               };
-          const showFailure = () => {
+          const showFeedback = () => {
             status.push({
               ...notification,
               tone: completed ? "info" : "danger",
@@ -279,29 +281,16 @@ export function createAttentionViewModel({
               },
             });
           };
-          if (inputs().focused === true || !bridge.capabilities.notifications.basic) {
-            showFailure();
-          } else {
-            yield* Effect.tryPromise(async () => {
-              if ((await bridge.notifications.permissionState()) !== "granted") {
-                showFailure();
-                return;
-              }
-              await bridge.notifications.notify(notification);
-            }).pipe(
-              Effect.catch((error) =>
-                Effect.promise(async () =>
-                  recoverOrThrowDebugFailure({
-                    context: { sessionID: event.target.sessionID },
-                    error: error.cause,
-                    logger,
-                    message: "Delivering Session notification failed.",
-                    recover: showFailure,
-                  }),
-                ),
-              ),
-            );
-          }
+          const focused = yield* resolveWindowFocus(bridge.window, () => inputs().focused, logger);
+          yield* deliverAttentionNotification({
+            delivery: inputs().delivery,
+            focused,
+            hasNativeNotifications: bridge.capabilities.notifications.basic,
+            notification,
+            notifications: bridge.notifications,
+            logger,
+            inApp: Effect.sync(showFeedback),
+          });
           return null;
         }),
       { concurrent: true, initialValue: null },

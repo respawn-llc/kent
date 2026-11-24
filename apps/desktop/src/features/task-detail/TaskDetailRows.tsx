@@ -217,12 +217,13 @@ export function TaskHeaderIsland({
               data-testid="task-detail-save"
               disabled={!canSaveDraft || !dirty}
               aria-busy={saving}
+              loading={saving}
               size="icon"
               tabIndex={dirty ? undefined : -1}
               type="submit"
               variant="primary"
             >
-              {saving ? <Spinner /> : <Save aria-hidden="true" size={16} strokeWidth={1.75} />}
+              <Save aria-hidden="true" size={16} strokeWidth={1.75} />
             </Button>
           </ControlTooltip>
           {detail.actions.canDelete ? <TaskDeleteButton active={!dirty} disabled={false} /> : null}

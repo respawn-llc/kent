@@ -173,14 +173,27 @@ it.each([
   { modifier: "ctrlKey", prompt: undefined },
   { modifier: "altKey", prompt: question() },
   { modifier: "ctrlKey", prompt: question() },
-] as const)("starts dictation in the visible Chat field without focus: %j", async ({ modifier, prompt }) => {
-  await setupSpeech("draft", prompt);
-  await screen.findByRole("button", { name: appI18n.t("speech.record") });
-  screen.getByRole<HTMLTextAreaElement>("textbox").blur();
-  fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
-  await screen.findByRole("button", { name: appI18n.t("speech.stop") });
-  expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
-});
+] as const)(
+  "toggles dictation in the visible Chat field without submitting: %j",
+  async ({ modifier, prompt }) => {
+    const { transcript, steer, queue, answer } = await setupSpeech("draft", prompt);
+    await screen.findByRole("button", { name: appI18n.t("speech.record") });
+    screen.getByRole<HTMLTextAreaElement>("textbox").blur();
+    fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
+    await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+    expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { code: "Space", key: " ", [modifier]: true });
+    await act(async () => {
+      transcript.resolve({ kind: "transcript", text: "dictated" });
+    });
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLTextAreaElement>("textbox").value).toContain("dictated");
+    });
+    expect(steer).not.toHaveBeenCalled();
+    expect(queue).not.toHaveBeenCalled();
+    expect(answer).not.toHaveBeenCalled();
+  },
+);
 
 it.each([question(), approval()])(
   "inserts into the visible prompt when it arrives while the ordinary composer is recording: %s",
@@ -370,6 +383,40 @@ it("does not send an empty final message", async () => {
   expect(steer).not.toHaveBeenCalled();
   expect(queue).not.toHaveBeenCalled();
 });
+
+it.each(["transcript", "noop"] as const)(
+  "allows an empty freeform Question to finish recording before validating the %s result",
+  async (result) => {
+    const { transcript, answer, readTranscript } = await setupSpeech(
+      "",
+      question("freeform", { suggestions: [] }),
+    );
+    const send = screen.getByRole("button", { name: appI18n.t("chatComposer.send") });
+    expect(send).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: appI18n.t("speech.record") }));
+    await screen.findByRole("button", { name: appI18n.t("speech.stop") });
+    expect(send).toBeEnabled();
+    fireEvent.click(send);
+    await waitFor(() => {
+      expect(readTranscript).toHaveBeenCalled();
+    });
+    expect(answer).not.toHaveBeenCalled();
+    await act(async () => {
+      transcript.resolve(
+        result === "transcript" ? { kind: "transcript", text: "dictated answer" } : { kind: "noop" },
+      );
+    });
+    if (result === "transcript") {
+      await waitFor(() => {
+        expect(answer).toHaveBeenCalledTimes(1);
+      });
+    } else {
+      await screen.findByRole("button", { name: appI18n.t("speech.record") });
+      expect(answer).not.toHaveBeenCalled();
+      expect(send).toBeDisabled();
+    }
+  },
+);
 
 it("keeps Question Send disabled without a selected answer while recording", async () => {
   const { transcript, answer } = await setupSpeech("ordinary draft", question());

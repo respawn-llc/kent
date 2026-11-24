@@ -36,7 +36,6 @@ import (
 	askquestion "core/server/tools"
 	shelltool "core/server/tools/shell"
 	"core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/config"
 	"core/shared/protoapi"
 	invocationpb "core/shared/protoapi/gen/kent/api/invocation"
@@ -1906,7 +1905,7 @@ func TestInProcessRunPromptReturnsPendingQuestionAndExecutionContinues(t *testin
 		t.Fatal("execution stopped when the launch returned a pending Question")
 	}
 	_, err = fixture.authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []sessionruntime.PromptAnswerCommand{{
-		ToolCallID: clientui.ToolCallID(question.GetAsk().GetToolCallId()),
+		ToolCallID: runtimeids.ToolCallID(question.GetAsk().GetToolCallId()),
 		Payload: sessionruntime.PromptQuestionAnswerCommand{Answer: askquestion.AskQuestionAnswer{
 			Freeform: textutil.Value("continue"),
 		}},
@@ -2048,7 +2047,7 @@ func TestInProcessRunPromptReturnsPendingApprovalAndExecutionContinues(t *testin
 		t.Fatal("execution stopped when the launch returned a pending Approval")
 	}
 	_, err = fixture.authority.ResolvePromptBatch(context.Background(), selectedSessionID, stepID, []sessionruntime.PromptAnswerCommand{{
-		ToolCallID: clientui.ToolCallID(approval.GetToolCallId()),
+		ToolCallID: runtimeids.ToolCallID(approval.GetToolCallId()),
 		Payload: sessionruntime.PromptApprovalAnswerCommand{Answer: askquestion.AskQuestionApproval{
 			Decision: askquestion.AskQuestionApprovalDecisionAllowOnce,
 		}},

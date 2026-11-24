@@ -114,7 +114,7 @@ it.each(["altKey", "ctrlKey"] as const)(
       expect(screen.getByRole("button", { name: getI18n().t("speech.record") })).toBeDisabled();
       fireEvent.keyDown(field, { code: "Space", key: " ", [modifier]: true, repeat: true });
       expect(microphone?.startRequested).toHaveBeenCalledTimes(1);
-      fireEvent.click(screen.getByRole("button", { name: getI18n().t("speech.stop") }));
+      fireEvent.keyDown(field, { code: "Space", key: " ", [modifier]: true });
       await waitFor(() => {
         expect(field).toHaveValue("dictated");
       });

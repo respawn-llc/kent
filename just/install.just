@@ -1,5 +1,7 @@
 set working-directory := ".."
+set default-list
 
+# Build and install the native Desktop application locally.
 desktop:
     @bash scripts/quiet-on-success.sh just install _desktop
 

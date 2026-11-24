@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"errors"
 	"sync/atomic"
@@ -54,7 +55,7 @@ func TestFreshResourceRepairIsCauseIndependentAndDoesNotReplayTools(t *testing.T
 			callID := "dangling-" + string(test.tool)
 			store := mustCreateTestSession(t)
 			calls := []llm.ToolCall{{
-				ID:    callID,
+				ID:    runtimeids.ToolCallID(callID),
 				Name:  string(test.tool),
 				Input: json.RawMessage(`{}`),
 			}}
@@ -144,9 +145,9 @@ func TestFreshResourceRepairIgnoresStalePendingStartWhileLiveRepairDefers(t *tes
 		engine := mustNewTestEngine(t, store, &fakeClient{}, tools.NewRegistry(), Config{Model: "gpt-6-sol"})
 		stepID := runtimeTestStepID("fresh-resource-pending-start")
 		steerDanglingToolCall(t, engine, stepID, llm.ToolCall{
-			ID: callID, Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
+			ID: runtimeids.ToolCallID(callID), Name: string(toolspec.ToolExecCommand), Input: json.RawMessage(`{}`),
 		})
-		engine.rememberPendingToolCallStarts(map[string]int{callID: 0})
+		engine.rememberPendingToolCallStarts(map[runtimeids.ToolCallID]int{runtimeids.ToolCallID(callID): 0})
 		return engine, store
 	}
 	stepID := runtimeTestStepID("fresh-resource-pending-start")
@@ -259,13 +260,13 @@ func assertFreshResourceRepairOnEngine(
 	callID string,
 ) {
 	t.Helper()
-	completion, found := engine.transcriptRuntimeState().ToolCompletionSnapshot(callID)
+	completion, found := engine.transcriptRuntimeState().ToolCompletionSnapshot(runtimeids.ToolCallID(callID))
 	if !found || !completion.IsError {
 		t.Fatalf("fresh repair completion for %q = %+v found=%t", callID, completion, found)
 	}
 	assertSyntheticFailureOutput(t, completion.Output, string(completion.Name), missingToolOutputUnavailableMessage)
 	for _, live := range engine.transcriptRuntimeState().LiveToolSnapshot() {
-		if live.ToolCallID == callID {
+		if live.ToolCallID == runtimeids.ToolCallID(callID) {
 			t.Fatalf("fresh repair retained stale live tool start: %+v", live)
 		}
 	}

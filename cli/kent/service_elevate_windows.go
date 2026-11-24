@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"unsafe"
 
@@ -151,11 +152,15 @@ type elevatedServiceOutput struct {
 }
 
 func captureElevatedServiceOutput() (*elevatedServiceOutput, error) {
-	stdout, err := os.CreateTemp("", "kent-service-stdout-*")
+	directory := filepath.Join(os.TempDir(), "kent", "service")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return nil, fmt.Errorf("create elevated service output directory: %w", err)
+	}
+	stdout, err := os.CreateTemp(directory, "stdout-*")
 	if err != nil {
 		return nil, fmt.Errorf("capture elevated service stdout: %w", err)
 	}
-	stderr, err := os.CreateTemp("", "kent-service-stderr-*")
+	stderr, err := os.CreateTemp(directory, "stderr-*")
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("capture elevated service stderr: %w", err), stdout.Close(), os.Remove(stdout.Name()))
 	}

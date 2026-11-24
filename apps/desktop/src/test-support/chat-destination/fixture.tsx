@@ -14,7 +14,11 @@ import {
 import type { ChatSettingsRead, InitialChatSettings } from "@/api";
 import { createTestServices, TestAppProviders, type TestAppServices } from "@/test-support/app-services";
 import { deferred, mainViewRead, target as sessionTarget, transcriptPage } from "@/test-support/chat-runtime";
-import { worktreeBrowserFixtureRoute, sessionSettingsSubscriptionRoute } from "@/test-support/api";
+import {
+  worktreeBrowserFixtureRoute,
+  workspaceWorktreeBrowserFixtureRoute,
+  sessionSettingsSubscriptionRoute,
+} from "@/test-support/api";
 import {
   ChatPromptPresenceProvider,
   SidebarRootContext,
@@ -140,7 +144,11 @@ function sessionWithPrompts(
   contextualContent?: ReactNode,
   skipAnimations = true,
 ) {
-  const services = createTestServices([worktreeBrowserFixtureRoute(), sessionSettingsSubscriptionRoute()]);
+  const services = createTestServices([
+    worktreeBrowserFixtureRoute(),
+    workspaceWorktreeBrowserFixtureRoute(),
+    sessionSettingsSubscriptionRoute(),
+  ]);
   const settings = vi.spyOn(services.api.chat, "getSettings").mockResolvedValue(sessionSettingsRead());
   vi.spyOn(services.api.chat, "getDraft").mockResolvedValue({ input: "", protectedInput: null });
   vi.spyOn(services.api.chat, "persistDraft").mockResolvedValue();

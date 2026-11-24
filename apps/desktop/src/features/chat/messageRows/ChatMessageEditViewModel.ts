@@ -50,9 +50,7 @@ export function createChatMessageEditViewModel({
       push({
         id: "chat-message-edit-failed",
         title: t("chatTranscript.editFailed"),
-        body: t("chatTranscript.editFailureRecovery", {
-          diagnostic: chatOperationFailureMessage(t, error, "edit"),
-        }),
+        body: chatOperationFailureMessage(t, error, "edit"),
         tone: "danger",
       });
     },

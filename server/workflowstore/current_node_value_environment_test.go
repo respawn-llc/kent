@@ -425,7 +425,7 @@ WHERE task_id = ?
   AND node_id = ?
   AND transition_branch_key IS NULL`,
 		string(review.Reference.TaskID),
-		string(review.Reference.NodeID),
+		testGraphEntityIDBlob(t, string(review.Reference.NodeID)),
 	); err != nil {
 		t.Fatalf("simulate Current Node missing its entering Transition namespace: %v", err)
 	}

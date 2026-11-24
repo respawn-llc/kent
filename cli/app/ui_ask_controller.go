@@ -8,6 +8,7 @@ import (
 	"core/shared/clientui"
 	"core/shared/protoapi"
 	transcriptpb "core/shared/protoapi/gen/kent/api/transcript"
+	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"errors"
 	"fmt"
@@ -137,6 +138,9 @@ func (c uiAskController) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	req := m.ask.current.prompt
 	if c.handleDedicatedNavigation(msg) {
+		return m, nil
+	}
+	if c.handleChoiceShortcut(msg) {
 		return m, nil
 	}
 	if m.askEditorAcceptsInput() && isClipboardPasteKey(msg) {
@@ -441,7 +445,7 @@ func (c uiAskController) renderPriorityPromptLines() []askPromptLine {
 			if selected {
 				prefix = "✔︎ "
 			}
-			lines = append(lines, askPromptLine{Text: fmt.Sprintf("%s%d. %s", prefix, idx, askFreeformSelectionOptionText), Kind: askPromptLineKindOption, Selected: selected, Option: textutil.Value(idx - 1)})
+			lines = append(lines, askPromptLine{Text: fmt.Sprintf("%s0. %s", prefix, askFreeformSelectionOptionText), Kind: askPromptLineKindOption, Selected: selected, Option: textutil.Value(idx - 1)})
 		}
 		if (askSupportsDraftRoundTrip(req) ||
 			(approvalSupportsCommentary(req) && m.ask.freeformMode == askFreeformModeApprovalCommentary)) &&
@@ -477,9 +481,9 @@ func (c uiAskController) answer(resp clientui.PromptAnswer, err error) (bool, bo
 		return false, false, nil
 	}
 	if answerToolCallID == "" {
-		resp.ToolCallID = clientui.ToolCallID(currentToolCallID)
+		resp.ToolCallID = runtimeids.ToolCallID(currentToolCallID)
 	} else {
-		resp.ToolCallID = clientui.ToolCallID(answerToolCallID)
+		resp.ToolCallID = runtimeids.ToolCallID(answerToolCallID)
 	}
 	active, cmd, deliveryErr := m.promptAnswers.delivery(m.ask.current.prompt, resp, err)
 	if deliveryErr != nil {

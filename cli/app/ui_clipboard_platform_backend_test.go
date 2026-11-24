@@ -300,7 +300,7 @@ func requireClipboardText(t *testing.T, paster *systemClipboardPaster, want stri
 
 func requireEmptyClipboardDir(t *testing.T, dir string) {
 	t.Helper()
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(filepath.Join(dir, "kent"))
 	if err != nil {
 		t.Fatalf("read temporary directory: %v", err)
 	}

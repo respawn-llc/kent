@@ -10,6 +10,7 @@ import (
 
 	"core/server/metadata/sqlitegen"
 	"core/server/workflow"
+	"core/shared/runtimeids"
 )
 
 type ManualMovePreviewOutcome string
@@ -172,7 +173,11 @@ func (s *Store) resolveManualMove(ctx context.Context, q *sqlitegen.Queries, req
 }
 
 func manualMoveDefinition(ctx context.Context, q *sqlitegen.Queries, task sqlitegen.TaskRecord, targetID workflow.NodeID) (workflow.Definition, WorkflowRecord, error) {
-	target, err := q.GetWorkflowNode(ctx, string(targetID))
+	nodeID, err := runtimeids.GraphEntityIDBlob(string(targetID))
+	if err != nil {
+		return workflow.Definition{}, WorkflowRecord{}, err
+	}
+	target, err := q.GetWorkflowNode(ctx, nodeID)
 	if err != nil {
 		return workflow.Definition{}, WorkflowRecord{}, err
 	}
@@ -695,7 +700,7 @@ func (s *Store) manualMoveValueEnvironment(
 		return manualMoveValueEnvironment{}, err
 	}
 	for _, row := range rows {
-		approval, err := pendingApprovalFromRow(ctx, q, pendingApprovalRecordFromListRow(row))
+		approval, err := pendingApprovalHeaderFromRow(row)
 		if err != nil {
 			return manualMoveValueEnvironment{}, err
 		}
@@ -705,17 +710,6 @@ func (s *Store) manualMoveValueEnvironment(
 		}
 		for outputName, value := range approval.OutputValues {
 			environment.add(workflow.NodeKey(source), outputName, value)
-		}
-		for _, branch := range approval.Branches {
-			if err := addManualMoveCurrentNodeValues(
-				definition,
-				wiring,
-				branch.Target.CurrentNode,
-				targetNodeID,
-				&environment,
-			); err != nil {
-				return manualMoveValueEnvironment{}, err
-			}
 		}
 	}
 	return environment, nil

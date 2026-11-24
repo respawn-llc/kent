@@ -203,7 +203,7 @@ func beginGatewayPendingPrompt(t *testing.T, broker *attentionnotify.Broker, ses
 		scope = attentionnotify.RoutingScope{Kind: attentionnotify.RoutingWorkflowTask, TaskID: target.TaskID, SessionID: sessionID}
 	}
 	notification := clientui.AttentionNotification{
-		ID:   clientui.AttentionNotificationID{Kind: kind, UUID: request.ToolCallID},
+		ID:   clientui.AttentionNotificationID{Kind: kind, UUID: string(request.ToolCallID)},
 		Kind: kind, OccurredAt: time.Now().UTC(), Revision: 1, Target: target,
 	}
 	if kind == clientui.AttentionNotificationKindApproval {
@@ -232,13 +232,13 @@ func gatewayTaskBatchAskRequest(askID string, projectID string, taskID string, s
 	currentNodeID := "node-" + taskID
 	workflowID := runtimeids.NewWorkflowID()
 	return askquestion.AskQuestionRequest{
-		ToolCallID: askID,
+		ToolCallID: runtimeids.ToolCallID(askID),
 		StepID:     gatewayAttentionStepID,
 		Question:   "Task question?",
 		QuestionBatch: &askquestion.AskQuestionBatchMetadata{
 			Origin:              askquestion.AskQuestionOriginModelTool,
 			StepID:              gatewayAttentionStepID,
-			ToolCallID:          askID,
+			ToolCallID:          runtimeids.ToolCallID(askID),
 			BatchToolCallIDs:    []string{askID},
 			CandidateOrdinal:    0,
 			PreparedPromptCount: 1,

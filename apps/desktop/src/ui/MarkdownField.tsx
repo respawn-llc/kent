@@ -231,6 +231,10 @@ function MarkdownFieldFloatingAction({ action }: Readonly<{ action: MarkdownFloa
       )}
       data-slot="markdown-field-floating-action"
       inert={exiting}
+      onPointerDown={(event) => {
+        // Keep the editor focused until its action completes the pointer click.
+        if (event.button === 0) event.preventDefault();
+      }}
       onClickCapture={
         exiting
           ? (event) => {

@@ -10,7 +10,6 @@ import (
 	"core/server/sessionstore"
 	askquestion "core/server/tools"
 	servicecontract "core/shared/apicontract"
-	"core/shared/clientui"
 	"core/shared/invariant"
 	"core/shared/protoapi"
 	promptpb "core/shared/protoapi/gen/kent/api/prompt"
@@ -29,7 +28,7 @@ type PendingPromptResponder interface {
 		context.Context,
 		runtimeids.SessionID,
 		runtimeids.StepID,
-		clientui.ToolCallID,
+		runtimeids.ToolCallID,
 	) (serverapi.PromptFollowUpSubscription, error)
 }
 
@@ -81,7 +80,7 @@ func (s *PromptControlService) AnswerPromptBatch(
 	}
 	commands := make([]sessionruntime.PromptAnswerCommand, 0, len(req.Entries))
 	for _, entry := range req.Entries {
-		command := sessionruntime.PromptAnswerCommand{ToolCallID: clientui.ToolCallID(entry.ToolCallId)}
+		command := sessionruntime.PromptAnswerCommand{ToolCallID: runtimeids.ToolCallID(entry.ToolCallId)}
 		switch answer := entry.Answer.(type) {
 		case *promptpb.AnswerBatchEntry_QuestionAnswer:
 			var selected *int
@@ -165,10 +164,10 @@ func (s *PromptControlService) SubscribeFollowUp(
 	if err != nil {
 		return nil, err
 	}
-	return s.prompts.SubscribePromptFollowUp(ctx, sessionID, stepID, clientui.ToolCallID(req.ToolCallId))
+	return s.prompts.SubscribePromptFollowUp(ctx, sessionID, stepID, runtimeids.ToolCallID(req.ToolCallId))
 }
 
-func reportPromptBatchTranslationInvariant(toolCallID clientui.ToolCallID) error {
+func reportPromptBatchTranslationInvariant(toolCallID runtimeids.ToolCallID) error {
 	err := fmt.Errorf("validated prompt answer batch entry %q has no disposition", toolCallID)
 	invariant.NewPolicy().Check(false, invariant.WorkflowPromptDiagnostic(
 		"translate_prompt_answer_batch_entry",

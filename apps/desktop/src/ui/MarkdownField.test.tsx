@@ -19,40 +19,53 @@ const baseProps = {
 };
 
 describe("MarkdownField presentation options", () => {
-  it("keeps the editor mounted while pressing its action and exits when focus leaves the field", async () => {
-    const save = vi.fn();
-    function Example() {
-      const [editing, setEditing] = useState(true);
-      return (
-        <>
-          <CollapsibleMarkdownField
-            {...baseProps}
-            editing={editing}
-            onEditingChange={setEditing}
-            onEdit={() => {
-              setEditing(true);
-            }}
-            expanded
-            expandLabel="Expand"
-            collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}
-            floatingAction={<button onClick={save}>Save</button>}
-          />
-          <button>Outside</button>
-        </>
-      );
-    }
-    render(<Example />);
-    const user = userEvent.setup();
-    const editor = screen.getByRole("textbox", { name: "Description" });
-    const button = screen.getByRole("button", { name: "Save" });
-    await user.pointer({ target: button, keys: "[MouseLeft>]" });
-    expect(editor).toBeInTheDocument();
-    expect(save).not.toHaveBeenCalled();
-    await user.pointer({ target: button, keys: "[/MouseLeft]" });
-    expect(save).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: "Outside" }));
-    expect(editor).not.toBeInTheDocument();
-  });
+  it.each([false, true])(
+    "keeps the editor mounted while pressing its action, including non-focusing buttons: %s",
+    async (nonFocusingButton) => {
+      const save = vi.fn();
+      function Example() {
+        const [editing, setEditing] = useState(true);
+        return (
+          <>
+            <CollapsibleMarkdownField
+              {...baseProps}
+              editing={editing}
+              onEditingChange={setEditing}
+              onEdit={() => {
+                setEditing(true);
+              }}
+              expanded
+              expandLabel="Expand"
+              collapsedHeightClamp={{ kind: "pixels", maximumPixels: 300 }}
+              floatingAction={<button onClick={save}>Save</button>}
+            />
+            <button>Outside</button>
+          </>
+        );
+      }
+      render(<Example />);
+      const user = userEvent.setup();
+      const editor = screen.getByRole("textbox", { name: "Description" });
+      const button = screen.getByRole("button", { name: "Save" });
+      if (nonFocusingButton) {
+        // Model a mouse press that blurs the editor without focusing the button.
+        button.addEventListener("mousedown", (event) => {
+          if (!event.defaultPrevented) editor.blur();
+        });
+      }
+      await user.pointer({ target: button, keys: "[MouseLeft>]" });
+      expect(editor).toBeInTheDocument();
+      expect(save).not.toHaveBeenCalled();
+      await user.pointer({ target: button, keys: "[/MouseLeft]" });
+      expect(save).toHaveBeenCalledTimes(1);
+      await user.tab();
+      expect(button).toHaveFocus();
+      await user.keyboard("{Enter}");
+      expect(save).toHaveBeenCalledTimes(2);
+      await user.click(screen.getByRole("button", { name: "Outside" }));
+      expect(editor).not.toBeInTheDocument();
+    },
+  );
 
   it("keeps only the latest floating action as an inert exit presentation", () => {
     const firstAction = vi.fn();

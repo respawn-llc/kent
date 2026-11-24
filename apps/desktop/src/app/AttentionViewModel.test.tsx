@@ -13,7 +13,11 @@ import { attentionSubscriptionRoute, emitQuestionBatchRevision } from "@/test-su
 import type { DesktopSettings } from "@/app-facade";
 import { createBrowserNativeBridge } from "@/test-support/native-bridge";
 
-async function deliveryFixture(initial: DesktopSettings["notifications"], focused: boolean) {
+async function deliveryFixture(
+  initial: DesktopSettings["notifications"],
+  focused: boolean,
+  picker: Readonly<{ projectID: string; sessionID: string }> | null = null,
+) {
   const browser = createBrowserNativeBridge();
   const bridge = {
     ...browser,
@@ -48,7 +52,7 @@ async function deliveryFixture(initial: DesktopSettings["notifications"], focuse
             status,
             t: appI18n.t,
             openSessionChat,
-            inputs: () => ({ focused, picker: null, delivery: saved.notifications }),
+            inputs: () => ({ focused, picker, delivery: saved.notifications }),
           }),
         [client, roots],
       );
@@ -93,6 +97,18 @@ it("delivers Native attention while focused", async () => {
   fixture.view.unmount();
 });
 
+it("does not duplicate a failed Native attention alert as a Sonner", async () => {
+  const fixture = await deliveryFixture("native", true);
+  fixture.notify.mockRejectedValue(new Error("Native delivery failed"));
+  await fixture.emit(1);
+  await waitFor(() => {
+    expect([...fixture.view.result.current.surfaces.values()][0]?.state).toBe("dismissed");
+  });
+  expect(fixture.notify).toHaveBeenCalledTimes(1);
+  expect(fixture.status.push).not.toHaveBeenCalled();
+  fixture.view.unmount();
+});
+
 it("delivers In-app attention while unfocused", async () => {
   const fixture = await deliveryFixture("inApp", false);
   await fixture.emit(1);
@@ -102,6 +118,22 @@ it("delivers In-app attention while unfocused", async () => {
   expect(fixture.notify).not.toHaveBeenCalled();
   fixture.view.unmount();
 });
+
+it.each(["native", "inApp"] as const)(
+  "honors explicit %s delivery with the owning Session picker focused",
+  async (delivery) => {
+    const fixture = await deliveryFixture(delivery, true, {
+      projectID: "project-1",
+      sessionID: "11111111-1111-4111-8111-111111111111",
+    });
+    await fixture.emit(1);
+    await waitFor(() => {
+      expect(delivery === "native" ? fixture.notify : fixture.status.push).toHaveBeenCalledTimes(1);
+    });
+    expect(delivery === "native" ? fixture.status.push : fixture.notify).not.toHaveBeenCalled();
+    fixture.view.unmount();
+  },
+);
 
 it.each([true, false])("keeps Automatic focus-dependent delivery (focused=%s)", async (focused) => {
   const fixture = await deliveryFixture("automatic", focused);
@@ -163,26 +195,43 @@ import * as Stream from "effect/Stream";
 import { validateNativeNotification } from "@app/native-bridge";
 import { turnCompletionPresentation } from "./turnCompletionPresentation";
 
-it.each([
-  { focused: true, title: "Session" },
-  { focused: false, title: "Session" },
-  { focused: true, title: "🙂".repeat(90) },
-  { focused: false, title: "🙂".repeat(90) },
-])("routes global turn-end feedback and opens its Session", async ({ focused, title }) => {
+it.each(
+  (
+    [
+      { focused: true, title: "Session", delivery: "native" },
+      { focused: false, title: "Session", delivery: "inApp" },
+      { focused: true, title: "Session", delivery: "automatic" },
+      { focused: false, title: "Session", delivery: "automatic" },
+      { focused: true, title: "🙂".repeat(90), delivery: "automatic" },
+      { focused: false, title: "🙂".repeat(90), delivery: "automatic" },
+    ] as const
+  ).flatMap((scenario) =>
+    (["session_turn_end", "session_naming_failure"] as const).map((type) => ({ ...scenario, type })),
+  ),
+)("routes global Session feedback and opens its Session", async ({ focused, title, delivery, type }) => {
+  const inApp = delivery === "inApp" || (delivery === "automatic" && focused);
   const services = createTestServices([]);
   const target = { kind: "session_prompt", projectID: "project-1", sessionID: "session-1" } as const;
   vi.spyOn(services.api, "subscribeAttentionNotifications").mockReturnValue(
     Stream.make({
       kind: "event",
-      event: {
-        type: "session_turn_end",
-        sequence: 1,
-        shortID: null,
-        sessionName: title,
-        assistantContent: "Completed work",
-        completedAt: 1,
-        target,
-      },
+      event:
+        type === "session_naming_failure"
+          ? {
+              type,
+              sequence: 1,
+              target,
+              error: { cause: null },
+            }
+          : {
+              type,
+              sequence: 1,
+              shortID: null,
+              sessionName: title,
+              assistantContent: "Completed work",
+              completedAt: 1,
+              target,
+            },
     }),
   );
   const bridge = services.nativeBridge;
@@ -206,7 +255,7 @@ it.each([
   const inputs = () => ({
     focused,
     picker: { projectID: target.projectID, sessionID: target.sessionID },
-    delivery: "automatic" as const,
+    delivery,
   });
   const wrapper = ({ children }: Readonly<{ children: ReactNode }>) => (
     <TestAppProviders services={configured}>
@@ -240,18 +289,20 @@ it.each([
     { wrapper },
   );
   await waitFor(() => {
-    expect(focused ? status.push : notify).toHaveBeenCalledTimes(1);
+    expect(inApp ? status.push : notify).toHaveBeenCalledTimes(1);
   });
-  expect(focused ? notify : status.push).not.toHaveBeenCalled();
-  const presentation = focused ? status.push.mock.calls[0]?.[0] : notify.mock.calls[0]?.[0];
-  expect(presentation).toMatchObject(
-    turnCompletionPresentation({
-      title: appI18n.t("app.attention.sessionEnded", { name: title }),
-      body: "Completed work",
-    }),
-  );
+  expect(inApp ? notify : status.push).not.toHaveBeenCalled();
+  const presentation = inApp ? status.push.mock.calls[0]?.[0] : notify.mock.calls[0]?.[0];
+  if (type === "session_turn_end") {
+    expect(presentation).toMatchObject(
+      turnCompletionPresentation({
+        title: appI18n.t("app.attention.sessionEnded", { name: title }),
+        body: "Completed work",
+      }),
+    );
+  }
   await act(async () => {
-    if (focused) status.push.mock.calls[0]?.[0].onClick?.();
+    if (inApp) status.push.mock.calls[0]?.[0].onClick?.();
     else {
       const delivered = notify.mock.calls[0]?.[0];
       if (delivered === undefined) throw new Error("Missing native delivery");

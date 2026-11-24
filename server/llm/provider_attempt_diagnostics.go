@@ -155,3 +155,27 @@ func diagnosticOptional[T any](value *T) any {
 	}
 	return *value
 }
+
+func (a *providerAttemptDiagnostic) assistantTextConflict(outputIndex int64, streamed, completed string) {
+	if a == nil {
+		return
+	}
+	commonPrefix := 0
+	for commonPrefix < min(len(streamed), len(completed)) && streamed[commonPrefix] == completed[commonPrefix] {
+		commonPrefix++
+	}
+	offset := max(0, commonPrefix-32)
+	// Byte excerpts preserve exact evidence even when a difference splits UTF-8.
+	// JSON logs encode these bounded private excerpts as base64.
+	a.logger.Warn("assistant text conflict",
+		"kind", "assistant_text_conflict",
+		"response_id", diagnosticOptional(a.responseID),
+		"output_index", outputIndex,
+		"streamed_bytes", len(streamed),
+		"completed_bytes", len(completed),
+		"common_prefix_bytes", commonPrefix,
+		"excerpt_offset", offset,
+		"streamed_excerpt", []byte(streamed[offset:min(len(streamed), offset+256)]),
+		"completed_excerpt", []byte(completed[offset:min(len(completed), offset+256)]),
+	)
+}

@@ -1,4 +1,4 @@
-import { useId, useRef, type MouseEvent, type RefCallback } from "react";
+import { useId, useRef, type MouseEvent, type RefCallback, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import { Star } from "lucide-react";
 import { cx } from "./classes";
@@ -17,6 +17,8 @@ export function PromptOptionRow({
   onActivate,
   onDoubleActivate,
   className,
+  shortcutNumber,
+  neitherShortcut,
 }: Readonly<{
   disabled: boolean;
   primaryControlRef?: RefCallback<HTMLButtonElement> | undefined;
@@ -26,6 +28,8 @@ export function PromptOptionRow({
   selected?: boolean;
   appearance?: "plain" | "picker";
   className?: string | undefined;
+  shortcutNumber?: number | undefined;
+  neitherShortcut?: boolean;
   onActivate?: () => void;
   onDoubleActivate?: () => void;
 }>) {
@@ -56,17 +60,20 @@ export function PromptOptionRow({
         onDoubleActivate();
       }}
     >
-      <RadioGroupItem
-        aria-labelledby={`${id}-label`}
-        className="mt-1"
-        disabled={disabled}
-        id={id}
-        ref={(element) => {
-          radioRef.current = element;
-          primaryControlRef?.(element);
-        }}
-        value={value}
-      />
+      <OptionShortcutTooltip number={shortcutNumber} neither={neitherShortcut}>
+        <RadioGroupItem
+          aria-labelledby={`${id}-label`}
+          className="mt-1"
+          disabled={disabled}
+          id={id}
+          ref={(element) => {
+            radioRef.current = element;
+            primaryControlRef?.(element);
+          }}
+          value={value}
+        />
+      </OptionShortcutTooltip>
+      <OptionNumber number={shortcutNumber} neither={neitherShortcut} />
       <div
         className={cx(
           "min-w-0 flex-1 cursor-pointer",
@@ -103,6 +110,35 @@ export function PromptOptionRow({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function OptionNumber({
+  number,
+  neither,
+}: Readonly<{ number: number | undefined; neither: boolean | undefined }>) {
+  const displayed = neither ? 0 : number;
+  return displayed === undefined ? null : <span className="shrink-0">{displayed}.</span>;
+}
+
+function OptionShortcutTooltip({
+  number,
+  neither,
+  children,
+}: Readonly<{ number: number | undefined; neither: boolean | undefined; children: ReactElement }>) {
+  const { t } = useTranslation();
+  const shortcuts = [
+    neither ? 0 : null,
+    number !== undefined && number >= 1 && number <= 9 ? number : null,
+  ].filter((key) => key !== null);
+  if (shortcuts.length === 0) return children;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent>{t("task.selectOptionShortcut", { shortcut: shortcuts.join(", ") })}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

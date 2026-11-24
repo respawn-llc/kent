@@ -45,6 +45,7 @@ function remainingSidebarTitle(
   t: ReturnType<typeof useTranslation>["t"],
 ): string {
   if (destination.kind === "projectEdit") return t("projectEdit.title");
-  if (destination.kind === "processes") return t("processes.title");
+  if (destination.kind === "processes")
+    return t(destination.scope.kind === "project" ? "processes.projectTitle" : "processes.title");
   return destination.title;
 }

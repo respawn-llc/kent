@@ -90,7 +90,7 @@ WHERE task_id = 'task-1'`,
 	)
 }
 
-func TestTaskPendingApprovalSchemaRejectsFlattenedTargetPriorValues(t *testing.T) {
+func TestTaskPendingApprovalSchemaRejectsTransitionAtDifferentSource(t *testing.T) {
 	t.Parallel()
 	store, now := newTaskCurrentSchemaFixture(t)
 	insertTaskCurrentNode(t, store.db, "task-1", "node-start", nil)
@@ -99,19 +99,8 @@ func TestTaskPendingApprovalSchemaRejectsFlattenedTargetPriorValues(t *testing.T
 		t,
 		store.db,
 		sqlite3.SQLITE_CONSTRAINT_TRIGGER,
-		`INSERT INTO task_pending_approval_branches (
-    approval_id,
-    transition_branch_key,
-    target_snapshot_json,
-    effective_edge_configuration_json,
-    context_source_resolution_json
-) VALUES (
-    'approval-1',
-    'done',
-    '{"prior_node_values":{"shared":{"value":"ambiguous"}}}',
-    '{}',
-    '{}'
-)`,
+		`UPDATE task_pending_approvals SET transition_group_id = ? WHERE id = 'approval-1'`,
+		workflowGraphSeedID(t, store.db, "group-done"),
 	)
 }
 
@@ -204,7 +193,6 @@ func TestTaskCurrentNodeSchemaUsesNaturalReferencesAndLeanFanoutStorage(t *testi
 		"task_current_nodes",
 		"task_active_fanouts",
 		"task_active_fanout_branches",
-		"task_pending_approval_branches",
 	} {
 		if columnExists(t, store.db, table, "id") {
 			t.Fatalf("%s.id should not exist; the relation has a natural identity", table)
@@ -239,11 +227,10 @@ const insertTaskPendingApprovalSQL = `INSERT INTO task_pending_approvals (
     source_task_id,
     source_node_id,
     source_transition_branch_key,
-    workflow_version,
-    transition_snapshot_json,
+    transition_group_id,
     materialized_values_json,
     created_at_unix_ms
-) VALUES (?, ?, ?, ?, 1, '{}', '{}', ?)`
+) VALUES (?, ?, ?, ?, (SELECT id FROM workflow_transition_groups WHERE source_node_id = ? LIMIT 1), '{}', ?)`
 
 func newTaskCurrentSchemaFixture(t *testing.T) (*Store, int64) {
 	t.Helper()
@@ -307,7 +294,8 @@ func assertTaskPendingApprovalConstraint(t *testing.T, db *sql.DB, approvalID, t
 
 func taskPendingApprovalArgs(t *testing.T, db workflowGraphSeedQueryer, approvalID, taskID, nodeID string, branch *string, now int64) []any {
 	t.Helper()
-	return []any{approvalID, taskID, workflowGraphSeedID(t, db, nodeID), nullableCurrentNodeSchemaBranch(branch), now}
+	node := workflowGraphSeedID(t, db, nodeID)
+	return []any{approvalID, taskID, node, nullableCurrentNodeSchemaBranch(branch), node, now}
 }
 
 func nullableCurrentNodeSchemaBranch(branch *string) any {

@@ -41,13 +41,7 @@ func TestTaskResumeMissingOrdinaryInputDoesNotBlockParallelSibling(t *testing.T)
 		t.Fatal(err)
 	}
 	parameters := append(edge.Parameters, workflow.Parameter{Key: "risk", Description: "Risk.", Purpose: workflow.ParameterPurposeOrdinary})
-	raw, err := marshalJSONArray(parameters)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE workflow_edges SET parameters_json = ? WHERE id = ?`, raw, string(edge.ID)); err != nil {
-		t.Fatal(err)
-	}
+	replaceTestParameters(t, store, string(edge.ID), parameters)
 	if _, err := store.PlanTaskResume(ctx, task.ID, []workflow.CurrentNodeReference{branches[0].Reference}, nil); err == nil {
 		t.Fatal("Resume accepted a missing ordinary Parameter")
 	} else {
@@ -97,24 +91,21 @@ func TestTaskResumePreservesSavedSelectionAfterIncomingSelectorEdits(t *testing.
 					thinking = workflow.ThinkingSelectionPreviousNode
 					parameters = append(parameters, workflow.Parameter{Key: "effort", Description: "Thinking.", Purpose: workflow.ParameterPurposeTargetThinking})
 				}
-				raw, err := marshalJSONArray(parameters)
-				if err != nil {
-					t.Fatal(err)
-				}
+				replaceTestParameters(t, store, string(*current.EnteredByEdgeID), parameters)
 				if _, err := store.db.ExecContext(ctx, `
-UPDATE workflow_edges SET parameters_json = ?, assignee_selection = ?, thinking_selection = ? WHERE id = ?`,
-					raw, string(assignee), string(thinking), string(*current.EnteredByEdgeID)); err != nil {
+UPDATE workflow_edges SET assignee_selection = ?, thinking_selection = ? WHERE id = ?`,
+					string(assignee), string(thinking), testGraphEntityIDBlob(t, string(*current.EnteredByEdgeID))); err != nil {
 					t.Fatal(err)
 				}
 				if edit == "thinking" {
 					if _, err := store.db.ExecContext(ctx, `UPDATE workflow_edges SET prompt_template = ? WHERE id = ?`,
-						"Resume with {{.Params.effort}}.", string(*current.EnteredByEdgeID)); err != nil {
+						"Resume with {{.Params.effort}}.", testGraphEntityIDBlob(t, string(*current.EnteredByEdgeID))); err != nil {
 						t.Fatal(err)
 					}
 				}
 			case "deleted fallback":
 				if _, err := store.db.ExecContext(ctx, `UPDATE workflow_nodes SET subagent_role = ? WHERE id = ?`,
-					"deleted-role", string(current.Reference.NodeID)); err != nil {
+					"deleted-role", testGraphEntityIDBlob(t, string(current.Reference.NodeID))); err != nil {
 					t.Fatal(err)
 				}
 			case "deleted saved role":
@@ -169,19 +160,10 @@ func TestPreflightTaskResumeRejectsEditedTransitionParameterWithoutMutatingCurre
 	); err != nil {
 		t.Fatalf("InterruptCurrentNode: %v", err)
 	}
-	parameters, err := marshalJSONArray([]workflow.Parameter{
+	replaceTestParameters(t, store, string(*review.EnteredByEdgeID), []workflow.Parameter{
 		{Key: "summary", Description: "Review summary.", Purpose: workflow.ParameterPurposeOrdinary},
 		{Key: "risk", Description: "New risk.", Purpose: workflow.ParameterPurposeOrdinary},
 	})
-	if err != nil {
-		t.Fatalf("marshal edited Transition Parameters: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
-UPDATE workflow_edges
-SET parameters_json = ?
-WHERE id = ?`, parameters, string(*review.EnteredByEdgeID)); err != nil {
-		t.Fatalf("edit entering Transition Branch: %v", err)
-	}
 
 	classifications, err := store.PreflightTaskResume(ctx, task.ID)
 	if err != nil {
@@ -411,24 +393,15 @@ INSERT INTO task_current_nodes (
     effective_assignee, assignee_origin
 ) VALUES (?, ?, '{"joined":"existing"}', '{"transition_parameters":{}}', 'interrupted', 'user_interrupt', '{}', 1, ?, 'default', 'configured_fallback')`,
 		task.ID,
-		string(synthID),
-		string(enteringEdgeID),
+		testGraphEntityIDBlob(t, string(synthID)),
+		testGraphEntityIDBlob(t, string(enteringEdgeID)),
 	); err != nil {
 		t.Fatalf("seed Join Current Node: %v", err)
 	}
-	parameters, err := marshalJSONArray([]workflow.Parameter{
+	replaceTestParameters(t, store, string(testEdgeID("edge-join-a-"+workflowID.String())), []workflow.Parameter{
 		{Key: "joined", Description: "Joined branch summary.", Purpose: workflow.ParameterPurposeOrdinary},
 		{Key: "risk", Description: "New derived requirement.", Purpose: workflow.ParameterPurposeOrdinary},
 	})
-	if err != nil {
-		t.Fatalf("marshal edited Join Parameters: %v", err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
-UPDATE workflow_edges
-SET parameters_json = ?
-WHERE id = ?`, parameters, string(testEdgeID("edge-join-a-"+workflowID.String()))); err != nil {
-		t.Fatalf("edit Join incoming Transition Branch: %v", err)
-	}
 
 	classifications, err := store.PreflightTaskResume(ctx, task.ID)
 	if err != nil {
@@ -471,8 +444,8 @@ INSERT INTO task_current_nodes (
     scheduling_state, interruption_reason, interruption_detail_json, interrupted_at_unix_ms, entered_by_edge_id
 ) VALUES (?, ?, '{}', '{"transition_parameters":{}}', 'interrupted', 'user_interrupt', '{}', 1, ?)`,
 		task.ID,
-		string(reference.NodeID),
-		string(enteringEdgeID),
+		testGraphEntityIDBlob(t, string(reference.NodeID)),
+		testGraphEntityIDBlob(t, string(enteringEdgeID)),
 	); err != nil {
 		t.Fatalf("seed mismatched Current Node: %v", err)
 	}

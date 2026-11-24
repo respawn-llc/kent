@@ -56,7 +56,11 @@ function PromptSendButton({
   const { speech } = useComposerSurface();
   return (
     <SendButton
-      enabled={!restricted && !picker.request.isPending && canConfirmPicker(picker.state)}
+      enabled={
+        !restricted &&
+        !picker.request.isPending &&
+        canConfirmPicker(picker.state, speech.phase === "recording" ? "recording" : "complete")
+      }
       pending={restricted || picker.request.isPending}
       tooltip={t("chatComposer.send")}
       onClick={async () => {

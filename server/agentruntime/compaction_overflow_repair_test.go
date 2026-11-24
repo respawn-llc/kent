@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"core/shared/runtimeids"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -196,7 +197,7 @@ func TestSpeculativeLocalCompactionCollapsesToolPayloadAfterOverflow(t *testing.
 	}
 	if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 		Role:       llm.RoleTool,
-		ToolCallID: textutil.Value("call-shell"),
+		ToolCallID: (*runtimeids.ToolCallID)(textutil.Value("call-shell")),
 		Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 		Content:    textutil.Value(`{"output":"` + strings.Repeat("x", 120_000) + `"}`),
 	}})); err != nil {
@@ -292,7 +293,7 @@ func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredCon
 	for idx := 0; idx < 5; idx++ {
 		callID := fmt.Sprintf("call-shell-%d", idx)
 		if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{
-			ID:    callID,
+			ID:    runtimeids.ToolCallID(callID),
 			Name:  string(toolspec.ToolExecCommand),
 			Input: json.RawMessage(`{"cmd":"echo hi"}`),
 		}}}})); err != nil {
@@ -300,7 +301,7 @@ func TestLocalCompactionUsesTenTwentyFortyPercentRepairScheduleFromConfiguredCon
 		}
 		if err := eng.steerRuntime(steerMessagesWithPersistenceIntent(steeringPriorityNormal, steeringMessageEventDefault, true, []llm.Message{{
 			Role:       llm.RoleTool,
-			ToolCallID: textutil.Value(callID),
+			ToolCallID: (*runtimeids.ToolCallID)(textutil.Value(callID)),
 			Name:       textutil.Value(string(toolspec.ToolExecCommand)),
 			Content:    textutil.Value(`{"output":"` + strings.Repeat("x", 48_000) + `"}`),
 		}})); err != nil {

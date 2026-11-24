@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"core/shared/clientui"
 	"core/shared/runtimeids"
 	"core/shared/textutil"
 	"core/shared/toolspec"
@@ -15,7 +14,7 @@ import (
 
 func testApprovalRequest(id string) AskQuestionRequest {
 	return AskQuestionRequest{
-		ToolCallID: id,
+		ToolCallID: runtimeids.ToolCallID(id),
 		Question:   "approve?",
 		Approval:   true,
 		ApprovalOptions: []AskQuestionApprovalOption{
@@ -29,7 +28,7 @@ func testApprovalRequest(id string) AskQuestionRequest {
 func testApprovalContext(parent context.Context, toolCallID string) context.Context {
 	ctx := WithExecutionIdentity(parent, ExecutionIdentity{
 		StepID:     "22222222-2222-4222-8222-222222222222",
-		ToolCallID: clientui.ToolCallID(toolCallID),
+		ToolCallID: runtimeids.ToolCallID(toolCallID),
 	})
 	return WithApprovalLifecycle(ctx, NewApprovalLifecycle())
 }
@@ -413,7 +412,7 @@ func TestLifecycleApprovalAcceptsConsumerExactlyOnce(t *testing.T) {
 		return resolution, handled.AcceptApproval(resolution)
 	})
 
-	if _, err := b.Ask(testApprovalContext(context.Background(), request.ToolCallID), request); err != nil {
+	if _, err := b.Ask(testApprovalContext(context.Background(), string(request.ToolCallID)), request); err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
 	if consumerCalls != 1 {
@@ -437,7 +436,7 @@ func TestLifecycleHandlerReturnsApprovalConsumerFailure(t *testing.T) {
 		}
 		return failure
 	}
-	resolution, err := b.Ask(testApprovalContext(context.Background(), request.ToolCallID), request)
+	resolution, err := b.Ask(testApprovalContext(context.Background(), string(request.ToolCallID)), request)
 	if !errors.Is(err, failure) || resolution != nil || calls != 1 {
 		t.Fatalf("resolution = %v, error = %v, consumer calls = %d", resolution, err, calls)
 	}
@@ -664,7 +663,7 @@ func TestApprovalBrokerAdmission(t *testing.T) {
 func callAskQuestionTool(t *testing.T, b *AskQuestionBroker, id string, input string) Result {
 	t.Helper()
 	result, err := NewAskQuestionTool(b, nil).Call(context.Background(), Call{
-		ID:    id,
+		ID:    runtimeids.ToolCallID(id),
 		Name:  toolspec.ToolAskQuestion,
 		Input: json.RawMessage(input),
 	})
@@ -718,7 +717,7 @@ func TestToolCallSerializesResponsesAsPlainText(t *testing.T) {
 		t.Run(tt.id, func(t *testing.T) {
 			b := NewAskQuestionBroker()
 			b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
-				if req.ToolCallID != tt.id {
+				if string(req.ToolCallID) != tt.id {
 					t.Fatalf("request id = %q, want %q", req.ToolCallID, tt.id)
 				}
 				return tt.resolution, nil
@@ -755,7 +754,7 @@ func TestToolCallNormalizesRecommendedOptionIndex(t *testing.T) {
 		t.Run(tt.id, func(t *testing.T) {
 			b := NewAskQuestionBroker()
 			b.SetLifecycleAskHandler(func(_ context.Context, req AskQuestionRequest) (AskQuestionResolution, error) {
-				if req.ToolCallID != tt.id {
+				if string(req.ToolCallID) != tt.id {
 					t.Fatalf("request id = %q, want %q", req.ToolCallID, tt.id)
 				}
 				if req.RecommendedOptionIndex != 0 {

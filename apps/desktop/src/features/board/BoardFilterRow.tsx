@@ -9,6 +9,7 @@ import { TaskSearchProjectTrigger } from "./TaskSearchChrome";
 
 export function BoardFilterRow({
   activeWorkflow,
+  onEditWorkflow,
   onLinkWorkflow,
   onNewTask,
   onOpenTask,
@@ -18,6 +19,7 @@ export function BoardFilterRow({
   workflows,
 }: Readonly<{
   activeWorkflow: WorkflowPickerItem;
+  onEditWorkflow(workflowID: string): void;
   onLinkWorkflow(): void;
   onNewTask(): void;
   onOpenTask(taskID: string): void;
@@ -35,6 +37,7 @@ export function BoardFilterRow({
       </InteractiveChip>
       <BoardWorkflowPicker
         activeWorkflow={activeWorkflow}
+        onEditWorkflow={onEditWorkflow}
         onLinkWorkflow={onLinkWorkflow}
         onOpenTasks={onOpenTasks}
         onSelectWorkflow={onSelectWorkflow}

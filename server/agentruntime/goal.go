@@ -170,17 +170,9 @@ func (e *Engine) setGoalRaw(objective string, actor session.GoalActor, startLoop
 		return result, err
 	}
 	metadataErr := err
-	msg, noticeBuildErr := goalNoticeMessage(GoalNoticeSet, &goal)
-	if noticeBuildErr != nil {
-		if !startLoop {
-			return result, errors.Join(metadataErr, noticeBuildErr)
-		}
-		return result, errors.Join(metadataErr, noticeBuildErr, e.startGoalLoop(false))
-	}
 	noticeAccepted, noticeErr := e.enqueueGoalNotice(
-		msg,
+		GoalNoticeSet,
 		goalStatusUpdateFromState(goal, &availability),
-		&objective,
 	)
 	if !startLoop {
 		return result, errors.Join(metadataErr, noticeErr)
@@ -242,14 +234,9 @@ func (e *Engine) setGoalStatusRaw(status session.GoalStatus, actor session.GoalA
 	if err != nil || !transitioned || !metadataReceipt.Committed {
 		return result, err
 	}
-	msg, err := goalNoticeMessage(GoalNoticeStatus, &goal)
-	if err != nil {
-		return result, err
-	}
 	noticeAccepted, noticeErr := e.enqueueGoalNotice(
-		msg,
+		GoalNoticeStatus,
 		goalStatusUpdateFromState(goal, &availability),
-		nil,
 	)
 	if !startLoop || status != session.GoalStatusActive {
 		return result, noticeErr
@@ -321,29 +308,45 @@ func (e *Engine) clearGoalRaw(actor session.GoalActor) (GoalCommandResult, error
 	if !metadataReceipt.Committed || err != nil {
 		return result, err
 	}
-	msg, err := goalNoticeMessage(GoalNoticeClear, nil)
-	if err != nil {
-		return result, err
-	}
-	_, noticeErr := e.enqueueGoalNotice(msg, goalStatusClearUpdate(&availability), nil)
+	_, noticeErr := e.enqueueGoalNotice(GoalNoticeClear, goalStatusClearUpdate(&availability))
 	return result, noticeErr
 }
 
 // Goal metadata is committed before admission here. Only model-visible feedback
 // waits for the Engine Intent Queue's next Step Boundary.
 func (e *Engine) enqueueGoalNotice(
-	message llm.Message,
+	kind GoalNoticeKind,
 	update GoalStatusUpdate,
-	namingTask *string,
 ) (bool, error) {
-	_, accepted := trySubmitEngineRuntimeOperation(e, func(context.Context) (struct{}, error) {
-		if namingTask != nil {
+	var goal *session.GoalState
+	if !update.Cleared {
+		goal = &update.State
+	}
+	message, err := goalNoticeMessage(kind, goal)
+	if err != nil {
+		return false, err
+	}
+	_, accepted := trySubmitEngineRuntimeOperation(e, func(ctx context.Context) (struct{}, error) {
+		if kind == GoalNoticeSet {
 			e.outputMutationMu.Lock()
-			e.captureSessionNamingRaw(*namingTask)
+			e.captureSessionNamingRaw(update.State.Objective)
 			e.outputMutationMu.Unlock()
 		}
 		message = normalizeMessageForTranscript(message, e.transcriptWorkingDir())
-		_, err := e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
+		var err error
+		if _, fresh := e.generationContextSnapshot().(freshGenerationContext); fresh && kind == GoalNoticeSet && !e.workflowPromptActive() {
+			err = e.initializeFreshMetaContext(ctx, func(result metaContextBuildResult) (session.CommitReceipt, error) {
+				result.ActiveGoalContinuation = []llm.Message{message}
+				result.sessionMode = metaContextSessionModeGoal
+				receipt, contextErr := e.steerSessionMetaContextBuildResult(result)
+				if !receipt.Committed {
+					return receipt, contextErr
+				}
+				return receipt, errors.Join(contextErr, e.steerOrdered(sessionSteeringProvenance(), steerGoalStatusUpdateIntent(update)))
+			})
+		} else {
+			_, err = e.steerGoalNoticeAndStatusRaw(sessionSteeringProvenance(), message, update)
+		}
 		if err != nil {
 			e.surfaceRunErrorRaw(err)
 		}
@@ -388,12 +391,7 @@ func (e *Engine) cascadeCompleteActiveGoalOnWorkflowCompletion(stepID string) {
 	if !transitioned {
 		return
 	}
-	msg, err := goalNoticeMessage(GoalNoticeStatus, &completed)
-	if err != nil {
-		reportErr(err)
-		return
-	}
-	if _, err := e.enqueueGoalNotice(msg, goalStatusUpdateFromState(completed, &availability), nil); err != nil {
+	if _, err := e.enqueueGoalNotice(GoalNoticeStatus, goalStatusUpdateFromState(completed, &availability)); err != nil {
 		reportErr(err)
 	}
 }

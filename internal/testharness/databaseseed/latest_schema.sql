@@ -59,7 +59,8 @@ CREATE TABLE session_short_id_sequence (
 
 CREATE TABLE "session_workflow_node_associations" (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    node_id TEXT NOT NULL,
+    node_id BLOB NOT NULL
+        CHECK (typeof(node_id) = 'blob' AND length(node_id) = 16 AND node_id != zeroblob(16)),
     transition_branch_key TEXT
         CHECK (transition_branch_key IS NULL OR length(trim(transition_branch_key)) BETWEEN 1 AND 64),
     associated_at_unix_ms INTEGER NOT NULL CHECK (associated_at_unix_ms > 0)
@@ -130,7 +131,8 @@ CREATE TABLE "task_comments" (
 
 CREATE TABLE "task_current_nodes" (
     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    node_id TEXT NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE RESTRICT,
+    node_id BLOB NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE RESTRICT
+        CHECK (typeof(node_id) = 'blob' AND length(node_id) = 16 AND node_id != zeroblob(16)),
     transition_branch_key TEXT
         CHECK (transition_branch_key IS NULL OR length(trim(transition_branch_key)) BETWEEN 1 AND 64),
     current_input_values_json TEXT NOT NULL DEFAULT '{}'
@@ -149,7 +151,8 @@ CREATE TABLE "task_current_nodes" (
         ),
     interrupted_at_unix_ms INTEGER
         CHECK (interrupted_at_unix_ms IS NULL OR interrupted_at_unix_ms > 0),
-    entered_by_edge_id TEXT,
+    entered_by_edge_id BLOB
+        CHECK (entered_by_edge_id IS NULL OR (typeof(entered_by_edge_id) = 'blob' AND length(entered_by_edge_id) = 16 AND entered_by_edge_id != zeroblob(16))),
     effective_assignee TEXT
         CHECK (effective_assignee IS NULL OR length(trim(effective_assignee)) > 0),
     effective_thinking TEXT
@@ -191,28 +194,17 @@ CREATE TABLE task_label_assignments (
     PRIMARY KEY (task_id, label_id)
 );
 
-CREATE TABLE "task_pending_approval_branches" (
-    approval_id TEXT NOT NULL REFERENCES "task_pending_approvals"(id) ON DELETE CASCADE,
-    transition_branch_key TEXT NOT NULL CHECK (length(trim(transition_branch_key)) BETWEEN 1 AND 64),
-    target_snapshot_json TEXT NOT NULL
-        CHECK (json_valid(target_snapshot_json) AND json_type(target_snapshot_json) = 'object'),
-    effective_edge_configuration_json TEXT NOT NULL
-        CHECK (json_valid(effective_edge_configuration_json) AND json_type(effective_edge_configuration_json) = 'object'),
-    context_source_resolution_json TEXT NOT NULL
-        CHECK (json_valid(context_source_resolution_json) AND json_type(context_source_resolution_json) = 'object'),
-    PRIMARY KEY (approval_id, transition_branch_key)
-);
-
 CREATE TABLE "task_pending_approvals" (
     id TEXT PRIMARY KEY,
     source_task_id TEXT NOT NULL,
-    source_node_id TEXT NOT NULL,
+    source_node_id BLOB NOT NULL
+        CHECK (typeof(source_node_id) = 'blob' AND length(source_node_id) = 16 AND source_node_id != zeroblob(16)),
     source_transition_branch_key TEXT
         CHECK (source_transition_branch_key IS NULL OR length(trim(source_transition_branch_key)) BETWEEN 1 AND 64),
     source_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-    workflow_version INTEGER NOT NULL CHECK (workflow_version >= 1),
-    transition_snapshot_json TEXT NOT NULL
-        CHECK (json_valid(transition_snapshot_json) AND json_type(transition_snapshot_json) = 'object'),
+    transition_group_id BLOB NOT NULL
+        CHECK (typeof(transition_group_id) = 'blob' AND length(transition_group_id) = 16 AND transition_group_id != zeroblob(16)),
+    commentary TEXT,
     materialized_values_json TEXT NOT NULL
         CHECK (json_valid(materialized_values_json) AND json_type(materialized_values_json) = 'object'),
     created_at_unix_ms INTEGER NOT NULL CHECK (created_at_unix_ms > 0)
@@ -307,14 +299,15 @@ CREATE TABLE "tasks" (
 );
 
 CREATE TABLE "workflow_edges" (
-    id TEXT PRIMARY KEY,
-    transition_group_id TEXT NOT NULL REFERENCES "workflow_transition_groups"(id) ON DELETE CASCADE,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
+    transition_group_id BLOB NOT NULL REFERENCES "workflow_transition_groups"(id) ON DELETE CASCADE
+        CHECK (typeof(transition_group_id) = 'blob' AND length(transition_group_id) = 16 AND transition_group_id != zeroblob(16)),
     edge_key TEXT NOT NULL CHECK (length(edge_key) BETWEEN 1 AND 64),
-    target_node_id TEXT NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE,
+    target_node_id BLOB NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE
+        CHECK (typeof(target_node_id) = 'blob' AND length(target_node_id) = 16 AND target_node_id != zeroblob(16)),
     requires_approval INTEGER NOT NULL DEFAULT 0 CHECK (requires_approval IN (0, 1)),
     context_mode TEXT NOT NULL CHECK (context_mode IN ('new_session', 'continue_session', 'compact_and_continue_session')),
-    input_bindings_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(input_bindings_json)),
-    output_requirements_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(output_requirements_json)),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
     context_source_kind TEXT NOT NULL DEFAULT 'immediate_source'
         CHECK (context_source_kind IN ('immediate_source', 'selected_node', 'previous_target', 'previous_target_or_new')),
@@ -327,8 +320,6 @@ CREATE TABLE "workflow_edges" (
             OR (context_source_kind = 'selected_node' AND length(context_source_node_key) BETWEEN 1 AND 64)
         ),
     prompt_template TEXT NOT NULL DEFAULT '',
-    parameters_json TEXT NOT NULL DEFAULT '[]'
-        CHECK (json_valid(parameters_json) AND json_type(parameters_json) = 'array'),
     assignee_selection TEXT NOT NULL DEFAULT 'configured'
         CHECK (assignee_selection IN ('configured', 'previous_node')),
     thinking_selection TEXT NOT NULL DEFAULT 'configured'
@@ -336,8 +327,26 @@ CREATE TABLE "workflow_edges" (
     UNIQUE (transition_group_id, edge_key)
 );
 
+CREATE TABLE workflow_input_bindings (
+    edge_id BLOB NOT NULL REFERENCES workflow_edges(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+    name TEXT NOT NULL CHECK (length(name) > 0),
+    source TEXT NOT NULL CHECK (source IN ('task', 'transition_output', 'join')),
+    field TEXT NOT NULL CHECK (length(field) > 0),
+    PRIMARY KEY (edge_id, sort_order)
+) WITHOUT ROWID;
+
+CREATE TABLE workflow_join_providers (
+    node_id BLOB NOT NULL REFERENCES workflow_nodes(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+    input_name TEXT NOT NULL CHECK (length(input_name) > 0),
+    provider_edge_id BLOB NOT NULL REFERENCES workflow_edges(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    PRIMARY KEY (node_id, sort_order)
+) WITHOUT ROWID;
+
 CREATE TABLE "workflow_node_groups" (
-    id TEXT PRIMARY KEY,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
     workflow_id BLOB NOT NULL REFERENCES workflows(id) ON DELETE CASCADE
         CHECK (typeof(workflow_id) = 'blob' AND length(workflow_id) = 16),
     group_key TEXT NOT NULL CHECK (length(group_key) BETWEEN 1 AND 64),
@@ -348,16 +357,17 @@ CREATE TABLE "workflow_node_groups" (
 );
 
 CREATE TABLE "workflow_nodes" (
-    id TEXT PRIMARY KEY,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
     workflow_id BLOB NOT NULL REFERENCES workflows(id) ON DELETE CASCADE
         CHECK (typeof(workflow_id) = 'blob' AND length(workflow_id) = 16),
     node_key TEXT NOT NULL CHECK (length(node_key) BETWEEN 1 AND 64),
     kind TEXT NOT NULL CHECK (kind IN ('start', 'agent', 'script', 'join', 'terminal')),
     display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 0 AND 120),
     subagent_role TEXT NOT NULL DEFAULT '',
-    group_id TEXT REFERENCES "workflow_node_groups"(id) ON DELETE SET NULL,
+    group_id BLOB REFERENCES "workflow_node_groups"(id) ON DELETE SET NULL
+        CHECK (group_id IS NULL OR (typeof(group_id) = 'blob' AND length(group_id) = 16 AND group_id != zeroblob(16))),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
-    join_input_providers_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(join_input_providers_json)),
     completion_mode TEXT NOT NULL DEFAULT ''
         CHECK (
             completion_mode IN ('', 'auto', 'structured_output', 'tool', 'shell_command', 'unstructured_output')
@@ -370,9 +380,27 @@ CREATE TABLE "workflow_nodes" (
     UNIQUE (workflow_id, node_key)
 );
 
+CREATE TABLE workflow_output_requirements (
+    edge_id BLOB NOT NULL REFERENCES workflow_edges(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+    field_name TEXT NOT NULL CHECK (length(field_name) > 0),
+    PRIMARY KEY (edge_id, sort_order)
+) WITHOUT ROWID;
+
+CREATE TABLE workflow_parameters (
+    edge_id BLOB NOT NULL REFERENCES workflow_edges(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+    parameter_key TEXT NOT NULL CHECK (length(parameter_key) > 0),
+    description TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('ordinary', 'target_assignee', 'target_thinking')),
+    PRIMARY KEY (edge_id, sort_order)
+) WITHOUT ROWID;
+
 CREATE TABLE "workflow_transition_groups" (
-    id TEXT PRIMARY KEY,
-    source_node_id TEXT NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE,
+    id BLOB PRIMARY KEY
+        CHECK (typeof(id) = 'blob' AND length(id) = 16 AND id != zeroblob(16)),
+    source_node_id BLOB NOT NULL REFERENCES "workflow_nodes"(id) ON DELETE CASCADE
+        CHECK (typeof(source_node_id) = 'blob' AND length(source_node_id) = 16 AND source_node_id != zeroblob(16)),
     transition_id TEXT NOT NULL CHECK (length(transition_id) BETWEEN 1 AND 64),
     display_name TEXT NOT NULL DEFAULT '' CHECK (length(display_name) <= 120),
     sort_order INTEGER NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
@@ -483,49 +511,31 @@ LEFT JOIN task_comments comment ON comment.id = document.comment_id;
 
 CREATE VIEW workflow_task_status_records AS
 WITH current_positions AS (
-    SELECT
-        task_id,
-        node_id,
-        scheduling_state,
-        interruption_reason
-    FROM task_current_nodes
+    SELECT task_id, node_id, scheduling_state, interruption_reason FROM task_current_nodes
 ), status_inputs AS (
     SELECT
         task.id AS task_id,
         EXISTS (
-            SELECT 1
-            FROM current_positions position
+            SELECT 1 FROM current_positions position
             JOIN workflow_nodes node ON node.id = position.node_id
-            WHERE position.task_id = task.id
-              AND node.kind = 'terminal'
+            WHERE position.task_id = task.id AND node.kind = 'terminal'
         ) AS has_done,
         EXISTS (
-            SELECT 1
-            FROM task_pending_approvals approval
-            WHERE approval.source_task_id = task.id
+            SELECT 1 FROM task_pending_approvals approval WHERE approval.source_task_id = task.id
         ) AS has_waiting_approval,
         EXISTS (
-            SELECT 1
-            FROM current_positions position
-            WHERE position.task_id = task.id
-              AND position.scheduling_state = 'interrupted'
+            SELECT 1 FROM current_positions position
+            WHERE position.task_id = task.id AND position.scheduling_state = 'interrupted'
         ) AS has_interrupted,
         EXISTS (
-            SELECT 1
-            FROM current_positions position
-            WHERE position.task_id = task.id
-              AND position.scheduling_state = 'interrupted'
-              AND position.interruption_reason NOT IN (
-                  'user_interrupt',
-                  'workflow_runtime_canceled'
-              )
+            SELECT 1 FROM current_positions position
+            WHERE position.task_id = task.id AND position.scheduling_state = 'interrupted'
+              AND position.interruption_reason NOT IN ('user_interrupt', 'workflow_runtime_canceled')
         ) AS has_interrupted_attention,
         EXISTS (
-            SELECT 1
-            FROM current_positions position
+            SELECT 1 FROM current_positions position
             JOIN workflow_nodes node ON node.id = position.node_id
-            WHERE position.task_id = task.id
-              AND node.kind = 'start'
+            WHERE position.task_id = task.id AND node.kind = 'start'
         ) AS has_backlog
     FROM task_records task
 )
@@ -547,10 +557,9 @@ SELECT
         ELSE 8
     END AS primary_status_rank,
     COALESCE((
-        SELECT json_group_array(node_id)
+        SELECT json_group_array(kent_graph_entity_id_text_v1(node_id))
         FROM (
-            SELECT position.node_id
-            FROM current_positions position
+            SELECT position.node_id FROM current_positions position
             WHERE position.task_id = task.id
             ORDER BY position.node_id
         )
@@ -558,11 +567,9 @@ SELECT
     COALESCE((
         SELECT json_group_array(attention_type)
         FROM (
-            SELECT 'approval' AS attention_type
-            WHERE input.has_waiting_approval
+            SELECT 'approval' AS attention_type WHERE input.has_waiting_approval
             UNION
-            SELECT 'interrupted'
-            WHERE input.has_interrupted_attention
+            SELECT 'interrupted' WHERE input.has_interrupted_attention
             ORDER BY attention_type
         )
     ), '[]') AS attention_types_json
@@ -634,13 +641,21 @@ CREATE INDEX task_comments_task_activity_idx
 CREATE INDEX task_comments_task_created_idx
     ON task_comments(task_id, created_at_unix_ms DESC, id DESC);
 
+CREATE INDEX task_current_nodes_entered_by_edge_idx
+    ON task_current_nodes(entered_by_edge_id) WHERE entered_by_edge_id IS NOT NULL;
+
+CREATE INDEX task_current_nodes_node_idx
+    ON task_current_nodes(node_id);
+
 CREATE UNIQUE INDEX task_current_nodes_parallel_branch_unique_idx
-    ON task_current_nodes(task_id, transition_branch_key)
-    WHERE transition_branch_key IS NOT NULL;
+    ON task_current_nodes(task_id, transition_branch_key);
 
 CREATE UNIQUE INDEX task_current_nodes_serial_task_unique_idx
     ON task_current_nodes(task_id)
     WHERE transition_branch_key IS NULL;
+
+CREATE INDEX task_current_nodes_session_idx
+    ON task_current_nodes(session_id) WHERE session_id IS NOT NULL;
 
 CREATE INDEX task_dependencies_reverse_idx
     ON task_dependencies(blocked_task_id, blocker_task_id);
@@ -649,12 +664,20 @@ CREATE INDEX task_label_assignments_label_task_idx
     ON task_label_assignments(label_id, task_id);
 
 CREATE UNIQUE INDEX task_pending_approvals_parallel_source_unique_idx
-    ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key)
-    WHERE source_transition_branch_key IS NOT NULL;
+    ON task_pending_approvals(source_task_id, source_node_id, source_transition_branch_key);
 
 CREATE UNIQUE INDEX task_pending_approvals_serial_source_unique_idx
     ON task_pending_approvals(source_task_id, source_node_id)
     WHERE source_transition_branch_key IS NULL;
+
+CREATE INDEX task_pending_approvals_source_node_idx
+    ON task_pending_approvals(source_node_id);
+
+CREATE INDEX task_pending_approvals_source_session_idx
+    ON task_pending_approvals(source_session_id) WHERE source_session_id IS NOT NULL;
+
+CREATE INDEX task_pending_approvals_task_order_idx
+    ON task_pending_approvals(source_task_id, created_at_unix_ms, id);
 
 CREATE UNIQUE INDEX task_search_documents_comment_unique
     ON task_search_documents(comment_id)
@@ -692,6 +715,9 @@ CREATE INDEX workflow_edges_target_node_idx
 
 CREATE INDEX workflow_edges_transition_group_sort_idx
     ON workflow_edges(transition_group_id, sort_order);
+
+CREATE INDEX workflow_join_providers_provider_edge_idx
+    ON workflow_join_providers(provider_edge_id);
 
 CREATE INDEX workflow_node_groups_workflow_sort_idx
     ON workflow_node_groups(workflow_id, sort_order);
@@ -938,17 +964,10 @@ CREATE TRIGGER task_current_nodes_pending_approval_delete
 BEFORE DELETE ON task_current_nodes
 FOR EACH ROW
 WHEN EXISTS (
-    SELECT 1
-    FROM task_pending_approvals approval
+    SELECT 1 FROM task_pending_approvals approval
     WHERE approval.source_task_id = OLD.task_id
       AND approval.source_node_id = OLD.node_id
-      AND (
-          (
-              approval.source_transition_branch_key IS NULL
-              AND OLD.transition_branch_key IS NULL
-          )
-          OR approval.source_transition_branch_key = OLD.transition_branch_key
-      )
+      AND approval.source_transition_branch_key IS OLD.transition_branch_key
 )
 BEGIN
     SELECT RAISE(ABORT, 'current node with pending approval cannot be deleted');
@@ -958,17 +977,10 @@ CREATE TRIGGER task_current_nodes_pending_approval_reference_update
 BEFORE UPDATE OF task_id, node_id, transition_branch_key ON task_current_nodes
 FOR EACH ROW
 WHEN EXISTS (
-    SELECT 1
-    FROM task_pending_approvals approval
+    SELECT 1 FROM task_pending_approvals approval
     WHERE approval.source_task_id = OLD.task_id
       AND approval.source_node_id = OLD.node_id
-      AND (
-          (
-              approval.source_transition_branch_key IS NULL
-              AND OLD.transition_branch_key IS NULL
-          )
-          OR approval.source_transition_branch_key = OLD.transition_branch_key
-      )
+      AND approval.source_transition_branch_key IS OLD.transition_branch_key
 )
 BEGIN
     SELECT RAISE(ABORT, 'current node with pending approval cannot change identity');
@@ -1076,53 +1088,38 @@ BEGIN
     SELECT RAISE(ABORT, 'task label assignment must stay within one project');
 END;
 
-CREATE TRIGGER task_pending_approval_branches_prior_transition_parameters_insert
-BEFORE INSERT ON task_pending_approval_branches
+CREATE TRIGGER task_pending_approvals_choice_insert
+BEFORE INSERT ON task_pending_approvals
 FOR EACH ROW
-WHEN json_type(NEW.target_snapshot_json, '$.prior_values') IS NOT 'object'
-  OR json_type(NEW.target_snapshot_json, '$.prior_values.transition_parameters') IS NOT 'object'
-  OR json(
-      json_remove(
-          json_extract(NEW.target_snapshot_json, '$.prior_values'),
-          '$.transition_parameters'
-      )
-  ) != '{}'
-  OR json_type(NEW.target_snapshot_json, '$.prior_node_values') IS NOT NULL
+WHEN NOT EXISTS (
+    SELECT 1 FROM workflow_transition_groups transition_group
+    WHERE transition_group.id = NEW.transition_group_id
+      AND transition_group.source_node_id = NEW.source_node_id
+)
 BEGIN
-    SELECT RAISE(ABORT, 'pending approval target prior values must contain exactly one Transition parameter object');
+    SELECT RAISE(ABORT, 'pending approval transition must belong to its source node');
 END;
 
-CREATE TRIGGER task_pending_approval_branches_prior_transition_parameters_update
-BEFORE UPDATE OF target_snapshot_json ON task_pending_approval_branches
+CREATE TRIGGER task_pending_approvals_choice_update
+BEFORE UPDATE OF transition_group_id, source_node_id ON task_pending_approvals
 FOR EACH ROW
-WHEN json_type(NEW.target_snapshot_json, '$.prior_values') IS NOT 'object'
-  OR json_type(NEW.target_snapshot_json, '$.prior_values.transition_parameters') IS NOT 'object'
-  OR json(
-      json_remove(
-          json_extract(NEW.target_snapshot_json, '$.prior_values'),
-          '$.transition_parameters'
-      )
-  ) != '{}'
-  OR json_type(NEW.target_snapshot_json, '$.prior_node_values') IS NOT NULL
+WHEN NOT EXISTS (
+    SELECT 1 FROM workflow_transition_groups transition_group
+    WHERE transition_group.id = NEW.transition_group_id
+      AND transition_group.source_node_id = NEW.source_node_id
+)
 BEGIN
-    SELECT RAISE(ABORT, 'pending approval target prior values must contain exactly one Transition parameter object');
+    SELECT RAISE(ABORT, 'pending approval transition must belong to its source node');
 END;
 
 CREATE TRIGGER task_pending_approvals_source_current_insert
 BEFORE INSERT ON task_pending_approvals
 FOR EACH ROW
 WHEN NOT EXISTS (
-    SELECT 1
-    FROM task_current_nodes current_node
+    SELECT 1 FROM task_current_nodes current_node
     WHERE current_node.task_id = NEW.source_task_id
       AND current_node.node_id = NEW.source_node_id
-      AND (
-          (
-              current_node.transition_branch_key IS NULL
-              AND NEW.source_transition_branch_key IS NULL
-          )
-          OR current_node.transition_branch_key = NEW.source_transition_branch_key
-      )
+      AND current_node.transition_branch_key IS NEW.source_transition_branch_key
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval source must be a current node');
@@ -1132,17 +1129,10 @@ CREATE TRIGGER task_pending_approvals_source_current_update
 BEFORE UPDATE OF source_task_id, source_node_id, source_transition_branch_key ON task_pending_approvals
 FOR EACH ROW
 WHEN NOT EXISTS (
-    SELECT 1
-    FROM task_current_nodes current_node
+    SELECT 1 FROM task_current_nodes current_node
     WHERE current_node.task_id = NEW.source_task_id
       AND current_node.node_id = NEW.source_node_id
-      AND (
-          (
-              current_node.transition_branch_key IS NULL
-              AND NEW.source_transition_branch_key IS NULL
-          )
-          OR current_node.transition_branch_key = NEW.source_transition_branch_key
-      )
+      AND current_node.transition_branch_key IS NEW.source_transition_branch_key
 )
 BEGIN
     SELECT RAISE(ABORT, 'pending approval source must be a current node');
@@ -1454,11 +1444,7 @@ CREATE TRIGGER workflow_nodes_current_task_anchor_delete
 BEFORE DELETE ON workflow_nodes
 FOR EACH ROW
 WHEN EXISTS (
-    SELECT 1 FROM task_pending_approvals approval
-    WHERE approval.source_node_id = OLD.id
-) OR EXISTS (
-    SELECT 1 FROM task_pending_approval_branches branch
-    WHERE json_extract(branch.target_snapshot_json, '$.node_id') = OLD.id
+    SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node has current task references');
@@ -1493,20 +1479,9 @@ END;
 CREATE TRIGGER workflow_nodes_task_reference_kind_update
 BEFORE UPDATE OF kind ON workflow_nodes
 FOR EACH ROW
-WHEN NEW.kind != OLD.kind
-AND (
-    EXISTS (
-        SELECT 1 FROM task_current_nodes current_node
-        WHERE current_node.node_id = OLD.id
-    )
-    OR EXISTS (
-        SELECT 1 FROM task_pending_approvals approval
-        WHERE approval.source_node_id = OLD.id
-    )
-    OR EXISTS (
-        SELECT 1 FROM task_pending_approval_branches branch
-        WHERE json_extract(branch.target_snapshot_json, '$.node_id') = OLD.id
-    )
+WHEN NEW.kind != OLD.kind AND (
+    EXISTS (SELECT 1 FROM task_current_nodes current_node WHERE current_node.node_id = OLD.id)
+    OR EXISTS (SELECT 1 FROM task_pending_approvals approval WHERE approval.source_node_id = OLD.id)
 )
 BEGIN
     SELECT RAISE(ABORT, 'workflow node kind changes are blocked for nodes referenced by current task state');

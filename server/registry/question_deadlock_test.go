@@ -16,7 +16,6 @@ import (
 	"core/server/sessionruntime"
 	"core/server/sessionstore"
 	"core/server/tools"
-	"core/shared/clientui"
 	"core/shared/config"
 	runtimepb "core/shared/protoapi/gen/kent/api/runtime"
 	sharedpb "core/shared/protoapi/gen/kent/api/shared"
@@ -221,7 +220,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		}
 		release()
 	}
-	var pendingToolCallID clientui.ToolCallID
+	var pendingToolCallID runtimeids.ToolCallID
 	for {
 		message, err := subscription.Next(t.Context())
 		if err != nil {
@@ -234,7 +233,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 		if prompt.Status != transcriptpb.PromptStatus_PROMPT_STATUS_PENDING {
 			continue
 		}
-		pendingToolCallID = clientui.ToolCallID(prompt.GetQuestion().ToolCallId)
+		pendingToolCallID = runtimeids.ToolCallID(prompt.GetQuestion().ToolCallId)
 		if delayedSupervisor {
 			followUp, live := authority.SessionExecution(id)
 			if !live || followUp.Scope().ID() == handle.Scope().ID() {
@@ -248,7 +247,7 @@ func exerciseQuestionResolution(t *testing.T, answer, delayedSupervisor bool) {
 				t.Fatal(err)
 			}
 			answers, err := authority.ResolvePromptBatch(t.Context(), id, stepID, []sessionruntime.PromptAnswerCommand{{
-				ToolCallID: clientui.ToolCallID(prompt.GetQuestion().ToolCallId),
+				ToolCallID: runtimeids.ToolCallID(prompt.GetQuestion().ToolCallId),
 				Payload: sessionruntime.PromptQuestionAnswerCommand{
 					Answer: tools.AskQuestionAnswer{Freeform: textutil.Value("Native steering")},
 				},

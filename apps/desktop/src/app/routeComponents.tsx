@@ -1,4 +1,4 @@
-import { getRouteApi, Outlet, useMatch } from "@tanstack/react-router";
+import { getRouteApi, Outlet, useLocation, useMatch } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -24,6 +24,7 @@ import {
   writeBrowserStorage,
   writeLastProjectRoute,
   appStorageKey,
+  sessionChatHistoryStateSchema,
 } from "@/app-facade";
 import { RouteTransitionFrame } from "./RouteTransitionFrame";
 import { useWindowChromeTitle } from "@/app-facade";
@@ -51,8 +52,8 @@ const routeRestoreSessionKey = "desktop.routeRestoreChecked";
 let routeRestoreCheckedFallback = false;
 
 export function RootRoute() {
-  const isNativeDialogWindow =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/native-dialog/");
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const isNativeDialogWindow = pathname.startsWith("/native-dialog/");
   if (isNativeDialogWindow) {
     return (
       <StartupGate>
@@ -228,16 +229,28 @@ export function ChatRoute() {
 
 export function NewChatRoute() {
   const params = newChatRouteApi.useParams();
-  return <ChatRouteOpening key={params.projectId} projectID={params.projectId} sessionID={null} />;
+  const { agentRole } = newChatRouteApi.useSearch();
+  const historyState = useLocation({ select: (location) => location.state });
+  const bookmark = sessionChatHistoryStateSchema.parse(historyState).sessionChat;
+  const openingKey = bookmark?.projectID === params.projectId ? bookmark.openingID : undefined;
+  return (
+    <ChatRouteOpening
+      key={openingKey ?? params.projectId}
+      projectID={params.projectId}
+      sessionID={null}
+      initialAgentRole={agentRole}
+    />
+  );
 }
 
 function ChatRouteOpening({
   projectID,
   sessionID,
-}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  initialAgentRole,
+}: Readonly<{ projectID: string; sessionID: string | null; initialAgentRole?: string | undefined }>) {
   return (
     <SidebarRootOwner>
-      <ChatRouteContent projectID={projectID} sessionID={sessionID} />
+      <ChatRouteContent projectID={projectID} sessionID={sessionID} initialAgentRole={initialAgentRole} />
     </SidebarRootOwner>
   );
 }
@@ -245,7 +258,8 @@ function ChatRouteOpening({
 function ChatRouteContent({
   projectID,
   sessionID,
-}: Readonly<{ projectID: string; sessionID: string | null }>) {
+  initialAgentRole,
+}: Readonly<{ projectID: string; sessionID: string | null; initialAgentRole?: string | undefined }>) {
   const bookmark = useChatHistoryBookmark(projectID, sessionID);
   const appNavigation = useAppNavigation();
   const { open } = useOwnedSidebarRoots();
@@ -263,7 +277,7 @@ function ChatRouteContent({
     <ChatDestination
       opening={
         bookmark.sessionID === null
-          ? { kind: "new_chat", projectID, workspace: null }
+          ? { kind: "new_chat", projectID, workspace: null, initialAgentRole }
           : { kind: "session", projectID, sessionID: bookmark.sessionID }
       }
       navigation={navigation}

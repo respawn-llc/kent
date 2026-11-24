@@ -1,24 +1,15 @@
-import { type create, decodeEnvelope, encode, encodeEnvelope, operationName } from "@app/server-api-contract";
-import type { ServerService } from "@app/server-api-contract/gen/kent/api/server/server_pb";
-import type { ConnectionService } from "@app/server-api-contract/gen/kent/api/connection/connection_pb";
-import type { QuestionService } from "@app/server-api-contract/gen/kent/api/prompt/prompt_pb";
-import type { StreamService } from "@app/server-api-contract/gen/kent/api/transcript/transcript_pb";
-import type { TaskLifecycleService } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
-import type { ProjectSubscriptionService } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
-import type { TaskReadService } from "@app/server-api-contract/gen/kent/api/workflow_task/read_pb";
+import { toBinary } from "@bufbuild/protobuf";
+import {
+  decodeEnvelope,
+  encode,
+  encodeEnvelope,
+  operationName,
+  type DescMethod,
+  type MessageShape,
+} from "@app/server-api-contract";
 import { z } from "zod";
 
-export function binaryAck<
-  Method extends
-    | typeof ServerService.method.getReadiness
-    | typeof ConnectionService.method.handshake
-    | typeof ConnectionService.method.attachSession
-    | typeof QuestionService.method.listPending
-    | typeof StreamService.method.subscribe
-    | typeof TaskLifecycleService.method.delete
-    | typeof ProjectSubscriptionService.method.subscribe
-    | typeof TaskReadService.method.search,
->(
+export function binaryAck<Method extends DescMethod>(
   socket: Readonly<{
     sent: readonly (string | Uint8Array)[];
     receive(data: string | ArrayBuffer): void;
@@ -26,10 +17,56 @@ export function binaryAck<
   sentIndex: number,
   method: Method,
   response: Readonly<{
-    result: ReturnType<typeof create<Method["output"]>>;
+    result: MessageShape<Method["output"]>;
     operation?: string;
   }>,
 ): void {
+  writeBinaryAck({
+    socket,
+    sentIndex,
+    operation: operationName(method),
+    responseOperation: response.operation,
+    payload: encode(method.output, response.result),
+  });
+}
+
+export function binaryAckUnvalidated<Method extends DescMethod>(
+  socket: Readonly<{
+    sent: readonly (string | Uint8Array)[];
+    receive(data: string | ArrayBuffer): void;
+  }>,
+  sentIndex: number,
+  method: Method,
+  response: Readonly<{
+    result: MessageShape<Method["output"]>;
+    operation?: string;
+  }>,
+): void {
+  writeBinaryAck({
+    socket,
+    sentIndex,
+    operation: operationName(method),
+    responseOperation: response.operation,
+    payload: toBinary(method.output, response.result),
+  });
+}
+
+function writeBinaryAck({
+  socket,
+  sentIndex,
+  operation,
+  responseOperation,
+  payload,
+}: Readonly<{
+  socket: Readonly<{
+    sent: readonly (string | Uint8Array)[];
+    receive(data: string | ArrayBuffer): void;
+  }>;
+  sentIndex: number;
+  operation: string;
+  responseOperation: string | undefined;
+  payload: Uint8Array;
+}>): void {
   const raw = socket.sent[sentIndex];
   if (raw === undefined) {
     throw new Error(`sent frame ${sentIndex.toString()} missing`);
@@ -42,16 +79,14 @@ export function binaryAck<
   if (call.case !== "call") {
     throw new Error("Mock WebSocket binary frame is not a call.");
   }
-  const operation = operationName(method);
   if (call.value.operation !== operation || call.value.correlation === undefined) {
     throw new Error("Mock WebSocket binary call has the wrong operation or correlation.");
   }
-  const payload = encode(method.output, response.result);
   const encodedResponse = encodeEnvelope({
     frame: {
       case: "result",
       value: {
-        operation: response.operation ?? operation,
+        operation: responseOperation ?? operation,
         correlation: call.value.correlation,
         payload,
       },

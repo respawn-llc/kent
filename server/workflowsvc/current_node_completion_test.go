@@ -18,7 +18,6 @@ import (
 	"core/server/workflowexecution"
 	"core/server/workflowruntime"
 	"core/server/workflowstore"
-	"core/shared/clientui"
 	"core/shared/config"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/runtimeids"
@@ -208,7 +207,7 @@ func TestCompleteWorkflowTaskForceDoesNotRecloseTaskInterruptedApproval(t *testi
 	answerDone := make(chan approvalCompletionAsync[[]sessionruntime.PromptAnswerResult], 1)
 	go func() {
 		results, resolveErr := authority.ResolvePromptBatch(context.Background(), sessionID, stepID, []sessionruntime.PromptAnswerCommand{{
-			ToolCallID: clientui.ToolCallID(request.ToolCallID),
+			ToolCallID: runtimeids.ToolCallID(request.ToolCallID),
 			Payload: sessionruntime.PromptApprovalAnswerCommand{Answer: tools.AskQuestionApproval{
 				Decision: tools.AskQuestionApprovalDecisionAllowOnce, Commentary: &commentary,
 			}},

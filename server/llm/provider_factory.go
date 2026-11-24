@@ -257,6 +257,12 @@ func providerContracts() []ProviderContract {
 				},
 			},
 			ModelContracts: []ModelCapabilityContract{
+				// API metadata verified 2026-11-17:
+				// https://developers.openai.com/api/docs/models/gpt-6.2-astra
+				// https://developers.openai.com/api/docs/models/gpt-6.2-sol
+				// Codex input budgets come from its subscription model catalog.
+				gpt6ModelContract("gpt-6.2-astra", time.May, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{8_000, 400, 40_000}, 272_000),
+				gpt6ModelContract("gpt-6.2-sol", time.June, []string{"low", "medium", "high", "xhigh", "max"}, TokenPricing{2_000, 100, 10_000}, 500_000),
 				// Standard short-context API rates verified 2026-10-15:
 				// https://developers.openai.com/api/docs/pricing
 				// https://developers.openai.com/api/docs/models/gpt-6-sol

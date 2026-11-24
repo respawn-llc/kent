@@ -29,8 +29,8 @@ export async function openNativeDialogWindow(
     return "reused";
   }
   const placement = await centeredOnCurrentWindow(options);
-  const appearance = await invoke<{ transparency: boolean; lowPower: boolean } | null>(
-    "desktop_launch_appearance",
+  const defaults = await invoke<{ minWidth: number; minHeight: number; transparent: boolean }>(
+    "dialog_window_defaults",
   );
   await new Promise<void>((resolve, reject) => {
     const window = new WebviewWindow(label, {
@@ -42,6 +42,8 @@ export async function openNativeDialogWindow(
       height: placement.height,
       hiddenTitle: true,
       maximizable: options.maximizable ?? false,
+      minHeight: defaults.minHeight,
+      minWidth: defaults.minWidth,
       preventOverflow: true,
       resizable: options.resizable ?? false,
       shadow: true,
@@ -50,7 +52,7 @@ export async function openNativeDialogWindow(
       titleBarStyle: "overlay",
       trafficLightPosition:
         options.chrome === "app" ? new LogicalPosition(12, 22) : new LogicalPosition(20, 18),
-      transparent: appearance !== null && appearance.transparency && !appearance.lowPower,
+      transparent: defaults.transparent,
       url,
       visible: false,
       width: placement.width,

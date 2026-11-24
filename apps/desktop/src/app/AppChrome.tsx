@@ -16,6 +16,7 @@ import { SidebarProvider } from "./sidebarProvider";
 import { sidebarDestinationPolicy } from "./sidebarDestinationPolicy";
 import { useAppServices } from "@/app-facade";
 import { useCurrentWindowChromeAction } from "@/app-facade";
+import { MainNewSessionShortcuts } from "./MainNewSessionShortcuts";
 
 export type AppChromeProps = Readonly<{
   children: ReactNode;
@@ -91,8 +92,13 @@ function AppChromeContent({
       }
     >
       <TaskSearchHost />
-      <MainWindowNavigation />
-      <AttentionController />
+      <MainNewSessionShortcuts />
+      {nativeBridge.app.isMainWindow() ? (
+        <>
+          <MainWindowNavigation />
+          <AttentionController />
+        </>
+      ) : null}
       <div
         className="min-h-0 min-w-0 flex-1 overflow-visible"
         data-testid="app-main-content"

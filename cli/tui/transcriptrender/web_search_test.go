@@ -11,13 +11,34 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestWebSearchDisplayUsesSuppliedFamily(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		family transcriptpb.ToolPresentationKind
+		search bool
+	}{
+		{"provider-display-name", transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH, true},
+		{"web_search", transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT, false},
+		{"ordinary-tool", transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT, false},
+	} {
+		meta := projectedToolMeta(test.name, &transcriptpb.ToolPresentation{
+			Presentation: test.family, RenderBehavior: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_DEFAULT,
+			Command: proto.String("supplied query"),
+		})
+		if _, search := webSearchDisplayText(meta); search != test.search {
+			t.Fatalf("name=%s family=%v: search=%t", test.name, test.family, search)
+		}
+	}
+}
+
 func TestWebOpenPreviewUsesActionURL(t *testing.T) {
 	const target = "https://github.com/respawn-llc/kent/issues/1071"
 	row := &transcriptpb.CommittedRow{
 		Row: &transcriptpb.CommittedRow_Tool{Tool: &transcriptpb.ToolRow{
 			ToolName: proto.String(string(toolspec.ToolWebSearch)),
 			Presentation: &transcriptpb.ToolPresentation{
-				Command: proto.String("unrelated metadata"),
+				Presentation: transcriptpb.ToolPresentationKind_TOOL_PRESENTATION_KIND_WEB_SEARCH,
+				Command:      proto.String("unrelated metadata"),
 			},
 			WebSearch: &transcriptpb.WebSearchDetail{
 				Action: &transcriptpb.WebSearchDetail_OpenPage{
@@ -44,8 +65,9 @@ func TestWebSearchDisplayTextPreservesQueryQuotes(t *testing.T) {
 	query := `site:ghostty.org/docs/config/reference "cmd" keybind Ghostty`
 	text, ok := webSearchDisplayText(toolMeta{
 		ToolCallMeta: transcript.ToolCallMeta{
-			ToolName: string(toolspec.ToolWebSearch),
-			Command:  query,
+			ToolName:     string(toolspec.ToolWebSearch),
+			Presentation: transcript.ToolPresentationWebSearch,
+			Command:      query,
 		},
 	})
 	if !ok {
@@ -89,8 +111,9 @@ func TestWebPreviewUsesCompletedSearchAndFindTargets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			row := &transcriptpb.ToolRow{WebSearch: tc.detail}
 			meta := toolMeta{ToolCallMeta: transcript.ToolCallMeta{
-				ToolName: string(toolspec.ToolWebSearch),
-				Command:  "stale",
+				ToolName:     string(toolspec.ToolWebSearch),
+				Presentation: transcript.ToolPresentationWebSearch,
+				Command:      "stale",
 			}}
 			for _, mode := range []Mode{ModeOngoing, ModeOngoingCollapsed, ModeDetailCollapsed} {
 				words := strings.Fields(toolDisplayText(row, meta, mode).Text)

@@ -18,7 +18,7 @@ export function createGoalFixtureOwner(
   const target = Atom.make<ChatSettingsTarget>({
     kind: "new_chat",
     projectID: input.projectID,
-    workspace: { workspaceID: input.workspaceID },
+    workspace: input.workspace,
   });
   const settings = Atom.make<SettingsState>({
     kind: "ready-new-chat",
@@ -58,6 +58,7 @@ export function createGoalFixtureOwner(
     api: options.api,
     client: new QueryClient(),
     target,
+    creationTarget: Atom.make(input),
     settings: { state: settings },
     draft,
   });

@@ -1,7 +1,15 @@
 ## Release Identity
 
 - Every artifact in one release uses the same Kent version.
+- The release workflow must produce the server, Desktop, Android, and iOS artifacts for every Kent version, including platforms with no code changes. Client connections must follow the [protocol compatibility contract](server-api-contract.md#authority-and-compatibility).
 - Release tags use the normalized form `v<version>`.
+
+## Mobile distribution
+
+- The first mobile beta must include working Task attention pushes.
+- Each GitHub release that includes mobile must provide a signed Android APK. GitHub publication must proceed independently of mobile store review or availability.
+- Android beta testers must install the APK from GitHub Releases. Kent must distribute iOS beta builds through TestFlight.
+- Starting with the first public mobile release, the app must notify users about updates and direct them to their installation channel when a compatible update is available.
 
 ## Metadata Upgrades
 
@@ -43,6 +51,7 @@
 - Interactive service-install prompts must default to Yes, including on upgrades. Unattended installs must skip service installation unless accepted through `-Service` or `-Yes` on Windows, or `--service` on macOS/Linux.
 - Declining or skipping service installation must show how to start the server manually with `kent serve`.
 - Windows must request service-install elevation only after acceptance. The elevated operation must use the invoking user's selected persistence root and return its failure diagnostics.
+- Temporary stdout and stderr capture for elevated Windows service operations must use the OS temporary directory's `kent/service` subdirectory.
 - Installing an existing matching service registration must reload or restart it so the installed binary takes effect. A differing registration must fail unless replacement is explicitly requested with `--force`.
 - Service-install failure must report the cause and leave the installed binary available. Installers must never report that the server started when service installation failed.
 - Windows one-command installs are served by `scripts/install.ps1`.

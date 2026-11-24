@@ -3,17 +3,16 @@ import * as R from "@app/server-api-contract/gen/kent/api/runtime/runtime_pb";
 import {
   ChatTargetSchema,
   ExistingSessionRequestTargetSchema,
-  NewChatTargetSchema,
 } from "@app/server-api-contract/gen/kent/api/chat/chat_pb";
 import { StreamCompletionSchema } from "@app/server-api-contract/gen/kent/api/shared/foundation_pb";
 import { requireProjectAttachment } from "./chatAttachment";
-import { initialChatSettingsToWire } from "./chatSettings";
+import { newChatToWire } from "./newChat";
 import { enumValue, required } from "./chatWire";
 import { timestampMillis } from "./clientTime";
 import { ContractError } from "./errors";
 import { chatOperationError, type ChatOperationError } from "./chatErrors";
 import { requireUnarySuccess, streamCompletionFailure } from "./protobufRpc";
-import type { ChatApi, ChatGoalStreamObservation, ChatSessionTarget, InitialChatSettings } from "./chatTypes";
+import type { ChatApi, ChatGoalStreamObservation, ChatSessionTarget, ChatMutationTarget } from "./chatTypes";
 import { subscriptionStream } from "./subscriptionStream";
 import type { ChatGoalFacts } from "./chatTranscriptTypes";
 import type { RpcTransport } from "./transport";
@@ -39,13 +38,7 @@ export type ChatGoalSetTarget =
       sessionID: string;
       projectID?: string;
     }>
-  | Readonly<{
-      kind: "new_chat";
-      projectID: string;
-      workspaceID: string;
-      initialSettings: InitialChatSettings;
-      initialInputDraft?: string;
-    }>;
+  | (Extract<ChatMutationTarget, { kind: "new_chat" }> & Readonly<{ initialInputDraft?: string }>);
 export type ChatGoalSetResult = Readonly<{
   sessionID: string;
   outcome:
@@ -261,18 +254,14 @@ export function createChatGoalApi(
       }
       const call = await transport.callDescriptorAttachedProject({
         projectID: target.projectID,
-        selector: { workspaceID: target.workspaceID },
+        selector: target.workspace,
         method: R.GoalService.method.set,
         createRequest: (attachment) =>
           create(R.GoalSetRequestSchema, {
             target: create(ChatTargetSchema, {
               target: {
                 case: "newChat",
-                value: create(NewChatTargetSchema, {
-                  projectId: attachment.projectID,
-                  workspaceId: attachment.workspaceID,
-                  initialSettings: initialChatSettingsToWire(target.initialSettings),
-                }),
+                value: newChatToWire(target, attachment.workspaceID),
               },
             }),
             objective,
@@ -285,7 +274,7 @@ export function createChatGoalApi(
       });
       requireProjectAttachment(call.attachment, {
         projectID: target.projectID,
-        workspace: { workspaceID: target.workspaceID },
+        workspace: target.workspace,
       });
       return chatGoalSetResultFromGenerated(call.result);
     },

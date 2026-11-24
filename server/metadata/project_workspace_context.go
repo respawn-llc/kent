@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"core/shared/serverapi"
@@ -48,11 +49,26 @@ func (s *Store) ReadSessionProjectWorkspaceContext(
 
 	workspaces := []ProjectWorkspaceCatalogRow{}
 	if workspaceCount > 1 {
-		page, err := s.ListProjectWorkspaceCatalogPage(ctx, projectID, 0, ProjectWorkspaceContextLimit)
-		if err != nil {
-			return SessionProjectWorkspaceContext{}, fmt.Errorf("read Project Workspace context page: %w", err)
+		for offset := 0; ; {
+			page, err := s.ListProjectWorkspaceCatalogPage(ctx, projectID, offset, ProjectWorkspaceContextLimit)
+			if err != nil {
+				return SessionProjectWorkspaceContext{}, fmt.Errorf("read Project Workspace context page: %w", err)
+			}
+			for _, workspace := range page.Workspaces {
+				info, err := os.Stat(workspace.CanonicalRoot)
+				if err != nil || !info.IsDir() {
+					continue
+				}
+				workspaces = append(workspaces, workspace)
+				if len(workspaces) == ProjectWorkspaceContextLimit {
+					break
+				}
+			}
+			if len(workspaces) == ProjectWorkspaceContextLimit || page.NextOffset == nil {
+				break
+			}
+			offset = *page.NextOffset
 		}
-		workspaces = page.Workspaces
 	}
 	return SessionProjectWorkspaceContext{
 		ProjectName:    projectName,

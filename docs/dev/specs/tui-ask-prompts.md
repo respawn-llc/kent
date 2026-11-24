@@ -7,7 +7,7 @@
 - Each dedicated prompt must open at the beginning of its Markdown question in reading mode, with no option selected and no editor cursor. Kent must visibly indicate the reading cursor's position relative to question text and answer options.
 - While reading a dedicated prompt, `Up`/`Down` and alternate-scroll wheel input must move the reading cursor by one rendered prompt row. `PgUp`/`PgDn` must move the same cursor by one viewport page and update option selection to match the cursor's rendered row.
 - The option whose rendered row contains the reading cursor must be selected and remain visible. Moving the reading cursor onto question text must clear option selection. `Enter` must submit only the selected option under the cursor and must do nothing while the cursor is on question text.
-- Typing, paste, and freeform editing or cursor movement other than `Up`/`Down` and `PgUp`/`PgDn` must focus the editor, jump to the document bottom, discard the reading position, and apply the operation. `Enter` must do nothing while the editor cursor is hidden.
+- Except for option-number shortcuts, typing, paste, and freeform editing or cursor movement other than `Up`/`Down` and `PgUp`/`PgDn` must focus the editor, jump to the document bottom, discard the reading position, and apply the operation. `Enter` must do nothing while the editor cursor is hidden.
 - While reading an ordinary Question, `Tab` must focus freeform input. While reading an Approval, `Tab` must do nothing until a decision has been chosen. Returning from freeform entered through reading must restore reading with no visible option selection.
 - Approval commentary must stay associated with its chosen decision and draft while reading hides answer focus. Reading cursor movement must not reassign that commentary.
 - Dedicated rendering must follow the universal size rule in `tui-terminal-environment.md`, including its blank owned frame below minimum size. This rule takes precedence over prompt-specific fallback content.
@@ -43,4 +43,6 @@
 - Freeform entry uses the same editing and clipboard behavior as the main composer.
 - Choosing the "Freeform answer" option with empty text enters freeform mode. Submitting it with empty text is rejected with an error notice + bell.
 - `Esc` cancels any active answer delivery, then cancels the prompt so the agent receives a typed cancellation. `Ctrl+C` cancels only the client-side answer delivery and directly interrupts the prompt's exact Agent execution. The server interruption closes the pending prompt through the ordinary interrupted execution outcome. The TUI must not submit a prompt cancellation before Interrupt, wait for canceled answer delivery, or show that delivery's cancellation or deadline as an error.
-- There is no digit-jump on prompt options.
+- Outside editable text, `1`–`9` must select the correspondingly numbered Question or Approval option without submitting it. The selected option must become visible and receive answer focus. `Enter` must confirm the selection.
+- `0` must select the "Freeform answer" option when present, including when that option also has a `1`–`9` shortcut. The option must show its `0` shortcut. `0` must do nothing on an Approval without that option.
+- Editable text must accept typed and pasted digits as text. Paste and modified number keys must not select options.

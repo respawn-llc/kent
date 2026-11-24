@@ -173,7 +173,9 @@ describe("Desktop Chat read client", () => {
         {
           kind: "new_chat",
           projectID: "project-1",
-          workspaceID: "workspace-1",
+          workspace: { workspaceID: "workspace-1" },
+          name: "Goal manager",
+          worktreeSelector: "feature",
           initialSettings: {
             agentRole: "default",
             supervisor: "off",
@@ -199,6 +201,8 @@ describe("Desktop Chat read client", () => {
             projectId: "project-1",
             workspaceId: "workspace-1",
             initialSettings: { agentRole: "default" },
+            name: "Goal manager",
+            worktreeSelector: "feature",
           },
         },
       },
@@ -632,6 +636,8 @@ describe("Desktop Chat mutation adapter", () => {
     sessionID,
   } as const;
   const newChatTarget = {
+    name: "Manager",
+    worktreeSelector: "feature",
     kind: "new_chat",
     projectID: "project-1",
     workspace: { workspaceRoot: "/workspace" },
@@ -782,6 +788,8 @@ describe("Desktop Chat mutation adapter", () => {
                 questionsEnabled: false,
                 autoCompactionEnabled: true,
               }),
+              name: "Manager",
+              worktreeSelector: "feature",
             },
           },
         },

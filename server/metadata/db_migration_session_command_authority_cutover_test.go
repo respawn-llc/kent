@@ -113,29 +113,29 @@ WHERE node_key = 'backlog'`).Scan(&releasedNodeID); err != nil {
 
 	var nodeStorage, nodeID, currentNodeID, associationNodeID string
 	if err := store.db.QueryRow(`
-SELECT typeof(id), id
+SELECT typeof(id), kent_graph_entity_id_text_v1(id)
 FROM workflow_nodes
 WHERE node_key = 'backlog'`).Scan(&nodeStorage, &nodeID); err != nil {
 		t.Fatalf("read upgraded Workflow Node: %v", err)
 	}
 	if err := store.db.QueryRow(`
-SELECT node_id
+SELECT kent_graph_entity_id_text_v1(node_id)
 FROM task_current_nodes
 WHERE task_id = 'task-session-command-cutover'`).Scan(&currentNodeID); err != nil {
 		t.Fatalf("read upgraded Current Node: %v", err)
 	}
 	if err := store.db.QueryRow(`
-SELECT node_id
+SELECT kent_graph_entity_id_text_v1(node_id)
 FROM session_workflow_node_associations
 WHERE session_id = 'session-session-command-cutover'`).Scan(&associationNodeID); err != nil {
 		t.Fatalf("read upgraded Session association: %v", err)
 	}
-	if nodeStorage != "text" ||
+	if nodeStorage != "blob" ||
 		nodeID != releasedNodeID ||
 		currentNodeID != releasedNodeID ||
 		associationNodeID != releasedNodeID {
 		t.Fatalf(
-			"upgraded graph identity = storage=%q node=%q current=%q association=%q, want text/%q",
+			"upgraded graph identity = storage=%q node=%q current=%q association=%q, want blob/%q",
 			nodeStorage,
 			nodeID,
 			currentNodeID,

@@ -48,7 +48,11 @@ message ListSuccess {
 }
 
 message ObserveRequest {
-  string session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+  oneof scope {
+    option (buf.validate.oneof).required = true;
+    string session_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).string.(kent.api.shared.canonical_uuid_v4) = true];
+    string project_id = 3 [(buf.validate.field).string.(kent.api.shared.nonblank) = true];
+  }
 }
 
 message ObserveResult {
@@ -221,7 +225,7 @@ service ViewService {
     option (kent.api.shared.kent_method) = {
       kind: OPERATION_KIND_SUBSCRIPTION
       authentication_stage: AUTHENTICATION_STAGE_SERVER
-      scope_policy: SCOPE_POLICY_SESSION_ATTACHED_PROJECT
+      scope_policy: SCOPE_POLICY_PROCESS_OBSERVATION
       direction: DIRECTION_CLIENT_TO_SERVER
       event: {
         package: "kent.api.process"

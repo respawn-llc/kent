@@ -121,6 +121,27 @@ impl<T: Clone + serde::Serialize> Delivery<T> {
 
 const NAVIGATION: &str = "app://main-navigation";
 const NOTIFICATION: &str = "app://attention-notification-activated";
+const MIN_WINDOW_WIDTH: f64 = 320.0;
+const MIN_WINDOW_HEIGHT: f64 = 213.0;
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DialogWindowDefaults {
+    min_width: f64,
+    min_height: f64,
+    transparent: bool,
+}
+
+#[tauri::command]
+pub fn dialog_window_defaults(
+    launch: tauri::State<'_, crate::settings::DesktopLaunch>,
+) -> DialogWindowDefaults {
+    DialogWindowDefaults {
+        min_width: MIN_WINDOW_WIDTH,
+        min_height: MIN_WINDOW_HEIGHT,
+        transparent: launch.transparent(),
+    }
+}
 
 pub fn create(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     let config = app
@@ -134,6 +155,7 @@ pub fn create(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     config.transparent = app.state::<crate::settings::DesktopLaunch>().transparent();
     let window = tauri::WebviewWindowBuilder::from_config(app, &config)
         .map_err(|error| error.to_string())?
+        .min_inner_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         .build()
         .map_err(|error| error.to_string())?;
     #[cfg(any(target_os = "macos", windows))]
