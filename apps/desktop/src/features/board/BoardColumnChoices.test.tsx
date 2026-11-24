@@ -146,6 +146,41 @@ it("lets a populated column be collapsed from its header", async () => {
   }
 });
 
+it("shows non-blocking execution issues on the board", async () => {
+  const workflowWithIssue: WorkflowPickerItem = {
+    ...workflow("workflow-1"),
+    validationErrors: [
+      {
+        code: ValidationErrorCode.SCRIPT_PATH_RELATIVE_CHECK_SKIPPED,
+        message: "Relative script path was not checked",
+        workflowID: "workflow-1",
+        nodeID: "script",
+        transitionGroupID: null,
+        edgeID: null,
+        details: {
+          fieldName: "",
+          inputName: "",
+          placeholder: "",
+          providerEdgeID: null,
+          role: null,
+          requiredTool: null,
+        },
+        relatedIDs: [],
+        blocksContext: false,
+      },
+    ],
+  };
+  const harness = mountBoard(
+    selectedBoard(workflowWithIssue, [column("backlog", "Backlog", { isBacklog: true })]),
+  );
+  try {
+    const notice = await screen.findByRole("complementary", { name: appI18n.t("board.workflowIssues") });
+    expect(within(notice).getByRole("listitem")).toBeVisible();
+  } finally {
+    harness.close();
+  }
+});
+
 it("creates a Backlog Task from a board with a non-ready Workflow", async () => {
   const nonReadyWorkflow = {
     ...workflow("workflow-1"),

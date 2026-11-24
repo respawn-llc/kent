@@ -502,7 +502,7 @@ function BoardWorkflowIssuesNotice({
 }: Readonly<{ workflow: SelectedWorkflowBoard["selectedWorkflow"] }>) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
-  if (workflow.validForExecution) {
+  if (workflow.validationErrors.length === 0) {
     return null;
   }
   return (
