@@ -175,7 +175,7 @@ func newCurrentNodeViewFixture(t *testing.T, requiresApproval bool) currentNodeV
 	if err != nil {
 		t.Fatalf("NewTaskDependencies: %v", err)
 	}
-	board, err := NewBoard(metadataStore, definitions, testsetup.QuestionsEnabled("coder"), projection)
+	board, err := NewBoard(metadataStore, definitions, projection)
 	if err != nil {
 		t.Fatalf("NewBoard: %v", err)
 	}

@@ -227,7 +227,6 @@ export function goalStatus(): ChatTranscriptPayloadByKind["goal_status"] {
       status: "active",
       created_at: "2026-09-04T10:00:00Z",
       updated_at: "2026-09-04T10:00:00Z",
-      Suspended: true,
     },
     Availability: null,
   };

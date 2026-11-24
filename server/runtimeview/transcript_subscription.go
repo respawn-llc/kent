@@ -67,7 +67,7 @@ func TranscriptHydrationFromSnapshotChecked(
 	if err != nil {
 		return nil, err
 	}
-	hydration.GoalStatus, err = transcriptGoalStatusFromRuntime(runtimeSnapshot.Goal, runtimeSnapshot.GoalSuspended)
+	hydration.GoalStatus, err = transcriptGoalStatusFromRuntime(runtimeSnapshot.Goal)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func transcriptContextUsageFromRuntime(usage *runtime.ContextUsage) (*runtimepb.
 	return projected, nil
 }
 
-func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*runtimepb.GoalView, error) {
+func transcriptGoalStatusFromRuntime(goal *session.GoalState) (*runtimepb.GoalView, error) {
 	if goal == nil {
 		return nil, nil
 	}
@@ -148,7 +148,7 @@ func transcriptGoalStatusFromRuntime(goal *session.GoalState, suspended bool) (*
 	if err != nil {
 		return nil, err
 	}
-	projected := &runtimepb.GoalView{Goal: core, Suspended: suspended}
+	projected := &runtimepb.GoalView{Goal: core}
 	return projected, nil
 }
 
@@ -421,7 +421,7 @@ func transcriptGoalStatus(update runtime.GoalStatusUpdate) (*runtimepb.GoalView,
 	if update.Cleared {
 		return &runtimepb.GoalView{}, nil
 	}
-	return transcriptGoalStatusFromRuntime(&update.State, false)
+	return transcriptGoalStatusFromRuntime(&update.State)
 }
 
 type transcriptBackgroundActivityFacts struct {

@@ -188,7 +188,6 @@ func TestRuntimeClientStopTargetsSessionWithoutCommittingRuntimeTuple(t *testing
 func TestCloneRuntimeGoalReturnsIndependentCopy(t *testing.T) {
 	original := runtimeClientTestRuntimeGoal(
 		runtimeClientTestGoal("goal-1", "ship", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE),
-		true,
 	)
 	availability := runtimepb.GoalAvailability_GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING
 	original.Availability = &availability
@@ -197,11 +196,9 @@ func TestCloneRuntimeGoalReturnsIndependentCopy(t *testing.T) {
 	original.Goal.Objective = "mutated"
 	original.Goal.Status = runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED
 	*original.Availability = runtimepb.GoalAvailability_GOAL_AVAILABILITY_AVAILABLE
-	original.Suspended = false
 
 	want := runtimeClientTestRuntimeGoal(
 		runtimeClientTestGoal("goal-1", "ship", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE),
-		true,
 	)
 	wantAvailability := runtimepb.GoalAvailability_GOAL_AVAILABILITY_AGENT_CAPABILITY_MISSING
 	want.Availability = &wantAvailability
@@ -220,8 +217,8 @@ func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
 	assertRuntimeClientGoalCached(
 		t,
 		runtimeClient,
-		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE), false),
-		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE), false),
+		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)),
+		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)),
 	)
 
 	if _, err := runtimeClient.admitTranscriptMessageState(runtimeClientTestGoalMessage(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED))); err != nil {
@@ -230,8 +227,8 @@ func TestRuntimeClientGoalStatusEventPatchesCachedMainView(t *testing.T) {
 	assertRuntimeClientGoalCached(
 		t,
 		runtimeClient,
-		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED), false),
-		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED), false),
+		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED)),
+		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-1", "ship feature", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_PAUSED)),
 	)
 
 	if _, err := runtimeClient.admitTranscriptMessageState(runtimeClientTestGoalMessage(nil)); err != nil {
@@ -246,7 +243,6 @@ func TestRuntimeClientCanonicalGoalStatusReplacesCachedGoal(t *testing.T) {
 		Session: &runtimepb.SessionView{SessionId: detailTestSessionID},
 		Status: &runtimepb.Status{Goal: runtimeClientTestRuntimeGoal(
 			runtimeClientTestGoal("goal-old", "old", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE),
-			true,
 		)},
 	})
 
@@ -256,8 +252,8 @@ func TestRuntimeClientCanonicalGoalStatusReplacesCachedGoal(t *testing.T) {
 	assertRuntimeClientGoalCached(
 		t,
 		runtimeClient,
-		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-new", "new", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE), false),
-		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-new", "new", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE), false),
+		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-new", "new", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)),
+		runtimeClientTestRuntimeGoal(runtimeClientTestGoal("goal-new", "new", runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE)),
 	)
 }
 
@@ -266,11 +262,11 @@ func runtimeClientTestGoal(id, objective string, status runtimepb.GoalStatus) *r
 	return &runtimepb.Goal{Id: id, Objective: objective, Status: status, CreatedAt: timestamppb.New(now), UpdatedAt: timestamppb.New(now)}
 }
 
-func runtimeClientTestRuntimeGoal(goal *runtimepb.Goal, suspended bool) *runtimepb.GoalView {
+func runtimeClientTestRuntimeGoal(goal *runtimepb.Goal) *runtimepb.GoalView {
 	if goal == nil {
 		return nil
 	}
-	return &runtimepb.GoalView{Goal: goal, Suspended: suspended}
+	return &runtimepb.GoalView{Goal: goal}
 }
 
 func runtimeClientTestGoalMessage(goal *runtimepb.Goal) *transcriptpb.Message {

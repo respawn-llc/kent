@@ -18,7 +18,6 @@ type TranscriptHydrationSnapshot struct {
 	ActiveCompaction      *TranscriptCompactionState
 	ContextUsage          *ContextUsage
 	Goal                  *session.GoalState
-	GoalSuspended         bool
 }
 
 type TranscriptThinkingStatusState struct {
@@ -78,6 +77,5 @@ func (e *Engine) transcriptHydrationSegmentLocked() TranscriptHydrationSnapshot 
 		ActiveCompaction:      e.compactionRuntimeState().ActiveSnapshot(),
 		ContextUsage:          &usage,
 		Goal:                  e.Goal(),
-		GoalSuspended:         e.GoalLoopSuspended(),
 	}
 }

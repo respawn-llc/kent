@@ -2303,44 +2303,6 @@ func mustRunPromptSessionID(t *testing.T, raw string) runtimeids.SessionID {
 	return id
 }
 
-func TestInProcessRunPromptClientRejectsSelectedSessionWithGoal(t *testing.T) {
-	root := t.TempDir()
-	workspace := t.TempDir()
-	containerDir := filepath.Join(root, "projects", "project-a", "sessions")
-	persistence := sessiontest.NewPersistence()
-	store, err := session.Create(containerDir, "workspace-a", workspace, sessioncontract.SessionCategorySubagent, persistence.Options()...)
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	if _, _, err := store.SetGoal("ship feature", session.GoalActorUser); err != nil {
-		t.Fatalf("set goal: %v", err)
-	}
-	if err := store.EnsureDurable(); err != nil {
-		t.Fatalf("EnsureDurable: %v", err)
-	}
-
-	cfg := config.App{
-		WorkspaceRoot:   workspace,
-		PersistenceRoot: root,
-		Settings:        testsetup.WriteProviderSettings(t, root, config.Settings{Model: "gpt-6-sol"}),
-	}
-	authManager := auth.NewManager(auth.NewMemoryStore(auth.EmptyState()), nil)
-	authority, liveRunObserver := newObservedTestHeadlessRuntimeAuthority(t, root, store, nil, authManager, nil, persistence.Options()...)
-	client := NewInProcessRunPromptClient(HeadlessBootstrap{
-		SessionLaunch:    newTestHeadlessSessionLaunch(t, cfg, containerDir, authManager, persistence),
-		RuntimeAuthority: authority,
-		LiveRunObserver:  liveRunObserver,
-	})
-
-	_, err = client.RunPrompt(context.Background(), requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
-		Intent: serverapi.OpenExistingSessionLaunchIntent(mustRunPromptSessionID(t, store.Meta().SessionID)),
-		Prompt: "continue",
-	}), nil)
-	if !errors.Is(err, ErrHeadlessGoalSession) {
-		t.Fatalf("RunPrompt error = %v, want ErrHeadlessGoalSession", err)
-	}
-}
-
 func TestInProcessRunPromptClientUnregistersRuntimeAfterCompletion(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()

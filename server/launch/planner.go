@@ -79,7 +79,6 @@ type SessionPlan struct {
 	ConfiguredModelName                 string
 	SessionName                         *string
 	FirstPromptPreview                  string
-	Goal                                *session.GoalState
 	WorktreeReminder                    *session.WorktreeReminderState
 	Continuation                        *session.ContinuationContext
 	Locked                              *session.LockedContract
@@ -122,7 +121,6 @@ func sessionPlanWithMeta(plan SessionPlan, meta session.Meta, containerDir strin
 	plan.Descriptor = descriptor
 	plan.ManagedWorktreeRoots = append([]string(nil), plan.ManagedWorktreeRoots...)
 	plan.FirstPromptPreview = meta.FirstPromptPreview
-	plan.Goal = meta.Goal
 	plan.WorktreeReminder = meta.WorktreeReminder
 	plan.Continuation = meta.Continuation
 	plan.Locked = meta.Locked

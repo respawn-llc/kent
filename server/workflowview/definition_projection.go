@@ -18,9 +18,10 @@ type DefinitionProjection struct {
 }
 
 type definitionSnapshot struct {
-	domain    workflow.Definition
-	api       *pb.WorkflowDefinition
-	nodeKinds map[string]workflow.NodeKind
+	domain              workflow.Definition
+	api                 *pb.WorkflowDefinition
+	nodeKinds           map[string]workflow.NodeKind
+	executionValidation workflow.ValidationResult
 }
 
 func NewDefinitionProjection(store *workflowstore.Store) (*DefinitionProjection, error) {
@@ -55,7 +56,15 @@ func (p *DefinitionProjection) snapshot(ctx context.Context, workflowID runtimei
 		return definitionSnapshot{}, err
 	}
 	api, nodeKinds, err := ProjectDefinition(domain, record, p.catalog)
-	return definitionSnapshot{domain: domain, api: api, nodeKinds: nodeKinds}, err
+	if err != nil {
+		return definitionSnapshot{}, err
+	}
+	return definitionSnapshot{
+		domain:              domain,
+		api:                 api,
+		nodeKinds:           nodeKinds,
+		executionValidation: definitionExecutionValidation(domain, p.catalog),
+	}, nil
 }
 
 // ProjectDefinition is the canonical pure domain-to-API workflow projection.

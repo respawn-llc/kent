@@ -111,6 +111,7 @@
 - Onboarding rollback errors use one typed primary failure plus structured rollback facts containing operation and cause.
 - Session workspace retargeting exposes its background-process blocker through the public `background_process_active` error.
 - Clients must not stringify errors or depend on server-authored human-readable messages.
+- When Task Start returns `internal_failure` with a cause, clients may display that cause as the API error message. Without a cause, clients must use the generic Start failure message.
 
 ## Validation And Decoding
 

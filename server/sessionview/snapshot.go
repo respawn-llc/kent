@@ -99,7 +99,7 @@ func (s dormantSessionSnapshot) MainView(ctx context.Context) (*runtimepb.MainVi
 	if err != nil {
 		return nil, err
 	}
-	goal, err := goalview.FromSessionState(meta.Goal, goalAvailability, false)
+	goal, err := goalview.FromSessionState(meta.Goal, goalAvailability)
 	if err != nil {
 		return nil, err
 	}

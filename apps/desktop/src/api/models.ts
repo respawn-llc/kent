@@ -476,7 +476,7 @@ export type WorkflowPickerItem = Readonly<{
   description: string;
   version: number;
   isProjectDefault: boolean;
-  validForTaskCreation: boolean;
+  validForExecution: boolean;
   validationErrors: readonly WorkflowValidationError[];
 }>;
 

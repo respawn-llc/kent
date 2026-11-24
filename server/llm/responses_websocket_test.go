@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"core/internal/testharness/httpclient"
 	session "core/server/sessionstore"
 	"core/shared/config"
 	"core/shared/textutil"
@@ -274,6 +275,76 @@ func TestResponsesSocketExpiryReusesGenerationRetryOnFreshConnection(t *testing.
 	}
 	if openings.Load() != 2 || requests.Load() != 4 {
 		t.Fatalf("openings=%d requests=%d, want one replacement and one retried request", openings.Load(), requests.Load())
+	}
+}
+
+type responsesPongTimeoutBody struct {
+	io.ReadWriteCloser
+	fail *atomic.Bool
+}
+
+func (body responsesPongTimeoutBody) Write(data []byte) (int, error) {
+	if body.fail.Load() {
+		return 0, context.DeadlineExceeded
+	}
+	return body.ReadWriteCloser.Write(data)
+}
+
+func TestResponsesSocketPongTimeoutRetriesWhileGenerationIsLive(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var failWrite atomic.Bool
+	var openings atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if openings.Add(1) != 1 {
+			serveResponsesTestWebsocket(t, w, r, func(raw json.RawMessage) []string {
+				var create struct {
+					Input    []json.RawMessage `json:"input"`
+					Previous *string           `json:"previous_response_id"`
+				}
+				if err := json.Unmarshal(raw, &create); err != nil || create.Previous != nil || len(create.Input) != 1 {
+					t.Errorf("replacement request did not send full context: %s", raw)
+				}
+				return []string{`{"type":"response.completed","response":{"id":"recovered","end_turn":true,"output":[]}}`}
+			})
+			return
+		}
+		socket, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer socket.CloseNow()
+		if _, _, err := socket.Read(ctx); err != nil {
+			t.Error(err)
+			return
+		}
+		failWrite.Store(true)
+		_ = socket.Ping(socket.CloseRead(ctx))
+	}))
+	defer server.Close()
+	transport := newCanonicalOAuthTestTransport(t, server)
+	defer func() { _ = transport.Close() }()
+	next := transport.Client.Transport
+	var upgrades atomic.Int32
+	transport.Client.Transport = httpclient.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		response, err := next.RoundTrip(req)
+		if err == nil && response.StatusCode == http.StatusSwitchingProtocols && upgrades.Add(1) == 1 {
+			response.Body = responsesPongTimeoutBody{ReadWriteCloser: response.Body.(io.ReadWriteCloser), fail: &failWrite}
+		}
+		return response, err
+	})
+	request := ResponsesRequest{
+		Model: "gpt-6-sol", ReasoningEffort: "high", SessionID: textutil.Value("session-1"),
+		CodexDispatch: newTestCodexDispatch(t), ToolChoiceMode: ToolChoiceModeAutomatic,
+		Items: []ResponseItem{{Raw: json.RawMessage(`{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}`)}},
+	}
+	_, err := GenerateWithRetry(ctx, func(ctx context.Context, callbacks StreamCallbacks, _ func()) (Response, error) {
+		_, err := transport.Generate(ctx, request, callbacks)
+		return Response{}, err
+	}, GenerationRetryOptions{Schedule: GenerationRetrySchedule{Failures: []time.Duration{time.Nanosecond}}})
+	if err != nil || openings.Load() != 2 {
+		t.Fatalf("openings=%d, generation error=%v", openings.Load(), err)
 	}
 }
 

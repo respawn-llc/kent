@@ -10,7 +10,7 @@ it.each([
   { blocking: [], valid: true },
   { blocking: [false], valid: true },
   { blocking: [false, true], valid: false },
-])("presents board workflow availability from server diagnostics: %j", async ({ blocking, valid }) => {
+])("derives execution readiness from board validation diagnostics: %j", async ({ blocking, valid }) => {
   const selectedWorkflow = create(taskRead.WorkflowPickerItemSchema, {
     workflowId: "11111111-1111-4111-8111-111111111111",
     displayName: "Workflow",
@@ -48,7 +48,7 @@ it.each([
     selectedWorkflow.workflowId,
     canonicalBoardFilter({ labelFilter: { kind: "none" }, dependencyFilter: null }),
   );
-  expect(board.selectedWorkflow?.validForTaskCreation).toBe(valid);
-  expect(board.workflows[0]?.validForTaskCreation).toBe(valid);
+  expect(board.selectedWorkflow?.validForExecution).toBe(valid);
+  expect(board.workflows[0]?.validForExecution).toBe(valid);
   expect(board.selectedWorkflow?.validationErrors.map((error) => error.blocksContext)).toEqual([...blocking]);
 });

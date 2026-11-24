@@ -151,13 +151,6 @@ message GoalView {
     defined_only: true
     not_in: [0]
   }];
-  bool suspended = 3;
-
-  option (buf.validate.message).cel = {
-    id: "kent.runtime.goal_suspension"
-    message: "goal suspension requires an active goal"
-    expression: "!this.suspended || (has(this.goal) && this.goal.status == 1)"
-  };
 }
 
 message WorkflowSessionStatus {

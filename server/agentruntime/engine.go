@@ -183,11 +183,9 @@ type Engine struct {
 	queuedUserWorkPauseCount int
 	liveRun                  *liveRunCoordinator
 	// Goal commits and notice admission share an order, independently of EIQ execution.
-	goalMutationMu         sync.Mutex
-	pendingGoalLoopStartMu sync.Mutex
-	pendingGoalLoopStart   bool
-	diagnostics            *diagnosticDedupeStore
-	toolCallStarts         *pendingToolCallStartStore
+	goalMutationMu sync.Mutex
+	diagnostics    *diagnosticDedupeStore
+	toolCallStarts *pendingToolCallStartStore
 
 	usageState           *usageTrackingState
 	goalLoop             *goalLoopState

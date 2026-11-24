@@ -247,7 +247,7 @@ function BoardContent({
     resumeErrorTitle: t("board.resumeFailed"),
   });
   const manualMove = initiatingAction.pending?.kind === "move_preview" ? initiatingAction.pending : null;
-  const dragDisabled = !board.selectedWorkflow.validForTaskCreation;
+  const dragDisabled = !board.selectedWorkflow.validForExecution;
   const {
     activeDrag,
     pendingCardMove,
@@ -502,7 +502,7 @@ function BoardWorkflowIssuesNotice({
 }: Readonly<{ workflow: SelectedWorkflowBoard["selectedWorkflow"] }>) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
-  if (workflow.validForTaskCreation) {
+  if (workflow.validationErrors.length === 0) {
     return null;
   }
   return (

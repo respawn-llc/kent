@@ -54,7 +54,7 @@ func StatusFromRuntime(engine *runtime.Engine) (*runtimepb.Status, error) {
 		return nil, err
 	}
 	fastModeAvailable := engine.FastModeAvailable()
-	goal, err := goalview.FromSessionState(engine.Goal(), goalAvailability, engine.GoalLoopSuspended())
+	goal, err := goalview.FromSessionState(engine.Goal(), goalAvailability)
 	if err != nil {
 		return nil, err
 	}

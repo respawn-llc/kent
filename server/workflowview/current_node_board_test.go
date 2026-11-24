@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"core/internal/testharness/testsetup"
 	"core/server/sessionruntime"
 	"core/server/workflow"
 	"core/server/workflowexecution"
 	"core/server/workflowstore"
+	"core/shared/protoapi"
 	taskpb "core/shared/protoapi/gen/kent/api/workflow_task"
 	"core/shared/serverapi"
 	"google.golang.org/protobuf/proto"
@@ -66,6 +66,120 @@ func TestBoardProjectCountsAllAttachedWorkspaces(t *testing.T) {
 	}
 	if board.Project.AttachedWorkspaceCount != 501 || board.Project.DefaultWorkspaceId != fixture.binding.WorkspaceID {
 		t.Fatalf("Project facts = %+v", board.Project)
+	}
+}
+
+func TestBoardProjectsExecutionIssuesForInvalidWorkflowAndNoneForValidWorkflow(t *testing.T) {
+	fixture := newCurrentNodeViewFixture(t, false)
+	definition, record, err := fixture.store.GetDefinition(fixture.ctx, fixture.workflowID)
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	saveRequest := workflowstore.NewWorkflowGraphSaveRequest(definition, record.Version)
+	var invalidEdgeID *workflow.EdgeID
+	for index := range saveRequest.Edges {
+		if saveRequest.Edges[index].Key != "done" {
+			continue
+		}
+		saveRequest.Edges[index].AssigneeSelection = workflow.AssigneeSelectionPreviousNode
+		saveRequest.Edges[index].Parameters = []workflow.Parameter{{
+			Key:     "role",
+			Purpose: workflow.ParameterPurposeTargetAssignee,
+		}}
+		edgeID := saveRequest.Edges[index].ID
+		invalidEdgeID = &edgeID
+	}
+	if invalidEdgeID == nil {
+		t.Fatal("workflow fixture has no done Edge")
+	}
+	saved, err := fixture.store.SaveWorkflowGraph(fixture.ctx, saveRequest)
+	if err != nil {
+		t.Fatalf("SaveWorkflowGraph with semantic execution issue: %v", err)
+	}
+	if !saved.Saved {
+		t.Fatalf("SaveWorkflowGraph = %+v, want semantically invalid draft saved", saved)
+	}
+	task := fixture.createBacklogTask(t, "Backlog on an invalid Workflow")
+	startNodeID := currentNodeViewNodeIDByKind(t, definition, workflow.NodeKindStart)
+	readStartAvailability := func() bool {
+		t.Helper()
+		cards, err := fixture.board.ListNodeCards(fixture.ctx, &taskpb.BoardNodeCardsListRequest{
+			ProjectId:   fixture.binding.ProjectID,
+			WorkflowId:  fixture.workflowID.String(),
+			NodeId:      string(startNodeID),
+			PageSize:    20,
+			LabelFilter: noLabelFilter(),
+		})
+		if err != nil {
+			t.Fatalf("Board.ListNodeCards: %v", err)
+		}
+		if len(cards.Cards) != 1 || cards.Cards[0].TaskId != string(task.ID) || cards.Cards[0].Actions == nil {
+			t.Fatalf("Backlog cards = %+v, want actions for Task %s", cards.Cards, task.ID)
+		}
+		return cards.Cards[0].Actions.CanStart
+	}
+	if readStartAvailability() {
+		t.Fatal("Start is available for a Backlog Task on an invalid Workflow")
+	}
+
+	validWorkflow := currentNodeViewWorkflow(t, fixture.store, false)
+	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(
+		fixture.ctx,
+		fixture.binding.ProjectID,
+		validWorkflow,
+		workflowstore.WorkflowLinkDefaultNever,
+	); err != nil {
+		t.Fatalf("LinkWorkflow valid definition: %v", err)
+	}
+
+	board, err := fixture.board.Get(fixture.ctx, &taskpb.BoardGetRequest{
+		ProjectId:   fixture.binding.ProjectID,
+		WorkflowId:  proto.String(fixture.workflowID.String()),
+		LabelFilter: noLabelFilter(),
+	})
+	if err != nil {
+		t.Fatalf("Board.Get: %v", err)
+	}
+	if board.SelectedWorkflow == nil || board.SelectedWorkflow.WorkflowId != fixture.workflowID.String() {
+		t.Fatalf("selected Workflow = %+v, want invalid Workflow %s", board.SelectedWorkflow, fixture.workflowID)
+	}
+	if len(board.SelectedWorkflow.ValidationErrors) == 0 {
+		t.Fatal("selected Workflow has no projected execution issues")
+	}
+	foundIssue := false
+	foundValidWorkflow := false
+	for _, item := range board.Workflows {
+		if item.WorkflowId == fixture.workflowID.String() {
+			for _, issue := range item.ValidationErrors {
+				code, decodeErr := protoapi.WorkflowValidationErrorCode.Decode(issue.Code)
+				if decodeErr != nil {
+					t.Fatalf("decode Workflow issue code: %v", decodeErr)
+				}
+				if code == string(workflow.CodeAssigneeSelectionInapplicable) &&
+					issue.GetEdgeId() == string(*invalidEdgeID) &&
+					issue.BlocksContext {
+					foundIssue = true
+				}
+			}
+		}
+		if item.WorkflowId == validWorkflow.String() && len(item.ValidationErrors) == 0 {
+			foundValidWorkflow = true
+		}
+	}
+	if !foundIssue {
+		t.Fatalf("Workflow picker issues = %+v, want typed blocking Assignee issue for edge %s", board.Workflows, *invalidEdgeID)
+	}
+	if !foundValidWorkflow {
+		t.Fatalf("Workflow picker items = %+v, want valid Workflow %s with no execution issues", board.Workflows, validWorkflow)
+	}
+	repaired, err := fixture.store.SaveWorkflowGraph(
+		fixture.ctx, workflowstore.NewWorkflowGraphSaveRequest(definition, saved.Version),
+	)
+	if err != nil || !repaired.Saved {
+		t.Fatalf("SaveWorkflowGraph valid repair: saved=%t, err=%v", repaired.Saved, err)
+	}
+	if !readStartAvailability() {
+		t.Fatal("Start is unavailable for the same Backlog Task after repairing its Workflow")
 	}
 }
 
@@ -153,7 +267,6 @@ func TestBoardDoesNotResolveLiveSessionLabelsForMultipleCards(t *testing.T) {
 	board, err := NewBoard(
 		fixture.metadata,
 		mustDefinitionProjection(t, fixture.store),
-		testsetup.QuestionsEnabled("coder"),
 		projection,
 	)
 	if err != nil {
@@ -269,7 +382,6 @@ func TestBoardListNodeCardsFailsWhenTaskIsDeletedBeforeProjection(t *testing.T) 
 	board, err := NewBoard(
 		fixture.metadata,
 		mustDefinitionProjection(t, fixture.store),
-		testsetup.QuestionsEnabled("coder"),
 		projection,
 	)
 	if err != nil {

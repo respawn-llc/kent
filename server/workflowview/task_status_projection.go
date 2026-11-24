@@ -387,7 +387,15 @@ func (p *TaskStatusProjection) definition(
 		return definitionSnapshot{}, err
 	}
 	api, nodeKinds, err := ProjectDefinition(domain, record, p.workflowStore.TargetAgentCatalog())
-	return definitionSnapshot{domain: domain, api: api, nodeKinds: nodeKinds}, err
+	if err != nil {
+		return definitionSnapshot{}, err
+	}
+	return definitionSnapshot{
+		domain:              domain,
+		api:                 api,
+		nodeKinds:           nodeKinds,
+		executionValidation: definitionExecutionValidation(domain, p.workflowStore.TargetAgentCatalog()),
+	}, nil
 }
 
 type taskIDsEncoding struct {

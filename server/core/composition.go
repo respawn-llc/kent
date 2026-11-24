@@ -359,7 +359,7 @@ func NewWithContextOptions(ctx context.Context, cfg config.App, authSupport serv
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: task dependencies: %w", err)
 	}
-	workflowBoard, err := workflowview.NewBoard(metadataStore, workflowDefinitions, workflowRoleResolver, workflowTaskStatusProjection)
+	workflowBoard, err := workflowview.NewBoard(metadataStore, workflowDefinitions, workflowTaskStatusProjection)
 	if err != nil {
 		cleanupNewFailure()
 		return nil, fmt.Errorf("workflow bundle: board: %w", err)

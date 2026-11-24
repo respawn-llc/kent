@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { create } from "@app/server-api-contract";
+import { create, operationName } from "@app/server-api-contract";
 import * as lifecycle from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import { ExecutionTargetMode } from "@app/server-api-contract/gen/kent/api/workflow_definition/workflow_definition_pb";
 import {
@@ -7,6 +7,7 @@ import {
   LockedExecutionTargetCause,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/attention_pb";
 import { ApiClient } from "./client";
+import { errorMessage } from "./errors";
 import { FakeRpcTransport, unexpectedProjectOverflow } from "@/test-support/api";
 
 function moveClient(response: lifecycle.MoveSuccess) {
@@ -34,6 +35,39 @@ function previewClient(response: lifecycle.MovePreviewSuccess) {
 }
 
 describe("task lifecycle client", () => {
+  it.each(["The Workflow's Script path is missing.", undefined])(
+    "adapts Start internal failures through the regular API error path (cause: %s)",
+    async (cause) => {
+      const method = lifecycle.TaskLifecycleService.method.start;
+      const client = new ApiClient(
+        new FakeRpcTransport([
+          {
+            descriptor: method,
+            result: create(lifecycle.StartResultSchema, {
+              outcome: {
+                case: "error",
+                value: {
+                  code: "internal_failure",
+                  detail: { case: "internalFailure", value: cause === undefined ? {} : { cause } },
+                },
+              },
+            }),
+          },
+        ]),
+        unexpectedProjectOverflow,
+      );
+      const error = await client.startTask({ taskID: "task-1" }).catch((error: unknown) => error);
+      expect(errorMessage(error)).toBe(
+        cause ?? `${operationName(method)} failed with code internal_failure.`,
+      );
+      expect(error).toMatchObject({
+        code: "internal_failure",
+        detail: { kind: "internal", cause: cause ?? null },
+        data: { detail: { case: "internalFailure", value: cause === undefined ? {} : { cause } } },
+      });
+    },
+  );
+
   it("uses Current Node responses and sends move selections", async () => {
     const transport = new FakeRpcTransport([
       {

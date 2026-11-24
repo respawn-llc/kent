@@ -416,7 +416,6 @@ func TestTranscriptHydrationProjectsRuntimeOwnedFacts(t *testing.T) {
 		ActiveCompaction: &runtime.TranscriptCompactionState{StepID: transcriptProjectionStepID, Mode: "auto", Count: 3},
 		ContextUsage:     &runtime.ContextUsage{UsedTokens: 123, WindowTokens: 4000, CacheHitPercent: 25, HasCacheHitPercentage: true},
 		Goal:             &session.GoalState{ID: "goal-1", Objective: "ship", Status: session.GoalStatusActive, CreatedAt: goalTime, UpdatedAt: goalTime},
-		GoalSuspended:    true,
 	}, nil)
 
 	if hydration.ActiveThinkingStatus == nil || hydration.ActiveThinkingStatus.Text != "Planning" ||
@@ -431,7 +430,7 @@ func TestTranscriptHydrationProjectsRuntimeOwnedFacts(t *testing.T) {
 	}
 	if hydration.ContextUsage == nil || hydration.ContextUsage.CacheHitPercent == nil ||
 		*hydration.ContextUsage.CacheHitPercent != 25 || hydration.GoalStatus == nil ||
-		hydration.GoalStatus.Goal == nil || !hydration.GoalStatus.Suspended {
+		hydration.GoalStatus.Goal == nil {
 		t.Fatalf("usage/goal = usage %+v goal %+v", hydration.ContextUsage, hydration.GoalStatus)
 	}
 }

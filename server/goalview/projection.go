@@ -12,7 +12,6 @@ import (
 func FromSessionState(
 	goal *session.GoalState,
 	availability session.GoalAvailability,
-	suspended bool,
 ) (*runtimepb.GoalView, error) {
 	value, err := CoreFromSessionState(goal)
 	if err != nil {
@@ -22,7 +21,6 @@ func FromSessionState(
 	return &runtimepb.GoalView{
 		Goal:         value,
 		Availability: &projected,
-		Suspended:    suspended,
 	}, nil
 }
 

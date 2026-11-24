@@ -211,7 +211,7 @@
 - When the finite thinking union contains one level, Kent hides the protected thinking Parameter and applies that level only when the selected role's model supports it.
 - A supplied thinking value is ignored whenever the protected thinking Parameter is hidden because the finite union contains zero or one level.
 - Workflow definition validation checks each Edge selector's topology and configuration availability, protected Parameter identity, and every Agent Node's required fallback Assignee.
-- Invalid selector modes, Parameter purposes, and malformed or colliding Parameter Keys are hard graph-shape errors. Selector topology and role/thinking catalog applicability are semantic validation errors: Drafts may save and reload them with diagnostics, while task creation and execution reject them.
+- Invalid selector modes, Parameter purposes, and malformed or colliding Parameter Keys are hard graph-shape errors. Selector topology and role/thinking catalog applicability are semantic validation errors: Drafts may save and reload them with diagnostics, while execution must reject them.
 - Kent validates supplied Assignee and thinking values when a Transition Result or Manual Move is applied and before creating a target Current Node or pending Approval.
 - Each visible executable or terminal Node is also a Kanban column and status. Join Nodes are omitted from boards.
 - Workflows can contain Start, Agent, Script, Join, and Terminal Nodes. Approval is a Transition Branch property.
@@ -221,7 +221,7 @@
 - Kent must accept saved serial Start Transitions without requiring Workflow or Task content rewrites. Backlog Tasks must use the latest saved Start Transition when explicitly started. Editing Start must not move executing Tasks or change their captured parallel branch set.
 - Terminal Nodes are strict sinks. Manual reopen or rework is an explicit override. Kent stores no Workflow history for it.
 - Draft validation reports semantic errors without blocking save/link/default selection.
-- Task creation and execution validation accumulate all safe actionable errors and reject invalid graph, role, and Parameter configurations.
+- Execution validation must accumulate all safe actionable errors and reject invalid graph, role, and Parameter configurations.
 - Execution-valid graphs reject detached islands: every node reachable from start, every non-terminal can reach terminal, terminal cannot auto-run.
 - Cycles/self-loops are allowed outside restricted fan-out branch paths.
 - Workflow graph identity must follow the [key-based file contract](declarative-workflows.md#file-identity).

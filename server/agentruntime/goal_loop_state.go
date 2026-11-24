@@ -16,7 +16,7 @@ func newGoalLoopState() *goalLoopState {
 	return &goalLoopState{changed: make(chan struct{})}
 }
 
-func (s *goalLoopState) Suspend() {
+func (s *goalLoopState) Stop() {
 	if s == nil {
 		return
 	}
@@ -24,23 +24,7 @@ func (s *goalLoopState) Suspend() {
 	s.interruptPending = false
 	switch s.lifecycle {
 	case goalLoopLifecycleRunning, goalLoopLifecycleRestartPending:
-		s.lifecycle = goalLoopLifecycleSuspending
-	default:
-		s.lifecycle = goalLoopLifecycleSuspended
-	}
-	s.mu.Unlock()
-}
-
-func (s *goalLoopState) Resume() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.interruptPending = false
-	if s.lifecycle.IsSuspended() {
-		s.lifecycle = goalLoopLifecycleIdle
-		close(s.changed)
-		s.changed = make(chan struct{})
+		s.lifecycle = goalLoopLifecycleStopping
 	}
 	s.mu.Unlock()
 }
@@ -54,7 +38,7 @@ func (s *goalLoopState) Start() bool {
 	if s.interruptPending {
 		s.interruptPending = false
 		switch s.lifecycle {
-		case goalLoopLifecycleRunning, goalLoopLifecycleSuspending, goalLoopLifecycleRestartPending:
+		case goalLoopLifecycleRunning, goalLoopLifecycleStopping, goalLoopLifecycleRestartPending:
 			s.lifecycle = goalLoopLifecycleRestartPending
 			return false
 		}
@@ -62,7 +46,7 @@ func (s *goalLoopState) Start() bool {
 	switch s.lifecycle {
 	case goalLoopLifecycleRunning, goalLoopLifecycleRestartPending:
 		return false
-	case goalLoopLifecycleSuspending:
+	case goalLoopLifecycleStopping:
 		s.lifecycle = goalLoopLifecycleRestartPending
 		return false
 	}
@@ -84,9 +68,7 @@ func (s *goalLoopState) Finish(active bool) bool {
 			return true
 		}
 		s.lifecycle = goalLoopLifecycleIdle
-	case goalLoopLifecycleSuspending:
-		s.lifecycle = goalLoopLifecycleSuspended
-	case goalLoopLifecycleRunning:
+	case goalLoopLifecycleStopping, goalLoopLifecycleRunning:
 		s.lifecycle = goalLoopLifecycleIdle
 	}
 	close(s.changed)
@@ -94,13 +76,10 @@ func (s *goalLoopState) Finish(active bool) bool {
 	return false
 }
 
-func (s *goalLoopState) Suspended() bool {
-	if s == nil {
-		return false
-	}
+func (s *goalLoopState) CanContinue() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lifecycle.IsSuspended()
+	return s.lifecycle == goalLoopLifecycleRunning
 }
 
 func (s *goalLoopState) Running() bool {
@@ -164,12 +143,8 @@ func (s *goalLoopState) CommitInterrupt() {
 	}
 	s.mu.Lock()
 	s.interruptPending = false
-	switch s.lifecycle {
-	case goalLoopLifecycleRestartPending:
-	case goalLoopLifecycleRunning:
-		s.lifecycle = goalLoopLifecycleSuspending
-	default:
-		s.lifecycle = goalLoopLifecycleSuspended
+	if s.lifecycle == goalLoopLifecycleRunning {
+		s.lifecycle = goalLoopLifecycleStopping
 	}
 	s.mu.Unlock()
 }
