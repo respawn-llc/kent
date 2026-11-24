@@ -107,7 +107,7 @@
 - The server supplies one logical Thinking Status line. It may wrap to at most two visual lines, and the spinner aligns with the first line rather than the visual center of the wrapped block.
 - Thinking Status never presents steps, a timeline, or a Chain of Thought. Desktop must not parse text or manufacture work stages.
 - Thinking Status must be visible throughout the complete running active-work scope. For a main-agent Agent Step this includes assistant streaming and tool execution. As live or committed content arrives, Thinking Status must be the final transient tail immediately before the composer.
-- Thinking Status disappears when neither main-agent work nor Reviewer invocation is active. Its exit combines a short downward slide with a fade. Reduced motion removes the transition.
+- Thinking Status disappears when neither main-agent work nor Reviewer invocation is active. When the window is focused and reduced motion is off, its exit must combine a short downward slide with a fade. When the window is unfocused or reduced motion is on, Thinking Status must disappear without a transition. Losing focus must not hide Thinking Status while the activity still calls for it.
 - A later Agent Step starts fresh at `Working…`. Desktop must not morph Thinking Status into an assistant message.
 - Thinking Status is non-interactive. It has no disclosure, Copy action, hover detail, or link to a Reasoning Trace.
 - While the Reviewer model request is processing, the same transient presentation shows a spinner and `Reviewing…`. Reviewer completion removes it and creates no completed-review marker.

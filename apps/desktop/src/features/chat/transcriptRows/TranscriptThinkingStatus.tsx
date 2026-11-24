@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useTranslation } from "react-i18next";
 
-import type { ThinkingStatusPresentation } from "@/app-facade";
+import { useWindowFocus, type ThinkingStatusPresentation } from "@/app-facade";
 import { AnimatedText, Spinner, motionDurationFromCSSVar, useReducedMotion } from "@/ui";
 
 export function TranscriptThinkingStatus({
@@ -9,6 +9,8 @@ export function TranscriptThinkingStatus({
 }: Readonly<{ presentation: ThinkingStatusPresentation | null }>) {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
+  const focused = useWindowFocus();
+  if (presentation === null && (focused !== true || reducedMotion)) return null;
   return (
     <AnimatePresence>
       {presentation === null ? null : (
