@@ -1,9 +1,10 @@
 import { create, operationName, type DescMethod, type MessageShape } from "@app/server-api-contract";
-import type {
-  DeleteError as TaskDeleteError,
-  StartError as TaskStartError,
-  ResumeError as TaskResumeError,
-  MoveError as TaskMoveError,
+import {
+  TaskLifecycleService,
+  type DeleteError as TaskDeleteError,
+  type StartError as TaskStartError,
+  type ResumeError as TaskResumeError,
+  type MoveError as TaskMoveError,
 } from "@app/server-api-contract/gen/kent/api/workflow_task/lifecycle_pb";
 import {
   BranchCleanupMode,
@@ -396,7 +397,7 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
     return new WorktreeError(generic, { kind: "delete_partial", details: detail.value });
   }
   if (detail.case === "internalFailure") {
-    return new WorktreeError(generic, { kind: "internal", cause: detail.value.cause ?? null });
+    return projectInternalWorktreeFailure(method, generic, detail.value.cause ?? null);
   }
   if (detail.case === "selectorError") {
     return new WorktreeError(generic, { kind: "selector", details: detail.value });
@@ -422,6 +423,17 @@ function projectWorktreeFailure(method: DescMethod, failure: WorktreeFailure): R
     return new WorktreeError(generic, { kind: "capacity" });
   }
   return generic;
+}
+
+function projectInternalWorktreeFailure(
+  method: DescMethod,
+  error: RpcError,
+  cause: string | null,
+): WorktreeError {
+  if (method === TaskLifecycleService.method.start && cause !== null) {
+    error.message = cause;
+  }
+  return new WorktreeError(error, { kind: "internal", cause });
 }
 
 export function hasDeletableWorktreeBranch(preview: WorktreeDeletePreview): boolean {

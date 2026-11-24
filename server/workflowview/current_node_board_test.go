@@ -99,6 +99,28 @@ func TestBoardProjectsExecutionIssuesForInvalidWorkflowAndNoneForValidWorkflow(t
 	if !saved.Saved {
 		t.Fatalf("SaveWorkflowGraph = %+v, want semantically invalid draft saved", saved)
 	}
+	task := fixture.createBacklogTask(t, "Backlog on an invalid Workflow")
+	startNodeID := currentNodeViewNodeIDByKind(t, definition, workflow.NodeKindStart)
+	readStartAvailability := func() bool {
+		t.Helper()
+		cards, err := fixture.board.ListNodeCards(fixture.ctx, &taskpb.BoardNodeCardsListRequest{
+			ProjectId:   fixture.binding.ProjectID,
+			WorkflowId:  fixture.workflowID.String(),
+			NodeId:      string(startNodeID),
+			PageSize:    20,
+			LabelFilter: noLabelFilter(),
+		})
+		if err != nil {
+			t.Fatalf("Board.ListNodeCards: %v", err)
+		}
+		if len(cards.Cards) != 1 || cards.Cards[0].TaskId != string(task.ID) || cards.Cards[0].Actions == nil {
+			t.Fatalf("Backlog cards = %+v, want actions for Task %s", cards.Cards, task.ID)
+		}
+		return cards.Cards[0].Actions.CanStart
+	}
+	if readStartAvailability() {
+		t.Fatal("Start is available for a Backlog Task on an invalid Workflow")
+	}
 
 	validWorkflow := currentNodeViewWorkflow(t, fixture.store, false)
 	if _, err := fixture.store.LinkWorkflowWithDefaultPolicy(
@@ -149,6 +171,15 @@ func TestBoardProjectsExecutionIssuesForInvalidWorkflowAndNoneForValidWorkflow(t
 	}
 	if !foundValidWorkflow {
 		t.Fatalf("Workflow picker items = %+v, want valid Workflow %s with no execution issues", board.Workflows, validWorkflow)
+	}
+	repaired, err := fixture.store.SaveWorkflowGraph(
+		fixture.ctx, workflowstore.NewWorkflowGraphSaveRequest(definition, saved.Version),
+	)
+	if err != nil || !repaired.Saved {
+		t.Fatalf("SaveWorkflowGraph valid repair: saved=%t, err=%v", repaired.Saved, err)
+	}
+	if !readStartAvailability() {
+		t.Fatal("Start is unavailable for the same Backlog Task after repairing its Workflow")
 	}
 }
 
