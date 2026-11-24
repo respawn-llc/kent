@@ -297,6 +297,7 @@ func (s *defaultExclusiveStepLifecycle) publishTerminalStep(
 	if beforeLiveRun != nil {
 		err = errors.Join(err, beforeLiveRun())
 	}
+	var goalErr error
 	if status == RunStatusCompleted && err == nil && snapshot != nil {
 		resultKind, assistant, observed := s.engine.takeLiveRunStepResult(stepID)
 		if observed {
@@ -305,7 +306,7 @@ func (s *defaultExclusiveStepLifecycle) publishTerminalStep(
 		if options.EmitRunState && snapshot.ActiveKind == ActiveKindUserTurn {
 			// Admit Goal work before settling the Live Run that accepted the message.
 			// Its first Step cannot start until this terminal publication ends.
-			err = errors.Join(err, s.engine.startGoalLoop(false))
+			goalErr = s.engine.startGoalLoop(false)
 		}
 	}
 	var publishLiveRunFinished func()
@@ -313,6 +314,8 @@ func (s *defaultExclusiveStepLifecycle) publishTerminalStep(
 		publishLiveRunFinished = s.engine.finishLiveRunStep(snapshot, status, err)
 	}
 	s.finishTerminalPublication()
+	// Goal admission is separate from the outcome of the completed user turn.
+	s.engine.surfaceRunError(goalErr)
 	if options.EmitRunState {
 		// StepEnded precedes live-turn finalization. Publish its completed state
 		// after finalization has cleared turn-owned activity such as Supervisor.

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"core/server/tools"
 	"core/shared/textutil"
 	"core/shared/toolspec"
+	"core/shared/transcriptmodel"
 )
 
 func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
@@ -121,6 +123,41 @@ func TestEnginePublishesLiveRunTerminalFactsThroughSubmitSeam(t *testing.T) {
 		result := events.single(t)
 		if result.Status != RunStatusCompleted || result.ResultKind != LiveRunResultAssistantFinalAnswer {
 			t.Fatalf("result = %+v", result)
+		}
+	})
+
+	t.Run("a Goal saved mid-turn cannot erase a completed reply", func(t *testing.T) {
+		store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
+		events := &liveRunEventCollector{}
+		client := newScriptedGoalLoopClient()
+		eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{
+			Model: "gpt-6-sol", OnEvent: events.accept,
+			EnabledTools: []toolspec.ID{toolspec.ToolExecCommand},
+		})
+		done := make(chan error, 1)
+		go func() {
+			_, err := eng.SubmitUserMessage(t.Context(), "continue")
+			done <- err
+		}()
+		client.waitStarted(t, 1)
+		if _, err := eng.SetGoal(t.Context(), "ship the feature", session.GoalActorUser); err != nil {
+			t.Fatal(err)
+		}
+		client.releaseCall(1)
+		if err := <-done; err != nil {
+			t.Fatalf("completed reply returned an error: %v", err)
+		}
+		result := events.single(t)
+		if result.Status != RunStatusCompleted || result.ResultKind != LiveRunResultAssistantFinalAnswer || result.Error != nil {
+			t.Fatalf("completed reply result = %+v", result)
+		}
+		if got := client.callCount(); got != 1 {
+			t.Fatalf("provider calls = %d, want only the user turn", got)
+		}
+		if !slices.ContainsFunc(eng.ChatSnapshot().Entries, func(entry ChatEntry) bool {
+			return entry.Role == string(transcript.EntryRoleDeveloperErrorFeedback)
+		}) {
+			t.Fatal("Goal admission failure did not appear in the transcript")
 		}
 	})
 
