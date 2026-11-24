@@ -43,7 +43,6 @@ export type ChatGoalFacts = Readonly<{
     status: "active" | "paused" | "complete";
     created_at: string;
     updated_at: string;
-    Suspended: boolean;
   }> | null;
   Availability: "available" | "agent_capability_missing" | null;
 }>;

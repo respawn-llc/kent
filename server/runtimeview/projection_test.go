@@ -115,7 +115,7 @@ func newRuntimeViewEngine(t *testing.T, store *session.Store, client llm.Client,
 	return engine
 }
 
-func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
+func TestStatusFromRuntimeShowsStoppedGoalAsActive(t *testing.T) {
 	client := newProjectionBlockingClient()
 	engine := newRuntimeViewEngine(t, newRuntimeViewStore(t), client, runtime.Config{Model: "gpt-6-sol", EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal(t.Context(), "ship feature", session.GoalActorUser); err != nil {
@@ -134,8 +134,8 @@ func TestStatusFromRuntimeIncludesSuspendedGoal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("project runtime status: %v", err)
 	}
-	if status.Goal == nil || !status.Goal.Suspended {
-		t.Fatalf("goal status = %+v, want suspended goal", status.Goal)
+	if status.GetGoal().GetGoal().GetStatus() != runtimepb.GoalStatus_RUNTIME_GOAL_STATUS_ACTIVE {
+		t.Fatalf("goal status = %+v, want Active", status.Goal)
 	}
 }
 

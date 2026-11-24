@@ -146,7 +146,7 @@ func (s *defaultExclusiveStepLifecycle) ReleaseReservation(reservation *exclusiv
 	if pending {
 		s.engine.publishPendingWorkChanged()
 	}
-	s.engine.surfaceRunError(s.scheduleIdleWork(true))
+	s.scheduleIdleWork(true)
 }
 
 func (s *defaultExclusiveStepLifecycle) run(ctx context.Context, options exclusiveStepOptions, waitForNext bool, fn func(stepCtx context.Context, stepID string) error) (err error) {
@@ -217,12 +217,7 @@ func (s *defaultExclusiveStepLifecycle) finishStep(stepID string, options exclus
 		err,
 		nil,
 	)
-	if status == RunStatusCompleted && snapshot != nil && snapshot.ActiveKind == ActiveKindUserTurn {
-		s.engine.resumeSuspendedGoalAfterSuccessfulUserTurn()
-	}
-	if startErr := s.scheduleIdleWork(status != RunStatusFailed); startErr != nil {
-		err = errors.Join(err, startErr)
-	}
+	s.scheduleIdleWork(status != RunStatusFailed)
 	if publishLiveRunFinished != nil {
 		publishLiveRunFinished()
 	}
@@ -306,6 +301,11 @@ func (s *defaultExclusiveStepLifecycle) publishTerminalStep(
 		resultKind, assistant, observed := s.engine.takeLiveRunStepResult(stepID)
 		if observed {
 			s.engine.maybeReserveEagerCompaction(snapshot.ActiveKind, resultKind, assistant)
+		}
+		if options.EmitRunState && snapshot.ActiveKind == ActiveKindUserTurn {
+			// Admit Goal work before settling the Live Run that accepted the message.
+			// Its first Step cannot start until this terminal publication ends.
+			err = errors.Join(err, s.engine.startGoalLoop(false))
 		}
 	}
 	var publishLiveRunFinished func()
@@ -519,7 +519,7 @@ func (s *defaultExclusiveStepLifecycle) beginNext(ctx context.Context, options e
 		if err := ctx.Err(); err != nil {
 			idle := s.cancelNextWaiter(waiter)
 			if idle {
-				return nil, "", errors.Join(context.Cause(ctx), s.scheduleIdleWork(true))
+				s.scheduleIdleWork(true)
 			}
 			return nil, "", context.Cause(ctx)
 		}
@@ -710,7 +710,7 @@ func (s *defaultExclusiveStepLifecycle) notifyNextWaiterLocked() {
 	}
 }
 
-func (s *defaultExclusiveStepLifecycle) scheduleIdleWork(scheduleQueuedUserWork bool) error {
+func (s *defaultExclusiveStepLifecycle) scheduleIdleWork(scheduleQueuedUserWork bool) {
 	if scheduleQueuedUserWork {
 		if !s.engine.scheduleQueuedUserInjections() && s.background != nil {
 			s.background.ScheduleIfIdle()
@@ -718,7 +718,6 @@ func (s *defaultExclusiveStepLifecycle) scheduleIdleWork(scheduleQueuedUserWork 
 	} else if s.background != nil {
 		s.background.ScheduleIfIdle()
 	}
-	return s.engine.startPendingGoalLoop()
 }
 
 func (s *defaultExclusiveStepLifecycle) end() {

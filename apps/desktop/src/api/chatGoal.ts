@@ -99,7 +99,6 @@ export function goalFacts(value: R.GoalViewValid): ChatGoalFacts {
             status: fact.goal.status,
             created_at: fact.goal.createdAt,
             updated_at: fact.goal.updatedAt,
-            Suspended: value.suspended,
           },
     Availability: fact.availability,
   };

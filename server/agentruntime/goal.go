@@ -97,13 +97,6 @@ func (e *Engine) GoalMutationAvailability() *session.GoalAvailability {
 	return e.store.GoalMutationAvailability()
 }
 
-func (e *Engine) GoalLoopSuspended() bool {
-	if e == nil {
-		return false
-	}
-	return e.goalLoopState().Suspended() && e.goalActive()
-}
-
 func (e *Engine) GoalLoopRunning() bool {
 	return e != nil && e.goalLoopState().Running()
 }
@@ -420,41 +413,6 @@ func (e *Engine) StartGoalLoop() error {
 	return e.startGoalLoop(true)
 }
 
-func (e *Engine) deferGoalLoopStart() {
-	if e == nil {
-		return
-	}
-	e.pendingGoalLoopStartMu.Lock()
-	e.pendingGoalLoopStart = true
-	e.pendingGoalLoopStartMu.Unlock()
-}
-
-func (e *Engine) resumeSuspendedGoalAfterSuccessfulUserTurn() {
-	if e == nil || !e.goalActive() {
-		return
-	}
-	state := e.goalLoopState()
-	if !state.Suspended() {
-		return
-	}
-	state.Resume()
-	e.deferGoalLoopStart()
-}
-
-func (e *Engine) startPendingGoalLoop() error {
-	if e == nil {
-		return nil
-	}
-	e.pendingGoalLoopStartMu.Lock()
-	pending := e.pendingGoalLoopStart
-	e.pendingGoalLoopStart = false
-	e.pendingGoalLoopStartMu.Unlock()
-	if !pending {
-		return nil
-	}
-	return e.startGoalLoop(true)
-}
-
 func (e *Engine) startGoalLoop(firstTurnAlreadyPrompted bool) error {
 	if e == nil {
 		return nil
@@ -680,14 +638,14 @@ func (e *Engine) shouldContinueGoalLoop(ctx context.Context) bool {
 	if ctx != nil && ctx.Err() != nil {
 		return false
 	}
-	return !e.goalLoopState().Suspended() && e.goalActive()
+	return e.goalLoopState().CanContinue() && e.goalActive()
 }
 
 func (e *Engine) shouldHoldLiveRunForGoalLoopContinuation(snapshot *RunSnapshot, status RunStatus) bool {
-	if e == nil || snapshot == nil || !snapshot.GoalLoop || status != RunStatusCompleted {
+	if e == nil || snapshot == nil || status != RunStatusCompleted {
 		return false
 	}
-	return e.goalLoopState().ContinuationEnforced() && e.shouldContinueGoalLoop(context.Background())
+	return (snapshot.GoalLoop || snapshot.ActiveKind == ActiveKindUserTurn) && e.GoalLoopContinuationEnforced()
 }
 
 func (e *Engine) goalActive() bool {

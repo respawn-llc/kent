@@ -318,6 +318,7 @@ func TestFreshGoalStartExcludesIdleReminder(t *testing.T) {
 	}
 	now := time.Now().Add(2 * time.Hour)
 	engine.transcriptRuntimeState().now = func() time.Time { return now }
+	engine.goalLoopState().Start()
 	if _, err := engine.runGoalTurn(t.Context(), true); err != nil {
 		t.Fatal(err)
 	}

@@ -388,7 +388,7 @@ func (e *Engine) scheduleQueuedUserInjections() bool {
 // CancelScheduledModelWork prevents continuation beyond the canceled execution,
 // including when its current Step has already entered terminal publication.
 func (e *Engine) CancelScheduledModelWork() {
-	e.goalLoopState().Suspend()
+	e.goalLoopState().Stop()
 	e.queuedUserWorkMu.Lock()
 	defer e.queuedUserWorkMu.Unlock()
 	if e.queuedUserWorkCancel != nil {

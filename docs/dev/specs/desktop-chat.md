@@ -525,7 +525,6 @@
 - The sidebar uses one non-sticky adaptive action row immediately below the metadata. It contains lifecycle first and Clear second. The floating Save action is attached to the Markdown field. Create mode shows the floating Save action alone.
 - When the sidebar narrows, the action row flows onto additional lines without truncating, overlapping, shrinking, or mangling button labels and controls.
 - Desktop offers no human `Mark complete` Goal action.
-- Goal suspension is outside the Desktop product state model. Desktop must not store or present runtime-local Goal suspension. It presents a durably active Goal as Active and never shows suspension copy, explanation, iconography, or a separate Resume action for runtime-local suspension.
 - The sidebar shows the Goal status as compact colored text and a small secondary line `Set at <date and time> (<period> ago)` derived from the server's Goal creation timestamp. It omits Goal ID and updated time.
 - Goal status uses a primary-colored circle-dot icon and label for Active, a warning-colored pause-in-circle icon and label for Paused, and a success-colored checkmark icon and label for Complete.
 - The relative period shows `0 min` below one minute, `N min` below one hour, `HhMm` below one day, and `DdHhMm` from one day onward. It omits zero-value units, keeps days unbounded, and refreshes once per minute.

@@ -290,7 +290,7 @@ func TestUserGoalPersistsDuringActiveStep(t *testing.T) {
 	}
 }
 
-func TestQueuedActiveGoalResumeRestartsSuspendedGoalLoop(t *testing.T) {
+func TestQueuedActiveGoalResumeKeepsGoalActive(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	engine := mustNewTestEngine(t, store, &fakeClient{}, newTestToolRegistry(t), Config{
 		EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion},
@@ -300,7 +300,6 @@ func TestQueuedActiveGoalResumeRestartsSuspendedGoalLoop(t *testing.T) {
 	if _, err := engine.SetGoal(context.Background(), "queued resume goal", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	engine.goalLoopState().Suspend()
 
 	if err := engine.pauseRuntimeOperations(t.Context()); err != nil {
 		t.Fatal(err)
@@ -650,6 +649,7 @@ func TestGoalTurnAppendsNudgePromptAndRunsModel(t *testing.T) {
 		t.Fatalf("SetGoal: %v", err)
 	}
 
+	engine.goalLoopState().Start()
 	if _, err := engine.runGoalTurn(t.Context(), true); err != nil {
 		t.Fatalf("runGoalTurn: %v", err)
 	}
@@ -681,6 +681,7 @@ func TestGoalBlankFinalUsesRegularContinuationNudge(t *testing.T) {
 		t.Fatalf("SetGoal: %v", err)
 	}
 
+	engine.goalLoopState().Start()
 	msg, err := engine.runGoalTurn(t.Context(), true)
 	if err != nil {
 		t.Fatalf("runGoalTurn: %v", err)
@@ -941,67 +942,56 @@ func TestGoalLoopInterruptSuspendsUntilResumeRestarts(t *testing.T) {
 	}
 }
 
-func TestInterruptIdleActiveGoalDoesNotSuspendGoalLoop(t *testing.T) {
-	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
-	engine := mustNewTestEngine(t, store, newScriptedGoalLoopClient(), newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
-	if _, err := engine.SetGoal(context.Background(), "ship goal mode", session.GoalActorUser); err != nil {
-		t.Fatalf("SetGoal: %v", err)
-	}
-	if err := engine.Interrupt(); err != nil {
-		t.Fatalf("Interrupt: %v", err)
-	}
-	if engine.GoalLoopSuspended() {
-		t.Fatal("idle active goal must not be suspended by a no-op interrupt")
-	}
-}
-
-func TestSuspendedGoalAutoResumesAfterSuccessfulUserTurnOnly(t *testing.T) {
+func TestStoppedGoalContinuesAfterSuccessfulUserTurn(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	client.beforeReturn = func(call int) {
-		if call == 2 {
+		if call == 3 {
 			mustQueueAgentGoalCompletion(engine)
 		}
 	}
 	if _, err := engine.SetGoal(context.Background(), "ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	engine.goalLoopState().Suspend()
+	if err := engine.StartGoalLoop(); err != nil {
+		t.Fatal(err)
+	}
+	client.waitStarted(t, 1)
+	if err := engine.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	waitGoalLoopRunning(t, engine, false)
 
 	done := make(chan error, 1)
 	go func() {
 		_, err := engine.SubmitUserMessage(context.Background(), "continue")
 		done <- err
 	}()
-	client.waitStarted(t, 1)
-	if !engine.GoalLoopSuspended() {
-		t.Fatal("suspended goal resumed before user turn completed")
-	}
-	client.releaseCall(1)
+	client.waitStarted(t, 2)
+	client.releaseCall(2)
 	if err := <-done; err != nil {
 		t.Fatalf("SubmitUserMessage: %v", err)
 	}
-	client.waitStarted(t, 2)
-	client.releaseCall(2)
+	client.waitStarted(t, 3)
+	client.releaseCall(3)
 	waitGoalLoopRunning(t, engine, false)
-	if engine.GoalLoopSuspended() {
-		t.Fatal("suspended goal did not resume after successful user turn")
+	if goal := engine.Goal(); goal == nil || goal.Status != session.GoalStatusComplete {
+		t.Fatalf("Goal did not complete after its continuation: %+v", goal)
 	}
 }
 
-func TestSuspendedGoalStaysSuspendedAfterInterruptedUserTurn(t *testing.T) {
-	synctest.Test(t, testSuspendedGoalStaysSuspendedAfterInterruptedUserTurn)
+func TestInterruptedUserTurnDoesNotStartActiveGoal(t *testing.T) {
+	synctest.Test(t, testInterruptedUserTurnDoesNotStartActiveGoal)
 }
 
-func testSuspendedGoalStaysSuspendedAfterInterruptedUserTurn(t *testing.T) {
+func testInterruptedUserTurnDoesNotStartActiveGoal(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	engine := mustNewTestEngine(t, store, client, newTestToolRegistry(t), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
 	if _, err := engine.SetGoal(context.Background(), "ship goal mode", session.GoalActorUser); err != nil {
 		t.Fatalf("SetGoal: %v", err)
 	}
-	engine.goalLoopState().Suspend()
 
 	done := make(chan error, 1)
 	go func() {
@@ -1014,9 +1004,6 @@ func testSuspendedGoalStaysSuspendedAfterInterruptedUserTurn(t *testing.T) {
 	}
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("SubmitUserMessage err = %v, want context canceled", err)
-	}
-	if !engine.GoalLoopSuspended() {
-		t.Fatal("interrupted user turn must leave goal suspended")
 	}
 	client.assertNotStarted(t, 2)
 }
@@ -1305,9 +1292,6 @@ func TestNewOpensPersistedActiveGoalWhenAskQuestionDisabled(t *testing.T) {
 	goal := engine.Goal()
 	if goal == nil || goal.Status != session.GoalStatusActive || goal.Objective != "ship goal mode" {
 		t.Fatalf("goal after reopen = %+v", goal)
-	}
-	if engine.GoalLoopSuspended() {
-		t.Fatal("did not expect reopened active goal to be reported suspended before an explicit start attempt")
 	}
 	waitGoalLoopRunning(t, engine, false)
 	if got := client.callCount(); got != 0 {

@@ -226,6 +226,9 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 		stoppedMessages = e.messageFlow.DrainPendingUserInjectionsByID(stringQueueItemIDSet(taggedQueueItems))
 		tracker.match = !liveRunInterrupted || goalLoop
 		tracker.onSnapshot(snapshot)
+		if goalLoop && !tracker.pending {
+			e.goalLoopState().Stop()
+		}
 	})
 	tracker.resolve(err, interruptedSnapshot)
 	if len(stoppedMessages) != 0 {
@@ -242,9 +245,6 @@ func (e *Engine) TryInterruptActiveRun() (bool, error) {
 	}
 	if err != nil {
 		return true, err
-	}
-	if goalLoop && !tracker.pending && e.goalActive() {
-		e.goalLoopState().Suspend()
 	}
 	return true, nil
 }
@@ -497,9 +497,12 @@ func (c *liveRunCoordinator) beginStep(snapshot *RunSnapshot) {
 		c.current.stepToolStarts = liveStepToolStartsNone
 		c.current.goalLoop = snapshot.GoalLoop
 		c.current.status = RunStatusRunning
-		c.current.resultKindSet = false
-		c.current.noFinalReason = LiveRunNoFinalAnswerReasonUnknown
-		c.current.assistantMessage = llm.Message{}
+		// Goal turns do not supply the reply to the message that started the run.
+		if !snapshot.GoalLoop || !c.current.resultKindSet || c.current.resultKind != LiveRunResultAssistantFinalAnswer {
+			c.current.resultKindSet = false
+			c.current.noFinalReason = LiveRunNoFinalAnswerReasonUnknown
+			c.current.assistantMessage = llm.Message{}
+		}
 		c.current.err = nil
 		c.current.finishedAt = time.Time{}
 		c.current.stepResultKind = ""
@@ -571,7 +574,7 @@ func (c *liveRunCoordinator) finishStepDeferred(snapshot *RunSnapshot, status Ru
 		close(done)
 		return stoppedQueueItems, &result
 	}
-	group.goalLoopHolding = snapshot.GoalLoop && holdGoalLoop
+	group.goalLoopHolding = holdGoalLoop
 	if !group.hasPendingContinuation() {
 		c.current = nil
 		c.signalReadinessChangedLocked()
@@ -834,7 +837,7 @@ func (c *liveRunCoordinator) interruptWhere(matches func(*liveRunGroup) bool) (b
 		c.mu.Unlock()
 		return false, nil, false
 	}
-	goalLoop := group.goalLoop
+	goalLoop := group.goalLoop || group.goalLoopHolding
 	ids := group.queueItemIDs()
 	c.markStoppedQueueItemsLocked(ids)
 	for id := range group.publishingItems {

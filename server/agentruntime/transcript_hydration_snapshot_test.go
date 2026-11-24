@@ -106,9 +106,6 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 	if _, err := engine.SetGoal(t.Context(), "ship the owner snapshot", session.GoalActorUser); err != nil {
 		t.Fatalf("set goal: %v", err)
 	}
-	engine.goalLoopState().Start()
-	engine.goalLoopState().Suspend()
-
 	snapshot := hydrationSnapshot(t, engine)
 	if snapshot.ActiveCompaction == nil || snapshot.ActiveCompaction.StepID != stepID ||
 		snapshot.ActiveCompaction.Count != 8 {
@@ -119,8 +116,8 @@ func TestTranscriptHydrationSnapshotProjectsAndResetsRuntimeOwners(t *testing.T)
 		snapshot.ContextUsage.UsedTokens <= 0 {
 		t.Fatalf("context usage = %+v", snapshot.ContextUsage)
 	}
-	if snapshot.Goal == nil || !snapshot.GoalSuspended {
-		t.Fatalf("goal = %+v suspended=%t", snapshot.Goal, snapshot.GoalSuspended)
+	if snapshot.Goal == nil || snapshot.Goal.Status != session.GoalStatusActive {
+		t.Fatalf("goal = %+v", snapshot.Goal)
 	}
 
 	if err := engine.steer(stepID,

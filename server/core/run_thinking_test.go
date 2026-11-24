@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -170,6 +171,35 @@ func TestNewChatShellFailureRetainsCreatedSessionAndDraft(t *testing.T) {
 		t.Fatalf("failed shell lost draft or called model: %+v", record.Meta)
 	}
 	requireChatSessionCount(t, app, binding.ProjectID, 1)
+}
+
+func TestHeadlessContinuesDormantActiveGoalAfterReply(t *testing.T) {
+	var calls atomic.Int32
+	_, store, client := newRunThinkingSession(t, func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			modelstub.WriteCompletedResponseStream(w, "answered the prompt", 1, 1)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	})
+	if _, _, err := store.SetGoal("finish the feature", session.GoalActorUser); err != nil {
+		t.Fatal(err)
+	}
+	id, err := runtimeids.ParseSessionID(store.Meta().SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err = client.RunPrompt(ctx, requestfixture.RunPrompt(t, serverapi.RunPromptRequest{
+		Intent: serverapi.OpenExistingSessionLaunchIntent(id), Prompt: "continue",
+	}), nil)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("provider calls = %d, want prompt and Goal continuation (Run error: %v)", got, err)
+	}
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("Run did not report the Goal continuation's provider failure: %v", err)
+	}
 }
 
 func TestRunThinkingContinuesSessionWithPausedGoal(t *testing.T) {

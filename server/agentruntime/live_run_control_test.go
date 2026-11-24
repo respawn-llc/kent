@@ -589,7 +589,7 @@ func (s *settledInterruptStepLifecycle) InterruptCurrent(beforeCancel func(*RunS
 	return snapshot, err
 }
 
-func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
+func TestStopDuringCompactionStopsRetainedGoalLoop(t *testing.T) {
 	client := &goalCompactionClient{
 		heldRuntimeCompactionClient: &heldRuntimeCompactionClient{
 			fakeCompactionClient: &fakeCompactionClient{},
@@ -618,8 +618,8 @@ func TestStopDuringCompactionSuspendsRetainedGoalLoop(t *testing.T) {
 		t.Fatal("Stop did not interrupt compaction")
 	}
 	waitGoalLoopRunning(t, eng, false)
-	if !eng.GoalLoopSuspended() {
-		t.Fatal("Stop during compaction did not suspend the retained Goal continuation")
+	if goal := eng.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("Stop changed the Active Goal: %+v", goal)
 	}
 	if _, err := handle.Wait(); !errors.Is(err, context.Canceled) {
 		t.Fatalf("retained Goal Live Run outcome = %v, want cancellation", err)
@@ -910,7 +910,7 @@ func TestInstantStopBroadcastsRemovedHumanInputInAcceptanceOrder(t *testing.T) {
 	}
 }
 
-func TestTryInterruptActiveRunPreservesGoalLoopInterruptBookkeeping(t *testing.T) {
+func TestTryInterruptActiveRunStopsGoalWorkWithoutPausingGoal(t *testing.T) {
 	store := mustCreateNamedTestSession(t, "workspace-x", "/tmp/workspace-x")
 	client := newScriptedGoalLoopClient()
 	eng := mustNewTestEngine(t, store, client, tools.NewRegistry(), Config{EnabledTools: []toolspec.ID{toolspec.ToolAskQuestion}})
@@ -927,8 +927,8 @@ func TestTryInterruptActiveRunPreservesGoalLoopInterruptBookkeeping(t *testing.T
 		t.Fatalf("TryInterruptActiveRun stopped=%t err=%v, want active goal stop", stopped, err)
 	}
 	waitGoalLoopRunning(t, eng, false)
-	if !eng.GoalLoopSuspended() {
-		t.Fatal("ordinary Agent-Turn interrupt did not suspend the active goal loop")
+	if goal := eng.Goal(); goal == nil || goal.Status != session.GoalStatusActive {
+		t.Fatalf("Stop changed the Active Goal: %+v", goal)
 	}
 	if got := client.callCount(); got != 1 {
 		t.Fatalf("model calls after goal interrupt = %d, want 1", got)

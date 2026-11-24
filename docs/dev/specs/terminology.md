@@ -466,7 +466,7 @@ The client and Runtime boundary for this attach is defined in [Core Runtime And 
 
 ### Goal
 
-A persistent self/user-declared objective with a continuation loop (nudges, suspend/resume, premature-stop reminders) that drives turns until the goal is completed, paused, or cleared. A goal may be set by the user or by the model itself, including inside a workflow-controlled Session.
+A persistent objective set by the user or the model, including inside a workflow-controlled Session. An Active Goal can drive work across Agent Turns through the Goal Continuation Loop.
 
 ### Goal Continuation Loop
 

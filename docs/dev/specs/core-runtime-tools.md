@@ -621,7 +621,9 @@ Idle-resume reminder behavior is defined in [Idle Resume Reminder](idle-resume-r
 - Each Goal mutation invocation is a new operation. A repeated invocation follows the current Goal state and the ordinary validation and no-op rules. Kent must not replay an earlier response or error.
 - Goal CLI never mutates Session storage directly. It submits the Goal operation to the server, which selects the live Steering path or dormant Store path.
 - Any `kent service` commands that affect the server state (restart, stop, start it) detect invocation by kent itself and refuse to run, being human-only.
-- Ctrl+C during active goal work keeps persisted status `active` and creates runtime-local suspension only. The next user message auto-resumes the suspended goal loop after its turn completes, without requiring `/goal resume`. An explicit `/goal pause` is a hard pause. A user turn that is itself interrupted leaves the loop suspended.
+- Stop interrupts current Goal work without changing the Goal's Active status. Opening a Session alone must not start Goal work.
+- Outside Workflow Execution, a successful user turn must continue an Active Goal if its loop is not already running. This applies equally after Stop, after reopening a Session, and when continuing headlessly. A failed or interrupted turn must not start Goal work.
+- An explicitly Paused Goal must stay paused when the user sends a message.
 - The goal status-line indicator in TUI shows the animated spinner only while a goal run is executing. When the goal is `active` but idle (e.g. after Ctrl+C), it shows the idle status dot.
 
 ## Reviewer
