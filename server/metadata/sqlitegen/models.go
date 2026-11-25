@@ -235,6 +235,7 @@ type Task struct {
 	UpdatedAtUnixMs                 int64
 	MetadataJson                    string
 	PendingInitialManagedBranchName sql.NullString
+	PrUrl                           sql.NullString
 }
 
 type TaskActiveFanout struct {
@@ -308,6 +309,7 @@ type TaskRecord struct {
 	Title                           string
 	Body                            string
 	SourceUrl                       string
+	PrUrl                           sql.NullString
 	SourceWorkspaceID               sql.NullString
 	ManagedWorktreeID               sql.NullString
 	PendingInitialManagedBranchName sql.NullString

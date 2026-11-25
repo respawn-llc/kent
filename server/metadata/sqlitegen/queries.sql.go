@@ -2274,6 +2274,7 @@ SELECT
     title,
     body,
     source_url,
+    pr_url,
     source_workspace_id,
     managed_worktree_id,
     pending_initial_managed_branch_name,
@@ -2304,6 +2305,7 @@ func (q *Queries) GetTask(ctx context.Context, id string) (TaskRecord, error) {
 		&i.Title,
 		&i.Body,
 		&i.SourceUrl,
+		&i.PrUrl,
 		&i.SourceWorkspaceID,
 		&i.ManagedWorktreeID,
 		&i.PendingInitialManagedBranchName,
@@ -6308,6 +6310,7 @@ SELECT
     title,
     body,
     source_url,
+    pr_url,
     source_workspace_id,
     managed_worktree_id,
     pending_initial_managed_branch_name,
@@ -6348,6 +6351,7 @@ func (q *Queries) ListTasksByIDs(ctx context.Context, taskIdsJson interface{}) (
 			&i.Title,
 			&i.Body,
 			&i.SourceUrl,
+			&i.PrUrl,
 			&i.SourceWorkspaceID,
 			&i.ManagedWorktreeID,
 			&i.PendingInitialManagedBranchName,
@@ -9190,15 +9194,17 @@ UPDATE tasks
 SET
     title = ?1,
     body = ?2,
-    source_workspace_id = ?3,
-    metadata_json = ?4,
-    updated_at_unix_ms = ?5
-WHERE id = ?6
+    pr_url = ?3,
+    source_workspace_id = ?4,
+    metadata_json = ?5,
+    updated_at_unix_ms = ?6
+WHERE id = ?7
 `
 
 type UpdateTaskEditableFieldsParams struct {
 	Title             string
 	Body              string
+	PrUrl             sql.NullString
 	SourceWorkspaceID sql.NullString
 	MetadataJson      string
 	UpdatedAtUnixMs   int64
@@ -9209,12 +9215,13 @@ func (q *Queries) UpdateTaskEditableFields(ctx context.Context, arg UpdateTaskEd
 	result, err := q.db.ExecContext(ctx, updateTaskEditableFields,
 		arg.Title,
 		arg.Body,
+		arg.PrUrl,
 		arg.SourceWorkspaceID,
 		arg.MetadataJson,
 		arg.UpdatedAtUnixMs,
 		arg.ID,
 	)
-	err = recordQueryError(ctx, err, updateTaskEditableFields, 6)
+	err = recordQueryError(ctx, err, updateTaskEditableFields, 7)
 
 	if err != nil {
 		return 0, err

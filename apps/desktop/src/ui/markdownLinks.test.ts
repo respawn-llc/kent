@@ -4,6 +4,24 @@ import { safeExternalUrl } from "./externalLinks";
 import { markdownLinkTarget } from "./markdownLinkTarget";
 
 describe("Markdown link targets", () => {
+  it("retains a Windows file URI for platform-native conversion", () => {
+    expect(markdownLinkTarget("file:///C:/work/a%2520%23%3F.png")).toEqual({
+      kind: "file",
+      path: "/C:/work/a%20#?.png",
+      fileUrl: "file:///C:/work/a%2520%23%3F.png",
+    });
+  });
+  it("keeps literal filesystem names separate from URI decoding", () => {
+    expect(markdownLinkTarget("file:///tmp/a%2520%23%3F.png")).toEqual({
+      kind: "file",
+      path: "/tmp/a%20#?.png",
+      fileUrl: "file:///tmp/a%2520%23%3F.png",
+    });
+    expect(markdownLinkTarget("../images/a%20b.png", true)).toEqual({
+      kind: "file",
+      path: "../images/a b.png",
+    });
+  });
   it.each([
     "/Users/nek/My Project/源.ts",
     "/Users/nek/My%20Project/%E6%BA%90.ts",
@@ -14,6 +32,7 @@ describe("Markdown link targets", () => {
     expect(markdownLinkTarget(destination)).toEqual({
       kind: "file",
       path: "/Users/nek/My Project/源.ts",
+      ...(destination.startsWith("/") ? {} : { fileUrl: new URL(destination).href }),
     });
     expect(safeExternalUrl(destination)).toBeUndefined();
   });

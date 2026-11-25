@@ -13,6 +13,7 @@ use tauri_plugin_dialog::DialogExt;
 mod clipboard;
 mod main_window;
 mod native_glass;
+mod output_files;
 mod settings;
 mod speech;
 #[cfg(target_os = "linux")]
@@ -167,6 +168,10 @@ fn open_file_path(path: String, base_path: String) -> Result<(), String> {
 
 fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> {
     let resolved = resolve_user_file_path(path, base_path)?;
+    require_regular_file(resolved)
+}
+
+fn require_regular_file(resolved: PathBuf) -> Result<PathBuf, String> {
     let metadata =
         fs::metadata(&resolved).map_err(|error| format!("Read file metadata failed: {error}"))?;
     if !metadata.is_file() {
@@ -176,9 +181,12 @@ fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> 
 }
 
 #[tauri::command]
-async fn open_file_default(path: String, base_path: Option<String>) -> Result<(), String> {
+async fn open_file_default(target: output_files::OutputFileTarget) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let resolved = resolve_regular_file(&path, base_path.as_deref().unwrap_or(""))?;
+        let resolved = target
+            .resolve()?
+            .ok_or("Base path is required for relative file paths.")?;
+        let resolved = require_regular_file(resolved)?;
         tauri_plugin_opener::open_path(&resolved, None::<&str>)
             .map_err(|error| format!("Open file failed: {error}"))
     })
@@ -705,6 +713,7 @@ pub fn run() {
             select_directory,
             select_file,
             file_available,
+            output_files::load_output_file,
             open_file_path,
             open_file_default,
             open_external_url,
@@ -771,19 +780,21 @@ fn platform() -> &'static str {
 }
 
 fn resolve_user_file_path(path: &str, base_path: &str) -> Result<PathBuf, String> {
-    let trimmed_path = path.trim();
-    if trimmed_path.is_empty() {
+    resolve_file_path(path.trim(), base_path.trim())
+}
+
+fn resolve_file_path(path: &str, base_path: &str) -> Result<PathBuf, String> {
+    if path.is_empty() {
         return Err("File path is required.".to_string());
     }
-    let path = PathBuf::from(trimmed_path);
+    let path = PathBuf::from(path);
     if path.is_absolute() {
         return Ok(clean_path(&path));
     }
-    let trimmed_base = base_path.trim();
-    if trimmed_base.is_empty() {
+    if base_path.is_empty() {
         return Err("Base path is required for relative file paths.".to_string());
     }
-    let base = PathBuf::from(trimmed_base);
+    let base = PathBuf::from(base_path);
     if !base.is_absolute() {
         return Err("Base path must be absolute.".to_string());
     }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
+
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
@@ -23,6 +25,7 @@ import (
 	"core/shared/worktreecontract"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -198,6 +201,7 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	body := fs.String("body", "", "replace the task body; pass an empty value to clear")
 	bodyFile := fs.String("body-file", "", "replace the task body with this file; an empty file clears it")
 	sourceWorkspace := fs.String("source-workspace", "", "replace the source workspace with this workspace ID or path")
+	prURL := fs.String("pr-url", "", "replace the pull request or merge request URL; pass an empty value to clear")
 	projectRef := fs.String("project", ".", "project ID or attached workspace path used to resolve a short ID")
 	jsonOut := fs.Bool("json", false, "write the updated task as JSON")
 	positionals, flagArgs := takeLeadingPositionals(args, 1)
@@ -213,8 +217,9 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 	bodyProvided := flagExplicit(fs, "body")
 	bodyFileProvided := flagExplicit(fs, "body-file")
 	workspaceProvided := flagExplicit(fs, "source-workspace")
-	if !titleProvided && !bodyProvided && !bodyFileProvided && !workspaceProvided {
-		fmt.Fprintln(stderr, "task edit requires at least one of --title, --body, --body-file, or --source-workspace")
+	prURLProvided := flagExplicit(fs, "pr-url")
+	if !titleProvided && !bodyProvided && !bodyFileProvided && !workspaceProvided && !prURLProvided {
+		fmt.Fprintln(stderr, "task edit requires at least one of --title, --body, --body-file, --source-workspace, or --pr-url")
 		return 2
 	}
 	if bodyProvided && bodyFileProvided {
@@ -229,6 +234,13 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		// Send title only when provided; omitting it leaves the persisted title unchanged.
 		req := &taskpb.UpdateRequest{TaskId: taskID}
+		if prURLProvided {
+			if *prURL == "" {
+				req.PrUrlChange = &taskpb.UpdateRequest_ClearPrUrl{ClearPrUrl: &emptypb.Empty{}}
+			} else {
+				req.PrUrlChange = &taskpb.UpdateRequest_PrUrl{PrUrl: *prURL}
+			}
+		}
 		if titleProvided {
 			req.Title = title
 		}
@@ -252,7 +264,9 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		defer cancel()
 		resp, err := remote.UpdateWorkflowTask(ctx, req)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			if !writeTaskPRURLValidationError(stderr, req, err) {
+				fmt.Fprintln(stderr, err)
+			}
 			return 1
 		}
 		if *jsonOut {
@@ -263,6 +277,29 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "Edited task %s.\n", taskSummaryDisplayID(resp.Task))
 		return 0
 	})
+}
+
+func writeTaskPRURLValidationError(stderr io.Writer, req *taskpb.UpdateRequest, err error) bool {
+	var validationErr *protovalidate.ValidationError
+	if !errors.As(err, &validationErr) || len(validationErr.Violations) == 0 {
+		return false
+	}
+	field := req.ProtoReflect().Descriptor().Fields().ByName("pr_url")
+	hasPRURLViolation := false
+	for _, violation := range validationErr.Violations {
+		hasPRURLViolation = hasPRURLViolation || violation.FieldDescriptor == field
+	}
+	if !hasPRURLViolation {
+		return false
+	}
+	for _, violation := range validationErr.Violations {
+		if violation.FieldDescriptor == field {
+			fmt.Fprintf(stderr, "--pr-url: %s\n", violation.Proto.GetMessage())
+		} else {
+			fmt.Fprintln(stderr, violation)
+		}
+	}
+	return true
 }
 
 // readTaskEditBody reads the replacement body for task edit. Unlike task create,

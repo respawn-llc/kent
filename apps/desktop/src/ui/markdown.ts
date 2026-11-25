@@ -1,5 +1,6 @@
 export { StaticMarkdown, StreamingMarkdown, TaskBodyMarkdown } from "./MarkdownText";
 export type { StaticMarkdownProps, StreamingMarkdownProps, TaskBodyMarkdownProps } from "./MarkdownText";
+export type { MarkdownLocalFiles, MarkdownLocalFile } from "./markdownLocalFiles";
 export { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 export type { SyntaxHighlightedCodeProps } from "./SyntaxHighlightedCode";
 export { PromptOptionRow } from "./PromptOptionRow";

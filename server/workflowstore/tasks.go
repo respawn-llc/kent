@@ -59,6 +59,11 @@ type UpdateTaskRequest struct {
 	Title             *string
 	Body              *string
 	SourceWorkspaceID string
+	PRURLChange       *TaskPRURLChange
+}
+
+type TaskPRURLChange struct {
+	URL *string
 }
 
 type StartTaskResult struct {
@@ -266,6 +271,13 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 		return TaskRecord{}, err
 	}
 	title, body := task.Title, task.Body
+	prURL := task.PrUrl
+	if req.PRURLChange != nil {
+		prURL = sql.NullString{}
+		if req.PRURLChange.URL != nil {
+			prURL = sql.NullString{String: *req.PRURLChange.URL, Valid: true}
+		}
+	}
 	if req.Title != nil {
 		title = strings.TrimSpace(*req.Title)
 	}
@@ -302,7 +314,7 @@ func (s *Store) UpdateTask(ctx context.Context, req UpdateTaskRequest) (TaskReco
 		}
 	}
 	updated, err := q.UpdateTaskEditableFields(ctx, sqlitegen.UpdateTaskEditableFieldsParams{
-		ID: task.ID, Title: title, Body: body, SourceWorkspaceID: nullableString(sourceWorkspaceID),
+		ID: task.ID, Title: title, Body: body, PrUrl: prURL, SourceWorkspaceID: nullableString(sourceWorkspaceID),
 		MetadataJson: metadataJSON, UpdatedAtUnixMs: s.now().UnixMilli(),
 	})
 	if err != nil {
@@ -515,6 +527,7 @@ func taskRecordFromTask(row sqlitegen.TaskRecord) (TaskRecord, error) {
 		ID: workflow.TaskID(row.ID), ProjectID: row.ProjectID, WorkflowID: row.WorkflowID,
 		LinkID: row.ProjectWorkflowLinkID, ShortID: row.ShortID, Title: row.Title, Body: row.Body,
 		SourceURL: row.SourceUrl, SourceWorkspaceID: strings.TrimSpace(row.SourceWorkspaceID.String),
+		PRURL:                           metadata.OptionalString(row.PrUrl),
 		ManagedWorktreeID:               managedWorktreeID,
 		PendingInitialManagedBranchName: metadata.OptionalString(row.PendingInitialManagedBranchName),
 		ExecutionTarget:                 target,

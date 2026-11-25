@@ -57,6 +57,7 @@ const card: KanbanCardVM = {
   activeNodeIDs: ["column-1"],
   borderTone: "default",
   dependencyProgress: null,
+  prURL: null,
   id: "task-1",
   labels: [],
   preview: { markdown: "", truncated: false },

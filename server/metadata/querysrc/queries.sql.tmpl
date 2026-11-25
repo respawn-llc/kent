@@ -1095,6 +1095,7 @@ SELECT
     title,
     body,
     source_url,
+    pr_url,
     source_workspace_id,
     managed_worktree_id,
     pending_initial_managed_branch_name,
@@ -1134,6 +1135,7 @@ SELECT
     title,
     body,
     source_url,
+    pr_url,
     source_workspace_id,
     managed_worktree_id,
     pending_initial_managed_branch_name,
@@ -1535,6 +1537,7 @@ UPDATE tasks
 SET
     title = sqlc.arg(title),
     body = sqlc.arg(body),
+    pr_url = sqlc.narg(pr_url),
     source_workspace_id = sqlc.narg(source_workspace_id),
     metadata_json = sqlc.arg(metadata_json),
     updated_at_unix_ms = sqlc.arg(updated_at_unix_ms)

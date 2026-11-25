@@ -128,7 +128,8 @@ function detailFixture(): TaskDetail {
     workflowVersion: 1,
     title: "Ship",
     body: "",
-    sourceURL: "",
+    sourceURL: null,
+    prURL: null,
     sourceWorkspace: {
       id: "workspace-1",
       name: "Main",

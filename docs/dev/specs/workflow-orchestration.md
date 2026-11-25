@@ -708,6 +708,9 @@
 - Task short IDs are stored durable product identifiers. They must not be derived display strings.
 - Task required fields are title, short ID, and body.
 - A Task can include an optional structured `source_url`.
+- A Task may have one optional pull request URL, separate from its originating source URL. The field must support pull requests and merge requests. The association must be available after Task or Session restarts.
+- A supplied pull request URL must be a syntactically valid absolute HTTP or HTTPS URI. A host is not required. Kent must not contact the hosting service to validate it. Invalid input must leave the saved URL unchanged.
+- Setting, replacing, or clearing a Task's pull request URL must be permitted in every Task state and must not alter execution.
 
 ## Comments
 

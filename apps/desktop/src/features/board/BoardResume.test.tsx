@@ -63,6 +63,7 @@ const cards: readonly BoardCard[] = ["task-a", "task-b"].map((id) => ({
   actions: { canResume: true, canStart: false, canInterrupt: false, canDelete: true },
   labelIDs: [],
   dependencyProgress: null,
+  prURL: null,
   updatedAt: 1,
 }));
 

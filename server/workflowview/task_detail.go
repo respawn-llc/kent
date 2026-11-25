@@ -177,6 +177,7 @@ func (d *TaskDetail) task(ctx context.Context, taskID string) (*taskpb.TaskDetai
 		},
 		Body:                 task.Body,
 		SourceUrl:            sourceURL,
+		PrUrl:                metadata.OptionalString(task.PrUrl),
 		SourceWorkspace:      sourceWorkspace,
 		ExecutionTarget:      executionTarget,
 		WorktreePath:         worktreePath,

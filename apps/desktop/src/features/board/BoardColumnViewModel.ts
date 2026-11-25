@@ -22,6 +22,7 @@ export type KanbanColumnVM = Readonly<{
 }>;
 
 export type KanbanCardVM = Readonly<{
+  prURL: string | null;
   id: string;
   shortID: string;
   title: string;
@@ -76,6 +77,7 @@ export function toKanbanCardVM(
   labelCatalog: ProjectLabelCatalog | null,
 ): KanbanCardVM {
   return {
+    prURL: card.prURL,
     id: card.id,
     shortID: card.shortID,
     title: card.title,

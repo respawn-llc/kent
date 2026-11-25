@@ -18,6 +18,7 @@ type taskShowOutput struct {
 	Summary              taskSummaryJSON                `json:"summary"`
 	Body                 string                         `json:"body"`
 	SourceURL            *string                        `json:"source_url,omitempty"`
+	PRURL                *string                        `json:"pr_url,omitempty"`
 	Project              *taskpb.BoardProject           `json:"project"`
 	Workflow             taskWorkflowJSON               `json:"workflow"`
 	SourceWorkspace      taskSourceWorkspaceJSON        `json:"source_workspace"`
@@ -87,6 +88,7 @@ func taskShowOutputFromDetail(task *taskpb.TaskDetail) taskShowOutput {
 		Summary:              taskSummaryOutput(task.Summary),
 		Body:                 task.Body,
 		SourceURL:            task.SourceUrl,
+		PRURL:                task.PrUrl,
 		Project:              task.Project,
 		Workflow:             taskWorkflowJSON{WorkflowID: task.Workflow.WorkflowId, DisplayName: task.Workflow.DisplayName, Version: task.Workflow.Version},
 		SourceWorkspace:      source,
@@ -205,6 +207,9 @@ func writeTaskDetailWithLabelNames(stdout io.Writer, task *taskpb.TaskDetail, la
 	}
 	if task.SourceUrl != nil {
 		fmt.Fprintf(stdout, "Imported from: %s\n", *task.SourceUrl)
+	}
+	if task.PrUrl != nil {
+		fmt.Fprintf(stdout, "Pull request: %s\n", *task.PrUrl)
 	}
 	if len(labelNames) > 0 {
 		fmt.Fprintf(stdout, "Labels:")

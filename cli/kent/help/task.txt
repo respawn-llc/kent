@@ -1,7 +1,7 @@
 Usage of kent task:
   kent task import [gh] <issue-url-or-reference>... [--repo <owner/repo>] [--project <project>] [--workflow <uuid>] [--source-workspace <id-or-path>] [--labels] [--force] [--json]
   kent task create --title <title> (--body <body>|--body-file <path>) [--workflow <uuid>] [--project <project>] [--label <name-or-uuid>]... [--source-url <url>] [--source-workspace <id-or-path>] [--json]
-  kent task edit <short-id-or-task-id> [--title <title>] [--body <body>|--body-file <path>] [--source-workspace <id-or-path>] [--project <project>] [--json]
+  kent task edit <short-id-or-task-id> [--title <title>] [--body <body>|--body-file <path>] [--source-workspace <id-or-path>] [--pr-url <url>] [--project <project>] [--json]
   kent task start <short-id-or-task-id> [--project <project>] [--execution-target none|head|default-branch|ref:<revision>] [--ignore-dependencies] [--json]
   kent task interrupt <short-id-or-task-id> [--project <project>] [--session <session-id>] [--reason <text>]
   kent task resume <short-id-or-task-id> [--project <project>]

@@ -42,6 +42,27 @@ func taskShowJSONForTest(t *testing.T, task *taskpb.TaskDetail) []byte {
 	return data
 }
 
+func TestTaskShowJSONPRURL(t *testing.T) {
+	for _, value := range []*string{proto.String("https://git.example/pull/1"), nil} {
+		task := taskShowFixture(t)
+		task.PrUrl = value
+		var output map[string]json.RawMessage
+		if err := json.Unmarshal(taskShowJSONForTest(t, task), &output); err != nil {
+			t.Fatal(err)
+		}
+		raw, exists := output["pr_url"]
+		if exists != (value != nil) {
+			t.Fatalf("PR URL presence = %v", exists)
+		}
+		if value != nil {
+			var url string
+			if err := json.Unmarshal(raw, &url); err != nil || url != *value {
+				t.Fatalf("PR URL = %q, %v", url, err)
+			}
+		}
+	}
+}
+
 func TestTaskShowJSONIncludesCurrentNodesAndRetainedSessionCount(t *testing.T) {
 	task := taskShowFixture(t)
 	task.CurrentNodes = []*taskpb.AttentionCurrentNode{{NodeId: "node-1", SessionId: proto.String("session-1")}}

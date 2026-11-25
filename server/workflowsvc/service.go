@@ -775,7 +775,14 @@ func (s *Service) UpdateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequ
 }
 
 func (s *Service) updateWorkflowTask(ctx context.Context, req *taskpb.UpdateRequest) (*taskpb.UpdateSuccess, error) {
-	task, err := s.store.UpdateTask(ctx, workflowstore.UpdateTaskRequest{TaskID: workflow.TaskID(req.TaskId), Title: req.Title, Body: req.Body, SourceWorkspaceID: req.GetSourceWorkspaceId()})
+	var prURLChange *workflowstore.TaskPRURLChange
+	switch change := req.PrUrlChange.(type) {
+	case *taskpb.UpdateRequest_PrUrl:
+		prURLChange = &workflowstore.TaskPRURLChange{URL: &change.PrUrl}
+	case *taskpb.UpdateRequest_ClearPrUrl:
+		prURLChange = &workflowstore.TaskPRURLChange{}
+	}
+	task, err := s.store.UpdateTask(ctx, workflowstore.UpdateTaskRequest{TaskID: workflow.TaskID(req.TaskId), Title: req.Title, Body: req.Body, SourceWorkspaceID: req.GetSourceWorkspaceId(), PRURLChange: prURLChange})
 	if err != nil {
 		return nil, err
 	}

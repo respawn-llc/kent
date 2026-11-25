@@ -129,6 +129,7 @@ function boardCard(id: string): BoardCard {
     },
     labelIDs: [],
     dependencyProgress: null,
+    prURL: null,
     updatedAt: 0,
   };
 }

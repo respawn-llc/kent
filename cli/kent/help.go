@@ -215,7 +215,7 @@ var (
 	taskUsage               = commandUsage{helpFile: "task.txt"}
 	taskImportUsage         = leafCommandUsage(config.Command+" task import [gh] <issue-url-or-reference>... [flags]", "Import GitHub issues as Tasks. Bare numbers and inclusive ranges require gh; existing sources are skipped unless --force is supplied.")
 	taskCreateUsage         = leafCommandUsage(config.Command+" task create --title <title> (--body <body>|--body-file <path>) [--workflow <uuid>] [flags]", "Create a task in a project.")
-	taskEditUsage           = leafCommandUsage(config.Command+" task edit <task> [flags]", "Change a task's title, body, or source workspace.")
+	taskEditUsage           = leafCommandUsage(config.Command+" task edit <task> [flags]", "Change a task's title, body, source workspace, or pull request URL.")
 	taskStartUsage          = leafCommandUsage(config.Command+" task start <task> [--project <project>] [--execution-target none|head|default-branch|ref:<revision>] [--branch-name <name>] [--ignore-dependencies] [--json]", "Move a new task from the start node into its first executable workflow node.", "", "A workflow Session may start another Task, but not its own.")
 	taskInterruptUsage      = leafCommandUsage(config.Command+" task interrupt <task> [--project <project>] [--session <session-id>] [--reason <text>]", "Interrupt live workflow work on a task.", "", "A workflow Session may interrupt another Task, but not its own.")
 	taskResumeUsage         = leafCommandUsage(config.Command+" task resume <task> [--project <project>] [--execution-target none|head|default-branch|ref:<revision>] [--branch-name <name>]", "Resume interrupted work on a task.", "", "A workflow Session may resume another Task, but not its own.")

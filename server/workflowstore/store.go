@@ -254,6 +254,7 @@ type TaskRecord struct {
 	Title                           string
 	Body                            string
 	SourceURL                       string
+	PRURL                           *string
 	SourceWorkspaceID               string
 	ManagedWorktreeID               *string
 	PendingInitialManagedBranchName *string

@@ -6,6 +6,7 @@ import {
   Streamdown,
   defaultRehypePlugins,
   defaultUrlTransform,
+  defaultComponents,
   type AnimateOptions,
   type Components,
   type CustomRendererProps,
@@ -19,6 +20,12 @@ import { syntaxHighlightingLanguageHints } from "./syntaxHighlighting";
 import { SyntaxHighlightedCode } from "./SyntaxHighlightedCode";
 import { projectMarkdownText } from "./taskBodyMarkdownText";
 import { MarkdownLinkContext } from "./MarkdownLinkContext";
+import {
+  markdownLocalFilesRemark,
+  markdownLocalFilesRehype,
+  markdownLocalFileForNode,
+  type MarkdownLocalFiles,
+} from "./markdownLocalFiles";
 import "streamdown/styles.css";
 import "./MarkdownText.css";
 import "./StreamdownMarkdown.css";
@@ -30,6 +37,7 @@ export type StaticMarkdownProps = Readonly<{
   onTaskListChange?: (value: string) => void;
   taskListItemToggleLabel?: (checked: boolean) => string;
   value: string;
+  localFiles?: MarkdownLocalFiles;
 }>;
 export type StreamingMarkdownProps = Readonly<{ value: string; streaming?: boolean }>;
 export type TaskBodyMarkdownProps = Readonly<{ value: string }>;
@@ -43,6 +51,7 @@ type MarkdownTaskListItemContextValue = Readonly<{
 }>;
 
 const MarkdownTaskListItemContext = createContext<MarkdownTaskListItemContextValue | null>(null);
+const LocalFilesContext = createContext<MarkdownLocalFiles | null>(null);
 const languageHints = syntaxHighlightingLanguageHints();
 const linkSafety = { enabled: false };
 const markdownPlugins = {
@@ -63,6 +72,8 @@ const markdownRehypePlugins = [
   streamdownRaw,
   [markdownFileSanitize, ...streamdownSanitizeParameters],
 ] satisfies NonNullable<ComponentProps<typeof Streamdown>["rehypePlugins"]>;
+const outputRemarkPlugins = [...markdownRemarkPlugins, markdownLocalFilesRemark];
+const outputRehypePlugins = [...markdownRehypePlugins, markdownLocalFilesRehype];
 
 function markdownFileSanitize(options: SanitizeOptions) {
   return rehypeSanitize({
@@ -85,13 +96,16 @@ const richComponents = {
   input: MarkdownTaskListCheckbox,
   li: MarkdownTaskListItem,
   p: "div",
-} satisfies Pick<Components, "a" | "input" | "li" | "p">;
+  img: MarkdownImage,
+} satisfies Pick<Components, "a" | "input" | "li" | "p" | "img">;
+const outputComponents = { ...richComponents, p: MarkdownParagraph } satisfies Components;
 
 export function StaticMarkdown({
   disabled = false,
   onTaskListChange,
   taskListItemToggleLabel,
   value,
+  localFiles,
 }: StaticMarkdownProps) {
   return (
     <MarkdownCore
@@ -100,6 +114,7 @@ export function StaticMarkdown({
       onChange={onTaskListChange}
       taskListItemToggleLabel={taskListItemToggleLabel}
       value={value}
+      localFiles={localFiles}
     />
   );
 }
@@ -118,12 +133,14 @@ function MarkdownCore({
   onChange,
   taskListItemToggleLabel,
   value,
+  localFiles,
 }: Readonly<{
   animated: boolean;
   disabled?: boolean;
   onChange?: StaticMarkdownProps["onTaskListChange"];
   taskListItemToggleLabel?: StaticMarkdownProps["taskListItemToggleLabel"];
   value: string;
+  localFiles?: MarkdownLocalFiles | undefined;
 }>) {
   const interaction = useMemo(
     () => ({ disabled, onChange, taskListItemToggleLabel, value, sourceOffset: undefined }),
@@ -131,22 +148,26 @@ function MarkdownCore({
   );
   return (
     <MarkdownTaskListItemContext.Provider value={interaction}>
-      <Streamdown
-        animated={animated ? markdownAnimation : false}
-        className={`markdown-text${animated ? " markdown-text-streaming" : ""}`}
-        components={richComponents}
-        controls={false}
-        isAnimating={animated}
-        linkSafety={linkSafety}
-        mode={animated ? "streaming" : "static"}
-        plugins={markdownPlugins}
-        remarkPlugins={markdownRemarkPlugins}
-        rehypePlugins={markdownRehypePlugins}
-        urlTransform={markdownUrlTransform}
-        {...(onChange === undefined ? {} : { parseMarkdownIntoBlocksFn: singleMarkdownBlock })}
-      >
-        {value}
-      </Streamdown>
+      <LocalFilesContext.Provider value={localFiles ?? null}>
+        <Streamdown
+          animated={animated ? markdownAnimation : false}
+          className={`markdown-text${animated ? " markdown-text-streaming" : ""}`}
+          components={localFiles === undefined ? richComponents : outputComponents}
+          controls={false}
+          isAnimating={animated}
+          linkSafety={linkSafety}
+          mode={animated ? "streaming" : "static"}
+          plugins={markdownPlugins}
+          remarkPlugins={localFiles === undefined ? markdownRemarkPlugins : outputRemarkPlugins}
+          rehypePlugins={localFiles === undefined ? markdownRehypePlugins : outputRehypePlugins}
+          urlTransform={markdownUrlTransform}
+          {...(onChange === undefined && localFiles === undefined
+            ? {}
+            : { parseMarkdownIntoBlocksFn: singleMarkdownBlock })}
+        >
+          {value}
+        </Streamdown>
+      </LocalFilesContext.Provider>
     </MarkdownTaskListItemContext.Provider>
   );
 }
@@ -160,8 +181,12 @@ const markdownUrlTransform: NonNullable<ComponentProps<typeof Streamdown>["urlTr
   return defaultUrlTransform(url, key, node);
 };
 
-function MarkdownExternalLink({ children, href, className, title }: ComponentProps<"a">) {
+function MarkdownExternalLink({ children, href, className, title, node }: ComponentProps<"a"> & ExtraProps) {
   const actions = useContext(MarkdownLinkContext);
+  const local = useContext(LocalFilesContext);
+  const destination = markdownLocalFileForNode(node);
+  if (destination !== undefined && local !== null)
+    return <>{local.render(destination.target, children, destination.source)}</>;
   const target = markdownLinkTarget(href);
   if (target === undefined) return <span>{children}</span>;
   if (actions === null) throw new Error("MarkdownLinkProvider is required for links.");
@@ -186,6 +211,26 @@ function MarkdownExternalLink({ children, href, className, title }: ComponentPro
       {children}
     </a>
   );
+}
+
+function MarkdownParagraph({ children, node }: ComponentProps<"p"> & ExtraProps) {
+  const local = useContext(LocalFilesContext);
+  const destination = markdownLocalFileForNode(node);
+  return (
+    <div>
+      {destination === undefined || local === null
+        ? children
+        : local.render(destination.target, children, destination.source)}
+    </div>
+  );
+}
+
+function MarkdownImage(props: ComponentProps<"img"> & ExtraProps) {
+  const local = useContext(LocalFilesContext);
+  const destination = markdownLocalFileForNode(props.node);
+  if (destination !== undefined && local !== null)
+    return <>{local.render(destination.target, props.alt, "destination")}</>;
+  return <defaultComponents.img {...props} />;
 }
 
 function MarkdownTaskListItem({ children, node, ...props }: ComponentProps<"li"> & ExtraProps) {

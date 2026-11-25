@@ -517,6 +517,7 @@ export type MarkdownPreview = Readonly<{
 }>;
 
 export type BoardCard = Readonly<{
+  prURL: string | null;
   id: string;
   shortID: string;
   title: string;
@@ -686,6 +687,7 @@ export type TaskDetail = Readonly<{
   title: string;
   body: string;
   sourceURL: string | null;
+  prURL: string | null;
   sourceWorkspace: WorkspaceSummary;
   status: TaskStatus;
   actions: TaskActions;
