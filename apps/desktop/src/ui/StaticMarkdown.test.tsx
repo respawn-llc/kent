@@ -11,20 +11,28 @@ it.each([
   { value: "/tmp/a%20#?.png", path: "/tmp/a%20#?.png" },
   { value: "C:/work/result%20#?.png", path: "C:/work/result%20#?.png" },
   { value: "C:\\work\\result%20#?.png", path: "C:\\work\\result%20#?.png" },
-  { value: "file:///tmp/a%2520%23%3F.png", path: "/tmp/a%20#?.png" },
+  { value: "file:///tmp/a%2520%23%3F.png", path: "/tmp/a%20#?.png", fileUrl: "file:///tmp/a%2520%23%3F.png" },
+  {
+    value: "file:///C:/work/a%2520%23%3F.png",
+    path: "/C:/work/a%20#?.png",
+    fileUrl: "file:///C:/work/a%2520%23%3F.png",
+  },
   { value: "https://example.com/file.png", path: null },
   { value: "See **this** file", path: null },
-])("classifies a whole output value without rewriting literal filenames: $value", ({ value, path }) => {
-  const renderFile = vi.fn<MarkdownLocalFiles["render"]>((_target, fallback) => <span>{fallback}</span>);
-  render(
-    <MarkdownLinkProvider openExternal={vi.fn()}>
-      <StaticMarkdown localFiles={{ render: renderFile }} value={value} />
-    </MarkdownLinkProvider>,
-  );
-  expect(renderFile.mock.calls.map(([target]) => target)).toEqual(
-    path === null ? [] : [{ kind: "file", path }],
-  );
-});
+])(
+  "classifies a whole output value without rewriting literal filenames: $value",
+  ({ value, path, fileUrl }) => {
+    const renderFile = vi.fn<MarkdownLocalFiles["render"]>((_target, fallback) => <span>{fallback}</span>);
+    render(
+      <MarkdownLinkProvider openExternal={vi.fn()}>
+        <StaticMarkdown localFiles={{ render: renderFile }} value={value} />
+      </MarkdownLinkProvider>,
+    );
+    expect(renderFile.mock.calls.map(([target]) => target)).toEqual(
+      path === null ? [] : [{ kind: "file", path, ...(fileUrl === undefined ? {} : { fileUrl }) }],
+    );
+  },
+);
 
 it("offers parsed local Markdown destinations to opt-in rendering without exposing local image sources", () => {
   const renderFile = vi.fn<MarkdownLocalFiles["render"]>((_target, fallback) => <span>{fallback}</span>);

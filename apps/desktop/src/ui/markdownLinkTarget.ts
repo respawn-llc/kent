@@ -1,7 +1,7 @@
 import { safeExternalUrl } from "./externalLinks";
 
 export type MarkdownLinkTarget =
-  Readonly<{ kind: "external"; url: string }> | Readonly<{ kind: "file"; path: string }>;
+  Readonly<{ kind: "external"; url: string }> | Readonly<{ kind: "file"; path: string; fileUrl?: string }>;
 
 export function markdownLinkTarget(
   value: string | undefined,
@@ -34,7 +34,9 @@ function absoluteFileTarget(value: string, absolutePath: boolean): MarkdownLinkT
   const url = absolutePath ? new URL(value, "file:///") : new URL(value);
   if (!absolutePath && !value.slice(url.protocol.length).startsWith("//")) return undefined;
   const path = localFilePath(url);
-  return path === undefined ? undefined : { kind: "file", path };
+  return path === undefined
+    ? undefined
+    : { kind: "file", path, ...(absolutePath ? {} : { fileUrl: url.href }) };
 }
 
 function localFilePath(url: URL): string | undefined {

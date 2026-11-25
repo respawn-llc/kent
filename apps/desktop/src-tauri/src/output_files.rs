@@ -1,8 +1,50 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const PREVIEW_MAX_BYTES: u64 = 20 * 1024 * 1024;
+
+#[derive(serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum OutputFileTarget {
+    Path {
+        path: String,
+        #[serde(rename = "basePath")]
+        base_path: Option<String>,
+    },
+    FileUrl {
+        #[serde(rename = "fileUrl")]
+        file_url: tauri::Url,
+    },
+}
+
+impl OutputFileTarget {
+    pub fn resolve(&self) -> Result<Option<PathBuf>, String> {
+        match self {
+            Self::FileUrl { file_url } => {
+                if file_url.scheme() != "file"
+                    || file_url.host_str().is_some()
+                    || file_url.query().is_some()
+                    || file_url.fragment().is_some()
+                {
+                    return Err(
+                        "Expected a local file URL without a query or fragment.".to_string()
+                    );
+                }
+                file_url
+                    .to_file_path()
+                    .map(Some)
+                    .map_err(|()| "File URL cannot be converted to a local path.".to_string())
+            }
+            Self::Path { path, base_path } => {
+                if Path::new(path).is_relative() && base_path.is_none() {
+                    return Ok(None);
+                }
+                super::resolve_user_file_path(path, base_path.as_deref().unwrap_or("")).map(Some)
+            }
+        }
+    }
+}
 
 #[derive(serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -15,11 +57,8 @@ pub enum OutputFile {
 }
 
 #[tauri::command]
-pub async fn load_output_file(
-    path: String,
-    base_path: Option<String>,
-) -> Result<tauri::ipc::Response, String> {
-    let file = tauri::async_runtime::spawn_blocking(move || load_file(&path, base_path.as_deref()))
+pub async fn load_output_file(target: OutputFileTarget) -> Result<tauri::ipc::Response, String> {
+    let file = tauri::async_runtime::spawn_blocking(move || load_target(&target))
         .await
         .map_err(|error| format!("Output file load failed: {error}"))??;
     match file {
@@ -30,11 +69,10 @@ pub async fn load_output_file(
     }
 }
 
-fn load_file(path: &str, base_path: Option<&str>) -> Result<OutputFile, String> {
-    if Path::new(path).is_relative() && base_path.is_none() {
+fn load_target(target: &OutputFileTarget) -> Result<OutputFile, String> {
+    let Some(resolved) = target.resolve()? else {
         return Ok(OutputFile::Unavailable);
-    }
-    let resolved = super::resolve_user_file_path(path, base_path.unwrap_or(""))?;
+    };
     match fs::metadata(&resolved) {
         Ok(metadata) if !metadata.is_file() => return Ok(OutputFile::Missing),
         Ok(_) => {}
@@ -72,6 +110,50 @@ fn load_file(path: &str, base_path: Option<&str>) -> Result<OutputFile, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn load_file(path: &str, base_path: Option<&str>) -> Result<OutputFile, String> {
+        load_target(&OutputFileTarget::Path {
+            path: path.to_string(),
+            base_path: base_path.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn loads_file_urls_without_a_task_root_and_decodes_exactly_once() {
+        let root = tempfile::tempdir().unwrap();
+        let name = if cfg!(windows) {
+            "a%20#.png"
+        } else {
+            "a%20#?.png"
+        };
+        let path = root.path().join(name);
+        std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
+        let target = OutputFileTarget::FileUrl {
+            file_url: tauri::Url::from_file_path(&path).unwrap(),
+        };
+        assert_eq!(target.resolve().unwrap(), Some(path));
+        assert!(matches!(
+            load_target(&target).unwrap(),
+            OutputFile::Image { .. }
+        ));
+        assert!(OutputFileTarget::FileUrl {
+            file_url: tauri::Url::parse("https://example.com/image.png").unwrap()
+        }
+        .resolve()
+        .is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_url_retains_the_windows_drive_without_a_task_root() {
+        let target = OutputFileTarget::FileUrl {
+            file_url: tauri::Url::parse("file:///C:/work/a%2520%23%3F.png").unwrap(),
+        };
+        assert_eq!(
+            target.resolve().unwrap(),
+            Some(PathBuf::from(r"C:\work\a%20#?.png"))
+        );
+    }
 
     #[test]
     fn loads_exact_literal_and_relative_files_without_requiring_a_base_for_absolute_paths() {

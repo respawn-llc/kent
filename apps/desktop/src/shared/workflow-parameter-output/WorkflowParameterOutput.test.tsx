@@ -83,80 +83,89 @@ it("isolates a linked local image action from its surrounding Markdown link", as
   }
 });
 
-it("loads a visible absolute file without a Task root and keeps its open target after decoder failure", async () => {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, "IntersectionObserver");
-  const previousEventTarget = Object.getOwnPropertyDescriptor(globalThis, "EventTarget");
-  // Happy DOM's exposed EventTarget is not the constructor in its Node prototype chain.
-  const nodeParent: unknown = Object.getPrototypeOf(Node.prototype);
-  if (nodeParent === null) throw new Error("DOM Node has no EventTarget prototype");
-  const domEventTarget: unknown = Object.getOwnPropertyDescriptor(nodeParent, "constructor")?.value;
-  if (domEventTarget === undefined) throw new Error("DOM EventTarget constructor is unavailable");
-  Object.defineProperty(globalThis, "EventTarget", { configurable: true, value: domEventTarget });
-  const observations = new Map<Element, () => void>();
-  Object.defineProperty(globalThis, "IntersectionObserver", {
-    configurable: true,
-    value: class {
-      constructor(
-        private readonly notify: (entries: { target: Element; isIntersecting: boolean }[]) => void,
-      ) {}
-      observe(target: Element) {
-        observations.set(target, () => {
-          this.notify([{ target, isIntersecting: true }]);
-        });
-      }
-      unobserve(target: Element) {
-        observations.delete(target);
-      }
-      disconnect() {
-        observations.clear();
-      }
-    },
-  });
-  const base = createTestServices([]);
-  const target = { path: "/tmp/artifact.png" };
-  const load = vi.fn(async () => ({
-    kind: "image" as const,
-    target,
-    url: "blob:artifact",
-    release: vi.fn(),
-  }));
-  const open = vi.fn(async () => undefined);
-  const services = {
-    ...base,
-    nativeBridge: {
-      ...base.nativeBridge,
-      capabilities: {
-        ...base.nativeBridge.capabilities,
-        files: { ...base.nativeBridge.capabilities.files, stat: true, open: true },
+it.each([
+  { value: "/tmp/artifact.png", target: { path: "/tmp/artifact.png" } },
+  { value: "file:///C:/work/a%2520%23%3F.png", target: { fileUrl: "file:///C:/work/a%2520%23%3F.png" } },
+  {
+    value: "![artifact](file:///C:/work/a%2520%23%3F.png)",
+    target: { fileUrl: "file:///C:/work/a%2520%23%3F.png" },
+  },
+])(
+  "loads a visible absolute file without a Task root and keeps its open target after decoder failure: $value",
+  async ({ value, target }) => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "IntersectionObserver");
+    const previousEventTarget = Object.getOwnPropertyDescriptor(globalThis, "EventTarget");
+    // Happy DOM's exposed EventTarget is not the constructor in its Node prototype chain.
+    const nodeParent: unknown = Object.getPrototypeOf(Node.prototype);
+    if (nodeParent === null) throw new Error("DOM Node has no EventTarget prototype");
+    const domEventTarget: unknown = Object.getOwnPropertyDescriptor(nodeParent, "constructor")?.value;
+    if (domEventTarget === undefined) throw new Error("DOM EventTarget constructor is unavailable");
+    Object.defineProperty(globalThis, "EventTarget", { configurable: true, value: domEventTarget });
+    const observations = new Map<Element, () => void>();
+    Object.defineProperty(globalThis, "IntersectionObserver", {
+      configurable: true,
+      value: class {
+        constructor(
+          private readonly notify: (entries: { target: Element; isIntersecting: boolean }[]) => void,
+        ) {}
+        observe(target: Element) {
+          observations.set(target, () => {
+            this.notify([{ target, isIntersecting: true }]);
+          });
+        }
+        unobserve(target: Element) {
+          observations.delete(target);
+        }
+        disconnect() {
+          observations.clear();
+        }
       },
-      files: { ...base.nativeBridge.files, loadOutputFile: load, openDefault: open },
-    },
-  };
-  const view = render(
-    <TestAppProviders services={services}>
-      <WorkflowParameterOutput root={{ kind: "unavailable" }} value={target.path} />
-    </TestAppProviders>,
-  );
-  try {
-    await waitFor(() => {
-      expect(observations.size).toBeGreaterThan(0);
     });
-    act(() => {
-      for (const show of observations.values()) show();
-    });
-    fireEvent.error(await screen.findByRole("img"));
-    expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button"));
-    await waitFor(() => {
-      expect(open).toHaveBeenCalledWith(target);
-    });
-    expect(load).toHaveBeenCalledWith(target);
-    expect(load).toHaveBeenCalledTimes(1);
-  } finally {
-    view.unmount();
-    if (previous === undefined) Reflect.deleteProperty(globalThis, "IntersectionObserver");
-    else Object.defineProperty(globalThis, "IntersectionObserver", previous);
-    if (previousEventTarget === undefined) Reflect.deleteProperty(globalThis, "EventTarget");
-    else Object.defineProperty(globalThis, "EventTarget", previousEventTarget);
-  }
-});
+    const base = createTestServices([]);
+    const load = vi.fn(async () => ({
+      kind: "image" as const,
+      target,
+      url: "blob:artifact",
+      release: vi.fn(),
+    }));
+    const open = vi.fn(async () => undefined);
+    const services = {
+      ...base,
+      nativeBridge: {
+        ...base.nativeBridge,
+        capabilities: {
+          ...base.nativeBridge.capabilities,
+          files: { ...base.nativeBridge.capabilities.files, stat: true, open: true },
+        },
+        files: { ...base.nativeBridge.files, loadOutputFile: load, openDefault: open },
+      },
+    };
+    const view = render(
+      <TestAppProviders services={services}>
+        <WorkflowParameterOutput root={{ kind: "unavailable" }} value={value} />
+      </TestAppProviders>,
+    );
+    try {
+      await waitFor(() => {
+        expect(observations.size).toBeGreaterThan(0);
+      });
+      act(() => {
+        for (const show of observations.values()) show();
+      });
+      fireEvent.error(await screen.findByRole("img"));
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button"));
+      await waitFor(() => {
+        expect(open).toHaveBeenCalledWith(target);
+      });
+      expect(load).toHaveBeenCalledWith(target);
+      expect(load).toHaveBeenCalledTimes(1);
+    } finally {
+      view.unmount();
+      if (previous === undefined) Reflect.deleteProperty(globalThis, "IntersectionObserver");
+      else Object.defineProperty(globalThis, "IntersectionObserver", previous);
+      if (previousEventTarget === undefined) Reflect.deleteProperty(globalThis, "EventTarget");
+      else Object.defineProperty(globalThis, "EventTarget", previousEventTarget);
+    }
+  },
+);

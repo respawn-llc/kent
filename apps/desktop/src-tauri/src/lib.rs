@@ -168,6 +168,10 @@ fn open_file_path(path: String, base_path: String) -> Result<(), String> {
 
 fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> {
     let resolved = resolve_user_file_path(path, base_path)?;
+    require_regular_file(resolved)
+}
+
+fn require_regular_file(resolved: PathBuf) -> Result<PathBuf, String> {
     let metadata =
         fs::metadata(&resolved).map_err(|error| format!("Read file metadata failed: {error}"))?;
     if !metadata.is_file() {
@@ -177,9 +181,12 @@ fn resolve_regular_file(path: &str, base_path: &str) -> Result<PathBuf, String> 
 }
 
 #[tauri::command]
-async fn open_file_default(path: String, base_path: Option<String>) -> Result<(), String> {
+async fn open_file_default(target: output_files::OutputFileTarget) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let resolved = resolve_regular_file(&path, base_path.as_deref().unwrap_or(""))?;
+        let resolved = target
+            .resolve()?
+            .ok_or("Base path is required for relative file paths.")?;
+        let resolved = require_regular_file(resolved)?;
         tauri_plugin_opener::open_path(&resolved, None::<&str>)
             .map_err(|error| format!("Open file failed: {error}"))
     })

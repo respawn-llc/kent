@@ -10,7 +10,7 @@ type MarkdownRoot =
 type MarkdownNode = MarkdownRoot | MarkdownRoot["children"][number];
 type HtmlRoot = Parameters<ReturnType<typeof rehypeSanitize>>[0];
 
-export type MarkdownLocalFile = Readonly<{ kind: "file"; path: string }>;
+export type MarkdownLocalFile = Extract<ReturnType<typeof markdownLinkTarget>, { kind: "file" }>;
 export type MarkdownLocalFiles = Readonly<{
   render(target: MarkdownLocalFile, fallback: ReactNode, source: "literal" | "destination"): ReactNode;
 }>;

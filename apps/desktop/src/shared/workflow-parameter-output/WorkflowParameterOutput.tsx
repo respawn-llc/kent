@@ -33,6 +33,7 @@ export function WorkflowParameterOutput({
           <OutputLocalFile
             key={JSON.stringify([target.path, root])}
             path={target.path}
+            fileUrl={target.fileUrl}
             root={root}
             literal={source === "literal"}
           >
@@ -49,6 +50,7 @@ type LocalFileProps = Readonly<{
   children: ReactNode;
   literal: boolean;
   path: string;
+  fileUrl?: string | undefined;
   root: WorkflowOutputRoot;
 }>;
 
@@ -70,7 +72,7 @@ function VisibleOutputFile(props: LocalFileProps) {
   );
 }
 
-function LoadedOutputFile({ children, literal, path, root }: LocalFileProps) {
+function LoadedOutputFile({ children, literal, path, fileUrl, root }: LocalFileProps) {
   const { nativeBridge } = useAppServices();
   const { t } = useTranslation();
   const file = useMemo(
@@ -80,7 +82,11 @@ function LoadedOutputFile({ children, literal, path, root }: LocalFileProps) {
           Effect.tryPromise({
             try: async () =>
               nativeBridge.files.loadOutputFile(
-                root.kind === "unavailable" ? { path } : { path, basePath: root.path },
+                fileUrl !== undefined
+                  ? { fileUrl }
+                  : root.kind === "unavailable"
+                    ? { path }
+                    : { path, basePath: root.path },
               ),
             catch: (cause) => new OutputFileFailure(cause),
           }),
@@ -102,7 +108,7 @@ function LoadedOutputFile({ children, literal, path, root }: LocalFileProps) {
           ),
         ),
       ),
-    [nativeBridge, path, root, t],
+    [nativeBridge, path, fileUrl, root, t],
   );
   const state = useAtomValue(file);
   if (!AsyncResult.isSuccess(state))

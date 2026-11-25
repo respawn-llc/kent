@@ -21,22 +21,24 @@ export type NativeFileTarget = Readonly<{
   basePath?: string | undefined;
 }>;
 
+export type NativeOutputFileTarget = NativeFileTarget | Readonly<{ fileUrl: string }>;
+
 export type NativeOutputFile =
   | Readonly<{ kind: "unavailable" }>
   | Readonly<{ kind: "missing" }>
-  | Readonly<{ kind: "file" | "preview_ineligible"; target: NativeFileTarget }>
-  | Readonly<{ kind: "image"; target: NativeFileTarget; url: string; release(): void }>;
+  | Readonly<{ kind: "file" | "preview_ineligible"; target: NativeOutputFileTarget }>
+  | Readonly<{ kind: "image"; target: NativeOutputFileTarget; url: string; release(): void }>;
 
 export type NativeDirectoryBridge = Readonly<{
   selectDirectory(options: NativeDirectoryPickerOptions): Promise<NativeDirectorySelection>;
 }>;
 
 export type NativeFileBridge = Readonly<{
-  loadOutputFile(target: NativeFileTarget): Promise<NativeOutputFile>;
+  loadOutputFile(target: NativeOutputFileTarget): Promise<NativeOutputFile>;
   selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection>;
   fileAvailable(target: NativeFileTarget): Promise<boolean>;
   openFile(target: NativeFileTarget): Promise<void>;
-  openDefault(target: NativeFileTarget): Promise<void>;
+  openDefault(target: NativeOutputFileTarget): Promise<void>;
 }>;
 
 export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
@@ -81,7 +83,7 @@ export function createTauriFileBridge(): NativeFileBridge {
     async loadOutputFile(target) {
       const result = await invoke<
         Readonly<{ kind: "unavailable" | "missing" | "file" | "preview_ineligible" }> | ArrayBuffer
-      >("load_output_file", target);
+      >("load_output_file", { target });
       if (!(result instanceof ArrayBuffer)) {
         if (result.kind === "file" || result.kind === "preview_ineligible") return { ...result, target };
         return { kind: result.kind };
@@ -112,11 +114,8 @@ export function createTauriFileBridge(): NativeFileBridge {
         path: target.path,
       });
     },
-    async openDefault(target: NativeFileTarget): Promise<void> {
-      await invoke("open_file_default", {
-        basePath: target.basePath,
-        path: target.path,
-      });
+    async openDefault(target): Promise<void> {
+      await invoke("open_file_default", { target });
     },
   };
 }
