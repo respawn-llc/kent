@@ -85,8 +85,8 @@ function LoadedOutputFile({ children, literal, path, fileUrl, root }: LocalFileP
                 fileUrl !== undefined
                   ? { fileUrl }
                   : root.kind === "unavailable"
-                    ? { path }
-                    : { path, basePath: root.path },
+                    ? { exactPath: path }
+                    : { exactPath: path, basePath: root.path },
               ),
             catch: (cause) => new OutputFileFailure(cause),
           }),

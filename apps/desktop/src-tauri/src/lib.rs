@@ -780,19 +780,21 @@ fn platform() -> &'static str {
 }
 
 fn resolve_user_file_path(path: &str, base_path: &str) -> Result<PathBuf, String> {
-    let trimmed_path = path.trim();
-    if trimmed_path.is_empty() {
+    resolve_file_path(path.trim(), base_path.trim())
+}
+
+fn resolve_file_path(path: &str, base_path: &str) -> Result<PathBuf, String> {
+    if path.is_empty() {
         return Err("File path is required.".to_string());
     }
     let path = PathBuf::from(path);
     if path.is_absolute() {
         return Ok(clean_path(&path));
     }
-    let trimmed_base = base_path.trim();
-    if trimmed_base.is_empty() {
+    if base_path.is_empty() {
         return Err("Base path is required for relative file paths.".to_string());
     }
-    let base = PathBuf::from(trimmed_base);
+    let base = PathBuf::from(base_path);
     if !base.is_absolute() {
         return Err("Base path must be absolute.".to_string());
     }

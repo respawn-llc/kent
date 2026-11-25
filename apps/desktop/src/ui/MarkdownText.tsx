@@ -95,9 +95,10 @@ const richComponents = {
   a: MarkdownExternalLink,
   input: MarkdownTaskListCheckbox,
   li: MarkdownTaskListItem,
-  p: MarkdownParagraph,
+  p: "div",
   img: MarkdownImage,
 } satisfies Pick<Components, "a" | "input" | "li" | "p" | "img">;
+const outputComponents = { ...richComponents, p: MarkdownParagraph } satisfies Components;
 
 export function StaticMarkdown({
   disabled = false,
@@ -151,7 +152,7 @@ function MarkdownCore({
         <Streamdown
           animated={animated ? markdownAnimation : false}
           className={`markdown-text${animated ? " markdown-text-streaming" : ""}`}
-          components={richComponents}
+          components={localFiles === undefined ? richComponents : outputComponents}
           controls={false}
           isAnimating={animated}
           linkSafety={linkSafety}

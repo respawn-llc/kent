@@ -12,6 +12,12 @@ pub enum OutputFileTarget {
         #[serde(rename = "basePath")]
         base_path: Option<String>,
     },
+    ExactPath {
+        #[serde(rename = "exactPath")]
+        path: String,
+        #[serde(rename = "basePath")]
+        base_path: Option<String>,
+    },
     FileUrl {
         #[serde(rename = "fileUrl")]
         file_url: tauri::Url,
@@ -37,10 +43,13 @@ impl OutputFileTarget {
                     .map_err(|()| "File URL cannot be converted to a local path.".to_string())
             }
             Self::Path { path, base_path } => {
+                super::resolve_user_file_path(path, base_path.as_deref().unwrap_or("")).map(Some)
+            }
+            Self::ExactPath { path, base_path } => {
                 if Path::new(path).is_relative() && base_path.is_none() {
                     return Ok(None);
                 }
-                super::resolve_user_file_path(path, base_path.as_deref().unwrap_or("")).map(Some)
+                super::resolve_file_path(path, base_path.as_deref().unwrap_or("")).map(Some)
             }
         }
     }
@@ -112,7 +121,7 @@ mod tests {
     use super::*;
 
     fn load_file(path: &str, base_path: Option<&str>) -> Result<OutputFile, String> {
-        load_target(&OutputFileTarget::Path {
+        load_target(&OutputFileTarget::ExactPath {
             path: path.to_string(),
             base_path: base_path.map(str::to_string),
         })

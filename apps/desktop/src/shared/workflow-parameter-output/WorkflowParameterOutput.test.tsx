@@ -84,7 +84,7 @@ it("isolates a linked local image action from its surrounding Markdown link", as
 });
 
 it.each([
-  { value: "/tmp/artifact.png", target: { path: "/tmp/artifact.png" } },
+  { value: "/tmp/artifact.png", target: { exactPath: "/tmp/artifact.png" } },
   { value: "file:///C:/work/a%2520%23%3F.png", target: { fileUrl: "file:///C:/work/a%2520%23%3F.png" } },
   {
     value: "![artifact](file:///C:/work/a%2520%23%3F.png)",

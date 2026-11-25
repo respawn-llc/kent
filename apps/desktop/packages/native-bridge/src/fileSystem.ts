@@ -21,7 +21,8 @@ export type NativeFileTarget = Readonly<{
   basePath?: string | undefined;
 }>;
 
-export type NativeOutputFileTarget = NativeFileTarget | Readonly<{ fileUrl: string }>;
+export type NativeOutputFileTarget =
+  Readonly<{ exactPath: string; basePath?: string | undefined }> | Readonly<{ fileUrl: string }>;
 
 export type NativeOutputFile =
   | Readonly<{ kind: "unavailable" }>
@@ -38,7 +39,7 @@ export type NativeFileBridge = Readonly<{
   selectFile(options: NativeFilePickerOptions): Promise<NativeFileSelection>;
   fileAvailable(target: NativeFileTarget): Promise<boolean>;
   openFile(target: NativeFileTarget): Promise<void>;
-  openDefault(target: NativeOutputFileTarget): Promise<void>;
+  openDefault(target: NativeFileTarget | NativeOutputFileTarget): Promise<void>;
 }>;
 
 export function createBrowserDirectoryBridge(): NativeDirectoryBridge {
