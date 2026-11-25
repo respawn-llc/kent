@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
+
 	"core/shared/apicontract"
 	"core/shared/client"
 	"core/shared/config"
@@ -262,7 +264,9 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		defer cancel()
 		resp, err := remote.UpdateWorkflowTask(ctx, req)
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			if !writeTaskPRURLValidationError(stderr, req, err) {
+				fmt.Fprintln(stderr, err)
+			}
 			return 1
 		}
 		if *jsonOut {
@@ -273,6 +277,29 @@ func taskEditSubcommand(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "Edited task %s.\n", taskSummaryDisplayID(resp.Task))
 		return 0
 	})
+}
+
+func writeTaskPRURLValidationError(stderr io.Writer, req *taskpb.UpdateRequest, err error) bool {
+	var validationErr *protovalidate.ValidationError
+	if !errors.As(err, &validationErr) || len(validationErr.Violations) == 0 {
+		return false
+	}
+	field := req.ProtoReflect().Descriptor().Fields().ByName("pr_url")
+	hasPRURLViolation := false
+	for _, violation := range validationErr.Violations {
+		hasPRURLViolation = hasPRURLViolation || violation.FieldDescriptor == field
+	}
+	if !hasPRURLViolation {
+		return false
+	}
+	for _, violation := range validationErr.Violations {
+		if violation.FieldDescriptor == field {
+			fmt.Fprintf(stderr, "--pr-url: %s\n", violation.Proto.GetMessage())
+		} else {
+			fmt.Fprintln(stderr, violation)
+		}
+	}
+	return true
 }
 
 // readTaskEditBody reads the replacement body for task edit. Unlike task create,

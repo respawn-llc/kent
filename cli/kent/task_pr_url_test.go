@@ -41,6 +41,9 @@ func TestTaskEditPRURL(t *testing.T) {
 		{[]string{"--pr-url", "https://self.example/merge_requests/2"}, proto.String("https://self.example/merge_requests/2"), 0},
 		{[]string{"--title", "Renamed"}, proto.String("https://self.example/merge_requests/2"), 0},
 		{[]string{"--pr-url", "file:///tmp/pr"}, proto.String("https://self.example/merge_requests/2"), 1},
+		{[]string{"--pr-url", "ftp://example.com/merge-requests/1"}, proto.String("https://self.example/merge_requests/2"), 1},
+		{[]string{"--pr-url", "https://bad host/pull/1"}, proto.String("https://self.example/merge_requests/2"), 1},
+		{[]string{"--pr-url", "/repo/pull/1"}, proto.String("https://self.example/merge_requests/2"), 1},
 		{[]string{"--pr-url", ""}, nil, 0},
 	} {
 		stdout.Reset()
